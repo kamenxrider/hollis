@@ -20,10 +20,10 @@ const agentContextSchemaVersion = "1"
 // agents. Agents can introspect the live CLI without parsing --help or
 // reading source.
 type agentContext struct {
-	SchemaVersion string                 `json:"schema_version"`
-	CLI           agentContextCLI        `json:"cli"`
-	Auth          agentContextAuth       `json:"auth"`
-	Commands      []agentContextCommand  `json:"commands"`
+	SchemaVersion string                `json:"schema_version"`
+	CLI           agentContextCLI       `json:"cli"`
+	Auth          agentContextAuth      `json:"auth"`
+	Commands      []agentContextCommand `json:"commands"`
 }
 
 type agentContextCLI struct {
@@ -38,11 +38,11 @@ type agentContextAuth struct {
 }
 
 type agentContextCommand struct {
-	Name        string               `json:"name"`
-	Use         string               `json:"use,omitempty"`
-	Short       string               `json:"short,omitempty"`
-	Annotations map[string]string    `json:"annotations,omitempty"`
-	Flags       []agentContextFlag   `json:"flags,omitempty"`
+	Name        string                `json:"name"`
+	Use         string                `json:"use,omitempty"`
+	Short       string                `json:"short,omitempty"`
+	Annotations map[string]string     `json:"annotations,omitempty"`
+	Flags       []agentContextFlag    `json:"flags,omitempty"`
 	Subcommands []agentContextCommand `json:"subcommands,omitempty"`
 }
 
