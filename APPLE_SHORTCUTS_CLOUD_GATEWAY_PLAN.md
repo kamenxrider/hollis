@@ -1563,9 +1563,20 @@ the test conversation afterward.
 
 Only after real chats become large enough to need it.
 
-### Phase 7 — HTTP endpoint
+### Phase 7 — HTTP endpoint ✅ COMPLETE (2026-09-01)
 
-Add:
+`hollis serve` shipped with `/health`, `/v1/models` (all five selectable ids,
+`auto` owned by hollis), `POST /v1/chat/completions` and — added at the user's
+request beyond the original plan — `POST /v1/responses` (string or array input,
+`instructions` as system prompt, `output[].content[].output_text` out). Both
+translate messages into the tested replay-transcript format and make one
+Shortcuts call. `stream: true` returns a clear 400 (no fake streaming);
+responses carry no usage/token fields; non-loopback binds require
+`Authorization: Bearer <token>` (plan §30). Verified live end-to-end with
+`model: auto` on both endpoints; conformance tests in
+`internal/server/server_test.go`.
+
+Original Phase 7 scope:
 
 ```text
 /health
