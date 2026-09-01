@@ -113,7 +113,7 @@ conversation is created and auto-titled from the first message.`,
 				if err != nil {
 					return notFoundErr(err)
 				}
-			} else if len(promptArgs) == 0 && interactiveStdin() {
+			} else if len(promptArgs) == 0 && interactiveStdin() && !flags.noInput {
 				return runInteractiveChat(st, model, newRunner)
 			} else {
 				conv, err = st.CreateConversation(model, "")
@@ -126,6 +126,11 @@ conversation is created and auto-titled from the first message.`,
 			if len(promptArgs) > 0 {
 				prompt = strings.Join(promptArgs, " ")
 			} else {
+				// --no-input never waits on a terminal (TEST-REPORT §6.4):
+				// fail fast instead of blocking on stdin forever.
+				if flags.noInput && interactiveStdin() {
+					return usageErr(errors.New("no prompt provided: pass an argument or pipe stdin (refusing to wait on a terminal in --no-input mode)"))
+				}
 				b, err := io.ReadAll(cmd.InOrStdin())
 				if err != nil {
 					return usageErr(fmt.Errorf("read prompt from stdin: %w", err))
@@ -353,7 +358,8 @@ func newChatsDeleteCmd(flags *rootFlags) *cobra.Command {
 }
 
 // interactiveStdin reports whether stdin is an interactive terminal.
-func interactiveStdin() bool {
+// Package var so tests can stub terminal-ness.
+var interactiveStdin = func() bool {
 	fi, err := os.Stdin.Stat()
 	if err != nil {
 		return false
