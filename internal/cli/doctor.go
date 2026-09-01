@@ -11,11 +11,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// bridgeCheck carries one bridge's health. Exported fields with JSON
+// tags so `doctor --json` emits real objects instead of {} (results
+// advanced-cli-test-2026-09-01, defect 1).
 type bridgeCheck struct {
-	model     string
-	uuid      string
-	name      string
-	installed bool
+	Model     string `json:"model"`
+	UUID      string `json:"uuid"`
+	Name      string `json:"name"`
+	Installed bool   `json:"installed"`
 }
 
 func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
@@ -62,10 +65,10 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 					{runner.ModelChatGPT, runner.BridgeUUIDChatGPT, "AFM Bridge - ChatGPT.signed"},
 				} {
 					bridges = append(bridges, bridgeCheck{
-						model:     string(m.model),
-						uuid:      m.uuid,
-						name:      m.name,
-						installed: have[m.name] || have[strings.TrimSuffix(m.name, ".signed")],
+						Model:     string(m.model),
+						UUID:      m.uuid,
+						Name:      m.name,
+						Installed: have[m.name] || have[strings.TrimSuffix(m.name, ".signed")],
 					})
 				}
 				report["bridges"] = bridges
@@ -91,10 +94,10 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 			fmt.Fprintf(w, "  bridges (referenced by UUID):\n")
 			for _, b := range bridges {
 				indicator := "OK"
-				if !b.installed {
+				if !b.Installed {
 					indicator = "WARN"
 				}
-				fmt.Fprintf(w, "    [%s] %-10s %s (%s)\n", indicator, b.model, b.uuid, b.name)
+				fmt.Fprintf(w, "    [%s] %-10s %s (%s)\n", indicator, b.Model, b.UUID, b.Name)
 			}
 			return nil
 		},

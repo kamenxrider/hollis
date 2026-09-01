@@ -25,8 +25,8 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		Long: `Send one prompt to Apple Intelligence and print the plain-text response.
 
 The prompt comes from the positional argument, or from stdin when no argument
-is given (multi-line safe). Each call is stateless; chat persistence arrives
-in a later phase.
+is given (multi-line safe). Each call is stateless; use "hollis chat" for
+persistent, SQLite-backed conversations.
 
 The default model is auto: cloud first, with automatic fallback to the
 on-device model if the cloud run fails. Explicit choices: cloud (AFM 3

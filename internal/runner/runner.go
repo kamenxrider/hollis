@@ -76,6 +76,10 @@ const DefaultShortcutsPath = "/usr/bin/shortcuts"
 // plan sets a 30s default with a 120s ceiling.
 const DefaultTimeout = 30 * time.Second
 
+// MaxTimeout is the hard ceiling for any single run (plan §25): caller
+// deadlines above it are clamped down. A var so tests can shrink it.
+var MaxTimeout = 120 * time.Second
+
 // Kind classifies the measured failure surface of `shortcuts run`.
 type Kind string
 

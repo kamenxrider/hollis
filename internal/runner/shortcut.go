@@ -84,13 +84,19 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 		return "", &Error{Kind: KindUsage, ExitCode: -1, Err: fmt.Errorf("%w: %q", ErrUnknownModel, model)}
 	}
 
-	// Rule 3: always a deadline. Apply the default only when the caller
-	// hasn't already bounded ctx.
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, r.Timeout)
-		defer cancel()
+	// Rule 3: always a deadline. Use the caller's when present, else the
+	// default; anything above the 120s ceiling is clamped to it (plan §25).
+	effective := r.Timeout
+	if deadline, has := ctx.Deadline(); has {
+		if wait := time.Until(deadline); wait < effective {
+			effective = wait
+		}
 	}
+	if effective > MaxTimeout {
+		effective = MaxTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, effective)
+	defer cancel()
 
 	// Rule 1: plain text, never the RTF default. Rule 7: reference by UUID.
 	cmd := exec.CommandContext(ctx, r.ShortcutsPath, "run", ref, "--output-type", "public.plain-text")
@@ -152,7 +158,7 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 			Kind:     KindTimeout,
 			Ref:      ref,
 			ExitCode: -1,
-			Err:      fmt.Errorf("shortcut run exceeded %s and was killed", r.Timeout),
+			Err:      fmt.Errorf("shortcut run exceeded %s and was killed", effective),
 		}
 	}
 

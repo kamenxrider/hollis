@@ -100,6 +100,31 @@ conversation is created and auto-titled from the first message.`,
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", model))
 			}
 
+			// Read and validate the prompt BEFORE creating anything, so an
+			// empty prompt never leaves a 0-message conversation behind
+			// (results advanced-cli-test-2026-09-01, defect 5).
+			var prompt string
+			interactive := false
+			switch {
+			case len(promptArgs) > 0:
+				prompt = strings.Join(promptArgs, " ")
+			case interactiveStdin() && !flags.noInput:
+				interactive = true
+			case flags.noInput && interactiveStdin():
+				// --no-input never waits on a terminal (TEST-REPORT §6.4):
+				// fail fast instead of blocking on stdin forever.
+				return usageErr(errors.New("no prompt provided: pass an argument or pipe stdin (refusing to wait on a terminal in --no-input mode)"))
+			default:
+				b, err := io.ReadAll(cmd.InOrStdin())
+				if err != nil {
+					return usageErr(fmt.Errorf("read prompt from stdin: %w", err))
+				}
+				prompt = string(b)
+			}
+			if !interactive && strings.TrimSpace(prompt) == "" {
+				return usageErr(errors.New("empty prompt: give a prompt as an argument or pipe it via stdin"))
+			}
+
 			st, err := openStore()
 			if err != nil {
 				return configErr(err)
@@ -108,37 +133,19 @@ conversation is created and auto-titled from the first message.`,
 
 			// Resolve or create the conversation.
 			var conv store.Conversation
+			if interactive {
+				return runInteractiveChat(st, model, newRunner)
+			}
 			if continueID != "" {
 				conv, err = st.GetConversation(continueID)
 				if err != nil {
 					return notFoundErr(err)
 				}
-			} else if len(promptArgs) == 0 && interactiveStdin() && !flags.noInput {
-				return runInteractiveChat(st, model, newRunner)
 			} else {
 				conv, err = st.CreateConversation(model, "")
 				if err != nil {
 					return configErr(err)
 				}
-			}
-
-			var prompt string
-			if len(promptArgs) > 0 {
-				prompt = strings.Join(promptArgs, " ")
-			} else {
-				// --no-input never waits on a terminal (TEST-REPORT §6.4):
-				// fail fast instead of blocking on stdin forever.
-				if flags.noInput && interactiveStdin() {
-					return usageErr(errors.New("no prompt provided: pass an argument or pipe stdin (refusing to wait on a terminal in --no-input mode)"))
-				}
-				b, err := io.ReadAll(cmd.InOrStdin())
-				if err != nil {
-					return usageErr(fmt.Errorf("read prompt from stdin: %w", err))
-				}
-				prompt = string(b)
-			}
-			if strings.TrimSpace(prompt) == "" {
-				return usageErr(errors.New("empty prompt: give a prompt as an argument or pipe it via stdin"))
 			}
 
 			text, err := runTurn(st, conv, prompt, newRunner)
@@ -242,10 +249,10 @@ func newChatsListCmd(flags *rootFlags) *cobra.Command {
 				return printJSONArrayFiltered(rows, flags)
 			}
 			w := cmd.OutOrStdout()
-			fmt.Fprintf(w, "%-38s  %-9s  %-8s  %s\n", "ID", "MESSAGES", "MODEL", "TITLE")
+			fmt.Fprintf(w, "%-38s  %-9s  %-9s  %s\n", "ID", "MESSAGES", "MODEL", "TITLE")
 			for _, c := range convs {
 				n, _ := st.MessageCount(c.ID)
-				fmt.Fprintf(w, "%s  %-9d  %s\n", c.ID, n, c.Title)
+				fmt.Fprintf(w, "%s  %-9d  %-9s  %s\n", c.ID, n, c.Model, c.Title)
 			}
 			return nil
 		},
