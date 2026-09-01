@@ -91,11 +91,12 @@ conversation is created and auto-titled from the first message.`,
   printf 'question' | hollis chat --continue <id>`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			posModel, promptArgs, hasPosModel := splitModelArgs(args)
-			model := strings.TrimSpace(modelFlag)
-			if hasPosModel {
-				model = posModel
+			m, err := effectiveModel(cmd, modelFlag, posModel, hasPosModel)
+			if err != nil {
+				return configErr(err)
 			}
-			if !runner.Model(model).Valid() {
+			model := string(m)
+			if !m.Valid() {
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", model))
 			}
 
