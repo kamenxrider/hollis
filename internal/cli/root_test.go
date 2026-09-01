@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/kamenxrider/hollis/internal/runner"
+	"github.com/kamenxrider/hollis/internal/store"
 )
 
 // stubConfigPath points the config loader at a fresh temp dir for the
@@ -271,6 +272,51 @@ func TestConfigSetRejectsUnknownModel(t *testing.T) {
 	err := cmd.Execute()
 	if got := ExitCode(err); got != 2 {
 		t.Fatalf("exit code = %d, want 2", got)
+	}
+}
+
+func TestRespondNoInputFailsFastOnTerminalStdin(t *testing.T) {
+	stubConfigPath(t)
+	old := interactiveStdin
+	interactiveStdin = func() bool { return true }
+	t.Cleanup(func() { interactiveStdin = old })
+
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"respond", "--no-input"})
+	cmd.SetOut(&bytes.Buffer{})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("want fail-fast error, got success")
+	}
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("exit code = %d, want 2", got)
+	}
+	if !strings.Contains(err.Error(), "no prompt provided") {
+		t.Fatalf("error should tell the user what to do: %v", err)
+	}
+}
+
+func TestChatNoInputDoesNotEnterREPL(t *testing.T) {
+	stubConfigPath(t)
+	old := interactiveStdin
+	interactiveStdin = func() bool { return true }
+	t.Cleanup(func() { interactiveStdin = old })
+	oldOpen := openStore
+	openStore = func() (*store.Store, error) { return openTempStore(t), nil }
+	t.Cleanup(func() { openStore = oldOpen })
+
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"chat", "--no-input"})
+	cmd.SetOut(&bytes.Buffer{})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("want fail-fast error, got success (REPL or hang)")
+	}
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("exit code = %d, want 2", got)
+	}
+	if !strings.Contains(err.Error(), "no prompt provided") {
+		t.Fatalf("error should tell the user what to do: %v", err)
 	}
 }
 
