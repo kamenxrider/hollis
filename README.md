@@ -136,6 +136,8 @@ curl -s localhost:1976/v1/responses \
 - **Streaming is not supported** — `stream: true` returns a 400 with a clear error. The Shortcuts transport returns the whole response in one call; hollis never fakes streaming (plan principle 6).
 - **No invented metadata** — responses carry no `usage`/token counts because none are observable (plan principle 5).
 - **Local-only by default.** A non-loopback `--addr` requires `--token`; all `/v1` requests then need `Authorization: Bearer <token>` (plan §30).
+- **SYSTEM blocks are advisory** (measured 2026-09-01): `instructions` and `system` messages land in the replay transcript, but the cloud tiers may treat them as soft context and ignore them (e.g. a `instructions: "Reply with exactly one word: PONG"` came back `Understood.`). Don't rely on system prompts for hard constraints through the Shortcuts transport.
+- `GET /v1/models` `owned_by` values are honest per tier: `hollis` for `auto`, `Apple` for the AFM tiers, `OpenAI` for `chatgpt`.
 
 ```bash
 hollis serve --addr 127.0.0.1:1976 --token mysecret   # non-loopback needs auth
@@ -188,7 +190,9 @@ python3 scripts/live-suite/live_suite.py --live    # Apple Intelligence tokens, 
 ```
 
 Method notes (what to assert vs observe): [`scripts/live-suite/README.md`](scripts/live-suite/README.md).
+
 ## Design references
+
 - Canonical plan: [`APPLE_SHORTCUTS_CLOUD_GATEWAY_PLAN.md`](./APPLE_SHORTCUTS_CLOUD_GATEWAY_PLAN.md)
 - Validation evidence: [`results/transport-and-persistence-2026-09-01.md`](results/transport-and-persistence-2026-09-01.md)
 - Apple ML research: [third-generation Apple Foundation Models](https://machinelearning.apple.com/research/introducing-third-generation-of-apple-foundation-models)

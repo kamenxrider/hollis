@@ -61,19 +61,30 @@ func TestModelsListsAllTiers(t *testing.T) {
 	}
 	var got struct {
 		Data []struct {
-			ID string `json:"id"`
+			ID      string `json:"id"`
+			OwnedBy string `json:"owned_by"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
 		t.Fatalf("models JSON: %v", err)
 	}
-	ids := map[string]bool{}
+	ownedBy := map[string]string{}
 	for _, m := range got.Data {
-		ids[m.ID] = true
+		ownedBy[m.ID] = m.OwnedBy
 	}
 	for _, want := range []string{"auto", "cloud", "cloud-pro", "on-device", "chatgpt"} {
-		if !ids[want] {
-			t.Fatalf("models missing %q: %v", want, ids)
+		if _, ok := ownedBy[want]; !ok {
+			t.Fatalf("models missing %q: %v", want, ownedBy)
+		}
+	}
+	// owned_by must be honest per tier (ChatGPT is OpenAI's model).
+	wantOwner := map[string]string{
+		"auto": "hollis", "cloud": "Apple", "cloud-pro": "Apple",
+		"on-device": "Apple", "chatgpt": "OpenAI",
+	}
+	for id, owner := range wantOwner {
+		if ownedBy[id] != owner {
+			t.Fatalf("model %q owned_by = %q, want %q", id, ownedBy[id], owner)
 		}
 	}
 }
