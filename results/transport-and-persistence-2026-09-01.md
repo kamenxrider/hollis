@@ -35,6 +35,22 @@ Note: a hand-built plist **was** accepted by `shortcuts sign` (exit 0, 1.2K -> 2
 Import required one GUI confirmation per shortcut. The imported names carry the
 `.signed` suffix inherited from the filename.
 
+### Addendum (Phase 5, same day): replay verified through the hollis CLI
+
+Two-turn persistent chat via the CLI, against `AFM Bridge - Cloud.signed`:
+
+```bash
+hollis chat "Remember this exact codeword for our conversation:
+VANTA-ORBIT-7319. Reply only: ACK"        # -> ACK, conversation stored (2 messages)
+hollis chat --continue <id> "What exact codeword did I give you earlier
+in this conversation? Reply with just the codeword."
+# -> VANTA-ORBIT-7319 (exit 0)
+```
+
+The transcript replay renderer (plan §13) restored full context across two
+separate `hollis chat` processes. `chats list/show/delete` verified; the test
+conversation was deleted afterward.
+
 ### Addendum (Phase 3, same day): UUID invocation verified
 
 `shortcuts run` accepts the bridge **UUID** as the identifier, not just the name:

@@ -55,7 +55,7 @@ const DefaultTimeout = 30 * time.Second
 type Kind string
 
 const (
-	KindEmptyPrompt     Kind = "empty_prompt"      // refused before spawn (hangs forever)
+	KindEmptyPrompt     Kind = "empty_prompt"       // refused before spawn (hangs forever)
 	KindNoOutput        Kind = "shortcut_no_output" // exit 0 + empty stdout (also what a TTY run looks like)
 	KindShortcutMissing Kind = "shortcut_missing"   // exit 1
 	KindUsage           Kind = "usage"              // exit 64

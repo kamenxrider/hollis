@@ -68,6 +68,8 @@ See README.md for recipes.`,
 	}
 
 	rootCmd.AddCommand(newRespondCmd(&flags, newRunner))
+	rootCmd.AddCommand(newChatCmd(&flags, newRunner))
+	rootCmd.AddCommand(newChatsCmd(&flags, newRunner))
 	rootCmd.AddCommand(newDoctorCmd(&flags, newRunner))
 	rootCmd.AddCommand(newAgentContextCmd(rootCmd))
 	rootCmd.AddCommand(newVersionCmd())
@@ -86,6 +88,7 @@ func usageErr(err error) error     { return &cliError{code: 2, err: err} }
 func notFoundErr(err error) error  { return &cliError{code: 3, err: err} }
 func transportErr(err error) error { return &cliError{code: 5, err: err} }
 func timeoutErr(err error) error   { return &cliError{code: 7, err: err} }
+func configErr(err error) error    { return &cliError{code: 10, err: err} }
 
 // ExitCode maps an error returned from Execute to a process exit code.
 // Exit codes are stable and agent-parseable (plan §23):
@@ -144,6 +147,25 @@ func printJSONFiltered(data map[string]any, flags *rootFlags) error {
 		return enc.Encode(wrapped)
 	}
 	return enc.Encode(data)
+}
+
+// printJSONArrayFiltered emits a JSON array with --select applied per
+// element, matching the house agent contract.
+func printJSONArrayFiltered(items []map[string]any, flags *rootFlags) error {
+	if strings.TrimSpace(flags.selectFields) != "" {
+		for i := range items {
+			items[i] = filterFields(items[i], flags.selectFields)
+		}
+	}
+	enc := json.NewEncoder(os.Stdout)
+	if flags.agent {
+		wrapped := map[string]any{
+			"meta":    map[string]any{"source": "apple-intelligence"},
+			"results": items,
+		}
+		return enc.Encode(wrapped)
+	}
+	return enc.Encode(items)
 }
 
 // filterFields keeps only the specified fields (comma-separated) from a

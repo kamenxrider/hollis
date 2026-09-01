@@ -1526,20 +1526,10 @@ If transcript replay is unreliable, stop and reconsider the project.
 
 If transcript replay is reliable, continue.
 
-### Phase 3 — Minimal Go runner
+### Phase 3 — Minimal Go runner ✅ COMPLETE (2026-09-01)
 
-Implement:
-
-```text
-Runner
-ShortcutRunner
-```
-
-and a tiny:
-
-```bash
-hollis respond
-```
+`internal/runner` (ShortcutRunner, 8 non-negotiable rules) and `hollis respond`
+shipped and verified end-to-end against the Cloud bridge.
 
 No database or HTTP server yet.
 
@@ -1554,23 +1544,18 @@ Tests:
 - timeout,
 - missing shortcut.
 
-### Phase 4 — `doctor`
+### Phase 4 — `doctor` ✅ COMPLETE (2026-09-01)
 
-Add diagnostics before adding more surface area.
+`hollis doctor` probes the shortcuts CLI and both bridge UUIDs; `shortcuts
+list` name checks are warnings only, since UUID invocation is verified.
 
-### Phase 5 — SQLite persistent chat
+### Phase 5 — SQLite persistent chat ✅ COMPLETE (2026-09-01)
 
-Implement:
-
-```text
-chat
-chats list
-chats show
-```
-
-Use replayed history.
-
-Add rename/delete/export only after basics are stable.
+Implemented `chat` (one-shot + `--continue` + interactive REPL),
+`chats list/show/rename/delete` on `modernc.org/sqlite` (pure Go, no cgo).
+Transcript replay verified through the CLI: turn 2 with `--continue` recovered
+the planted codeword (see results addendum). `chats delete --yes` cleaned up
+the test conversation afterward.
 
 ### Phase 6 — Context compaction
 
