@@ -217,6 +217,41 @@ func TestUnknownModelRejected(t *testing.T) {
 	}
 }
 
+func TestTimeoutMessageUsesEffectiveDeadline(t *testing.T) {
+	r, _ := runnerWithFake(t, "hang")
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	_, err := r.Run(ctx, ModelCloud, "hello")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindTimeout {
+		t.Fatalf("want KindTimeout, got %v", err)
+	}
+	if strings.Contains(err.Error(), "exceeded 30s") {
+		t.Fatalf("timeout message must use the effective deadline, not the default: %v", err)
+	}
+}
+
+func TestCallerDeadlineClampedToCeiling(t *testing.T) {
+	old := MaxTimeout
+	MaxTimeout = 60 * time.Millisecond
+	t.Cleanup(func() { MaxTimeout = old })
+	r, _ := runnerWithFake(t, "hang")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	start := time.Now()
+	_, err := r.Run(ctx, ModelCloud, "hello")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindTimeout {
+		t.Fatalf("want KindTimeout, got %v", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("ceiling not enforced, ran %s", d)
+	}
+	if !strings.Contains(err.Error(), "exceeded 60ms") {
+		t.Fatalf("timeout message should name the clamped ceiling: %v", err)
+	}
+}
+
 func TestTimeoutKillsChild(t *testing.T) {
 	r, _ := runnerWithFake(t, "hang")
 	r.Timeout = 150 * time.Millisecond

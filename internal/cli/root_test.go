@@ -320,6 +320,71 @@ func TestChatNoInputDoesNotEnterREPL(t *testing.T) {
 	}
 }
 
+func TestBridgeCheckMarshalsRealObjects(t *testing.T) {
+	// results/advanced-cli-test-2026-09-01 defect 1: unexported fields
+	// made `doctor --json` emit "bridges":[{},{},{},{}].
+	b, err := json.Marshal(bridgeCheck{Model: "cloud", UUID: "X", Name: "n", Installed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"model":"cloud"`, `"uuid":"X"`, `"installed":true`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("bridgeCheck JSON missing %s: %s", want, b)
+		}
+	}
+}
+
+func TestChatsListShowsModelColumn(t *testing.T) {
+	st := openTempStore(t)
+	oldOpen := openStore
+	openStore = func() (*store.Store, error) { return st, nil }
+	t.Cleanup(func() { openStore = oldOpen })
+	st.CreateConversation("cloud-pro", "t1")
+	st.CreateConversation("on-device", "t2")
+
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"chats", "list"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("chats list: %v", err)
+	}
+	for _, want := range []string{"MODEL", "cloud-pro", "on-device"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("chats list output missing %q: %q", want, out.String())
+		}
+	}
+}
+
+func TestChatEmptyPromptLeavesNoConversation(t *testing.T) {
+	// results/advanced-cli-test-2026-09-01 defect 5: the conversation was
+	// created before the prompt was validated, leaving 0-message rows.
+	stubConfigPath(t)
+	old := interactiveStdin
+	interactiveStdin = func() bool { return false }
+	t.Cleanup(func() { interactiveStdin = old })
+	st := openTempStore(t)
+	oldOpen := openStore
+	openStore = func() (*store.Store, error) { return st, nil }
+	t.Cleanup(func() { openStore = oldOpen })
+
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"chat", "--json"})
+	cmd.SetIn(&bytes.Buffer{}) // empty piped stdin
+	cmd.SetOut(&bytes.Buffer{})
+	err := cmd.Execute()
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("exit code = %d, want 2", got)
+	}
+	convs, err := st.ListConversations(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(convs) != 0 {
+		t.Fatalf("empty prompt left %d conversation(s) behind, want 0", len(convs))
+	}
+}
+
 func TestAgentContextSchemaPresent(t *testing.T) {
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"agent-context"})
