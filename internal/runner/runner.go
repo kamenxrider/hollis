@@ -34,11 +34,22 @@ const (
 	ModelChatGPT  Model = "chatgpt"
 )
 
-// Models is the exhaustive set of selectable models.
+// Models is the exhaustive set of concrete model tiers. ModelAuto is a
+// strategy, not a tier: it tries the default tier first and falls back to
+// the on-device model on failure (Apple's documented PCC pattern), so it
+// is valid for selection but has no bridge of its own.
 var Models = []Model{ModelCloud, ModelCloudPro, ModelOnDevice, ModelChatGPT}
 
-// Valid reports whether m is in runner.Models.
+// ModelAuto selects the default tier (cloud) and falls back to the
+// on-device model when the primary run fails with a transport-class
+// error. Explicit tier selections never fall back.
+const ModelAuto Model = "auto"
+
+// Valid reports whether m is selectable: any concrete tier or auto.
 func (m Model) Valid() bool {
+	if m == ModelAuto {
+		return true
+	}
 	for _, v := range Models {
 		if m == v {
 			return true

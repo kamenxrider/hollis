@@ -28,9 +28,11 @@ The prompt comes from the positional argument, or from stdin when no argument
 is given (multi-line safe). Each call is stateless; chat persistence arrives
 in a later phase.
 
-Model choices: cloud (Apple Intelligence), cloud-pro (Apple Intelligence
-Pro), on-device (Apple Intelligence on-device), or chatgpt (ChatGPT
-extension; enable it in System Settings > Apple Intelligence & Siri).`,
+The default model is auto: cloud first, with automatic fallback to the
+on-device model if the cloud run fails. Explicit choices: cloud (AFM 3
+Cloud), cloud-pro (AFM 3 Cloud Pro), on-device (AFM 3 Core / Core
+Advanced by hardware), or chatgpt (ChatGPT extension; enable it in
+System Settings > Apple Intelligence & Siri). See hollis models.`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
   printf 'long prompt from a pipeline' | hollis respond
   hollis respond --model cloud-pro "Draft a reply"
@@ -53,7 +55,7 @@ extension; enable it in System Settings > Apple Intelligence & Siri).`,
 
 			m := runner.Model(strings.TrimSpace(model))
 			if !m.Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose cloud, cloud-pro, on-device, or chatgpt", model))
+				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", model))
 			}
 
 			r := newRunner()
@@ -83,7 +85,7 @@ extension; enable it in System Settings > Apple Intelligence & Siri).`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&model, "model", string(runner.ModelCloud), "Apple Intelligence tier: cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro), on-device (AFM 3 Core / Core Advanced by hardware), or chatgpt (ChatGPT extension); see hollis models")
+	cmd.Flags().StringVar(&model, "model", string(runner.ModelAuto), "Model tier: auto (default: cloud first, on-device fallback), cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro), on-device (AFM 3 Core / Core Advanced by hardware), or chatgpt (ChatGPT extension); see hollis models")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	return cmd
 }

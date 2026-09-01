@@ -92,7 +92,7 @@ conversation is created and auto-titled from the first message.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			model := strings.TrimSpace(modelFlag)
 			if !runner.Model(model).Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose cloud, cloud-pro, on-device, or chatgpt", modelFlag))
+				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", modelFlag))
 			}
 
 			st, err := openStore()
@@ -155,7 +155,7 @@ conversation is created and auto-titled from the first message.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&modelFlag, "model", string(runner.ModelCloud), "Model for a new conversation: cloud, cloud-pro, on-device, or chatgpt (see hollis models)")
+	cmd.Flags().StringVar(&modelFlag, "model", string(runner.ModelAuto), "Model for a new conversation: auto (default: cloud first, on-device fallback), cloud, cloud-pro, on-device, or chatgpt (see hollis models)")
 	cmd.Flags().StringVar(&continueID, "continue", "", "Continue an existing conversation by id")
 	return cmd
 }
