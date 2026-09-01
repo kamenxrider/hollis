@@ -15,12 +15,16 @@ import (
 // runnerWithFake installs a fake `shortcuts` shell script that records argv,
 // drains stdin to disk, and behaves according to mode:
 //
-//	echo     cat the recorded stdin back (round-trip)
-//	empty    exit 0 with no stdout (the ambiguous signature)
-//	missing  exit 1 with Apple-like stderr
-//	usage    exit 64
-//	sigabrt  raise SIGABRT (exit 134 via signal)
-//	hang     sleep forever (exercises the deadline kill)
+//	echo      cat the recorded stdin back (round-trip)
+//	empty     exit 0 with no stdout (the ambiguous signature)
+//	missing   exit 1 with Apple-like stderr
+//	usage     exit 64
+//	sigabrt   raise SIGABRT (exit 134 via signal)
+//	hang      sleep forever (exercises the deadline kill)
+//	fail-once exit 1 on the first invocation, echo afterwards (fallback tests)
+//
+// Every invocation appends to <dir>/count.txt so tests can assert how
+// many spawns happened (e.g. that auto did or did not fall back).
 func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -28,6 +32,9 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 	script := "#!/bin/sh\n" +
 		"printf '%s\\n' \"$*\" > " + dir + "/argv.txt\n" +
 		"cat > " + dir + "/stdin.txt\n" +
+		"count=$(cat " + dir + "/count.txt 2>/dev/null || echo 0)\n" +
+		"count=$((count + 1))\n" +
+		"echo \"$count\" > " + dir + "/count.txt\n" +
 		"mode=${HOLLIS_FAKE_MODE:-" + mode + "}\n" +
 		"case \"$mode\" in\n" +
 		"  echo) cat " + dir + "/stdin.txt ;;\n" +
@@ -36,6 +43,7 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 		"  usage) echo 'Error: invalid value ... for --output-type' >&2; exit 64 ;;\n" +
 		"  sigabrt) kill -ABRT $$ ;;\n" +
 		"  hang) sleep 300 ;;\n" +
+		"  fail-once) if [ \"$count\" -le 1 ]; then echo 'cloud unavailable' >&2; exit 1; fi; cat " + dir + "/stdin.txt ;;\n" +
 		"esac\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -137,6 +145,53 @@ func TestDefaultBridgeRefsCoverAllModels(t *testing.T) {
 		if r.BridgeRefs[m] == "" {
 			t.Fatalf("model %q missing bridge ref", m)
 		}
+	}
+}
+
+func TestAutoUsesPrimaryWithoutFallback(t *testing.T) {
+	r, dir := runnerWithFake(t, "echo")
+	got, err := r.Run(context.Background(), ModelAuto, "hello")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got != "hello" {
+		t.Fatalf("auto round-trip mismatch: %q", got)
+	}
+	count, _ := os.ReadFile(dir + "/count.txt")
+	if strings.TrimSpace(string(count)) != "1" {
+		t.Fatalf("spawn count = %s, want 1 (no fallback on success)", count)
+	}
+}
+
+func TestAutoFallsBackToOnDevice(t *testing.T) {
+	r, dir := runnerWithFake(t, "fail-once")
+	got, err := r.Run(context.Background(), ModelAuto, "hello")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got != "hello" {
+		t.Fatalf("auto fallback round-trip mismatch: %q", got)
+	}
+	count, _ := os.ReadFile(dir + "/count.txt")
+	if strings.TrimSpace(string(count)) != "2" {
+		t.Fatalf("spawn count = %s, want 2 (cloud then on-device)", count)
+	}
+	// The second (fallback) invocation must reference the on-device UUID.
+	argv, _ := os.ReadFile(dir + "/argv.txt")
+	if !strings.Contains(string(argv), BridgeUUIDOnDevice) {
+		t.Fatalf("fallback argv missing on-device UUID: %q", string(argv))
+	}
+}
+
+func TestAutoDoesNotRetryEmptyPrompt(t *testing.T) {
+	r, dir := runnerWithFake(t, "fail-once")
+	_, err := r.Run(context.Background(), ModelAuto, "")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindEmptyPrompt {
+		t.Fatalf("want empty_prompt, got %v", err)
+	}
+	if _, err := os.Stat(dir + "/count.txt"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("child spawned for empty prompt (count file exists): %v", err)
 	}
 }
 

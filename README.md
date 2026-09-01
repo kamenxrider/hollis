@@ -31,6 +31,7 @@ Grounding notes:
 - Apple's research page states the family was "custom-built in collaboration with Google," and that the server models run on **Private Cloud Compute**, "which ensures that user data is never stored or shared with anyone, including Apple."
 - The PCC tier documents a **32K-token context** and is positioned for "long documents or extended multiturn conversations"; the on-device model has a small context window, so keep on-device prompts concise and specific (Apple: prompting an on-device model "needs to be concise and specific" because the model is much smaller).
 - Cloud tiers carry a daily request quota (upgradeable via iCloud+); on-device has none.
+- hollis's default tier is `auto`: cloud first, one automatic on-device retry on any transport-class failure — the fallback pattern Apple documents for PCC (`PrivateCloudComputeLanguageModel` failures should "retry the request using the on-device model"). Explicit tier choices never fall back.
 
 References: [third-generation AFM announcement](https://machinelearning.apple.com/research/introducing-third-generation-of-apple-foundation-models) · [Prompting an on-device model](https://developer.apple.com/documentation/foundationmodels/prompting-an-on-device-foundation-model) · [PCC server-side intelligence](https://developer.apple.com/documentation/foundationmodels/adding-server-side-intelligence-with-private-cloud-compute) · [AFM Core Advanced deep dive](https://www.oflight.co.jp/en/columns/apple-afm-core-advanced-wwdc-2026)
 
@@ -90,7 +91,9 @@ chatgpt    24B4B536-571B-49D9-9519-B644281C8B08   WFLLMModel "ChatGPT"
 ## Usage
 
 ```bash
-# One-shot: prompt as an argument or via stdin
+# One-shot: prompt as an argument or via stdin.
+# The default model is auto: cloud first, with automatic fallback to the
+# on-device model if the cloud run fails (Apple's own PCC fallback pattern).
 hollis respond "Summarize this repo in one sentence"
 printf 'long prompt' | hollis respond
 hollis respond --model cloud-pro "Draft a reply"

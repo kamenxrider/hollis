@@ -41,7 +41,7 @@ func TestRespondEmptyPromptExitsUsage2(t *testing.T) {
 
 func TestRespondJSONOutput(t *testing.T) {
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
-	cmd.SetArgs([]string{"respond", "--json", "hello world"})
+	cmd.SetArgs([]string{"respond", "--json", "--model", "cloud", "hello world"})
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 
@@ -111,6 +111,37 @@ func TestRespondNewModelsAccepted(t *testing.T) {
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("respond --model %s: %v", model, err)
 		}
+	}
+}
+
+func TestRespondDefaultsToAuto(t *testing.T) {
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"respond", "--json", "hello"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	execErr := cmd.Execute()
+	os.Stdout = old
+	w.Close()
+	if execErr != nil {
+		t.Fatalf("Execute: %v", execErr)
+	}
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("JSON output: %v (%q)", err, buf.String())
+	}
+	if got["model"] != "auto" {
+		t.Fatalf("default model = %v, want auto", got["model"])
 	}
 }
 
