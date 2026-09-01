@@ -109,9 +109,40 @@ hollis chat --continue <conversation-id> "What was the codeword?"
 # Agents
 hollis respond --agent "Return strict JSON describing X"
 hollis agent-context
+
+# Local OpenAI-compatible endpoint (Phase 7)
+hollis serve                           # 127.0.0.1:1976
+curl -s localhost:1976/v1/models
+curl -s localhost:1976/v1/chat/completions \
+  -d '{"model":"auto","messages":[{"role":"user","content":"hi"}]}'
+curl -s localhost:1976/v1/responses \
+  -d '{"model":"cloud-pro","input":"Reply with OK"}'
 ```
 
 `model <tier>` is positional sugar — the `--model` flag does the same job and stays as the escape hatch for prompts that begin with the literal word "model".
+
+## HTTP endpoint (`hollis serve`)
+
+`hollis serve` exposes a local, OpenAI-compatible HTTP surface (plan §19) on `127.0.0.1:1976`:
+
+| Endpoint | Notes |
+| --- | --- |
+| `GET /health` | liveness |
+| `GET /v1/models` | the five selectable ids (`auto`, `cloud`, `cloud-pro`, `on-device`, `chatgpt`) |
+| `POST /v1/chat/completions` | messages in, one Shortcuts call, Chat Completions shape out |
+| `POST /v1/responses` | Responses shape: `input` as string or message array, `instructions` as system prompt, `output[].content[].output_text` out |
+
+- **Stateless by design** — clients send their own `messages`; the server translates them into the tested replay-transcript format and makes one Shortcuts call (plan §19/§20).
+- **Streaming is not supported** — `stream: true` returns a 400 with a clear error. The Shortcuts transport returns the whole response in one call; hollis never fakes streaming (plan principle 6).
+- **No invented metadata** — responses carry no `usage`/token counts because none are observable (plan principle 5).
+- **Local-only by default.** A non-loopback `--addr` requires `--token`; all `/v1` requests then need `Authorization: Bearer <token>` (plan §30).
+
+```bash
+hollis serve --addr 127.0.0.1:1976 --token mysecret   # non-loopback needs auth
+curl -s localhost:1976/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"auto","messages":[{"role":"user","content":"hi"}]}'
+```
 
 ## Persistent default model
 
