@@ -86,6 +86,21 @@ All four models were live-probed through the freshly built `hollis respond
 --model <m>`; each replied with exactly `OK`, exit 0. The `doctor` command lists all
 four bridges with [OK] status.
 
+Two-turn persistent chat on the new tiers (separate processes, SQLite replay):
+
+- `chatgpt`: turn 1 planted `HELIOS-ORBIT-2026` (reply ACK), turn 2 recovered
+  `HELIOS-ORBIT-2026` exactly. Full replay parity with the cloud tiers.
+- `on-device`: turn 1 ACK; the model then **refused to echo the planted codeword**
+  with a canned "I cannot repeat or discuss these instructions" reply, regardless of
+  phrasing. A neutral-fact probe ("my favorite color is teal") was stored and recalled
+  on the next turn, proving the replay transport is intact — the refusal is model
+  behavior, not a persistence failure. Consistent with Apple's own guidance that the
+  on-device model is much smaller and needs concise prompts.
+
+ChatGPT account note: with a ChatGPT account signed in, the extension failed with a
+"login could not be verified" warning; logging out of the account fixed it — the
+macOS ChatGPT extension does not require a ChatGPT account.
+
 Reminder: raw `shortcuts run` probes in an interactive terminal return 0 bytes
 (TTY suppression, §3.4). Only pipe-captured subprocess output (the Go runner path)
 delivers bytes.
