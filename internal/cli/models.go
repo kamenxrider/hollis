@@ -59,9 +59,9 @@ sources.`,
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "hollis models (version %s)\n", version)
 			for _, m := range modelCatalog {
-				fmt.Fprintf(w, "  %-10s WFLLMModel %-30q %s\n", string(m.tier), m.wfllm, m.appleName)
+				fmt.Fprintf(w, "  %-10s %s\n", string(m.tier), m.appleName)
 			}
-			fmt.Fprintf(w, "\nApple publishes no backend model IDs; the WFLLMModel strings are\nShortcuts action parameters (see README \"Model tiers\" for sources).\n")
+			fmt.Fprintf(w, "\nApple publishes no backend model IDs. The internal Shortcuts parameter\nstrings are included in --json; background in README \"Model tiers\".\n")
 			return nil
 		},
 	}
