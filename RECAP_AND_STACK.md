@@ -56,9 +56,7 @@ None of this is documented by Apple.
 `scripts/make-bridge.py` generates real bridge shortcuts — the decisive change is binding `WFLLMPrompt` to `ExtensionInput` (Shortcut Input) via a `WFTextTokenString` with a `\uFFFC` attachment, instead of a hardcoded literal. Verified findings:
 
 - **A hand-built plist is accepted by `shortcuts sign`** (exit 0; 1.2K → 27K). Import needs one GUI confirmation per shortcut.
-- Installed bridges:
-  - `AFM Bridge - Cloud.signed` — `00000000-0000-4000-8000-000000000001` — `WFLLMModel "Apple Intelligence"`
-  - `AFM Bridge - Cloud Pro.signed` — `00000000-0000-4000-8000-000000000002` — `WFLLMModel "Apple Intelligence Pro"`
+placeholder-replace-me
 - Verified Shortcuts-layer mapping: UI **Cloud** = `"Apple Intelligence"`, UI **Cloud Pro** = `"Apple Intelligence Pro"`, action = `is.workflow.actions.askllm`, output = `is.workflow.actions.output`. These are Shortcuts-layer identifiers, not backend model IDs.
 - The original `PCC Test` / `PCC Test Pro` shortcuts could not serve as bridges: `ZHASSHORTCUTINPUTVARIABLES = 0`, empty input classes, literal prompt.
 

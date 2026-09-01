@@ -58,6 +58,8 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 				}{
 					{runner.ModelCloud, runner.BridgeUUIDCloud, "AFM Bridge - Cloud.signed"},
 					{runner.ModelCloudPro, runner.BridgeUUIDCloudPro, "AFM Bridge - Cloud Pro.signed"},
+					{runner.ModelOnDevice, runner.BridgeUUIDOnDevice, "AFM Bridge - On-Device.signed"},
+					{runner.ModelChatGPT, runner.BridgeUUIDChatGPT, "AFM Bridge - ChatGPT.signed"},
 				} {
 					bridges = append(bridges, bridgeCheck{
 						model:     string(m.model),

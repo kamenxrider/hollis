@@ -103,6 +103,17 @@ func TestUnknownModelFlagExitsUsage(t *testing.T) {
 	}
 }
 
+func TestRespondNewModelsAccepted(t *testing.T) {
+	for _, model := range []string{"on-device", "chatgpt"} {
+		cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+		cmd.SetArgs([]string{"respond", "--model", model, "hello"})
+		cmd.SetOut(&bytes.Buffer{})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("respond --model %s: %v", model, err)
+		}
+	}
+}
+
 func TestAgentContextSchemaPresent(t *testing.T) {
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"agent-context"})

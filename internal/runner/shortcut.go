@@ -36,6 +36,8 @@ func New() *ShortcutRunner {
 		BridgeRefs: map[Model]string{
 			ModelCloud:    BridgeUUIDCloud,
 			ModelCloudPro: BridgeUUIDCloudPro,
+			ModelOnDevice: BridgeUUIDOnDevice,
+			ModelChatGPT:  BridgeUUIDChatGPT,
 		},
 		Timeout: DefaultTimeout,
 	}

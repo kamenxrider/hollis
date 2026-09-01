@@ -28,7 +28,9 @@ The prompt comes from the positional argument, or from stdin when no argument
 is given (multi-line safe). Each call is stateless; chat persistence arrives
 in a later phase.
 
-Model choices: cloud (Apple Intelligence) or cloud-pro (Apple Intelligence Pro).`,
+Model choices: cloud (Apple Intelligence), cloud-pro (Apple Intelligence
+Pro), on-device (Apple Intelligence on-device), or chatgpt (ChatGPT
+extension; enable it in System Settings > Apple Intelligence & Siri).`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
   printf 'long prompt from a pipeline' | hollis respond
   hollis respond --model cloud-pro "Draft a reply"
@@ -50,8 +52,8 @@ Model choices: cloud (Apple Intelligence) or cloud-pro (Apple Intelligence Pro).
 			}
 
 			m := runner.Model(strings.TrimSpace(model))
-			if m != runner.ModelCloud && m != runner.ModelCloudPro {
-				return usageErr(fmt.Errorf("unknown model %q: choose cloud or cloud-pro", model))
+			if !m.Valid() {
+				return usageErr(fmt.Errorf("unknown model %q: choose cloud, cloud-pro, on-device, or chatgpt", model))
 			}
 
 			r := newRunner()
@@ -81,7 +83,7 @@ Model choices: cloud (Apple Intelligence) or cloud-pro (Apple Intelligence Pro).
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&model, "model", string(runner.ModelCloud), "Apple Intelligence tier: cloud or cloud-pro")
+	cmd.Flags().StringVar(&model, "model", string(runner.ModelCloud), "Apple Intelligence tier: cloud, cloud-pro, on-device, or chatgpt")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	return cmd
 }

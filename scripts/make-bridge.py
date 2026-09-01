@@ -90,6 +90,13 @@ def build(model: str) -> dict:
 BRIDGES = {
     "AFM Bridge - Cloud": "Apple Intelligence",
     "AFM Bridge - Cloud Pro": "Apple Intelligence Pro",
+    # Exact WFLLMModel strings decoded from the Hollis Probe - On-Device /
+    # ChatGPT shortcuts (Shortcuts.sqlite ZDATA, 2026-09-01):
+    #   On-Device -> "Apple Intelligence on Device"
+    #   ChatGPT   -> "ChatGPT" (requires the ChatGPT extension enabled in
+    #               System Settings > Apple Intelligence & Siri)
+    "AFM Bridge - On-Device": "Apple Intelligence on Device",
+    "AFM Bridge - ChatGPT": "ChatGPT",
 }
 
 
