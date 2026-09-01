@@ -1209,28 +1209,27 @@ Do not make this necessary for basic OpenAI-compatible clients.
 
 ## 21. Models
 
-v1 user-facing names:
+v1.1 user-facing model set (v1 shipped `cloud` and `cloud-pro`; the 2026-09-01 expansion added the other two at the user's request, superseding the earlier exclusion):
 
 ```text
 cloud
 cloud-pro
-```
-
-Possible future:
-
-```text
 on-device
+chatgpt
 ```
 
-Do not expose `chatgpt` initially; it defeats the purpose of this project.
+The `chatgpt` restriction was lifted by user decision on 2026-09-01. The ChatGPT
+model requires the ChatGPT extension enabled in System Settings > Apple Intelligence & Siri.
 
 Do not call the binary `pcc`.
 
 Verified Shortcuts-layer mapping (§3.5), safe to rely on for building and validating bridges:
 
 ```text
-cloud      → WFLLMModel "Apple Intelligence"      → UI "Cloud"
-cloud-pro  → WFLLMModel "Apple Intelligence Pro"  → UI "Cloud Pro"
+cloud      → WFLLMModel "Apple Intelligence"          → UI "Cloud"
+cloud-pro  → WFLLMModel "Apple Intelligence Pro"      → UI "Cloud Pro"
+on-device  → WFLLMModel "Apple Intelligence on Device" → UI "On-Device"
+chatgpt    → WFLLMModel "ChatGPT"                      → UI "ChatGPT"
 ```
 
 Do not equate UI labels or these `WFLLMModel` strings with exact Apple backend model identifiers unless verified by Apple or reproducible technical evidence. They are Shortcuts action parameters, nothing more.

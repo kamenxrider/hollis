@@ -64,6 +64,32 @@ printf 'Reply with the single word: pong' \
 hollis therefore references bridges by UUID (plan §36 rule 7) with name-based
 display strings kept only for doctor's human-readable report.
 
+### Addendum (model expansion, same day): On-Device and ChatGPT bridges
+
+The Use Model action exposes four tiers; two probe shortcuts built in the Shortcuts UI
+("Hollis Probe - On-Device", "Hollis Probe - ChatGPT") were decoded from
+Shortcuts.sqlite ZDATA to establish the exact WFLLMModel strings:
+
+- On-Device → `Apple Intelligence on Device`
+- ChatGPT → `ChatGPT` (requires the ChatGPT extension enabled in System Settings >
+  Apple Intelligence & Siri); no extra parameters beyond `WFLLMModel`.
+
+Two new bridges were generated, signed (`--mode anyone`), imported via `open`, and
+verified by UUID run:
+
+```text
+AFM Bridge - On-Device.signed   E530AE25-3C3C-4B11-88AF-A66F74039F88
+AFM Bridge - ChatGPT.signed     24B4B536-571B-49D9-9519-B644281C8B08
+```
+
+All four models were live-probed through the freshly built `hollis respond
+--model <m>`; each replied with exactly `OK`, exit 0. The `doctor` command lists all
+four bridges with [OK] status.
+
+Reminder: raw `shortcuts run` probes in an interactive terminal return 0 bytes
+(TTY suppression, §3.4). Only pipe-captured subprocess output (the Go runner path)
+delivers bytes.
+
 ## Results summary
 
 ```text

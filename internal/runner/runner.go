@@ -30,10 +30,22 @@ type Model string
 const (
 	ModelCloud    Model = "cloud"
 	ModelCloudPro Model = "cloud-pro"
+	ModelOnDevice Model = "on-device"
+	ModelChatGPT  Model = "chatgpt"
 )
 
 // Models is the exhaustive set of selectable models.
-var Models = []Model{ModelCloud, ModelCloudPro}
+var Models = []Model{ModelCloud, ModelCloudPro, ModelOnDevice, ModelChatGPT}
+
+// Valid reports whether m is in runner.Models.
+func (m Model) Valid() bool {
+	for _, v := range Models {
+		if m == v {
+			return true
+		}
+	}
+	return false
+}
 
 // Bridge UUIDs measured from the installed signed shortcuts
 // (results/transport-and-persistence-2026-09-01.md). UUIDs are stable across
@@ -42,6 +54,8 @@ var Models = []Model{ModelCloud, ModelCloudPro}
 const (
 	BridgeUUIDCloud    = "BD8CDC56-7CB8-418D-9B02-9D33AB911BF0"
 	BridgeUUIDCloudPro = "DBB6E472-CBC6-4421-8D32-9D4543D5CDE6"
+	BridgeUUIDOnDevice = "E530AE25-3C3C-4B11-88AF-A66F74039F88"
+	BridgeUUIDChatGPT  = "24B4B536-571B-49D9-9519-B644281C8B08"
 )
 
 // DefaultShortcutsPath is the Apple-provided CLI used as transport.

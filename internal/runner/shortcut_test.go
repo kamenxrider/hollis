@@ -128,6 +128,31 @@ func TestUsageErrorMapsExit64(t *testing.T) {
 	}
 }
 
+func TestDefaultBridgeRefsCoverAllModels(t *testing.T) {
+	r := New()
+	if len(r.BridgeRefs) != len(Models) {
+		t.Fatalf("BridgeRefs has %d entries, want %d", len(r.BridgeRefs), len(Models))
+	}
+	for _, m := range Models {
+		if r.BridgeRefs[m] == "" {
+			t.Fatalf("model %q missing bridge ref", m)
+		}
+	}
+}
+
+func TestRoundTripOnDeviceAndChatGPT(t *testing.T) {
+	r, _ := runnerWithFake(t, "echo")
+	for _, m := range []Model{ModelOnDevice, ModelChatGPT} {
+		got, err := r.Run(context.Background(), m, "ping")
+		if err != nil {
+			t.Fatalf("model %s: Run: %v", m, err)
+		}
+		if got != "ping" {
+			t.Fatalf("model %s: echo round-trip mismatch: %q", m, got)
+		}
+	}
+}
+
 func TestUnknownModelRejected(t *testing.T) {
 	r, _ := runnerWithFake(t, "echo")
 	_, err := r.Run(context.Background(), Model("nope"), "hello")

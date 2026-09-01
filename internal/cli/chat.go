@@ -91,8 +91,8 @@ conversation is created and auto-titled from the first message.`,
   printf 'question' | hollis chat --continue <id>`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			model := strings.TrimSpace(modelFlag)
-			if model != string(runner.ModelCloud) && model != string(runner.ModelCloudPro) {
-				return usageErr(fmt.Errorf("unknown model %q: choose cloud or cloud-pro", modelFlag))
+			if !runner.Model(model).Valid() {
+				return usageErr(fmt.Errorf("unknown model %q: choose cloud, cloud-pro, on-device, or chatgpt", modelFlag))
 			}
 
 			st, err := openStore()
@@ -155,7 +155,7 @@ conversation is created and auto-titled from the first message.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&modelFlag, "model", string(runner.ModelCloud), "Model for a new conversation: cloud or cloud-pro")
+	cmd.Flags().StringVar(&modelFlag, "model", string(runner.ModelCloud), "Model for a new conversation: cloud, cloud-pro, on-device, or chatgpt")
 	cmd.Flags().StringVar(&continueID, "continue", "", "Continue an existing conversation by id")
 	return cmd
 }
