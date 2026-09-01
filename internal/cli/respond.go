@@ -55,13 +55,12 @@ System Settings > Apple Intelligence & Siri). See hollis models.`,
 				return usageErr(errors.New("empty prompt: give a prompt as an argument or pipe it via stdin"))
 			}
 
-			modelSel := strings.TrimSpace(model)
-			if hasPosModel {
-				modelSel = posModel
+			m, err := effectiveModel(cmd, model, posModel, hasPosModel)
+			if err != nil {
+				return configErr(err)
 			}
-			m := runner.Model(modelSel)
 			if !m.Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", model))
+				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", m))
 			}
 
 			r := newRunner()

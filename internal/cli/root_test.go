@@ -8,11 +8,55 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kamenxrider/hollis/internal/runner"
 )
+
+// stubConfigPath points the config loader at a fresh temp dir for the
+// duration of the test, so tests never read or write the real config.
+func stubConfigPath(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	old := configPath
+	configPath = func() (string, error) {
+		return filepath.Join(dir, "config.json"), nil
+	}
+	t.Cleanup(func() { configPath = old })
+}
+
+// respondJSON runs `respond --json args...` and returns the parsed JSON.
+func respondJSON(t *testing.T, args ...string) map[string]any {
+	t.Helper()
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs(append([]string{"respond", "--json"}, args...))
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	execErr := cmd.Execute()
+	os.Stdout = old
+	w.Close()
+	if execErr != nil {
+		t.Fatalf("Execute: %v", execErr)
+	}
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("JSON output: %v (%q)", err, buf.String())
+	}
+	return got
+}
 
 // fakeRunner returns canned responses/errors without touching the transport.
 type fakeRunner struct {
@@ -116,6 +160,7 @@ func TestRespondNewModelsAccepted(t *testing.T) {
 }
 
 func TestRespondDefaultsToAuto(t *testing.T) {
+	stubConfigPath(t)
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"respond", "--json", "hello"})
 	cmd.SetOut(&bytes.Buffer{})
@@ -191,6 +236,41 @@ func TestRespondPositionalModelSelectsTier(t *testing.T) {
 	}
 	if got["model"] != "on-device" || got["response"] != "hello" {
 		t.Fatalf("unexpected JSON: %s", buf.String())
+	}
+}
+
+func TestConfigSetChangesRespondDefault(t *testing.T) {
+	stubConfigPath(t)
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"config", "set", "model", "cloud-pro"})
+	cmd.SetOut(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config set: %v", err)
+	}
+	got := respondJSON(t, "hello")
+	if got["model"] != "cloud-pro" {
+		t.Fatalf("configured default = %v, want cloud-pro", got["model"])
+	}
+	// Positional prefix beats the config default.
+	got = respondJSON(t, "model", "on-device", "hello")
+	if got["model"] != "on-device" {
+		t.Fatalf("positional model = %v, want on-device", got["model"])
+	}
+	// Explicit flag beats the config default.
+	got = respondJSON(t, "--model", "chatgpt", "hello")
+	if got["model"] != "chatgpt" {
+		t.Fatalf("flag model = %v, want chatgpt", got["model"])
+	}
+}
+
+func TestConfigSetRejectsUnknownModel(t *testing.T) {
+	stubConfigPath(t)
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"config", "set", "model", "nope"})
+	cmd.SetOut(&bytes.Buffer{})
+	err := cmd.Execute()
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("exit code = %d, want 2", got)
 	}
 }
 

@@ -113,6 +113,17 @@ hollis agent-context
 
 `model <tier>` is positional sugar — the `--model` flag does the same job and stays as the escape hatch for prompts that begin with the literal word "model".
 
+## Persistent default model
+
+Tired of typing the tier? Persist it:
+
+```bash
+hollis config set model cloud-pro   # or cloud / on-device / chatgpt / auto
+hollis config show                  # path + current default
+```
+
+Resolution order: positional `model <tier>` → explicit `--model` flag → configured default → built-in default (`auto`). The setting lives in a tiny JSON file next to the chat database (`hollis config show` prints the path).
+
 ## Health check
 
 ```console
