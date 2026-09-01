@@ -86,13 +86,17 @@ Ctrl-D ends it).
 Use --continue <id> to extend an existing conversation; otherwise a new
 conversation is created and auto-titled from the first message.`,
 		Example: `  hollis chat
-  hollis chat --model cloud-pro "Two ideas for naming a CLI"
+  hollis chat model cloud-pro "Two ideas for naming a CLI"
   hollis chat --continue <id> "And the downside?"
   printf 'question' | hollis chat --continue <id>`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			posModel, promptArgs, hasPosModel := splitModelArgs(args)
 			model := strings.TrimSpace(modelFlag)
+			if hasPosModel {
+				model = posModel
+			}
 			if !runner.Model(model).Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", modelFlag))
+				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", model))
 			}
 
 			st, err := openStore()
@@ -108,7 +112,7 @@ conversation is created and auto-titled from the first message.`,
 				if err != nil {
 					return notFoundErr(err)
 				}
-			} else if len(args) == 0 && interactiveStdin() {
+			} else if len(promptArgs) == 0 && interactiveStdin() {
 				return runInteractiveChat(st, model, newRunner)
 			} else {
 				conv, err = st.CreateConversation(model, "")
@@ -118,8 +122,8 @@ conversation is created and auto-titled from the first message.`,
 			}
 
 			var prompt string
-			if len(args) > 0 {
-				prompt = strings.Join(args, " ")
+			if len(promptArgs) > 0 {
+				prompt = strings.Join(promptArgs, " ")
 			} else {
 				b, err := io.ReadAll(cmd.InOrStdin())
 				if err != nil {

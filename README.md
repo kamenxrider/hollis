@@ -96,12 +96,13 @@ chatgpt    24B4B536-571B-49D9-9519-B644281C8B08   WFLLMModel "ChatGPT"
 # on-device model if the cloud run fails (Apple's own PCC fallback pattern).
 hollis respond "Summarize this repo in one sentence"
 printf 'long prompt' | hollis respond
-hollis respond --model cloud-pro "Draft a reply"
-hollis respond --model on-device "Reply with OK"
-hollis respond --model chatgpt "Reply with OK"
+hollis respond model cloud-pro "Draft a reply"
+hollis respond model on-device "Reply with OK"
+hollis respond model chatgpt "Reply with OK"
 
 # Persistent chat (SQLite-backed, survives across invocations)
 hollis chat "Remember the codeword VANTA-ORBIT-7319"
+hollis chat model cloud-pro "Two ideas for naming a CLI"
 hollis chats list
 hollis chat --continue <conversation-id> "What was the codeword?"
 
@@ -109,6 +110,8 @@ hollis chat --continue <conversation-id> "What was the codeword?"
 hollis respond --agent "Return strict JSON describing X"
 hollis agent-context
 ```
+
+`model <tier>` is positional sugar — the `--model` flag does the same job and stays as the escape hatch for prompts that begin with the literal word "model".
 
 ## Health check
 

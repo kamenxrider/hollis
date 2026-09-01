@@ -34,13 +34,15 @@ Cloud), cloud-pro (AFM 3 Cloud Pro), on-device (AFM 3 Core / Core
 Advanced by hardware), or chatgpt (ChatGPT extension; enable it in
 System Settings > Apple Intelligence & Siri). See hollis models.`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
+  hollis respond model cloud-pro "Draft a reply"
   printf 'long prompt from a pipeline' | hollis respond
-  hollis respond --model cloud-pro "Draft a reply"
+  hollis respond --model cloud-pro "Flag form also works"
   hollis respond --agent "Return strict JSON describing X"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			posModel, promptArgs, hasPosModel := splitModelArgs(args)
 			var prompt string
-			if len(args) > 0 {
-				prompt = strings.Join(args, " ")
+			if len(promptArgs) > 0 {
+				prompt = strings.Join(promptArgs, " ")
 			} else {
 				// Read the whole of stdin; agents and pipelines drive this.
 				b, err := io.ReadAll(cmd.InOrStdin())
@@ -53,7 +55,11 @@ System Settings > Apple Intelligence & Siri). See hollis models.`,
 				return usageErr(errors.New("empty prompt: give a prompt as an argument or pipe it via stdin"))
 			}
 
-			m := runner.Model(strings.TrimSpace(model))
+			modelSel := strings.TrimSpace(model)
+			if hasPosModel {
+				modelSel = posModel
+			}
+			m := runner.Model(modelSel)
 			if !m.Valid() {
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", model))
 			}
