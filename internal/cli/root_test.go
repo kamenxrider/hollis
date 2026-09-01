@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/kamenxrider/hollis/internal/runner"
@@ -142,6 +143,54 @@ func TestRespondDefaultsToAuto(t *testing.T) {
 	}
 	if got["model"] != "auto" {
 		t.Fatalf("default model = %v, want auto", got["model"])
+	}
+}
+
+func TestSplitModelArgs(t *testing.T) {
+	tier, rest, has := splitModelArgs([]string{"model", "cloud-pro", "Draft", "a", "reply"})
+	if !has || tier != "cloud-pro" || strings.Join(rest, " ") != "Draft a reply" {
+		t.Fatalf("splitModelArgs = (%q, %v, %v)", tier, rest, has)
+	}
+	// "model" followed by a non-tier is a literal prompt.
+	tier, rest, has = splitModelArgs([]string{"model", "not-a-tier", "hello"})
+	if has || tier != "" || strings.Join(rest, " ") != "model not-a-tier hello" {
+		t.Fatalf("splitModelArgs literal-prompt case = (%q, %v, %v)", tier, rest, has)
+	}
+	// No prefix at all.
+	tier, rest, has = splitModelArgs([]string{"just", "a", "prompt"})
+	if has || tier != "" || strings.Join(rest, " ") != "just a prompt" {
+		t.Fatalf("splitModelArgs no-prefix case = (%q, %v, %v)", tier, rest, has)
+	}
+}
+
+func TestRespondPositionalModelSelectsTier(t *testing.T) {
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"respond", "--json", "model", "on-device", "hello"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	execErr := cmd.Execute()
+	os.Stdout = old
+	w.Close()
+	if execErr != nil {
+		t.Fatalf("Execute: %v", execErr)
+	}
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("JSON output: %v (%q)", err, buf.String())
+	}
+	if got["model"] != "on-device" || got["response"] != "hello" {
+		t.Fatalf("unexpected JSON: %s", buf.String())
 	}
 }
 
