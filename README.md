@@ -22,11 +22,13 @@ Apple's third-generation Foundation Models are a family of five models spanning 
 | `on-device` | On-Device | AFM 3 Core (3B dense) or AFM 3 Core Advanced (20B sparse MoE, 1–4B active) depending on Apple silicon |
 | `chatgpt` | ChatGPT | OpenAI ChatGPT extension for Apple Intelligence (separate from AFM) |
 
+The AFM 3 family counts **five** models — the fifth, ADM 3 Cloud (Image), powers image generation and Genmoji and is not reachable through the Use Model text action, which is why hollis exposes four tiers.
+
 Grounding notes:
 
 - Apple publishes **no backend model IDs or checkpoints** for these tiers (a technical report is promised); the `WFLLMModel` strings above are Shortcuts action parameters, not model identifiers, and hollis never fabricates them.
-- The models are one family integrated across Apple silicon — Apple describes Core Advanced as "unlocked by and optimized for our most capable Apple silicon systems" rather than shipping per-device variants; a single 12GB-RAM class requirement gates it on iPhone/iPad/Mac/Vision Pro.
-- Apple's research page states the server models run on **Private Cloud Compute**, "which ensures that user data is never stored or shared with anyone, including Apple."
+- The models are one family integrated across Apple silicon — Apple describes Core Advanced as "unlocked by and optimized for our most capable Apple silicon systems" rather than shipping per-device variants. Third-party reporting ([oflight](https://www.oflight.co.jp/en/columns/apple-afm-core-advanced-wwdc-2026)) puts eligibility at a 12GB-RAM minimum — Mac M3 or later, iPhone 17 Pro/Pro Max, iPhone Air, iPad M4+, Vision Pro M5 — with 8GB devices excluded; Apple's own page only says "most capable Apple silicon systems."
+- Apple's research page states the family was "custom-built in collaboration with Google," and that the server models run on **Private Cloud Compute**, "which ensures that user data is never stored or shared with anyone, including Apple."
 - The PCC tier documents a **32K-token context** and is positioned for "long documents or extended multiturn conversations"; the on-device model has a small context window, so keep on-device prompts concise and specific (Apple: prompting an on-device model "needs to be concise and specific" because the model is much smaller).
 - Cloud tiers carry a daily request quota (upgradeable via iCloud+); on-device has none.
 

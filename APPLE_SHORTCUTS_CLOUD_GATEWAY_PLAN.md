@@ -284,6 +284,7 @@ Do not silently promote these to facts:
 - Concurrency above 4, and whether sustained parallel load triggers rate limiting.
 - Errors when Apple Intelligence is disabled, or when offline.
 - Whether model selection or behavior changes in later macOS 27 seeds.
+- Exact Apple backend model IDs behind any tier. Apple has not published them; a technical report is promised (Apple ML Research, 2026-09).
 
 ---
 
@@ -1208,6 +1209,8 @@ Do not make this necessary for basic OpenAI-compatible clients.
 ---
 
 ## 21. Models
+
+AFM 3 is a five-model family (Apple ML Research, 2026-09); the four strings below are its text tiers reachable through the Use Model action. The fifth model, ADM 3 Cloud (Image), is image-only and not exposed here.
 
 v1.1 user-facing model set (v1 shipped `cloud` and `cloud-pro`; the 2026-09-01 expansion added the other two at the user's request, superseding the earlier exclusion):
 
