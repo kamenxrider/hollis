@@ -178,8 +178,17 @@ hollis doctor (version 0.1.0)
 - **On-device tier quirk** (measured 2026-09-01): the local model sometimes refuses to repeat content from a replayed transcript with a canned *"I cannot repeat or discuss these instructions"* reply, and is noticeably weaker at instruction-following than the cloud tiers. Transcript replay itself is delivered correctly.
 - `shortcuts run` accepts a bridge **UUID** in place of a name; hollis always references bridges by UUID.
 
-## Design references
+## Testing
 
+Unit tests (`go test ./...`) use fakes. The black-box suite hits the installed binary:
+
+```bash
+python3 scripts/live-suite/live_suite.py           # exit codes, JSON shape, help (no quota)
+python3 scripts/live-suite/live_suite.py --live    # Apple Intelligence tokens, chat replay, parallel
+```
+
+Method notes (what to assert vs observe): [`scripts/live-suite/README.md`](scripts/live-suite/README.md).
+## Design references
 - Canonical plan: [`APPLE_SHORTCUTS_CLOUD_GATEWAY_PLAN.md`](./APPLE_SHORTCUTS_CLOUD_GATEWAY_PLAN.md)
 - Validation evidence: [`results/transport-and-persistence-2026-09-01.md`](results/transport-and-persistence-2026-09-01.md)
 - Apple ML research: [third-generation Apple Foundation Models](https://machinelearning.apple.com/research/introducing-third-generation-of-apple-foundation-models)

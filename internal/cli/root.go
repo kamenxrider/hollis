@@ -37,15 +37,20 @@ func NewRootCmd(newRunner newRunnerFunc) *cobra.Command {
 	var flags rootFlags
 	rootCmd := &cobra.Command{
 		Use:   "hollis",
-		Short: `hollis — Apple Intelligence Cloud & Cloud Pro from the terminal, via macOS Shortcuts.`,
-		Long: `hollis — Apple Intelligence Cloud & Cloud Pro from the terminal, via macOS Shortcuts.
+		Short: `hollis — Apple Intelligence from the terminal (cloud, cloud-pro, on-device, chatgpt), via macOS Shortcuts.`,
+		Long: `hollis — Apple Intelligence from the terminal, via macOS Shortcuts.
 
-hollis sends a prompt to Apple Intelligence (Cloud or Cloud Pro) through a
-bridge shortcut invoked with /usr/bin/shortcuts, and returns plain text.
-Prompts come from arguments or stdin, so shell pipelines and agents drive it.
+hollis sends a prompt to Apple Intelligence (cloud, cloud-pro, on-device, or
+chatgpt) through a bridge shortcut invoked with /usr/bin/shortcuts, and
+returns plain text. Prompts come from arguments or stdin, so shell pipelines
+and agents drive it. Persistent chats are stored in local SQLite and replayed
+each turn.
 
+Model tiers: run 'hollis models' to see what maps to what.
+Default model: auto (cloud first, on-device fallback if cloud fails).
 Agent mode: add --agent to any command for JSON output + non-interactive mode.
 Health check: run 'hollis doctor' to verify the transport and bridges.
+Local OpenAI-compatible endpoint: run 'hollis serve' (127.0.0.1:1976).
 See README.md for recipes.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
