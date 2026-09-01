@@ -1,0 +1,210 @@
+// Copyright 2026 kamenxrider and contributors. Licensed under Apache-2.0. See LICENSE.
+
+package runner
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+	"time"
+)
+
+// runnerWithFake installs a fake `shortcuts` shell script that records argv,
+// drains stdin to disk, and behaves according to mode:
+//
+//	echo     cat the recorded stdin back (round-trip)
+//	empty    exit 0 with no stdout (the ambiguous signature)
+//	missing  exit 1 with Apple-like stderr
+//	usage    exit 64
+//	sigabrt  raise SIGABRT (exit 134 via signal)
+//	hang     sleep forever (exercises the deadline kill)
+func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := dir + "/shortcuts"
+	script := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$*\" > " + dir + "/argv.txt\n" +
+		"cat > " + dir + "/stdin.txt\n" +
+		"mode=${HOLLIS_FAKE_MODE:-" + mode + "}\n" +
+		"case \"$mode\" in\n" +
+		"  echo) cat " + dir + "/stdin.txt ;;\n" +
+		"  empty) exit 0 ;;\n" +
+		"  missing) echo 'The shortcut named \"AFM Bridge\" could not be found' >&2; exit 1 ;;\n" +
+		"  usage) echo 'Error: invalid value ... for --output-type' >&2; exit 64 ;;\n" +
+		"  sigabrt) kill -ABRT $$ ;;\n" +
+		"  hang) sleep 300 ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := New()
+	r.ShortcutsPath = path
+	return r, dir
+}
+
+func TestRoundTripMultiLineNoTrailingNewline(t *testing.T) {
+	r, _ := runnerWithFake(t, "echo")
+	prompt := "line1\nline2\nline3"
+	got, err := r.Run(context.Background(), ModelCloud, prompt)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got != prompt {
+		t.Fatalf("response not round-tripped: %q", got)
+	}
+}
+
+func TestRoundTripUnicodeAndTabs(t *testing.T) {
+	r, _ := runnerWithFake(t, "echo")
+	prompt := "line1\nline2\n\ttabbed ✓ emoji 🚀 \"quoted\""
+	got, err := r.Run(context.Background(), ModelCloud, prompt)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got != prompt {
+		t.Fatalf("round-trip mismatch:\n got %q\nwant %q", got, prompt)
+	}
+}
+
+func TestRunInvokesUUIDWithPlainTextFlag(t *testing.T) {
+	r, dir := runnerWithFake(t, "echo")
+	if _, err := r.Run(context.Background(), ModelCloudPro, "hi"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	argv, err := os.ReadFile(dir + "/argv.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "run " + BridgeUUIDCloudPro + " --output-type public.plain-text\n"
+	if string(argv) != want {
+		t.Fatalf("argv = %q, want %q", string(argv), want)
+	}
+}
+
+func TestEmptyPromptRefusedWithoutSpawn(t *testing.T) {
+	r, dir := runnerWithFake(t, "echo")
+	for _, p := range []string{"", "   \n\t"} {
+		_, err := r.Run(context.Background(), ModelCloud, p)
+		var re *Error
+		if !errors.As(err, &re) || re.Kind != KindEmptyPrompt {
+			t.Fatalf("prompt %q: want empty_prompt, got %v", p, err)
+		}
+	}
+	if _, err := os.Stat(dir + "/argv.txt"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("child spawned for empty prompt (argv file exists): %v", err)
+	}
+}
+
+func TestExitZeroEmptyStdoutIsNoOutput(t *testing.T) {
+	r, _ := runnerWithFake(t, "empty")
+	_, err := r.Run(context.Background(), ModelCloud, "hello")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindNoOutput {
+		t.Fatalf("want KindNoOutput, got %v", err)
+	}
+}
+
+func TestMissingShortcutMapsExit1(t *testing.T) {
+	r, _ := runnerWithFake(t, "missing")
+	_, err := r.Run(context.Background(), ModelCloud, "hello")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindShortcutMissing {
+		t.Fatalf("want KindShortcutMissing, got %v", err)
+	}
+	if re.ExitCode != 1 {
+		t.Fatalf("ExitCode = %d, want 1", re.ExitCode)
+	}
+}
+
+func TestUsageErrorMapsExit64(t *testing.T) {
+	r, _ := runnerWithFake(t, "usage")
+	_, err := r.Run(context.Background(), ModelCloud, "hello")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindUsage {
+		t.Fatalf("want KindUsage, got %v", err)
+	}
+}
+
+func TestUnknownModelRejected(t *testing.T) {
+	r, _ := runnerWithFake(t, "echo")
+	_, err := r.Run(context.Background(), Model("nope"), "hello")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindUsage {
+		t.Fatalf("want usage error for unknown model, got %v", err)
+	}
+}
+
+func TestTimeoutKillsChild(t *testing.T) {
+	r, _ := runnerWithFake(t, "hang")
+	r.Timeout = 150 * time.Millisecond
+	start := time.Now()
+	_, err := r.Run(context.Background(), ModelCloud, "hello")
+	if err == nil {
+		t.Fatal("want timeout error")
+	}
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindTimeout {
+		t.Fatalf("want KindTimeout, got %v", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("kill took too long: %s", d)
+	}
+	// Rule 3: no orphaned child should survive the group kill.
+	out, _ := exec.Command("pgrep", "-f", "sleep 300").CombinedOutput()
+	if len(out) > 0 {
+		t.Fatalf("orphaned child processes remain: %s", out)
+	}
+}
+
+func TestConcurrencyFourParallel(t *testing.T) {
+	r, _ := runnerWithFake(t, "echo")
+	var errs [4]error
+	var resps [4]string
+	done := make(chan int, 4)
+	for i := 0; i < 4; i++ {
+		go func(i int) {
+			text, err := r.Run(context.Background(), ModelCloud, "parallel prompt")
+			resps[i], errs[i] = text, err
+			done <- i
+		}(i)
+	}
+	for i := 0; i < 4; i++ {
+		<-done
+	}
+	for i := 0; i < 4; i++ {
+		if errs[i] != nil {
+			t.Fatalf("parallel run %d: %v", i, errs[i])
+		}
+		if resps[i] != "parallel prompt" {
+			t.Fatalf("parallel run %d wrong response: %q", i, resps[i])
+		}
+	}
+}
+
+func TestUUIDAndPlainTextFlagInArgv(t *testing.T) {
+	r, dir := runnerWithFake(t, "echo")
+	if _, err := r.Run(context.Background(), ModelCloud, "hello"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	argv, _ := os.ReadFile(dir + "/argv.txt")
+	if !strings.Contains(string(argv), BridgeUUIDCloud) {
+		t.Fatalf("expected UUID reference in argv, got %q", string(argv))
+	}
+	if !strings.Contains(string(argv), "--output-type public.plain-text") {
+		t.Fatalf("expected --output-type public.plain-text in argv: %q", string(argv))
+	}
+}
+
+func TestNoTrailingNewlinePreserved(t *testing.T) {
+	r, _ := runnerWithFake(t, "echo")
+	got, err := r.Run(context.Background(), ModelCloud, "no newline at end")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if strings.HasSuffix(got, "\n") {
+		t.Fatalf("unexpected trailing newline: %q", got)
+	}
+}
