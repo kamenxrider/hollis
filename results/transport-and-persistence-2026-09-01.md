@@ -35,6 +35,19 @@ Note: a hand-built plist **was** accepted by `shortcuts sign` (exit 0, 1.2K -> 2
 Import required one GUI confirmation per shortcut. The imported names carry the
 `.signed` suffix inherited from the filename.
 
+### Addendum (Phase 3, same day): UUID invocation verified
+
+`shortcuts run` accepts the bridge **UUID** as the identifier, not just the name:
+
+```bash
+printf 'Reply with the single word: pong' \
+  | shortcuts run BD8CDC56-7CB8-418D-9B02-9D33AB911BF0 --output-type public.plain-text
+# stdout: pong (4 bytes, no trailing newline), exit 0
+```
+
+hollis therefore references bridges by UUID (plan §36 rule 7) with name-based
+display strings kept only for doctor's human-readable report.
+
 ## Results summary
 
 ```text
