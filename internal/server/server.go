@@ -67,7 +67,9 @@ func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
 		{"id": "cloud", "object": "model", "owned_by": "Apple"},
 		{"id": "cloud-pro", "object": "model", "owned_by": "Apple"},
 		{"id": "on-device", "object": "model", "owned_by": "Apple"},
-		{"id": "chatgpt", "object": "model", "owned_by": "Apple"},
+		// ChatGPT is OpenAI's model exposed through Apple's extension —
+		// owned_by must not claim Apple.
+		{"id": "chatgpt", "object": "model", "owned_by": "OpenAI"},
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
 }
