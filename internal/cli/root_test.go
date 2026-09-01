@@ -123,6 +123,63 @@ func TestAgentContextSchemaPresent(t *testing.T) {
 	}
 }
 
+func TestModelsCommandListsAllTiers(t *testing.T) {
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"models"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("models: %v", err)
+	}
+	for _, tier := range []string{"cloud", "cloud-pro", "on-device", "chatgpt"} {
+		if !bytes.Contains(out.Bytes(), []byte(tier)) {
+			t.Fatalf("models output missing tier %q: %q", tier, out.String())
+		}
+	}
+	if bytes.Contains(out.Bytes(), []byte("pcc-")) || bytes.Contains(out.Bytes(), []byte("gpt-")) {
+		t.Fatalf("models output must not contain fabricated backend model IDs: %q", out.String())
+	}
+}
+
+func TestModelsCommandJSONShape(t *testing.T) {
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"models", "--json"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	execErr := cmd.Execute()
+	os.Stdout = old
+	w.Close()
+	if execErr != nil {
+		t.Fatalf("Execute: %v", execErr)
+	}
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("JSON output: %v (%q)", err, buf.String())
+	}
+	if len(got) != 4 {
+		t.Fatalf("models JSON rows = %d, want 4", len(got))
+	}
+	for _, row := range got {
+		for _, field := range []string{"model", "wfllm_model", "apple_model", "bridge_uuid"} {
+			if _, ok := row[field]; !ok {
+				t.Fatalf("models JSON row missing %q: %v", field, row)
+			}
+		}
+	}
+}
+
 func TestVersionFlag(t *testing.T) {
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"--version"})

@@ -155,7 +155,7 @@ conversation is created and auto-titled from the first message.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&modelFlag, "model", string(runner.ModelCloud), "Model for a new conversation: cloud, cloud-pro, on-device, or chatgpt")
+	cmd.Flags().StringVar(&modelFlag, "model", string(runner.ModelCloud), "Model for a new conversation: cloud, cloud-pro, on-device, or chatgpt (see hollis models)")
 	cmd.Flags().StringVar(&continueID, "continue", "", "Continue an existing conversation by id")
 	return cmd
 }
