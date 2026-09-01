@@ -56,8 +56,11 @@ None of this is documented by Apple.
 `scripts/make-bridge.py` generates real bridge shortcuts — the decisive change is binding `WFLLMPrompt` to `ExtensionInput` (Shortcut Input) via a `WFTextTokenString` with a `\uFFFC` attachment, instead of a hardcoded literal. Verified findings:
 
 - **A hand-built plist is accepted by `shortcuts sign`** (exit 0; 1.2K → 27K). Import needs one GUI confirmation per shortcut.
-placeholder-replace-me
-- Verified Shortcuts-layer mapping: UI **Cloud** = `"Apple Intelligence"`, UI **Cloud Pro** = `"Apple Intelligence Pro"`, action = `is.workflow.actions.askllm`, output = `is.workflow.actions.output`. These are Shortcuts-layer identifiers, not backend model IDs.
+- Installed bridges (Phase 6 added the last two, decoded from the user-built probe shortcuts and verified by UUID run):
+  - `AFM Bridge - Cloud.signed` — `BD8CDC56-7CB8-418D-9B02-9D33AB911BF0` — `WFLLMModel "Apple Intelligence"`
+  - `AFM Bridge - Cloud Pro.signed` — `DBB6E472-CBC6-4421-8D32-9D4543D5CDE6` — `WFLLMModel "Apple Intelligence Pro"`
+  - `AFM Bridge - On-Device.signed` — `E530AE25-3C3C-4B11-88AF-A66F74039F88` — `WFLLMModel "Apple Intelligence on Device"`
+  - `AFM Bridge - ChatGPT.signed` — `24B4B536-571B-49D9-9519-B644281C8B08` — `WFLLMModel "ChatGPT"`
 - The original `PCC Test` / `PCC Test Pro` shortcuts could not serve as bridges: `ZHASSHORTCUTINPUTVARIABLES = 0`, empty input classes, literal prompt.
 
 ### 2.4 Test suite — the architectural gate **passed**
@@ -110,10 +113,17 @@ shortcuts-playground/shortcuts-pcc-tool/
 └── shotcuts-mac-apple-intelligence.md              # Apple Use Model doc snapshot
 
 Installed in Shortcuts.app: AFM Bridge - Cloud.signed / AFM Bridge - Cloud Pro.signed
+Phase 6 additions: AFM Bridge - On-Device.signed / AFM Bridge - ChatGPT.signed
 Pre-existing: PCC Test, PCC Test Pro (hardcoded prompts; not usable as bridges)
 ```
 
----
+### 2.9 Phase 5–6 addendum (2026-09-01): persistence + four models
+
+- Phase 5 shipped SQLite persistent chat (`chat`, `chats list/show/rename/delete`); two-turn codeword replay verified live across separate processes (commit `ba8bcb6`).
+- Phase 6 added `on-device` and `chatgpt` (user decision lifted the earlier ChatGPT exclusion). Exact `WFLLMModel` strings decoded from user-built probe shortcuts: On-Device → `Apple Intelligence on Device`, ChatGPT → `ChatGPT` (no extra parameters).
+- Approvals measured: one **Add Shortcut** GUI confirmation per import; Apple Intelligence access prompt on first model use (click Allow); ChatGPT extension consent on first `chatgpt` use. ChatGPT quirk: a signed-in ChatGPT account fails with *"login could not be verified"* — logging out fixes it; the extension needs no account.
+- On-device tier quirk: refuses to echo planted codeword content from replayed transcripts (canned refusal); instruction-following is weaker than cloud tiers. Replay delivery itself verified via neutral-fact recall.
+- Grounded model framing (Apple ML Research): third-generation AFM family of five — on-device AFM 3 Core (~3B dense) / AFM 3 Core Advanced (20B sparse MoE) and server AFM 3 Cloud / AFM 3 Cloud Pro on Private Cloud Compute; hollis tiers map to these. Apple publishes no backend model IDs; context window for PCC documented at 32K tokens (Apple dev docs); no on-device token count is published.
 
 ## 3. Stack Recommendation
 
