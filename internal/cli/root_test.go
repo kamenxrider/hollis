@@ -136,6 +136,11 @@ func TestModelsCommandListsAllTiers(t *testing.T) {
 			t.Fatalf("models output missing tier %q: %q", tier, out.String())
 		}
 	}
+	// Internal Shortcuts jargon stays out of the human surface; it lives
+	// in --json and the README.
+	if bytes.Contains(out.Bytes(), []byte("WFLLMModel")) {
+		t.Fatalf("human output must not leak internal parameter names: %q", out.String())
+	}
 	if bytes.Contains(out.Bytes(), []byte("pcc-")) || bytes.Contains(out.Bytes(), []byte("gpt-")) {
 		t.Fatalf("models output must not contain fabricated backend model IDs: %q", out.String())
 	}
