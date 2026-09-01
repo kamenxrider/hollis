@@ -83,7 +83,7 @@ extension; enable it in System Settings > Apple Intelligence & Siri).`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&model, "model", string(runner.ModelCloud), "Apple Intelligence tier: cloud, cloud-pro, on-device, or chatgpt")
+	cmd.Flags().StringVar(&model, "model", string(runner.ModelCloud), "Apple Intelligence tier: cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro), on-device (AFM 3 Core / Core Advanced by hardware), or chatgpt (ChatGPT extension); see hollis models")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	return cmd
 }
