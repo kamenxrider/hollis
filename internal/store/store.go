@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -70,7 +71,6 @@ CREATE TABLE IF NOT EXISTS messages (
 	created_at        TEXT NOT NULL,
 	metadata_json     TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, seq);
 CREATE TABLE IF NOT EXISTS runs (
 	id                INTEGER PRIMARY KEY AUTOINCREMENT,
 	conversation_id   TEXT,
@@ -81,6 +81,40 @@ CREATE TABLE IF NOT EXISTS runs (
 	error_class       TEXT,
 	stderr_excerpt    TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, seq);
+
+-- Full-text search (plan §12 addendum): external-content FTS5 kept in
+-- sync by triggers. AFTER UPDATE on messages is deliberately absent in
+-- v1 — add it when Phase 6 compaction rewrites message bodies.
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+  content, conversation_id UNINDEXED, role UNINDEXED, seq UNINDEXED,
+  content='messages', content_rowid='id'
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
+  title,
+  content='conversations', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts(rowid, content, conversation_id, role, seq)
+  VALUES (new.id, new.content, new.conversation_id, new.role, new.seq);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_bd BEFORE DELETE ON messages BEGIN
+  -- External-content FTS5 needs the old row values for 'delete'.
+  INSERT INTO messages_fts(messages_fts, rowid, content, conversation_id, role, seq)
+  VALUES ('delete', old.id, old.content, old.conversation_id, old.role, old.seq);
+END;
+CREATE TRIGGER IF NOT EXISTS conversations_fts_ai AFTER INSERT ON conversations BEGIN
+  INSERT INTO conversations_fts(rowid, title) VALUES (new.rowid, new.title);
+END;
+CREATE TRIGGER IF NOT EXISTS conversations_fts_au AFTER UPDATE OF title ON conversations BEGIN
+  INSERT INTO conversations_fts(conversations_fts, rowid, title)
+  VALUES ('delete', old.rowid, old.title);
+  INSERT INTO conversations_fts(rowid, title) VALUES (new.rowid, new.title);
+END;
+CREATE TRIGGER IF NOT EXISTS conversations_fts_bd BEFORE DELETE ON conversations BEGIN
+  INSERT INTO conversations_fts(conversations_fts, rowid, title)
+  VALUES ('delete', old.rowid, old.title);
+END;
 `
 
 // Open opens (creating if needed) the database at path and applies migrations.
@@ -100,7 +134,35 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate %s: %w", path, err)
 	}
-	return &Store{db: db}, nil
+	s := &Store{db: db}
+	if err := s.backfillFTS(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("backfill search index: %w", err)
+	}
+	return s, nil
+}
+
+// backfillFTS rebuilds the FTS tables exactly once, when rows exist but
+// the index is empty (e.g. the migration just created the FTS tables over
+// a pre-search database). Emptiness is measured on the _docsize shadow
+// table — one row per indexed document — because COUNT(*) on an
+// external-content FTS table reads through to the content table and
+// therefore mirrors the base rows whether or not anything is indexed.
+// Triggers keep the index in sync afterwards; this never runs again on a
+// synced store.
+func (s *Store) backfillFTS() error {
+	for table, fts := range map[string]string{"messages": "messages_fts", "conversations": "conversations_fts"} {
+		var rows, indexed int
+		if err := s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM `+table+`), (SELECT COUNT(*) FROM `+fts+`_docsize)`).Scan(&rows, &indexed); err != nil {
+			return err
+		}
+		if rows > 0 && indexed == 0 {
+			if _, err := s.db.Exec(`INSERT INTO ` + fts + `(` + fts + `) VALUES('rebuild')`); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // DefaultPath returns the canonical per-user database path:
@@ -282,6 +344,127 @@ func (s *Store) RecordRun(convID, model string, startedAt time.Time, durationMs 
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		convID, model, startedAt.UTC().Format(time.RFC3339Nano), durationMs, exitCode, errClass, stderrExcerpt)
 	return err
+}
+
+// SearchHit is one matching message inside a conversation.
+type SearchHit struct {
+	Seq     int64
+	Role    string
+	Snippet string
+}
+
+// SearchMatch is one conversation that matched a search, with up to a
+// few of its best message hits. A title-only match has no Hits.
+type SearchMatch struct {
+	ID        string
+	Title     string
+	Model     string
+	UpdatedAt string
+	Hits      []SearchHit
+}
+
+// quotePhrase wraps the query in double quotes (doubling embedded
+// quotes) so the whole input is one FTS5 phrase: predictable,
+// injection-safe, and hyphens like VANTA-ORBIT just work. FTS5 query
+// operators are therefore not exposed in v1.
+func quotePhrase(query string) string {
+	return `"` + strings.ReplaceAll(query, `"`, `""`) + `"`
+}
+
+// Search full-text searches messages and conversation titles. The whole
+// query is one phrase. Archived conversations are skipped; model may be
+// empty for all tiers. Results are ordered by best match rank, then
+// updated_at desc, one entry per conversation, up to limit.
+func (s *Store) Search(query, model string, limit int) ([]SearchMatch, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, errors.New("empty search query")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	phrase := quotePhrase(query)
+
+	modelFilter := ""
+	args := []any{phrase}
+	if model != "" {
+		modelFilter = " AND c.model = ?"
+		args = append(args, model)
+	}
+
+	byID := map[string]*SearchMatch{}
+	order := []string{}
+	add := func(id, title, mdl, updated string, hit *SearchHit) {
+		if _, ok := byID[id]; !ok {
+			byID[id] = &SearchMatch{ID: id, Title: title, Model: mdl, UpdatedAt: updated}
+			order = append(order, id)
+		}
+		if hit != nil && len(byID[id].Hits) < 3 {
+			byID[id].Hits = append(byID[id].Hits, *hit)
+		}
+	}
+
+	// Message hits, best rank first. bm25() is FTS5's ranking function.
+	rows, err := s.db.Query(`
+		SELECT m.conversation_id, m.seq, m.role,
+		       snippet(messages_fts, 0, '', '', '…', 12),
+		       c.title, c.model, c.updated_at
+		FROM messages_fts
+		JOIN messages m ON m.id = messages_fts.rowid
+		JOIN conversations c ON c.id = messages_fts.conversation_id
+		WHERE messages_fts MATCH ? AND c.archived = 0`+modelFilter+`
+		ORDER BY bm25(messages_fts)
+		LIMIT ?`, append(append([]any{phrase}, args[1:]...), limit*20)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var convID, title, mdl, updated, role, snip string
+		var seq int64
+		if err := rows.Scan(&convID, &seq, &role, &snip, &title, &mdl, &updated); err != nil {
+			return nil, err
+		}
+		add(convID, title, mdl, updated, &SearchHit{Seq: seq, Role: role, Snippet: snip})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	// Title hits, appended after message hits (their rank is over a
+	// different index; a direct message hit is the stronger signal).
+	trows, err := s.db.Query(`
+		SELECT c.id, c.title, c.model, c.updated_at
+		FROM conversations_fts
+		JOIN conversations c ON c.rowid = conversations_fts.rowid
+		WHERE conversations_fts MATCH ? AND c.archived = 0`+modelFilter+`
+		ORDER BY bm25(conversations_fts)
+		LIMIT ?`, append(append([]any{phrase}, args[1:]...), limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer trows.Close()
+	for trows.Next() {
+		var id, title, mdl, updated string
+		if err := trows.Scan(&id, &title, &mdl, &updated); err != nil {
+			return nil, err
+		}
+		add(id, title, mdl, updated, nil)
+	}
+	if err := trows.Err(); err != nil {
+		return nil, err
+	}
+	trows.Close()
+
+	if len(order) > limit {
+		order = order[:limit]
+	}
+	out := make([]SearchMatch, 0, len(order))
+	for _, id := range order {
+		out = append(out, *byID[id])
+	}
+	return out, nil
 }
 
 func requireAffected(res sql.Result, convID string) error {

@@ -106,6 +106,11 @@ hollis chat model cloud-pro "Two ideas for naming a CLI"
 hollis chats list
 hollis chat --continue <conversation-id> "What was the codeword?"
 
+# Full-text search over stored chats (SQLite FTS5)
+hollis chats search VANTA-ORBIT-7319
+hollis chats search --model cloud-pro "gateway design"
+hollis chats search --json --limit 5 heating
+
 # Agents
 hollis respond --agent "Return strict JSON describing X"
 hollis agent-context
@@ -156,6 +161,22 @@ hollis config show                  # path + current default
 ```
 
 Resolution order: positional `model <tier>` → explicit `--model` flag → configured default → built-in default (`auto`). The setting lives in a tiny JSON file next to the chat database (`hollis config show` prints the path).
+
+## Searching chats
+
+`hollis chats search <query>` full-text searches message bodies and conversation titles with SQLite FTS5 (plan §12 addendum):
+
+- The whole query is **one phrase** — no operators, embedded quotes are escaped, and hyphenated tokens like `VANTA-ORBIT` match verbatim.
+- Message hits show a ranked snippet (`bm25` ordering); title-only hits show the title. Archived conversations are skipped.
+- `--model <tier>` filters to one tier, `--limit <n>` caps results (default 20), `--json` emits an array of matches with up to 3 `hits` per conversation.
+- Exit codes: 0 hits · 2 empty query · 3 no matches.
+- The index is kept in sync by triggers and rebuilt automatically the first time an older database is opened.
+
+```console
+$ hollis chats search VANTA-ORBIT-7319
+ID                                      MODEL      UPDATED            TITLE / SNIPPET
+a33b0409-…                              on-device  2026-09-01T23:12Z  …codeword VANTA-ORBIT-7319…
+```
 
 ## Health check
 
