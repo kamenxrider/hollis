@@ -60,7 +60,7 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 func TestRoundTripMultiLineNoTrailingNewline(t *testing.T) {
 	r, _ := runnerWithFake(t, "echo")
 	prompt := "line1\nline2\nline3"
-	got, err := r.Run(context.Background(), ModelCloud, prompt)
+	got, _, err := r.Run(context.Background(), ModelCloud, prompt)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestRoundTripMultiLineNoTrailingNewline(t *testing.T) {
 func TestRoundTripUnicodeAndTabs(t *testing.T) {
 	r, _ := runnerWithFake(t, "echo")
 	prompt := "line1\nline2\n\ttabbed ✓ emoji 🚀 \"quoted\""
-	got, err := r.Run(context.Background(), ModelCloud, prompt)
+	got, _, err := r.Run(context.Background(), ModelCloud, prompt)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestRoundTripUnicodeAndTabs(t *testing.T) {
 
 func TestRunInvokesUUIDWithPlainTextFlag(t *testing.T) {
 	r, dir := runnerWithFake(t, "echo")
-	if _, err := r.Run(context.Background(), ModelCloudPro, "hi"); err != nil {
+	if _, _, err := r.Run(context.Background(), ModelCloudPro, "hi"); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	argv, err := os.ReadFile(dir + "/argv.txt")
@@ -99,7 +99,7 @@ func TestRunInvokesUUIDWithPlainTextFlag(t *testing.T) {
 func TestEmptyPromptRefusedWithoutSpawn(t *testing.T) {
 	r, dir := runnerWithFake(t, "echo")
 	for _, p := range []string{"", "   \n\t"} {
-		_, err := r.Run(context.Background(), ModelCloud, p)
+		_, _, err := r.Run(context.Background(), ModelCloud, p)
 		var re *Error
 		if !errors.As(err, &re) || re.Kind != KindEmptyPrompt {
 			t.Fatalf("prompt %q: want empty_prompt, got %v", p, err)
@@ -112,7 +112,7 @@ func TestEmptyPromptRefusedWithoutSpawn(t *testing.T) {
 
 func TestExitZeroEmptyStdoutIsNoOutput(t *testing.T) {
 	r, _ := runnerWithFake(t, "empty")
-	_, err := r.Run(context.Background(), ModelCloud, "hello")
+	_, _, err := r.Run(context.Background(), ModelCloud, "hello")
 	var re *Error
 	if !errors.As(err, &re) || re.Kind != KindNoOutput {
 		t.Fatalf("want KindNoOutput, got %v", err)
@@ -121,7 +121,7 @@ func TestExitZeroEmptyStdoutIsNoOutput(t *testing.T) {
 
 func TestMissingShortcutMapsExit1(t *testing.T) {
 	r, _ := runnerWithFake(t, "missing")
-	_, err := r.Run(context.Background(), ModelCloud, "hello")
+	_, _, err := r.Run(context.Background(), ModelCloud, "hello")
 	var re *Error
 	if !errors.As(err, &re) || re.Kind != KindShortcutMissing {
 		t.Fatalf("want KindShortcutMissing, got %v", err)
@@ -133,7 +133,7 @@ func TestMissingShortcutMapsExit1(t *testing.T) {
 
 func TestUsageErrorMapsExit64(t *testing.T) {
 	r, _ := runnerWithFake(t, "usage")
-	_, err := r.Run(context.Background(), ModelCloud, "hello")
+	_, _, err := r.Run(context.Background(), ModelCloud, "hello")
 	var re *Error
 	if !errors.As(err, &re) || re.Kind != KindUsage {
 		t.Fatalf("want KindUsage, got %v", err)
@@ -154,7 +154,7 @@ func TestDefaultBridgeRefsCoverAllModels(t *testing.T) {
 
 func TestAutoUsesPrimaryWithoutFallback(t *testing.T) {
 	r, dir := runnerWithFake(t, "echo")
-	got, err := r.Run(context.Background(), ModelAuto, "hello")
+	got, _, err := r.Run(context.Background(), ModelAuto, "hello")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestAutoUsesPrimaryWithoutFallback(t *testing.T) {
 
 func TestAutoFallsBackToOnDevice(t *testing.T) {
 	r, dir := runnerWithFake(t, "fail-once")
-	got, err := r.Run(context.Background(), ModelAuto, "hello")
+	got, _, err := r.Run(context.Background(), ModelAuto, "hello")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -187,9 +187,32 @@ func TestAutoFallsBackToOnDevice(t *testing.T) {
 	}
 }
 
+func TestAutoReportsTheTierThatServed(t *testing.T) {
+	// auto falls back silently; the caller must still be able to tell a
+	// cloud answer from an on-device one, because they are not
+	// interchangeable (on-device has refused tasks cloud completed).
+	r, _ := runnerWithFake(t, "echo")
+	if _, used, err := r.Run(context.Background(), ModelAuto, "hi"); err != nil || used != ModelCloud {
+		t.Fatalf("auto success: used = %q, err = %v; want cloud", used, err)
+	}
+
+	r, _ = runnerWithFake(t, "fail-once")
+	if _, used, err := r.Run(context.Background(), ModelAuto, "hi"); err != nil || used != ModelOnDevice {
+		t.Fatalf("auto fallback: used = %q, err = %v; want on-device", used, err)
+	}
+
+	// Explicit tiers always report themselves.
+	r, _ = runnerWithFake(t, "echo")
+	for _, m := range Models {
+		if _, used, err := r.Run(context.Background(), m, "hi"); err != nil || used != m {
+			t.Fatalf("explicit %s: used = %q, err = %v", m, used, err)
+		}
+	}
+}
+
 func TestAutoDoesNotRetryEmptyPrompt(t *testing.T) {
 	r, dir := runnerWithFake(t, "fail-once")
-	_, err := r.Run(context.Background(), ModelAuto, "")
+	_, _, err := r.Run(context.Background(), ModelAuto, "")
 	var re *Error
 	if !errors.As(err, &re) || re.Kind != KindEmptyPrompt {
 		t.Fatalf("want empty_prompt, got %v", err)
@@ -202,7 +225,7 @@ func TestAutoDoesNotRetryEmptyPrompt(t *testing.T) {
 func TestRoundTripOnDeviceAndChatGPT(t *testing.T) {
 	r, _ := runnerWithFake(t, "echo")
 	for _, m := range []Model{ModelOnDevice, ModelChatGPT} {
-		got, err := r.Run(context.Background(), m, "ping")
+		got, _, err := r.Run(context.Background(), m, "ping")
 		if err != nil {
 			t.Fatalf("model %s: Run: %v", m, err)
 		}
@@ -214,7 +237,7 @@ func TestRoundTripOnDeviceAndChatGPT(t *testing.T) {
 
 func TestUnknownModelRejected(t *testing.T) {
 	r, _ := runnerWithFake(t, "echo")
-	_, err := r.Run(context.Background(), Model("nope"), "hello")
+	_, _, err := r.Run(context.Background(), Model("nope"), "hello")
 	var re *Error
 	if !errors.As(err, &re) || re.Kind != KindUsage {
 		t.Fatalf("want usage error for unknown model, got %v", err)
@@ -225,7 +248,7 @@ func TestTimeoutMessageUsesEffectiveDeadline(t *testing.T) {
 	r, _ := runnerWithFake(t, "hang")
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
 	defer cancel()
-	_, err := r.Run(ctx, ModelCloud, "hello")
+	_, _, err := r.Run(ctx, ModelCloud, "hello")
 	var re *Error
 	if !errors.As(err, &re) || re.Kind != KindTimeout {
 		t.Fatalf("want KindTimeout, got %v", err)
@@ -243,7 +266,7 @@ func TestCallerDeadlineClampedToCeiling(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	start := time.Now()
-	_, err := r.Run(ctx, ModelCloud, "hello")
+	_, _, err := r.Run(ctx, ModelCloud, "hello")
 	var re *Error
 	if !errors.As(err, &re) || re.Kind != KindTimeout {
 		t.Fatalf("want KindTimeout, got %v", err)
@@ -266,7 +289,7 @@ func TestCallerDeadlineCanExceedTheDefault(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, err := r.Run(ctx, ModelCloud, "hello")
+	_, _, err := r.Run(ctx, ModelCloud, "hello")
 	elapsed := time.Since(start)
 
 	var re *Error
@@ -289,7 +312,7 @@ func TestExpiredDeadlineIsTimeoutWithoutSpawning(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 
-	_, err := r.Run(ctx, ModelCloud, "hello")
+	_, _, err := r.Run(ctx, ModelCloud, "hello")
 	var re *Error
 	if !errors.As(err, &re) || re.Kind != KindTimeout {
 		t.Fatalf("want KindTimeout, got %v (%T)", err, err)
@@ -310,7 +333,7 @@ func TestTimeoutKillsChild(t *testing.T) {
 	// rather than on the orphan it is actually looking for.
 	r.Timeout = 500 * time.Millisecond
 	start := time.Now()
-	_, err := r.Run(context.Background(), ModelCloud, "hello")
+	_, _, err := r.Run(context.Background(), ModelCloud, "hello")
 	if err == nil {
 		t.Fatal("want timeout error")
 	}
@@ -359,7 +382,7 @@ func TestConcurrencyFourParallel(t *testing.T) {
 	done := make(chan int, 4)
 	for i := 0; i < 4; i++ {
 		go func(i int) {
-			text, err := r.Run(context.Background(), ModelCloud, "parallel prompt")
+			text, _, err := r.Run(context.Background(), ModelCloud, "parallel prompt")
 			resps[i], errs[i] = text, err
 			done <- i
 		}(i)
@@ -379,7 +402,7 @@ func TestConcurrencyFourParallel(t *testing.T) {
 
 func TestUUIDAndPlainTextFlagInArgv(t *testing.T) {
 	r, dir := runnerWithFake(t, "echo")
-	if _, err := r.Run(context.Background(), ModelCloud, "hello"); err != nil {
+	if _, _, err := r.Run(context.Background(), ModelCloud, "hello"); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	argv, _ := os.ReadFile(dir + "/argv.txt")
@@ -393,7 +416,7 @@ func TestUUIDAndPlainTextFlagInArgv(t *testing.T) {
 
 func TestNoTrailingNewlinePreserved(t *testing.T) {
 	r, _ := runnerWithFake(t, "echo")
-	got, err := r.Run(context.Background(), ModelCloud, "no newline at end")
+	got, _, err := r.Run(context.Background(), ModelCloud, "no newline at end")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

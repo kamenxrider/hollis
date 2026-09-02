@@ -19,11 +19,11 @@ type echoRunner struct {
 	err error
 }
 
-func (f *echoRunner) Run(_ context.Context, _ runner.Model, prompt string) (string, error) {
+func (f *echoRunner) Run(_ context.Context, m runner.Model, prompt string) (string, runner.Model, error) {
 	if f.err != nil {
-		return "", f.err
+		return "", m, f.err
 	}
-	return prompt, nil
+	return prompt, m, nil
 }
 
 func post(t *testing.T, h http.Handler, path, body string) *httptest.ResponseRecorder {

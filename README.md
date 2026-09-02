@@ -143,6 +143,13 @@ hollis doctor --json --select bridges
 hollis agent-context                                  # machine-readable CLI description
 ```
 
+JSON output carries both `model` (what you asked for) and `model_used` (what
+answered). They differ when `auto` falls back from Cloud to On-Device — the two
+are not interchangeable, so the substitution is reported rather than hidden. In
+human mode that fallback prints one line to stderr, leaving stdout clean for
+pipelines. The local API reports the serving tier in its `model` field, as
+OpenAI does.
+
 `--agent` is shorthand for `--json --no-input`. In `--no-input` mode hollis never waits on a terminal, and destructive commands require explicit confirmation flags (`hollis chats delete <id> --yes`).
 
 Exit codes are stable and parseable:

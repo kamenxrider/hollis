@@ -53,7 +53,7 @@ func runTurn(ctx context.Context, st *store.Store, conv store.Conversation, prom
 
 	r := newRunner()
 	start := time.Now()
-	text, err := r.Run(ctx, runner.Model(conv.Model), transcript)
+	text, used, err := r.Run(ctx, runner.Model(conv.Model), transcript)
 	durationMs := time.Since(start).Milliseconds()
 
 	if err != nil {
@@ -61,13 +61,13 @@ func runTurn(ctx context.Context, st *store.Store, conv store.Conversation, prom
 		// class and a stderr excerpt (plan §12).
 		var re *runner.Error
 		if errors.As(err, &re) {
-			_ = st.RecordRun(conv.ID, conv.Model, start, durationMs, re.ExitCode, string(re.Kind), excerpt(re.Stderr, 512))
+			_ = st.RecordRun(conv.ID, string(used), start, durationMs, re.ExitCode, string(re.Kind), excerpt(re.Stderr, 512))
 		} else {
-			_ = st.RecordRun(conv.ID, conv.Model, start, durationMs, -1, "unknown", "")
+			_ = st.RecordRun(conv.ID, string(used), start, durationMs, -1, "unknown", "")
 		}
 		return "", toCLIError(err)
 	}
-	_ = st.RecordRun(conv.ID, conv.Model, start, durationMs, 0, "", "")
+	_ = st.RecordRun(conv.ID, string(used), start, durationMs, 0, "", "")
 
 	if _, err := st.AppendMessage(conv.ID, "user", prompt); err != nil {
 		return "", configErr(fmt.Errorf("store user message: %w", err))

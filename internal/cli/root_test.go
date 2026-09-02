@@ -65,11 +65,11 @@ type fakeRunner struct {
 	err error
 }
 
-func (f *fakeRunner) Run(_ context.Context, _ runner.Model, prompt string) (string, error) {
+func (f *fakeRunner) Run(_ context.Context, m runner.Model, prompt string) (string, runner.Model, error) {
 	if f.err != nil {
-		return "", f.err
+		return "", m, f.err
 	}
-	return prompt, nil
+	return prompt, m, nil
 }
 
 func TestRespondEmptyPromptExitsUsage2(t *testing.T) {
@@ -116,6 +116,17 @@ func TestRespondJSONOutput(t *testing.T) {
 	}
 	if got["model"] != "cloud" || got["response"] != "hello world" {
 		t.Fatalf("unexpected JSON: %s", buf.String())
+	}
+}
+
+func TestRespondJSONReportsModelUsed(t *testing.T) {
+	stubConfigPath(t)
+	got := respondJSON(t, "hello")
+	if got["model"] != "auto" {
+		t.Fatalf("model = %v, want the requested tier (auto)", got["model"])
+	}
+	if _, ok := got["model_used"]; !ok {
+		t.Fatal("model_used missing: auto must report which tier answered")
 	}
 }
 
@@ -243,6 +254,12 @@ func TestRespondPositionalModelSelectsTier(t *testing.T) {
 
 func TestConfigSetChangesRespondDefault(t *testing.T) {
 	stubConfigPath(t)
+	// `config set model <tier>` resolves bridges directly rather than through
+	// the runner factory, so without this stub it reads the real sw_vers and
+	// the real `shortcuts list`. On any host below macOS 27 the Cloud Pro gate
+	// then refuses the write and the test fails — which is why it passed only
+	// on the development Mac and was red on GitHub's macos-latest.
+	stubResolution(t, allImportedNames(), true, 27)
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"config", "set", "model", "cloud-pro"})
 	cmd.SetOut(&bytes.Buffer{})
