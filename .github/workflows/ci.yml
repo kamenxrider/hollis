@@ -23,14 +23,16 @@ jobs:
 
       # Bridge generation needs no Shortcuts on the runner: this catches
       # profile regressions (file sets, WFLLMModel strings, client
-      # versions) before a user ever runs make-bridge.py.
+      # versions) before a user ever runs make-bridge.py. Files are
+      # counted in Python — parsing `ls` breaks on `wc -l` padding and
+      # ls aliases/replacements alike.
       - name: Bridge generator (27 profile)
         run: |
           python3 scripts/make-bridge.py --os 27 "$RUNNER_TEMP/bridges27"
-          test "$(ls "$RUNNER_TEMP/bridges27"/*.shortcut | wc -l)" = "4"
+          python3 scripts/count_bridges.py "$RUNNER_TEMP/bridges27" 4
 
       - name: Bridge generator (26 profile)
         run: |
           python3 scripts/make-bridge.py --os 26 "$RUNNER_TEMP/bridges26"
-          test "$(ls "$RUNNER_TEMP/bridges26"/*.shortcut | wc -l)" = "3"
+          python3 scripts/count_bridges.py "$RUNNER_TEMP/bridges26" 3
           ! grep -q "Apple Intelligence Pro" "$RUNNER_TEMP/bridges26"/*.shortcut

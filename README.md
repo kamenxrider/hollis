@@ -68,7 +68,7 @@ name match from `shortcuts list`, then — only on this project's measured
 
 ## Bridge setup — what gets added and what you approve
 
-The bridge shortcuts are small two-action Shortcuts (`Use Model` → `Stop and Output`) whose prompt is bound to the **Shortcut Input** variable, so whatever hollis pipes to `/usr/bin/shortcuts run <uuid>` becomes the prompt.
+The bridge shortcuts are small two-action Shortcuts (`Use Model` → `Stop and Output`) whose prompt is bound to the **Shortcut Input** variable, so whatever hollis pipes to `/usr/bin/shortcuts run <bridge-ref>` becomes the prompt — the ref being whatever runtime resolution picked (config override, stable name, or compiled UUID).
 
 **1. Generate the bridge shortcuts**
 
