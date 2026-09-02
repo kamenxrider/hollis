@@ -806,10 +806,15 @@ func TestModelsCommandJSONShape(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatalf("JSON output: %v (%q)", err, buf.String())
 	}
-	if len(got) != 4 {
-		t.Fatalf("models JSON rows = %d, want 4", len(got))
+	if len(got) != 5 {
+		t.Fatalf("models JSON rows = %d, want 5 (auto + 4 tiers)", len(got))
 	}
-	for _, row := range got {
+	// auto leads the list: selectable, but a strategy without a bridge —
+	// the same shape GET /v1/models reports (results/macos-26-compat.md).
+	if got[0]["model"] != "auto" {
+		t.Fatalf("first row = %v, want auto", got[0])
+	}
+	for _, row := range got[1:] {
 		for _, field := range []string{"model", "wfllm_model", "apple_model", "resolved_ref", "source"} {
 			if _, ok := row[field]; !ok {
 				t.Fatalf("models JSON row missing %q: %v", field, row)
