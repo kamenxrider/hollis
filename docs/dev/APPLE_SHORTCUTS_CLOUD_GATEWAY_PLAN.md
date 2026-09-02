@@ -1,6 +1,6 @@
 # Apple Shortcuts Cloud Gateway — Project Outline
 
-> **Status:** Design + validation phase  
+> **Status:** Historical design outline. Implementation shipped; user docs are the repo README.  
 > **Date:** 2026-08-31  
 > **Workspace:** `/Users/zandbak/PLAYGROUND/shortcuts-playground/hollis`  
 > **Binary/project name:** **`hollis`** (chosen 2026-09-01; avoids `pcc`, which Apple already uses for Private Cloud Compute)
