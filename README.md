@@ -64,7 +64,29 @@ On-Device works without a network connection.
 
 ## Install
 
-Build Hollis:
+Download the latest release and put the binary on your `PATH`:
+
+```bash
+# Apple Silicon
+curl -fsSL -o hollis https://github.com/kamenxrider/hollis/releases/latest/download/hollis-darwin-arm64
+
+# Intel
+curl -fsSL -o hollis https://github.com/kamenxrider/hollis/releases/latest/download/hollis-darwin-amd64
+
+chmod +x hollis
+sudo mv hollis /usr/local/bin/
+hollis version
+```
+
+The release binaries are not codesigned. Files downloaded with `curl` carry no quarantine flag, so macOS runs them without a Gatekeeper prompt.
+
+Or install with Go 1.27+:
+
+```bash
+go install github.com/kamenxrider/hollis/cmd/hollis@latest
+```
+
+Or build from source:
 
 ```bash
 go build -o "$(go env GOPATH)/bin/hollis" ./cmd/hollis
