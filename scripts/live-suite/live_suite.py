@@ -204,15 +204,34 @@ class Suite:
                         inv,
                     )
                 )
+            # Runtime resolution must be visible: macos, resolved_ref,
+            # source, status (results/macos-26-compat.md step 3).
+            resolution_ok = (
+                bool(data.get("macos"))
+                and all(
+                    b.get("resolved_ref") and b.get("source") and b.get("status")
+                    for b in (bridges or [])
+                    if isinstance(b, dict)
+                )
+            )
+            self.record(
+                Case(
+                    "doctor-json-resolution",
+                    "offline",
+                    PASS if resolution_ok else FAIL,
+                    f"macos={data.get('macos')!r} resolved={[b.get('resolved_ref') for b in (bridges or [])]}",
+                    inv,
+                )
+            )
 
         inv = run(self.h("models", "--json"))
         rows = self.expect_json("models-json", "offline", inv)
         if rows is not None:
             got = [r.get("model") for r in rows] if isinstance(rows, list) else None
-            if got != ["cloud", "cloud-pro", "on-device", "chatgpt"]:
+            if got != ["auto", "cloud", "cloud-pro", "on-device", "chatgpt"]:
                 self.record(Case("models-json-tiers", "offline", FAIL, f"got {got}", inv))
             else:
-                self.record(Case("models-json-tiers", "offline", PASS, "four tiers", inv))
+                self.record(Case("models-json-tiers", "offline", PASS, "auto + four tiers", inv))
 
         inv = run(self.h("agent-context"))
         ctx = self.expect_json("agent-context", "offline", inv)
@@ -309,6 +328,58 @@ class Suite:
             self.record(Case("respond-help", "offline", FAIL, "does not point at hollis chat", inv))
         else:
             self.record(Case("respond-help", "offline", PASS, "points at hollis chat", inv))
+
+        # chats search exit contract: 2 empty query, 3 no matches.
+        self.expect_exit(
+            "chats-search-empty",
+            "offline",
+            run(self.h("chats", "search", "   ")),
+            2,
+        )
+        self.expect_exit(
+            "chats-search-no-hits",
+            "offline",
+            run(self.h("chats", "search", "zzz-no-such-phrase-in-any-chat")),
+            3,
+        )
+
+        # Bridge override roundtrip (results/macos-26-compat.md step 2): a
+        # fake config name must drop cloud-pro from the catalog, then the
+        # override is cleared again. No Apple quota involved.
+        before_cfg = run(self.h("config", "show", "--json"))
+        before_bridges = (self.expect_json("config-show-before-bridges", "offline", before_cfg) or {}).get("bridges") or {}
+        set_inv = run(self.h("config", "set", "bridge", "cloud-pro", "Fake Pro Bridge"))
+        if set_inv.exit != 0:
+            self.record(Case("config-set-bridge", "offline", FAIL, set_inv.stderr, set_inv))
+        else:
+            inv = run(self.h("models", "--json"))
+            rows = self.expect_json("models-fake-pro", "offline", inv)
+            if rows is not None:
+                got = [r.get("model") for r in rows if isinstance(r, dict)]
+                self.record(
+                    Case(
+                        "config-set-bridge-drops-pro",
+                        "offline",
+                        FAIL if "cloud-pro" in got else PASS,
+                        f"models={got}",
+                        inv,
+                    )
+                )
+        clear = run(self.h("config", "set", "bridge", "cloud-pro", ""))
+        if clear.exit != 0:
+            self.record(Case("config-bridge-restored", "offline", FAIL, clear.stderr, clear))
+        else:
+            after_cfg = run(self.h("config", "show", "--json"))
+            after_bridges = (self.expect_json("config-show-after-bridges", "offline", after_cfg) or {}).get("bridges") or {}
+            self.record(
+                Case(
+                    "config-bridge-restored",
+                    "offline",
+                    PASS if after_bridges == before_bridges else FAIL,
+                    f"bridges after={after_bridges!r} (before={before_bridges!r})",
+                    after_cfg,
+                )
+            )
 
         inv = run(self.h("chats", "list"))
         header = inv.stdout.splitlines()[0] if inv.stdout else ""

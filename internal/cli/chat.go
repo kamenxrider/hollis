@@ -220,6 +220,13 @@ func newChatsCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "chats",
 		Short: "Inspect persistent chats (list, search, show, rename, delete)",
+		// Unknown subcommands are a usage error for agents, not help + exit 0.
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+			return usageErr(fmt.Errorf("unknown chats command %q: run 'hollis chats --help'", args[0]))
+		},
 	}
 	cmd.AddCommand(newChatsListCmd(flags))
 	cmd.AddCommand(newChatsSearchCmd(flags))

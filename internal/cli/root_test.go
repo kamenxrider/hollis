@@ -712,6 +712,27 @@ func TestDoctorJSONMacosAndStatus(t *testing.T) {
 	}
 }
 
+func TestUnknownSubcommandExits2(t *testing.T) {
+	// results review blocker 9: unknown subcommands must be a stable usage
+	// error for agents, not parent help with exit 0.
+	for _, args := range [][]string{
+		{"bogus"},
+		{"chats", "bogus"},
+		{"config", "bogus"},
+	} {
+		cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+		cmd.SetArgs(args)
+		cmd.SetOut(&bytes.Buffer{})
+		err := cmd.Execute()
+		if got := ExitCode(err); got != 2 {
+			t.Fatalf("args %v: exit code = %d, want 2", args, got)
+		}
+		if !strings.Contains(err.Error(), "unknown") {
+			t.Fatalf("args %v: error = %v", args, err)
+		}
+	}
+}
+
 func TestAgentContextSchemaPresent(t *testing.T) {
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"agent-context"})
