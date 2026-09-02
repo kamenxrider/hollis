@@ -1,7 +1,7 @@
 # Shortcuts Cloud Gateway — Session Recap & Stack Decision
 
-> **Date:** 2026-09-01
-> **Status:** Design + validation complete. Implementation not started.
+> **Date:** 2026-09-01 (snapshot — do not treat as current product status)
+> **Status:** Historical. The CLI has since shipped (`hollis` 0.1); see the repo README.
 > **Name:** the binary is **`hollis`** (decided 2026-09-01 — clean across Homebrew-core, crates.io, PyPI, npm, and RubyGems). The folder was renamed from the `shortcuts-pcc-tool` placeholder.
 > **Canonical plan:** `APPLE_SHORTCUTS_CLOUD_GATEWAY_PLAN.md` (in this folder)
 
