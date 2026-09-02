@@ -43,17 +43,65 @@ func TestResolveBridgesMeasuredMachine(t *testing.T) {
 	}
 }
 
-func TestResolveBridgesRenameFallsBackToCompiledUUIDOn27(t *testing.T) {
-	// Renamed bridge on 27: the UUID fallback keeps the tier available —
-	// UUIDs survive renames (measured). Doctor shows the compiled ref.
+func TestResolveBridgesRenamedBridgeReportsMissing(t *testing.T) {
+	// Renamed away on 27. `shortcuts run <UUID>` would still work, but a
+	// rename is indistinguishable from an absent bridge when all we have is
+	// the name listing — and the far more common cause of "no name match"
+	// is a machine that never imported the bridges at all. Report missing
+	// and let `hollis config set bridge` be the remedy, rather than
+	// reporting OK on every fresh Mac. The compiled UUID stays as the Ref
+	// so that remedy has something to point at.
 	names := []string{"AFM Bridge - On-Device.signed", "AFM Bridge - ChatGPT.signed"} // cloud/pro renamed away
 	res := ResolveBridges(names, true, 27, nil)
 	cloud := refsByModel(res, ModelCloud)
-	if cloud.Available != true || cloud.Source != SourceCompiled || cloud.Ref != CompiledUUID(ModelCloud) {
-		t.Fatalf("cloud after rename = %+v, want available via compiled UUID", cloud)
+	if cloud.Available {
+		t.Fatalf("cloud after rename = %+v, want unavailable", cloud)
+	}
+	if cloud.Source != SourceCompiled || cloud.Ref != CompiledUUID(ModelCloud) {
+		t.Fatalf("cloud after rename = %+v, want the compiled UUID as Ref", cloud)
 	}
 	if cloud.ListedName != "" {
 		t.Fatalf("cloud ListedName = %q, want empty", cloud.ListedName)
+	}
+	// The documented remedy restores it.
+	res = ResolveBridges(names, true, 27, map[Model]string{ModelCloud: CompiledUUID(ModelCloud)})
+	if rb := refsByModel(res, ModelCloud); !rb.Available || rb.Source != SourceConfig {
+		t.Fatalf("cloud with config UUID override = %+v, want available", rb)
+	}
+	// On-device was never renamed, so it still resolves by name.
+	if rb := refsByModel(res, ModelOnDevice); !rb.Available || rb.Source != SourceList {
+		t.Fatalf("on-device = %+v, want available via list", rb)
+	}
+}
+
+func TestResolveBridgesFreshMacWithNoBridgesIsUnavailable(t *testing.T) {
+	// The case every non-measured machine is in, and the one the pre-fix
+	// code got wrong: `shortcuts list` works fine, none of our bridges are
+	// installed, and the compiled UUIDs belong to someone else's Mac.
+	// Doctor must say MISSING here, not OK.
+	res := ResolveBridges([]string{"Some Unrelated Shortcut", "Make PDF"}, true, 27, nil)
+	for _, m := range Models {
+		rb := refsByModel(res, m)
+		if rb.Available {
+			t.Fatalf("%s on a fresh 27 Mac = %+v, want unavailable", m, rb)
+		}
+		if rb.ListedName != "" {
+			t.Fatalf("%s: ListedName = %q, want empty", m, rb.ListedName)
+		}
+	}
+}
+
+func TestResolveBridgesPartialInstallGatesPerTier(t *testing.T) {
+	// Half-finished import: only Cloud was signed and opened. That tier
+	// works and the other three must not claim to.
+	res := ResolveBridges([]string{"AFM Bridge - Cloud.signed"}, true, 27, nil)
+	if rb := refsByModel(res, ModelCloud); !rb.Available || rb.Source != SourceList {
+		t.Fatalf("cloud = %+v, want available via list", rb)
+	}
+	for _, m := range []Model{ModelCloudPro, ModelOnDevice, ModelChatGPT} {
+		if rb := refsByModel(res, m); rb.Available {
+			t.Fatalf("%s = %+v, want unavailable", m, rb)
+		}
 	}
 }
 

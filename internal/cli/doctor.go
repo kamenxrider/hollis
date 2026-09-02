@@ -58,6 +58,7 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 			resolved, resErr := resolveBridges(cmd.Context())
 			osMajor := macosMajorVersion()
 			report["macos"] = macosVersion()
+			report["macos_build"] = macosBuild()
 			report["support"] = supportNote
 			bridges := []bridgeCheck{}
 			for _, m := range runner.Models {
@@ -91,10 +92,15 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "hollis doctor (version %s)\n", version)
 			fmt.Fprintf(w, "  transport: %s\n", report["shortcuts_cli"])
-			fmt.Fprintf(w, "  macos: %s\n", report["macos"])
+			if b := report["macos_build"]; b != "" {
+				fmt.Fprintf(w, "  macos: %s (%s)\n", report["macos"], b)
+			} else {
+				fmt.Fprintf(w, "  macos: %s\n", report["macos"])
+			}
 			fmt.Fprintf(w, "  support: %s\n", supportNote)
 			fmt.Fprintf(w, "  timeout default: %s (ceiling 120s)\n", runner.DefaultTimeout)
 			fmt.Fprintf(w, "  bridges (resolved at runtime):\n")
+			missing := false
 			for _, b := range bridges {
 				indicator := "OK"
 				if b.Status != "ok" {
@@ -103,10 +109,21 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 						indicator = "UNSUPPORTED"
 					}
 				}
-				fmt.Fprintf(w, "    [%s] %-10s %s (%s)\n", indicator, b.Model, b.ResolvedRef, b.Source)
+				// Pad the bracketed indicator so MISSING/UNSUPPORTED rows do
+				// not shove the tier column out of alignment.
+				fmt.Fprintf(w, "    %-11s %-10s %s (%s)\n", "["+indicator+"]", b.Model, b.ResolvedRef, b.Source)
 				if b.Status == "unsupported" {
 					fmt.Fprintf(w, "           %s\n", unresolvedProNote)
 				}
+				if b.Status == "missing" {
+					missing = true
+				}
+			}
+			// A MISSING row is the one doctor result that needs an action, so
+			// say what the action is rather than leaving the reader to find
+			// it in the README.
+			if missing {
+				fmt.Fprintf(w, "\n  %s\n", missingBridgeRemedy)
 			}
 			return nil
 		},

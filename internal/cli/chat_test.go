@@ -45,7 +45,7 @@ func TestRunTurnStoresReplayHistory(t *testing.T) {
 	newRunner := func() runner.Runner { return r }
 
 	// Turn 1: no history.
-	if _, err := runTurn(context.Background(), st, conv, "Remember the codeword ORBIT-9", func() runner.Runner { return r }); err != nil {
+	if _, err := runTurn(context.Background(), st, conv, "Remember the codeword ORBIT-9", func() runner.Runner { return r }, 0); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(r.lastPrompt, "ASSISTANT:") {
@@ -53,7 +53,7 @@ func TestRunTurnStoresReplayHistory(t *testing.T) {
 	}
 
 	// Turn 2: the replay must contain the prior turn's user message.
-	if _, err := runTurn(context.Background(), st, conv, "What was the codeword?", newRunner); err != nil {
+	if _, err := runTurn(context.Background(), st, conv, "What was the codeword?", newRunner, 0); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(r.lastPrompt, "ORBIT-9") {
