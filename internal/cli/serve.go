@@ -45,7 +45,17 @@ response in a single call, and faking it is forbidden (plan principle 6).`,
 				return usageErr(errors.New("binding to a non-loopback address requires --token (remote bind requires auth, plan §30)"))
 			}
 
-			srv := server.New(newRunner(), token)
+			r := newRunner()
+			srv := server.New(r, token)
+			// Resolve bridges once at startup (results/macos-26-compat.md
+			// steps 1+2): the transport invokes resolved refs and /v1/models
+			// lists only tiers whose bridges resolve. Fakes skip resolution.
+			if resolved, err := resolveForRunner(cmd.Context(), newRunner); err != nil {
+				return configErr(err)
+			} else if resolved != nil {
+				applyResolvedRefs(r, resolved)
+				srv.Available = availabilityMap(resolved)
+			}
 			httpServer := &http.Server{
 				Addr:              addr,
 				Handler:           srv.Handler(),

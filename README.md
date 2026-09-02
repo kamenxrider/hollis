@@ -41,6 +41,31 @@ References: [third-generation AFM announcement](https://machinelearning.apple.co
 go build -o "$(go env GOPATH)/bin/hollis" ./cmd/hollis
 ```
 
+Requirements: **macOS 27 measured; macOS 26 experimental / untested** (see [Compatibility](#compatibility)).
+
+## Compatibility
+
+Measured on macOS 27 (Apple Intelligence Use Model: on-device, Cloud,
+Cloud Pro, ChatGPT).
+
+macOS 26 (Tahoe) is **untested**. Shortcuts there documented three Use
+Model locations (on-device, one Private Cloud Compute cloud, ChatGPT) —
+no Cloud Pro. `hollis` will refuse `cloud-pro` if that bridge is absent.
+The `cloud` tier on 26 is last year's PCC model, not AFM 3.
+
+`fm` is not used. On macOS 26 the Foundation Models API had no PCC
+backend; Shortcuts is the cloud path.
+
+If you are on 26: generate `python3 scripts/make-bridge.py --os 26`,
+sign, import, run `hollis doctor`, then `hollis respond --model cloud
+"Reply with OK"`. Please file what doctor printed and whether UUID or
+name worked. Until then, treat 26 as experimental.
+
+Bridges resolve at runtime on every machine: a `config.json` override
+(`hollis config set bridge <tier> <name-or-uuid>`) wins, then a stable
+name match from `shortcuts list`, then — only on this project's measured
+27 machine — the compiled-in UUIDs. You never need to know the UUIDs.
+
 ## Bridge setup — what gets added and what you approve
 
 The bridge shortcuts are small two-action Shortcuts (`Use Model` → `Stop and Output`) whose prompt is bound to the **Shortcut Input** variable, so whatever hollis pipes to `/usr/bin/shortcuts run <uuid>` becomes the prompt.

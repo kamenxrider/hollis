@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -527,6 +528,190 @@ func TestChatEmptyPromptLeavesNoConversation(t *testing.T) {
 	}
 }
 
+func TestRespondUnavailableModelExits2(t *testing.T) {
+	// results/macos-26-compat.md step 2: cloud-pro without a usable bridge
+	// is a clean usage error, not a missing-shortcut transport failure.
+	// The md's 27 test points Pro at a fake name in config; the real
+	// runner is required so the gate engages, the listing is stubbed.
+	stubConfigPath(t)
+	stubResolution(t, allImportedNames(), true, 27)
+	c, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Bridges = map[string]string{"cloud-pro": "Fake Pro Bridge"}
+	if err := saveConfig(c); err != nil {
+		t.Fatal(err)
+	}
+	cmd := NewRootCmd(func() runner.Runner { return runner.New() })
+	cmd.SetArgs([]string{"respond", "--model", "cloud-pro", "Reply with OK"})
+	cmd.SetOut(&bytes.Buffer{})
+	err = cmd.Execute()
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("exit code = %d, want 2", got)
+	}
+	for _, want := range []string{"cloud-pro is not available", "Cloud Pro requires macOS 27"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
+	}
+}
+
+func TestRespondAvailableModelStillRuns(t *testing.T) {
+	// The same gate must not break available tiers (the fake runner runs;
+	// the gate is skipped for fakes, mirroring prod where the transport is
+	// real and resolves).
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"respond", "--model", "cloud", "hello"})
+	cmd.SetOut(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("respond with fake runner: %v", err)
+	}
+}
+
+func TestConfigSetModelUnavailableExits2(t *testing.T) {
+	stubConfigPath(t)
+	// A 26 machine imports the 26 profile: three bridges, no Pro.
+	names := []string{"AFM Bridge - Cloud.signed", "AFM Bridge - On-Device.signed", "AFM Bridge - ChatGPT.signed"}
+	stubResolution(t, names, true, 26)
+	cmd := NewRootCmd(func() runner.Runner { return runner.New() })
+	cmd.SetArgs([]string{"config", "set", "model", "cloud-pro"})
+	cmd.SetOut(&bytes.Buffer{})
+	err := cmd.Execute()
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("exit code = %d, want 2", got)
+	}
+	if !strings.Contains(err.Error(), "cloud-pro is not available") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestConfigSetBridgePersistsAndClears(t *testing.T) {
+	stubConfigPath(t)
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"config", "set", "bridge", "cloud", "AFM Bridge - Custom"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config set bridge: %v", err)
+	}
+	c, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Bridges["cloud"] != "AFM Bridge - Custom" {
+		t.Fatalf("bridges = %+v", c.Bridges)
+	}
+	// Empty value clears the override.
+	cmd = NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"config", "set", "bridge", "cloud", ""})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config set bridge clear: %v", err)
+	}
+	c, err = loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.Bridges["cloud"]; ok {
+		t.Fatalf("override survived clear: %+v", c.Bridges)
+	}
+	// auto is not a bridge tier.
+	cmd = NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"config", "set", "bridge", "auto", "x"})
+	err = cmd.Execute()
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("bridge auto: exit code = %d, want 2", got)
+	}
+}
+
+func TestModelsOmitUnavailablePro(t *testing.T) {
+	// results/macos-26-compat.md step 2: the catalog is what resolves.
+	// A fake Pro config name removes cloud-pro from models without
+	// touching the other tiers.
+	stubConfigPath(t)
+	stubResolution(t, allImportedNames(), true, 27)
+	c, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Bridges = map[string]string{"cloud-pro": "Fake Pro Bridge"}
+	if err := saveConfig(c); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"models", "--json"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	var buf bytes.Buffer
+	oldOut := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatal(pipeErr)
+	}
+	os.Stdout = w
+	execErr := cmd.Execute()
+	os.Stdout = oldOut
+	w.Close()
+	if execErr != nil {
+		t.Fatalf("Execute: %v", execErr)
+	}
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "cloud-pro") {
+		t.Fatalf("unavailable pro surfaced: %s", buf.String())
+	}
+	for _, want := range []string{"\"cloud\"", "\"on-device\"", "\"chatgpt\"", "resolved_ref"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Fatalf("models JSON missing %s: %s", want, buf.String())
+		}
+	}
+}
+
+func TestDoctorJSONMacosAndStatus(t *testing.T) {
+	stubConfigPath(t)
+	stubResolution(t, allImportedNames(), true, 27)
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"doctor", "--json"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	var buf bytes.Buffer
+	oldOut := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatal(pipeErr)
+	}
+	os.Stdout = w
+	execErr := cmd.Execute()
+	os.Stdout = oldOut
+	w.Close()
+	if execErr != nil {
+		t.Fatalf("Execute: %v", execErr)
+	}
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("JSON: %v (%q)", err, buf.String())
+	}
+	if got["macos"] != "27.0" {
+		t.Fatalf("macos = %v", got["macos"])
+	}
+	bridges, ok := got["bridges"].([]any)
+	if !ok || len(bridges) != 4 {
+		t.Fatalf("bridges = %+v", got["bridges"])
+	}
+	first, _ := bridges[0].(map[string]any)
+	for _, key := range []string{"resolved_ref", "source", "status", "uuid", "name", "installed", "model"} {
+		if _, ok := first[key]; !ok {
+			t.Fatalf("bridge entry missing %q: %+v", key, first)
+		}
+	}
+	if first["status"] != "ok" || first["source"] != "shortcuts-list" {
+		t.Fatalf("first bridge = %+v", first)
+	}
+}
+
 func TestAgentContextSchemaPresent(t *testing.T) {
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"agent-context"})
@@ -536,7 +721,41 @@ func TestAgentContextSchemaPresent(t *testing.T) {
 	}
 }
 
+// allImportedNames returns the shortcut names the measured 27 machine
+// shows after the standard signed import (make-bridge.py + sign).
+func allImportedNames() []string {
+	return []string{
+		"AFM Bridge - Cloud.signed",
+		"AFM Bridge - Cloud Pro.signed",
+		"AFM Bridge - On-Device.signed",
+		"AFM Bridge - ChatGPT.signed",
+	}
+}
+
+// stubResolution points bridge resolution at an in-memory machine: the
+// given installed names and macOS major. Restores the package vars after.
+func stubResolution(t *testing.T, installed []string, listOK bool, major int) {
+	t.Helper()
+	oldList := listInstalledShortcuts
+	listInstalledShortcuts = func(_ context.Context) ([]string, error) {
+		if !listOK {
+			return nil, errors.New("shortcuts list failed")
+		}
+		return installed, nil
+	}
+	oldMajor := macosMajorVersion
+	macosMajorVersion = func() int { return major }
+	oldVersion := macosVersion
+	macosVersion = func() string { return fmt.Sprintf("%d.0", major) }
+	t.Cleanup(func() {
+		listInstalledShortcuts = oldList
+		macosMajorVersion = oldMajor
+		macosVersion = oldVersion
+	})
+}
+
 func TestModelsCommandListsAllTiers(t *testing.T) {
+	stubResolution(t, allImportedNames(), true, 27)
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"models"})
 	var out bytes.Buffer
@@ -560,6 +779,7 @@ func TestModelsCommandListsAllTiers(t *testing.T) {
 }
 
 func TestModelsCommandJSONShape(t *testing.T) {
+	stubResolution(t, allImportedNames(), true, 27)
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"models", "--json"})
 	cmd.SetOut(&bytes.Buffer{})
@@ -590,7 +810,7 @@ func TestModelsCommandJSONShape(t *testing.T) {
 		t.Fatalf("models JSON rows = %d, want 4", len(got))
 	}
 	for _, row := range got {
-		for _, field := range []string{"model", "wfllm_model", "apple_model", "bridge_uuid"} {
+		for _, field := range []string{"model", "wfllm_model", "apple_model", "resolved_ref", "source"} {
 			if _, ok := row[field]; !ok {
 				t.Fatalf("models JSON row missing %q: %v", field, row)
 			}

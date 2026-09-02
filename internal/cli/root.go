@@ -46,7 +46,10 @@ returns plain text. Prompts come from arguments or stdin, so shell pipelines
 and agents drive it. Persistent chats are stored in local SQLite and replayed
 each turn.
 
-Model tiers: run 'hollis models' to see what maps to what.
+Model tiers: run 'hollis models' to see what resolves on this machine
+(cloud-pro is macOS 27+). Bridge shortcuts are resolved at runtime:
+config override > installed name > compiled UUID ('hollis config set
+bridge <tier> <name-or-uuid>' to override).
 Default model: auto (cloud first, on-device fallback if cloud fails).
 Agent mode: add --agent to any command for JSON output + non-interactive mode.
 Health check: run 'hollis doctor' to verify the transport and bridges.
