@@ -58,7 +58,15 @@ sources.`,
 			osMajor := macosMajorVersion()
 
 			if flags.asJSON {
-				rows := make([]map[string]any, 0, len(modelCatalog))
+				// auto first — it is selectable but a strategy, not a tier:
+				// no WFLLMModel parameter and no bridge of its own, matching
+				// the human output and GET /v1/models (results/
+				// macos-26-compat.md: both surfaces list auto plus what
+				// resolves).
+				rows := []map[string]any{{
+					"model":       "auto",
+					"apple_model": "fallback strategy: cloud first, on-device on failure",
+				}}
 				for _, m := range modelCatalog {
 					rb := resolved[m.tier]
 					if !rb.Available {
