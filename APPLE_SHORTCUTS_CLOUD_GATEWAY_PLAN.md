@@ -764,6 +764,27 @@ stderr_excerpt    TEXT
 
 Do not store secrets in run records.
 
+### Addendum (2026-09-02): full-text search
+
+Two external-content FTS5 virtual tables mirror the base rows and are kept
+in sync by triggers (messages: AFTER INSERT / BEFORE DELETE; conversations:
+AFTER INSERT / AFTER UPDATE OF title / BEFORE DELETE):
+
+```sql
+messages_fts       (content, conversation_id UNINDEXED, role UNINDEXED, seq UNINDEXED)
+conversations_fts  (title)
+```
+
+- External content: the FTS tables store only the token index; values are
+  read from the base tables by rowid.
+- One-time backfill: when rows exist but the index is empty (`_docsize`
+  shadow-table count is 0 — `COUNT(*)` on an external-content FTS table
+  reads through to the base table and cannot detect emptiness), Open runs
+  FTS5 `rebuild` once. Triggers keep the index synced afterwards.
+- v1 queries are single phrases: no operators, embedded quotes doubled,
+  hyphenated tokens verbatim. Ranked by `bm25`; archived conversations
+  skipped; optional model filter; default limit 20.
+
 ---
 
 ## 13. Conversation Rendering
@@ -1585,6 +1606,19 @@ Original Phase 7 scope:
 ```
 
 Non-streaming only.
+
+### Phase 7a — Chats full-text search ✅ COMPLETE (2026-09-02)
+
+`hollis chats search <query>` shipped on SQLite FTS5 (§12 addendum): the
+whole query is one phrase — no operators, quotes escaped, hyphenated tokens
+like `VANTA-ORBIT` verbatim. Message hits surface ranked snippets
+(`bm25`); title-only hits surface the title; archived conversations are
+skipped; `--model <tier>` filters one tier and `--limit` caps results
+(default 20). Exit codes: 0 hits, 2 empty query, 3 no matches. `--json`
+emits matches with up to 3 `hits` each and honors `--select`/`--agent`.
+The one-time index backfill fires on Open for pre-search databases
+(detected via the `_docsize` shadow table); live-verified against the real
+store after the backfill recovered its empty index.
 
 ### Phase 8 — Hardening
 

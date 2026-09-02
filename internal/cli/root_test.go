@@ -356,6 +356,148 @@ func TestChatsListShowsModelColumn(t *testing.T) {
 	}
 }
 
+func TestChatsSearchHumanOutput(t *testing.T) {
+	st := openTempStore(t)
+	oldOpen := openStore
+	openStore = func() (*store.Store, error) { return st, nil }
+	t.Cleanup(func() { openStore = oldOpen })
+	conv, err := st.CreateConversation("cloud", "orbit chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendMessage(conv.ID, "user", "codeword VANTA-ORBIT-7319 stands"); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"chats", "search", "VANTA-ORBIT-7319"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("chats search: %v", err)
+	}
+	for _, want := range []string{"TITLE / SNIPPET", conv.ID, "cloud", "VANTA-ORBIT-7319"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("chats search output missing %q: %q", want, out.String())
+		}
+	}
+}
+
+func TestChatsSearchEmptyQueryExit2(t *testing.T) {
+	st := openTempStore(t)
+	oldOpen := openStore
+	openStore = func() (*store.Store, error) { return st, nil }
+	t.Cleanup(func() { openStore = oldOpen })
+
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"chats", "search", "   "})
+	cmd.SetOut(&bytes.Buffer{})
+	err := cmd.Execute()
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("exit code = %d, want 2", got)
+	}
+}
+
+func TestChatsSearchNoHitsExit3(t *testing.T) {
+	// Each Execute opens and closes its own store, so hand out a fresh
+	// empty one per invocation instead of sharing one instance.
+	oldOpen := openStore
+	openStore = func() (*store.Store, error) { return openTempStore(t), nil }
+	t.Cleanup(func() { openStore = oldOpen })
+
+	for _, query := range [][]string{
+		{"chats", "search", "nothing-matches-this"},
+		{"chats", "search", "--json", "nothing-matches-this"},
+	} {
+		cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+		cmd.SetArgs(query)
+		cmd.SetOut(&bytes.Buffer{})
+		err := cmd.Execute()
+		if got := ExitCode(err); got != 3 {
+			t.Fatalf("query %v: exit code = %d, want 3", query, got)
+		}
+	}
+}
+
+func TestChatsSearchJSONShape(t *testing.T) {
+	st := openTempStore(t)
+	oldOpen := openStore
+	openStore = func() (*store.Store, error) { return st, nil }
+	t.Cleanup(func() { openStore = oldOpen })
+	conv, err := st.CreateConversation("cloud-pro", "json shape chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendMessage(conv.ID, "user", "heating poll summary q"); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"chats", "search", "--json", "heating poll"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	old := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatal(pipeErr)
+	}
+	os.Stdout = w
+	execErr := cmd.Execute()
+	os.Stdout = old
+	w.Close()
+	if execErr != nil {
+		t.Fatalf("Execute: %v", execErr)
+	}
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("JSON output: %v (%q)", err, buf.String())
+	}
+	if len(got) != 1 {
+		t.Fatalf("JSON matches = %d, want 1", len(got))
+	}
+	row := got[0]
+	if row["id"] != conv.ID || row["model"] != "cloud-pro" {
+		t.Fatalf("row = %+v", row)
+	}
+	hits, ok := row["hits"].([]any)
+	if !ok || len(hits) != 1 {
+		t.Fatalf("hits = %+v, want one entry", row["hits"])
+	}
+	hit, _ := hits[0].(map[string]any)
+	if hit["seq"] != float64(0) || hit["role"] != "user" {
+		t.Fatalf("hit = %+v", hit)
+	}
+	if s, _ := hit["snippet"].(string); !strings.Contains(s, "heating poll") {
+		t.Fatalf("snippet = %q", s)
+	}
+}
+
+func TestChatsSearchValidatesFlags(t *testing.T) {
+	st := openTempStore(t)
+	oldOpen := openStore
+	openStore = func() (*store.Store, error) { return st, nil }
+	t.Cleanup(func() { openStore = oldOpen })
+
+	for _, args := range [][]string{
+		{"chats", "search", "--model", "nope", "x"},
+		{"chats", "search", "--limit", "0", "x"},
+	} {
+		cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+		cmd.SetArgs(args)
+		cmd.SetOut(&bytes.Buffer{})
+		err := cmd.Execute()
+		if got := ExitCode(err); got != 2 {
+			t.Fatalf("args %v: exit code = %d, want 2", args, got)
+		}
+	}
+}
+
 func TestChatEmptyPromptLeavesNoConversation(t *testing.T) {
 	// results/advanced-cli-test-2026-09-01 defect 5: the conversation was
 	// created before the prompt was validated, leaving 0-message rows.

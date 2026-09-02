@@ -207,13 +207,97 @@ func runInteractiveChat(st *store.Store, model string, newRunner newRunnerFunc) 
 func newChatsCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "chats",
-		Short: "Inspect persistent chats (list, show, rename, delete)",
+		Short: "Inspect persistent chats (list, search, show, rename, delete)",
 	}
 	cmd.AddCommand(newChatsListCmd(flags))
+	cmd.AddCommand(newChatsSearchCmd(flags))
 	cmd.AddCommand(newChatsShowCmd(flags))
 	cmd.AddCommand(newChatsRenameCmd(flags))
 	cmd.AddCommand(newChatsDeleteCmd(flags))
 	return cmd
+}
+
+func newChatsSearchCmd(flags *rootFlags) *cobra.Command {
+	var (
+		modelFilter string
+		limit       int
+	)
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Full-text search chat messages and titles (FTS5)",
+		Long: `Full-text search over stored chats (SQLite FTS5).
+
+The whole query is one phrase: no operators, embedded quotes are escaped,
+and hyphenated tokens like VANTA-ORBIT match verbatim. Message bodies and
+conversation titles are searched; archived conversations are skipped.
+
+Exit codes: 0 hits, 2 empty query, 3 no matches.`,
+		Example: `  hollis chats search VANTA-ORBIT
+  hollis chats search --model cloud-pro "gateway design"
+  hollis chats search --json --limit 5 heating`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			query := strings.Join(args, " ")
+			if strings.TrimSpace(query) == "" {
+				return usageErr(errors.New("empty search query"))
+			}
+			if modelFilter != "" && !runner.Model(modelFilter).Valid() {
+				return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", modelFilter))
+			}
+			if limit < 1 {
+				return usageErr(fmt.Errorf("invalid --limit %d: must be at least 1", limit))
+			}
+			st, err := openStore()
+			if err != nil {
+				return configErr(err)
+			}
+			defer st.Close()
+			matches, err := st.Search(query, modelFilter, limit)
+			if err != nil {
+				return configErr(err)
+			}
+			if len(matches) == 0 {
+				return notFoundErr(fmt.Errorf("no chats match %q", query))
+			}
+			if flags.asJSON {
+				rows := make([]map[string]any, 0, len(matches))
+				for _, m := range matches {
+					hits := make([]map[string]any, 0, len(m.Hits))
+					for _, h := range m.Hits {
+						hits = append(hits, map[string]any{"seq": h.Seq, "role": h.Role, "snippet": h.Snippet})
+					}
+					rows = append(rows, map[string]any{
+						"id": m.ID, "title": m.Title, "model": m.Model,
+						"updated_at": m.UpdatedAt, "hits": hits,
+					})
+				}
+				return printJSONArrayFiltered(rows, flags)
+			}
+			w := cmd.OutOrStdout()
+			fmt.Fprintf(w, "%-38s  %-9s  %-17s  %s\n", "ID", "MODEL", "UPDATED", "TITLE / SNIPPET")
+			for _, m := range matches {
+				line := m.Title
+				if len(m.Hits) > 0 {
+					line = strings.ReplaceAll(m.Hits[0].Snippet, "\n", " ")
+				}
+				fmt.Fprintf(w, "%s  %-9s  %-17s  %s\n", m.ID, m.Model, shortTS(m.UpdatedAt), line)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&modelFilter, "model", "", "Only chats on this model tier: auto, cloud, cloud-pro, on-device, or chatgpt")
+	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum conversations to show")
+	return cmd
+}
+
+// shortTS renders an RFC3339 timestamp as compact yyyy-mm-ddThh:mmZ for
+// table display; unparsable values pass through unchanged.
+func shortTS(ts string) string {
+	t, err := time.Parse(time.RFC3339Nano, ts)
+	if err != nil {
+		return ts
+	}
+	return t.UTC().Format("2006-01-02T15:04Z")
 }
 
 func newChatsListCmd(flags *rootFlags) *cobra.Command {
