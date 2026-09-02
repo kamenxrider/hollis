@@ -172,9 +172,14 @@ Transcript: 624 bytes, 36 lines. Asked to return four values drawn from an early
 a corrected turn, a middle turn, and a later turn.
 
 ```text
-expected: VANTA-ORBIT-3311, orange, Amsterdam, arya
-actual:   VANTA-ORBIT-3311, orange, Amsterdam, arya
+expected: VANTA-ORBIT-3311, orange, Lisbon, nimbus
+actual:   VANTA-ORBIT-3311, orange, Lisbon, nimbus
 ```
+
+(Two of the four recall tokens were arbitrary strings naming a city and a host;
+they have been replaced here with neutral equivalents. The measurement — four
+values recalled across ten turns, with the later correction winning — is
+unchanged.)
 
 The later correction (orange) correctly overrode the earlier fact (green).
 

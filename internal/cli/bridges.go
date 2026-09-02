@@ -29,6 +29,18 @@ var macosVersion = func() string {
 	return strings.TrimSpace(string(out))
 }
 
+// macosBuild returns sw_vers -buildVersion (e.g. "26A5421a"), or "" when
+// unreadable. Everything hollis measures is build-specific — the fm/PCC
+// surface, the Use Model tier list, the WFLLMModel strings — so a bug report
+// that names only "27.0" is missing the discriminating field.
+var macosBuild = func() string {
+	out, err := exec.Command("/usr/bin/sw_vers", "-buildVersion").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // macosMajorVersion reports the macOS major version. The measured
 // development environment (27) is the fail-open default when sw_vers is
 // unreadable. Package var so tests can simulate a macOS 26 machine.
@@ -164,6 +176,11 @@ func resolvedStatus(rb runner.ResolvedBridge, osMajor int) string {
 	}
 	return "missing"
 }
+
+// missingBridgeRemedy is the action a MISSING row calls for. Kept next to
+// unresolvedProNote so doctor's wording lives in one place.
+const missingBridgeRemedy = "MISSING: install that bridge (README \u201cQuickstart\u201d step 2), " +
+	"or point config at one you already have:\n  hollis config set bridge <tier> <name-or-uuid>"
 
 // unresolvedProNote is the doctor hint for Pro on pre-27 macOS.
 const unresolvedProNote = "cloud-pro: unsupported on macOS 26 (untested; Use Model had no Cloud Pro)"

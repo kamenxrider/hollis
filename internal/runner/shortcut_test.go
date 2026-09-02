@@ -6,8 +6,9 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -42,7 +43,10 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 		"  missing) echo 'The shortcut named \"AFM Bridge\" could not be found' >&2; exit 1 ;;\n" +
 		"  usage) echo 'Error: invalid value ... for --output-type' >&2; exit 64 ;;\n" +
 		"  sigabrt) kill -ABRT $$ ;;\n" +
-		"  hang) sleep 300 ;;\n" +
+		// The sleep runs in the background so its PID can be recorded, and
+		// `wait` keeps the script alive as the direct child. Tests assert
+		// against that exact PID rather than pgrep-ing for a command line.
+		"  hang) sleep 300 & echo $! > " + dir + "/child.pid; wait ;;\n" +
 		"  fail-once) if [ \"$count\" -le 1 ]; then echo 'cloud unavailable' >&2; exit 1; fi; cat " + dir + "/stdin.txt ;;\n" +
 		"esac\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
@@ -252,9 +256,59 @@ func TestCallerDeadlineClampedToCeiling(t *testing.T) {
 	}
 }
 
-func TestTimeoutKillsChild(t *testing.T) {
+func TestCallerDeadlineCanExceedTheDefault(t *testing.T) {
+	// The regression that made `--timeout` a no-op above 30s: runTier took
+	// the caller's deadline only when it was SHORTER than r.Timeout, so a
+	// longer one was silently discarded and every run died at the default.
 	r, _ := runnerWithFake(t, "hang")
-	r.Timeout = 150 * time.Millisecond
+	r.Timeout = 120 * time.Millisecond // stands in for the 30s default
+	ctx, cancel := context.WithTimeout(context.Background(), 900*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := r.Run(ctx, ModelCloud, "hello")
+	elapsed := time.Since(start)
+
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindTimeout {
+		t.Fatalf("want KindTimeout, got %v", err)
+	}
+	if elapsed < 500*time.Millisecond {
+		t.Fatalf("caller deadline ignored: died after %s, want ~900ms", elapsed)
+	}
+	if strings.Contains(err.Error(), "120ms") {
+		t.Fatalf("timeout message quotes the default, not the caller's deadline: %v", err)
+	}
+}
+
+func TestExpiredDeadlineIsTimeoutWithoutSpawning(t *testing.T) {
+	// A deadline that has already passed must not reach exec: Start would
+	// fail with ctx.Err() and be misfiled as a transport error, and the
+	// message would quote a negative duration.
+	r, dir := runnerWithFake(t, "echo")
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	_, err := r.Run(ctx, ModelCloud, "hello")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindTimeout {
+		t.Fatalf("want KindTimeout, got %v (%T)", err, err)
+	}
+	if strings.Contains(err.Error(), "-") {
+		t.Fatalf("timeout message quotes a negative duration: %v", err)
+	}
+	if _, statErr := os.Stat(dir + "/count.txt"); statErr == nil {
+		t.Fatal("the transport was spawned despite an already-expired deadline")
+	}
+}
+
+func TestTimeoutKillsChild(t *testing.T) {
+	r, dir := runnerWithFake(t, "hang")
+	// Long enough that the fake reliably reaches its `sleep` and records the
+	// PID before the deadline fires. At 150ms a loaded or sandboxed machine
+	// gets killed mid-spawn, and the test then fails on a missing pidfile
+	// rather than on the orphan it is actually looking for.
+	r.Timeout = 500 * time.Millisecond
 	start := time.Now()
 	_, err := r.Run(context.Background(), ModelCloud, "hello")
 	if err == nil {
@@ -267,10 +321,34 @@ func TestTimeoutKillsChild(t *testing.T) {
 	if d := time.Since(start); d > 5*time.Second {
 		t.Fatalf("kill took too long: %s", d)
 	}
-	// Rule 3: no orphaned child should survive the group kill.
-	out, _ := exec.Command("pgrep", "-f", "sleep 300").CombinedOutput()
-	if len(out) > 0 {
-		t.Fatalf("orphaned child processes remain: %s", out)
+
+	// Rule 3: the grandchild must not survive the process-group kill.
+	//
+	// This asserts against the sleep's own recorded PID. The previous
+	// `pgrep -f "sleep 300"` was wrong twice over: it failed on any
+	// unrelated `sleep 300` anywhere on the machine, and it treated
+	// pgrep's own error output as proof of an orphan, so a restricted
+	// environment where pgrep cannot enumerate processes reported a
+	// failure that had not happened.
+	raw, err := os.ReadFile(dir + "/child.pid")
+	if err != nil {
+		t.Fatalf("fake never recorded its child PID: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatalf("bad recorded PID %q: %v", raw, err)
+	}
+	// Reaping is asynchronous; give the kill a moment to land.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		// Signal 0 probes for existence without delivering anything.
+		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+			return // gone, as required
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("orphaned child %d survived the group kill", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

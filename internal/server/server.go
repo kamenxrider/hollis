@@ -12,6 +12,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -50,13 +51,26 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// guard enforces Bearer auth when a token is configured.
+// MaxRequestBytes bounds a single request body. A token is only required
+// for a non-loopback bind, which is exactly the case where an unbounded
+// json.Decoder would let a remote caller exhaust memory.
+const MaxRequestBytes = 8 << 20 // 8 MiB
+
+// guard enforces Bearer auth when a token is configured. The comparison is
+// constant-time: `!=` on the header leaks the token prefix-by-prefix to a
+// caller who can time responses, and the only bind that uses a token at all
+// is the remote one.
 func (s *Server) guard(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.Token != "" && r.Header.Get("Authorization") != "Bearer "+s.Token {
-			writeError(w, http.StatusUnauthorized, "invalid or missing Authorization header")
-			return
+		if s.Token != "" {
+			got := r.Header.Get("Authorization")
+			want := "Bearer " + s.Token
+			if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+				writeError(w, http.StatusUnauthorized, "invalid or missing Authorization header")
+				return
+			}
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBytes)
 		next(w, r)
 	}
 }

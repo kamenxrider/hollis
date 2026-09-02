@@ -1,8 +1,8 @@
 # macOS 26 compatibility — actionable fix list
 
-You are on **macOS 27.0** (build `26A5421a`). You do **not** have a Tahoe (26) Mac. This document is written for that constraint: ship defensive 26 support from this machine, mark it **untested on 26**, and do not invent 26-only measurements.
+Hollis was developed on **macOS 27.0** (build `26A5421a`). No macOS 26 (Tahoe) machine was available, and this document is written under that constraint: 26 support is defensive, shipped from a 27 machine, marked **untested on 26**, and contains no invented 26-only measurements. Every claim below is labelled with how it was arrived at.
 
-Hollis talks to Apple Intelligence through Shortcuts (`/usr/bin/shortcuts run`), not through `fm` / Foundation Models. That is the 26 cloud path. Do not send 26 users to `fm --model pcc`.
+Hollis reaches Apple Intelligence through Shortcuts (`/usr/bin/shortcuts run`), not through `fm` / Foundation Models — on 26 as on 27. `fm --model pcc` is not the path for 26 users.
 
 ## Status of claims
 

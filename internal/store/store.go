@@ -293,19 +293,27 @@ func (s *Store) Messages(convID string) ([]Message, error) {
 }
 
 // AppendMessage stores a message with the next seq and touches updated_at.
+//
+// The seq is computed inside the INSERT rather than by a preceding SELECT.
+// As two statements, two processes appending to the same conversation — say
+// two `hollis chat --continue <id>` runs — could both read the same MAX(seq)
+// and write duplicate sequence numbers, which would then replay the
+// transcript out of order. One statement makes the read and the write atomic.
 func (s *Store) AppendMessage(convID, role, content string) (Message, error) {
 	created := now()
-	var seq int64
-	if err := s.db.QueryRow(`SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE conversation_id = ?`, convID).Scan(&seq); err != nil {
-		return Message{}, err
-	}
 	res, err := s.db.Exec(`INSERT INTO messages (conversation_id, seq, role, content, created_at)
-		VALUES (?, ?, ?, ?, ?)`, convID, seq, role, content, created)
+		SELECT ?, COALESCE(MAX(seq), -1) + 1, ?, ?, ?
+		FROM messages WHERE conversation_id = ?`,
+		convID, role, content, created, convID)
 	if err != nil {
 		return Message{}, err
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
+		return Message{}, err
+	}
+	var seq int64
+	if err := s.db.QueryRow(`SELECT seq FROM messages WHERE id = ?`, id).Scan(&seq); err != nil {
 		return Message{}, err
 	}
 	if err := s.touchConversation(convID); err != nil {

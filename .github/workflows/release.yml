@@ -17,6 +17,10 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # A tag must not be able to publish a build the tests reject.
+      - name: Test
+        run: go test ./...
+
       - name: Build macOS binaries
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
@@ -27,18 +31,41 @@ jobs:
               -o "dist/hollis-darwin-$arch" ./cmd/hollis
           done
 
+      # The binary is useless without the bridge shortcuts, and someone who
+      # installs by `curl`ing a release asset has no repo to run
+      # scripts/make-bridge.py from. Ship the unsigned bridges alongside it.
+      # A zip rather than four loose assets: the filenames contain spaces,
+      # which makes for unpleasant download URLs.
+      # `bridges/*.shortcut` would also match this machine's *.signed.shortcut
+      # imports, which .gitignore keeps out of the repo on purpose — signed
+      # blobs are one Mac's artifacts, not a portable kit. Match explicitly so
+      # the rule holds even if the checkout ever contains them.
+      - name: Bundle unsigned bridge shortcuts
+        run: |
+          mkdir -p dist
+          mapfile -d '' bridges < <(
+            find bridges -maxdepth 1 -name '*.shortcut' \
+                         -not -name '*.signed.shortcut' -print0
+          )
+          if [ "${#bridges[@]}" -ne 4 ]; then
+            echo "expected 4 unsigned bridges, found ${#bridges[@]}" >&2
+            printf '  %s\n' "${bridges[@]}" >&2
+            exit 1
+          fi
+          zip -j dist/hollis-bridges.zip "${bridges[@]}"
+
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum hollis-darwin-arm64 hollis-darwin-amd64 > SHA256SUMS
+          sha256sum hollis-darwin-arm64 hollis-darwin-amd64 hollis-bridges.zip > SHA256SUMS
 
       - name: Create release and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          assets="dist/hollis-darwin-arm64 dist/hollis-darwin-amd64 dist/hollis-bridges.zip dist/SHA256SUMS"
           gh release create "$GITHUB_REF_NAME" \
             --title "hollis $GITHUB_REF_NAME" \
             --generate-notes \
-            dist/hollis-darwin-arm64 dist/hollis-darwin-amd64 dist/SHA256SUMS \
-            || gh release upload "$GITHUB_REF_NAME" \
-                 dist/hollis-darwin-arm64 dist/hollis-darwin-amd64 dist/SHA256SUMS --clobber
+            $assets \
+            || gh release upload "$GITHUB_REF_NAME" $assets --clobber

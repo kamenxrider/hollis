@@ -84,16 +84,34 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 		return "", &Error{Kind: KindUsage, ExitCode: -1, Err: fmt.Errorf("%w: %q", ErrUnknownModel, model)}
 	}
 
-	// Rule 3: always a deadline. Use the caller's when present, else the
-	// default; anything above the 120s ceiling is clamped to it (plan §25).
+	// Rule 3: always a deadline. The caller's deadline is authoritative in
+	// BOTH directions when present; r.Timeout is only the default for
+	// callers that set none. Anything above the ceiling is clamped (plan
+	// §25).
+	//
+	// This used to take the caller's deadline only when it was SHORTER than
+	// r.Timeout, which silently capped every run at the 30s default: a
+	// `--timeout 120s` died at 30s, MaxTimeout was unreachable dead code,
+	// and the timeout error's own "hint: raise --timeout" was advice that
+	// could not work.
 	effective := r.Timeout
 	if deadline, has := ctx.Deadline(); has {
-		if wait := time.Until(deadline); wait < effective {
-			effective = wait
-		}
+		effective = time.Until(deadline)
 	}
 	if effective > MaxTimeout {
 		effective = MaxTimeout
+	}
+	if effective <= 0 {
+		// The caller's deadline already passed. Spawning anyway would hand
+		// exec an expired context, Start would fail with ctx.Err(), and that
+		// lands in KindTransport rather than KindTimeout — with a message
+		// quoting a negative duration.
+		return "", &Error{
+			Kind:     KindTimeout,
+			Ref:      ref,
+			ExitCode: -1,
+			Err:      errors.New("deadline already passed before the shortcut could be spawned"),
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, effective)
 	defer cancel()

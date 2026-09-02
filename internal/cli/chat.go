@@ -32,12 +32,24 @@ func defaultOpenStore() (*store.Store, error) {
 // runTurn executes one conversation turn: build the replay transcript from
 // stored messages, run the transport, store the user and assistant messages,
 // and record run diagnostics either way (plan §12 runs table).
-func runTurn(ctx context.Context, st *store.Store, conv store.Conversation, prompt string, newRunner newRunnerFunc) (string, error) {
+//
+// The timeout is applied here, per turn, rather than by the caller wrapping
+// its context once: the REPL passes one context across every turn, so a
+// deadline set upstream would expire the whole session instead of bounding
+// a single run. Zero means "no per-turn deadline", leaving the runner's own
+// default in charge.
+func runTurn(ctx context.Context, st *store.Store, conv store.Conversation, prompt string, newRunner newRunnerFunc, timeout time.Duration) (string, error) {
 	history, err := st.Messages(conv.ID)
 	if err != nil {
 		return "", configErr(err)
 	}
 	transcript := chat.RenderTranscript(history, prompt)
+
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
 	r := newRunner()
 	start := time.Now()
@@ -70,6 +82,7 @@ func newChatCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 	var (
 		modelFlag  string
 		continueID string
+		timeout    time.Duration
 	)
 	cmd := &cobra.Command{
 		Use:   "chat [prompt]",
@@ -80,8 +93,8 @@ Apple's runs are stateless; hollis replays the stored transcript each turn to
 create continuity (plan §11/§13, proven in results Test B/C/E).
 
 With a prompt argument or piped stdin, sends exactly one turn. With no
-argument and a terminal stdin, starts an interactive session (blank line or
-Ctrl-D ends it).
+argument and a terminal stdin, starts an interactive session; blank lines are
+skipped and Ctrl-D ends it. --continue works in the interactive session too.
 
 Use --continue <id> to extend an existing conversation; otherwise a new
 conversation is created and auto-titled from the first message.`,
@@ -146,7 +159,7 @@ conversation is created and auto-titled from the first message.`,
 			// Resolve or create the conversation.
 			var conv store.Conversation
 			if interactive {
-				return runInteractiveChat(cmd.Context(), st, model, useRunner)
+				return runInteractiveChat(cmd.Context(), st, model, continueID, useRunner, timeout)
 			}
 			if continueID != "" {
 				conv, err = st.GetConversation(continueID)
@@ -160,7 +173,7 @@ conversation is created and auto-titled from the first message.`,
 				}
 			}
 
-			text, err := runTurn(cmd.Context(), st, conv, prompt, useRunner)
+			text, err := runTurn(cmd.Context(), st, conv, prompt, useRunner, timeout)
 			if err != nil {
 				return err
 			}
@@ -186,34 +199,52 @@ conversation is created and auto-titled from the first message.`,
 	}
 	cmd.Flags().StringVar(&modelFlag, "model", string(runner.ModelAuto), "Model for a new conversation: auto (default: cloud first, on-device fallback), cloud, cloud-pro, on-device, or chatgpt (see hollis models)")
 	cmd.Flags().StringVar(&continueID, "continue", "", "Continue an existing conversation by id")
+	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-turn timeout (default 30s, ceiling 120s)")
 	return cmd
 }
 
 // runInteractiveChat runs the plan §18 REPL: "> " prompts, "< " responses,
-// Ctrl-D ends the session.
-func runInteractiveChat(ctx context.Context, st *store.Store, model string, newRunner newRunnerFunc) error {
-	conv, err := st.CreateConversation(model, "")
-	if err != nil {
-		return configErr(err)
+// Ctrl-D ends the session. Blank lines are skipped, not treated as an exit —
+// an accidental Enter should not discard a session.
+//
+// continueID, when set, resumes that conversation instead of starting a new
+// one. It used to be ignored here: `hollis chat --continue <id>` at a
+// terminal silently opened a fresh conversation, so the flag looked like it
+// worked and quietly lost the thread the user asked for.
+func runInteractiveChat(ctx context.Context, st *store.Store, model, continueID string, newRunner newRunnerFunc, timeout time.Duration) error {
+	var conv store.Conversation
+	var err error
+	if continueID != "" {
+		if conv, err = st.GetConversation(continueID); err != nil {
+			return notFoundErr(err)
+		}
+		fmt.Printf("Continuing · %s · %s\n", conv.Model, conv.ID)
+	} else {
+		if conv, err = st.CreateConversation(model, ""); err != nil {
+			return configErr(err)
+		}
+		fmt.Printf("New chat · %s · %s\n", model, conv.ID)
 	}
-	fmt.Printf("New chat · %s · %s\n", model, conv.ID)
-	sc := bufio.NewScanner(os.Stdin)
+
+	// bufio.Reader, not Scanner: Scanner caps a line at 64KB and reports the
+	// overflow as EOF, so pasting a long prompt silently ended the session.
+	rd := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print("> ")
-		if !sc.Scan() {
-			break
+		raw, readErr := rd.ReadString('\n')
+		if line := strings.TrimSpace(raw); line != "" {
+			text, err := runTurn(ctx, st, conv, line, newRunner, timeout)
+			if err != nil {
+				return err
+			}
+			fmt.Println("<", text)
 		}
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
-			continue
+		if readErr != nil {
+			// EOF (Ctrl-D). Any trailing line without a newline was just
+			// handled above, so it is safe to stop here.
+			return nil
 		}
-		text, err := runTurn(ctx, st, conv, line, newRunner)
-		if err != nil {
-			return err
-		}
-		fmt.Println("<", text)
 	}
-	return nil
 }
 
 func newChatsCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
@@ -330,11 +361,11 @@ func newChatsListCmd(flags *rootFlags) *cobra.Command {
 			if err != nil {
 				return configErr(err)
 			}
+			defer st.Close()
 			convs, err := st.ListConversations(true)
 			if err != nil {
 				return configErr(err)
 			}
-			defer st.Close()
 			rows := make([]map[string]any, 0, len(convs))
 			for _, c := range convs {
 				rows = append(rows, map[string]any{

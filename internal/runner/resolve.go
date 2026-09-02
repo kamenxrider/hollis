@@ -75,19 +75,31 @@ type ResolvedBridge struct {
 //     name marks the tier unavailable.
 //  2. first BridgeNameCandidates match in installed — the ref is the
 //     NAME, so macOS 26 does not depend on UUID-run (unmeasured there).
-//  3. CompiledUUID last resort — keeps the measured 27 machine working
-//     with no config and even after renames (UUIDs survive renames).
+//  3. CompiledUUID last resort — still the Ref, so a config override or a
+//     later fix has something to point at, but NOT evidence of presence.
 //
 // listOK reports whether `shortcuts list` could run at all. When it could
 // not, verification is impossible and the compiled refs are trusted
 // as-is (fail-open): behavior is unchanged from the pre-resolution
 // builds rather than bricked by a listing failure.
 //
-// osMajor gates the compiled-UUID fallback on the measured OS generation:
-// on macOS < 27 a compiled UUID is known to be a foreign artifact (26
-// imports get new UUIDs), so tiers that resolve only to it are not
-// available — cloud-pro surfaces as unavailable instead of failing later
-// with a generic missing-shortcut error.
+// When the listing DID work and no name matched, the tier is unavailable.
+// The compiled UUIDs are private artifacts of the machine they were
+// measured on; on any other Mac they name shortcuts that do not exist.
+// Trusting them because the OS generation matched made every fresh macOS
+// 27 install report four healthy bridges and then fail at the first
+// prompt with a bare exit 3 — doctor's own JSON carried the contradiction
+// ("installed": false beside "status": "ok").
+//
+// The cost of this is a renamed-away bridge on the measured machine: it
+// now reports missing even though `shortcuts run <UUID>` would still
+// work, because a rename and a missing bridge are indistinguishable from
+// the listing alone. That case has a one-command remedy
+// (`hollis config set bridge <tier> <uuid-or-new-name>`) and affects one
+// machine; the false-OK affected every other machine.
+//
+// osMajor now gates only Cloud Pro, which cannot work below the measured
+// generation no matter how it resolved (see the check below).
 func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[Model]string) map[Model]ResolvedBridge {
 	have := map[string]bool{}
 	for _, n := range installed {
@@ -96,17 +108,9 @@ func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[
 	out := make(map[Model]ResolvedBridge, len(Models))
 	for _, m := range Models {
 		res := ResolvedBridge{Model: m, Ref: CompiledUUID(m), Source: SourceCompiled}
-		switch {
-		case !listOK:
-			// Fail-open: nothing verifiable, keep the measured behavior.
-			res.Available = true
-		case osMajor >= MeasuredOSMajor:
-			// The compiled UUIDs are measured-good on this OS generation.
-			res.Available = true
-		default:
-			// macOS < 27: the compiled refs belong to a 27 install.
-			res.Available = false
-		}
+		// Fail-open only when nothing is verifiable. A successful listing
+		// that matched no name is positive evidence of absence.
+		res.Available = !listOK
 
 		if override, ok := overrides[m]; ok && override != "" {
 			res.Ref = override

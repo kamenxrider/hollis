@@ -53,7 +53,7 @@ bridge <tier> <name-or-uuid>' to override).
 Default model: auto (cloud first, on-device fallback if cloud fails).
 Agent mode: add --agent to any command for JSON output + non-interactive mode.
 Health check: run 'hollis doctor' to verify the transport and bridges.
-Local OpenAI-compatible endpoint: run 'hollis serve' (127.0.0.1:1976).
+Local OpenAI-compatible endpoint: run 'hollis serve' (127.0.0.1:1978).
 See README.md for recipes.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -146,7 +146,7 @@ func toCLIError(err error) error {
 	case runner.KindShortcutMissing:
 		return notFoundErr(fmt.Errorf("%s\nhint: install the AFM bridge shortcuts (bridges/*.shortcut) or run 'hollis doctor'", err))
 	case runner.KindTimeout:
-		return timeoutErr(fmt.Errorf("%s\nhint: raise --timeout; empty prompts are rejected before spawn, so a hang here is Apple-side", err))
+		return timeoutErr(fmt.Errorf("%s\nhint: raise --timeout (up to the 120s ceiling); empty prompts are rejected before spawn, so a hang here is Apple-side", err))
 	case runner.KindNoOutput:
 		return transportErr(fmt.Errorf("%s\nhint: run 'hollis doctor'; exit 0 with empty output is always treated as failure", err))
 	case runner.KindSIGABRT:

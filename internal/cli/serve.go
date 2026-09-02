@@ -34,7 +34,7 @@ Binds to the loopback interface by default. A non-loopback bind requires
 Streaming is not supported: the Shortcuts transport returns the complete
 response in a single call, and faking it is forbidden (plan principle 6).`,
 		Example: `  hollis serve
-  hollis serve --addr 127.0.0.1:1976 --token mysecret`,
+  hollis serve --addr 127.0.0.1:1978 --token mysecret`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			host, _, err := net.SplitHostPort(addr)
 			if err != nil {
@@ -57,18 +57,26 @@ response in a single call, and faking it is forbidden (plan principle 6).`,
 				srv.Available = availabilityMap(resolved)
 			}
 			httpServer := &http.Server{
-				Addr:              addr,
 				Handler:           srv.Handler(),
 				ReadHeaderTimeout: 5 * time.Second,
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "hollis serve listening on http://%s (GET /health)\n", addr)
-			if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			// Bind before announcing. ListenAndServe would print the banner
+			// and only then discover the port was taken, so a failed start
+			// still claimed to be listening.
+			ln, err := net.Listen("tcp", addr)
+			if err != nil {
+				return transportErr(fmt.Errorf("listen on %s: %w", addr, err))
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "hollis serve listening on http://%s (GET /health)\n", ln.Addr())
+			if err := httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				return transportErr(err)
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:1976", "Listen address (loopback by default; non-loopback requires --token)")
+	// 1978, not 1976: `fm serve` uses 1976 throughout Apple's own documented
+	// examples, so anyone who has used fm has something on that port already.
+	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:1978", "Listen address (loopback by default; non-loopback requires --token)")
 	cmd.Flags().StringVar(&token, "token", "", "Require Authorization: Bearer <token> on /v1 endpoints")
 	return cmd
 }
