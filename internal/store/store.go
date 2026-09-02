@@ -39,6 +39,9 @@ type Conversation struct {
 	CreatedAt string
 	UpdatedAt string
 	Archived  bool
+	// Messages is the stored-message count, populated by ListConversations
+	// (zero elsewhere; use MessageCount for a single conversation).
+	Messages int
 }
 
 // Message is one turn in a conversation. Content is stored verbatim; role
@@ -229,10 +232,22 @@ func (s *Store) GetConversation(id string) (Conversation, error) {
 	return c, nil
 }
 
-// ListConversations returns conversations newest-first.
+// ListConversations returns conversations newest-first. The archived
+// predicate lives in SQL, and each row carries its message count from one
+// LEFT JOIN instead of a per-conversation COUNT query.
 func (s *Store) ListConversations(includeArchived bool) ([]Conversation, error) {
-	rows, err := s.db.Query(`SELECT id, title, model, summary, created_at, updated_at, archived
-		FROM conversations ORDER BY updated_at DESC`)
+	query := `SELECT c.id, c.title, c.model, c.summary, c.created_at, c.updated_at, c.archived,
+		COUNT(m.id)
+		FROM conversations c
+		LEFT JOIN messages m ON m.conversation_id = c.id`
+	if !includeArchived {
+		query += `
+			WHERE c.archived = 0`
+	}
+	query += `
+		GROUP BY c.id
+		ORDER BY c.updated_at DESC`
+	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -240,14 +255,12 @@ func (s *Store) ListConversations(includeArchived bool) ([]Conversation, error) 
 	var out []Conversation
 	for rows.Next() {
 		var c Conversation
-		var archived int
-		if err := rows.Scan(&c.ID, &c.Title, &c.Model, &c.Summary, &c.CreatedAt, &c.UpdatedAt, &archived); err != nil {
+		var archived, msgCount int
+		if err := rows.Scan(&c.ID, &c.Title, &c.Model, &c.Summary, &c.CreatedAt, &c.UpdatedAt, &archived, &msgCount); err != nil {
 			return nil, err
 		}
 		c.Archived = archived != 0
-		if c.Archived && !includeArchived {
-			continue
-		}
+		c.Messages = msgCount
 		out = append(out, c)
 	}
 	return out, rows.Err()

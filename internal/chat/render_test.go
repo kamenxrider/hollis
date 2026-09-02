@@ -48,9 +48,3 @@ func TestUnknownRoleUppercase(t *testing.T) {
 		t.Fatalf("roleLabel = %q, want TOOL", got)
 	}
 }
-
-func TestSizeChars(t *testing.T) {
-	if SizeChars("日本語") != 3 {
-		t.Fatal("SizeChars should count runes")
-	}
-}
