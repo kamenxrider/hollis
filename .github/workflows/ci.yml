@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      # Bridge generation needs no Shortcuts on the runner: this catches
+      # profile regressions (file sets, WFLLMModel strings, client
+      # versions) before a user ever runs make-bridge.py.
+      - name: Bridge generator (27 profile)
+        run: |
+          python3 scripts/make-bridge.py --os 27 "$RUNNER_TEMP/bridges27"
+          test "$(ls "$RUNNER_TEMP/bridges27"/*.shortcut | wc -l)" = "4"
+
+      - name: Bridge generator (26 profile)
+        run: |
+          python3 scripts/make-bridge.py --os 26 "$RUNNER_TEMP/bridges26"
+          test "$(ls "$RUNNER_TEMP/bridges26"/*.shortcut | wc -l)" = "3"
+          ! grep -q "Apple Intelligence Pro" "$RUNNER_TEMP/bridges26"/*.shortcut

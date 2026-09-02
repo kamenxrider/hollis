@@ -230,7 +230,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if model == "" {
 		model = string(runner.ModelAuto)
 	}
-if !runner.Model(model).Valid() {
+	if !runner.Model(model).Valid() {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", model))
 		return
 	}
@@ -284,7 +284,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if model == "" {
 		model = string(runner.ModelAuto)
 	}
-if !runner.Model(model).Valid() {
+	if !runner.Model(model).Valid() {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", model))
 		return
 	}

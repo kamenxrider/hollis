@@ -1,1 +1,26 @@
 .DS_Store
+
+# build artifacts
+/bin/
+*.test
+*.out
+coverage.html
+
+# editor junk
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# signed bridge blobs are this machine's imports, not a portable kit
+# (ship unsigned + `shortcuts sign`, per README)
+*.signed.shortcut
+
+# local-only working material: Apple Help page dumps (copyrighted),
+# agent skill tooling
+/docs/dev/shortcuts-docs.md
+/docs/dev/shotcuts-mac-apple-intelligence.md
+.agents/
+.claude/
+skills-lock.json

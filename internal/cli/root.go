@@ -58,6 +58,17 @@ See README.md for recipes.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version,
+		// ArbitraryArgs defeats cobra's legacyArgs, which would otherwise
+		// fail unknown root commands with its own error and exit 1.
+		Args: cobra.ArbitraryArgs,
+		// Unknown subcommands are a usage error for agents (stable exit 2),
+		// not a silent help dump with exit 0. Bare `hollis` still prints help.
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+			return usageErr(fmt.Errorf("unknown command %q: run 'hollis --help' for the command list", args[0]))
+		},
 	}
 	rootCmd.SetVersionTemplate("hollis {{ .Version }}\n")
 

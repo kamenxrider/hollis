@@ -79,9 +79,11 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 	return agentContext{
 		SchemaVersion: agentContextSchemaVersion,
 		CLI: agentContextCLI{
-			Name:        "hollis",
-			Description: "Apple Intelligence Cloud & Cloud Pro from the terminal, via macOS Shortcuts.",
-			Version:     rootCmd.Version,
+			Name: "hollis",
+			Description: "Apple Intelligence (cloud, cloud-pro, on-device, chatgpt) from the " +
+				"terminal, via macOS Shortcuts. Persistent chats in local SQLite; local " +
+				"OpenAI-compatible HTTP endpoint via serve.",
+			Version: rootCmd.Version,
 		},
 		Auth: agentContextAuth{
 			// No credentials: transport is the local Shortcuts app.

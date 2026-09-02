@@ -79,7 +79,8 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 
 			report["timeout_default"] = runner.DefaultTimeout.String()
 			report["exit_codes"] = map[string]int{
-				"success": 0, "usage": 2, "missing": 3, "transport": 5, "timeout": 7,
+				"success": 0, "usage": 2, "missing": 3, "transport": 5,
+				"timeout": 7, "config": 10,
 			}
 			report["version"] = version
 
