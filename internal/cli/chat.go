@@ -125,6 +125,18 @@ conversation is created and auto-titled from the first message.`,
 				return usageErr(errors.New("empty prompt: give a prompt as an argument or pipe it via stdin"))
 			}
 
+			// Runtime bridge resolution (results/macos-26-compat.md step 1):
+			// explicit tiers refuse to run when their bridge did not resolve,
+			// and every turn's transport is retargeted at the resolved refs.
+			resolved, err := resolveForRunner(cmd.Context(), newRunner)
+			if err != nil {
+				return configErr(err)
+			}
+			if err := checkModelAvailable(resolved, m); err != nil {
+				return err
+			}
+			useRunner := resolvedNewRunnerFunc(newRunner, resolved)
+
 			st, err := openStore()
 			if err != nil {
 				return configErr(err)
@@ -134,7 +146,7 @@ conversation is created and auto-titled from the first message.`,
 			// Resolve or create the conversation.
 			var conv store.Conversation
 			if interactive {
-				return runInteractiveChat(st, model, newRunner)
+				return runInteractiveChat(st, model, useRunner)
 			}
 			if continueID != "" {
 				conv, err = st.GetConversation(continueID)
@@ -148,7 +160,7 @@ conversation is created and auto-titled from the first message.`,
 				}
 			}
 
-			text, err := runTurn(st, conv, prompt, newRunner)
+			text, err := runTurn(st, conv, prompt, useRunner)
 			if err != nil {
 				return err
 			}

@@ -30,9 +30,10 @@ persistent, SQLite-backed conversations.
 
 The default model is auto: cloud first, with automatic fallback to the
 on-device model if the cloud run fails. Explicit choices: cloud (AFM 3
-Cloud), cloud-pro (AFM 3 Cloud Pro), on-device (AFM 3 Core / Core
-Advanced by hardware), or chatgpt (ChatGPT extension; enable it in
-System Settings > Apple Intelligence & Siri). See hollis models.`,
+Cloud), cloud-pro (AFM 3 Cloud Pro; macOS 27+ — unavailable if that
+bridge is not installed), on-device (AFM 3 Core / Core Advanced by
+hardware), or chatgpt (ChatGPT extension; enable it in System Settings >
+Apple Intelligence & Siri). See hollis models.`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
   hollis respond model cloud-pro "Draft a reply"
   printf 'long prompt from a pipeline' | hollis respond
@@ -70,6 +71,17 @@ System Settings > Apple Intelligence & Siri). See hollis models.`,
 
 			r := newRunner()
 			ctx := cmd.Context()
+			// Runtime bridge resolution (results/macos-26-compat.md step 1):
+			// explicit tiers refuse to run when their bridge did not resolve,
+			// and the real transport is retargeted at the resolved refs.
+			resolved, err := resolveForRunner(ctx, newRunner)
+			if err != nil {
+				return configErr(err)
+			}
+			if err := checkModelAvailable(resolved, m); err != nil {
+				return err
+			}
+			applyResolvedRefs(r, resolved)
 			if timeout > 0 {
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -95,7 +107,7 @@ System Settings > Apple Intelligence & Siri). See hollis models.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&model, "model", string(runner.ModelAuto), "Model tier: auto (default: cloud first, on-device fallback), cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro), on-device (AFM 3 Core / Core Advanced by hardware), or chatgpt (ChatGPT extension); see hollis models")
+	cmd.Flags().StringVar(&model, "model", string(runner.ModelAuto), "Model tier: auto (default: cloud first, on-device fallback), cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro; macOS 27+), on-device (AFM 3 Core / Core Advanced by hardware), or chatgpt (ChatGPT extension); see hollis models")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	return cmd
 }

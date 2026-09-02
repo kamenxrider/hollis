@@ -148,6 +148,49 @@ func TestChatCompletionsLastMessageMustBeUser(t *testing.T) {
 	}
 }
 
+func TestModelsOmitUnavailableTiers(t *testing.T) {
+	// results/macos-26-compat.md step 2: the catalog is what resolves.
+	// A 26 machine (no Pro bridge) lists auto + its three tiers only.
+	srv := New(&echoRunner{}, "")
+	srv.Available = map[string]bool{"cloud": true, "on-device": true, "chatgpt": true, "cloud-pro": false}
+	res := do(t, srv.Handler(), http.MethodGet, "/v1/models", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d", res.Code)
+	}
+	if strings.Contains(res.Body.String(), "cloud-pro") {
+		t.Fatalf("unavailable tier surfaced: %s", res.Body.String())
+	}
+	for _, want := range []string{"auto", "\"cloud\"", "on-device", "chatgpt"} {
+		if !strings.Contains(res.Body.String(), want) {
+			t.Fatalf("models missing %s: %s", want, res.Body.String())
+		}
+	}
+}
+
+func TestChatCompletionsUnavailableModel(t *testing.T) {
+	srv := New(&echoRunner{}, "")
+	srv.Available = map[string]bool{"cloud": true, "on-device": true, "chatgpt": true, "cloud-pro": false}
+	res := post(t, srv.Handler(), "/v1/chat/completions",
+		`{"model":"cloud-pro","messages":[{"role":"user","content":"hi"}]}`)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", res.Code)
+	}
+	if !strings.Contains(res.Body.String(), "cloud-pro is not available") || !strings.Contains(res.Body.String(), "Cloud Pro requires macOS 27") {
+		t.Fatalf("body: %s", res.Body.String())
+	}
+}
+
+func TestChatCompletionsAutoNotGated(t *testing.T) {
+	// auto has no bridge of its own; it runs and falls back regardless.
+	srv := New(&echoRunner{}, "")
+	srv.Available = map[string]bool{"cloud": true, "on-device": true, "chatgpt": true, "cloud-pro": false}
+	res := post(t, srv.Handler(), "/v1/chat/completions",
+		`{"messages":[{"role":"user","content":"hi"}]}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", res.Code, res.Body.String())
+	}
+}
+
 func TestChatCompletionsUnknownModel(t *testing.T) {
 	srv := New(&echoRunner{}, "")
 	res := post(t, srv.Handler(), "/v1/chat/completions",

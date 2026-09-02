@@ -27,10 +27,14 @@ import (
 
 // Server serves the HTTP API. Runner must be safe for concurrent use;
 // Token enables Bearer auth on /v1 endpoints (required for any
-// non-loopback bind, plan §30).
+// non-loopback bind, plan §30). Available gates the catalog: when set, a
+// tier id missing from it (or present with false) is not offered; nil
+// means every tier is available (the pre-resolution behavior).
 type Server struct {
 	Runner runner.Runner
 	Token  string
+	// Available maps tier id -> bridge resolved. nil = all available.
+	Available map[string]bool
 }
 
 // New returns a Server.
@@ -62,16 +66,33 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
+	// Catalog = what resolves on this machine (results/macos-26-compat.md
+	// step 2): auto plus tiers whose bridges resolve. ChatGPT is OpenAI's
+	// model exposed through Apple's extension — owned_by must not claim
+	// Apple.
 	data := []map[string]any{
 		{"id": "auto", "object": "model", "owned_by": "hollis"},
-		{"id": "cloud", "object": "model", "owned_by": "Apple"},
-		{"id": "cloud-pro", "object": "model", "owned_by": "Apple"},
-		{"id": "on-device", "object": "model", "owned_by": "Apple"},
-		// ChatGPT is OpenAI's model exposed through Apple's extension —
-		// owned_by must not claim Apple.
-		{"id": "chatgpt", "object": "model", "owned_by": "OpenAI"},
+	}
+	owned := map[string]string{
+		"cloud": "Apple", "cloud-pro": "Apple", "on-device": "Apple", "chatgpt": "OpenAI",
+	}
+	for _, id := range []string{"cloud", "cloud-pro", "on-device", "chatgpt"} {
+		if s.modelAvailable(id) {
+			data = append(data, map[string]any{"id": id, "object": "model", "owned_by": owned[id]})
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
+}
+
+// modelAvailable reports whether an explicit tier may be invoked. A nil
+// Available map means no gating (all tiers offered); tiers absent from
+// the map (auto) are always available.
+func (s *Server) modelAvailable(id string) bool {
+	if s.Available == nil {
+		return true
+	}
+	av, ok := s.Available[id]
+	return !ok || av
 }
 
 // rawContent is a message content field that may be a plain string or an
@@ -209,8 +230,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if model == "" {
 		model = string(runner.ModelAuto)
 	}
-	if !runner.Model(model).Valid() {
+if !runner.Model(model).Valid() {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", model))
+		return
+	}
+	if !s.modelAvailable(model) {
+		writeError(w, http.StatusBadRequest, unavailableMessage(runner.Model(model)))
 		return
 	}
 	msgs, err := parseMessages(req.Messages)
@@ -259,8 +284,12 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if model == "" {
 		model = string(runner.ModelAuto)
 	}
-	if !runner.Model(model).Valid() {
+if !runner.Model(model).Valid() {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", model))
+		return
+	}
+	if !s.modelAvailable(model) {
+		writeError(w, http.StatusBadRequest, unavailableMessage(runner.Model(model)))
 		return
 	}
 
@@ -314,6 +343,15 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 			}},
 		}},
 	})
+}
+
+// unavailableMessage mirrors the CLI's stable wording for an explicit
+// tier whose bridge did not resolve (results/macos-26-compat.md step 2).
+func unavailableMessage(m runner.Model) string {
+	if m == runner.ModelCloudPro {
+		return fmt.Sprintf("%s is not available (bridge not installed; Cloud Pro requires macOS 27)", m)
+	}
+	return fmt.Sprintf("%s is not available (bridge not installed)", m)
 }
 
 // unsupportedStreaming answers stream=true with a clear unsupported

@@ -4,9 +4,11 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/spf13/cobra"
@@ -19,6 +21,11 @@ type config struct {
 	// DefaultModel is the tier used when neither the positional
 	// `model <tier>` prefix nor the --model flag is given.
 	DefaultModel string `json:"default_model"`
+	// Bridges overrides the bridge reference (name or UUID) invoked per
+	// tier (results/macos-26-compat.md step 1). Keys are concrete tier
+	// names; "auto" is not a tier with a bridge. Overrides beat the
+	// `shortcuts list` name match and the compiled UUIDs.
+	Bridges map[string]string `json:"bridges,omitempty"`
 }
 
 // configPath is a package var so tests can point it at a temp dir.
@@ -126,6 +133,7 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 				return printJSONFiltered(map[string]any{
 					"path":          path,
 					"default_model": c.DefaultModel,
+					"bridges":       bridgesForShow(c),
 				}, flags)
 			}
 			w := cmd.OutOrStdout()
@@ -135,6 +143,16 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 				defaultModel = string(runner.ModelAuto) + " (built-in default)"
 			}
 			fmt.Fprintf(w, "default model: %s\n", defaultModel)
+			if len(c.Bridges) == 0 {
+				fmt.Fprintf(w, "bridge overrides: none\n")
+			} else {
+				fmt.Fprintf(w, "bridge overrides:\n")
+				for _, tier := range []string{"cloud", "cloud-pro", "on-device", "chatgpt"} {
+					if ref, ok := c.Bridges[tier]; ok {
+						fmt.Fprintf(w, "  %-10s %s\n", tier, ref)
+					}
+				}
+			}
 			return nil
 		},
 	}
@@ -142,30 +160,85 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 
 func newConfigSetCmd(_ *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "set <key> <value>",
-		Short: "Set a persisted default (key: model)",
+		Use:   "set <key> <value...>",
+		Short: "Set a persisted default (keys: model, bridge)",
 		Example: `  hollis config set model cloud-pro
-  hollis config set model auto`,
-		Args: cobra.ExactArgs(2),
+  hollis config set model auto
+  hollis config set bridge cloud "AFM Bridge - Cloud"
+  hollis config set bridge cloud-pro <UUID>
+  hollis config set bridge cloud ""      # clears the override`,
+		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			key, value := args[0], args[1]
-			if key != "model" {
-				return usageErr(fmt.Errorf("unknown config key %q: only \"model\" is supported", key))
-			}
-			if !runner.Model(value).Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", value))
-			}
+			key := args[0]
 			c, err := loadConfig()
 			if err != nil {
 				return configErr(err)
 			}
-			c.DefaultModel = value
-			if err := saveConfig(c); err != nil {
-				return configErr(err)
+			switch key {
+			case "model":
+				if len(args) != 2 {
+					return usageErr(errors.New("usage: hollis config set model <tier>"))
+				}
+				value := args[1]
+				if !runner.Model(value).Valid() {
+					return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", value))
+				}
+				// Explicit tiers must resolve on this machine (results/
+				// macos-26-compat.md step 2); auto always applies.
+				if m := runner.Model(value); m != runner.ModelAuto {
+					resolved, err := resolveBridges(cmd.Context())
+					if err != nil {
+						return configErr(err)
+					}
+					if err := checkModelAvailable(resolved, m); err != nil {
+						return err
+					}
+				}
+				c.DefaultModel = value
+				if err := saveConfig(c); err != nil {
+					return configErr(err)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "default model set to %s\n", value)
+				return nil
+			case "bridge":
+				if len(args) != 3 {
+					return usageErr(errors.New("usage: hollis config set bridge <tier> <name-or-uuid>"))
+				}
+				tier, ref := runner.Model(args[1]), args[2]
+				if !tier.Valid() || tier == runner.ModelAuto {
+					return usageErr(fmt.Errorf("unknown bridge tier %q: choose cloud, cloud-pro, on-device, or chatgpt", tier))
+				}
+				if c.Bridges == nil {
+					c.Bridges = map[string]string{}
+				}
+				if strings.TrimSpace(ref) == "" {
+					delete(c.Bridges, string(tier))
+					if err := saveConfig(c); err != nil {
+						return configErr(err)
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "bridge override cleared for %s\n", tier)
+					return nil
+				}
+				c.Bridges[string(tier)] = ref
+				if err := saveConfig(c); err != nil {
+					return configErr(err)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "bridge for %s set to %s\n", tier, ref)
+				return nil
+			default:
+				return usageErr(fmt.Errorf("unknown config key %q: only \"model\" and \"bridge\" are supported", key))
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "default model set to %s\n", value)
-			return nil
 		},
 	}
 	return cmd
+}
+
+// bridgesForShow renders the bridge override map for JSON output; an empty
+// map marshals as {} instead of null.
+func bridgesForShow(c config) map[string]string {
+	out := map[string]string{}
+	for tier, ref := range c.Bridges {
+		out[tier] = ref
+	}
+	return out
 }
