@@ -2,7 +2,23 @@
 
 Apple Intelligence from the terminal: prompt in, plain text out, ~1s.
 
-`hollis` exposes all four tiers of Apple's Foundation Models through macOS Shortcuts — **cloud**, **cloud-pro**, **on-device**, and **chatgpt** — via a single bridge-shortcut transport (`/usr/bin/shortcuts run <bridge-ref>`, resolved at runtime: config override → installed name → compiled UUID). Apple's runs are stateless, so hollis keeps **persistent chats in local SQLite** by replaying the stored transcript each turn (plan §11–§13, proven in `results/transport-and-persistence-2026-09-01.md`).
+- All four tiers — **cloud**, **cloud-pro**, **on-device**, **chatgpt** — through one bridge-shortcut transport (`/usr/bin/shortcuts run <bridge-ref>`, resolved at runtime: config override → installed name → compiled UUID)
+- **Persistent chats** in local SQLite — Apple's runs are stateless, so hollis replays the stored transcript each turn (plan §11–§13, proven in [`results/transport-and-persistence-2026-09-01.md`](results/transport-and-persistence-2026-09-01.md))
+- Agent-shaped: `--json`, `--agent`, stable exit codes, full-text chat search, and a local OpenAI-compatible endpoint via `hollis serve`
+
+## Quickstart
+
+```bash
+go build -o "$(go env GOPATH)/bin/hollis" ./cmd/hollis
+python3 scripts/make-bridge.py bridges/
+shortcuts sign --mode anyone \
+  --input "bridges/AFM Bridge - Cloud.shortcut" \
+  --output "bridges/AFM Bridge - Cloud.signed.shortcut"
+open "bridges/AFM Bridge - Cloud.signed.shortcut"   # click Add Shortcut in Shortcuts.app
+hollis respond "Summarize this repo in one sentence"
+```
+
+Repeat the sign/import steps for the other three bridges — `hollis doctor` tells you what is still missing. Details in [Bridge setup](#bridge-setup) and [Usage](#usage).
 
 ## Requirements
 
@@ -45,28 +61,15 @@ Rebuilding after a pull overwrites the same path — if behavior looks stale, yo
 
 ## Compatibility
 
-Measured on macOS 27 (Apple Intelligence Use Model: on-device, Cloud,
-Cloud Pro, ChatGPT).
+- **macOS 27 — measured.** All four Use Model locations work: on-device, Cloud, Cloud Pro, ChatGPT.
+- **macOS 26 (Tahoe) — untested.** Shortcuts there documents three Use Model locations (on-device, one Private Cloud Compute cloud, ChatGPT) — no Cloud Pro. hollis refuses `cloud-pro` if that bridge is absent, and the `cloud` tier on 26 is last year's PCC model, not AFM 3.
+- **`fm` is not used.** On macOS 26 the Foundation Models API had no PCC backend; Shortcuts is the cloud path.
 
-macOS 26 (Tahoe) is **untested**. Shortcuts there documented three Use
-Model locations (on-device, one Private Cloud Compute cloud, ChatGPT) —
-no Cloud Pro. `hollis` will refuse `cloud-pro` if that bridge is absent.
-The `cloud` tier on 26 is last year's PCC model, not AFM 3.
+Bridges resolve at runtime on every machine: a `config.json` override (`hollis config set bridge <tier> <name-or-uuid>`) wins, then a stable name match from `shortcuts list`, then — only on this project's measured 27 machine — the compiled-in UUIDs. You never need to know the UUIDs.
 
-`fm` is not used. On macOS 26 the Foundation Models API had no PCC
-backend; Shortcuts is the cloud path.
+If you are on 26: run `python3 scripts/make-bridge.py --os 26`, sign, import, `hollis doctor`, then `hollis respond --model cloud "Reply with OK"`. Please file what doctor printed and whether UUID or name worked. Until then, treat 26 as experimental. Notes so far: [`results/macos-26-compat.md`](results/macos-26-compat.md).
 
-If you are on 26: generate `python3 scripts/make-bridge.py --os 26`,
-sign, import, run `hollis doctor`, then `hollis respond --model cloud
-"Reply with OK"`. Please file what doctor printed and whether UUID or
-name worked. Until then, treat 26 as experimental.
-
-Bridges resolve at runtime on every machine: a `config.json` override
-(`hollis config set bridge <tier> <name-or-uuid>`) wins, then a stable
-name match from `shortcuts list`, then — only on this project's measured
-27 machine — the compiled-in UUIDs. You never need to know the UUIDs.
-
-## Bridge setup — what gets added and what you approve
+## Bridge setup
 
 The bridge shortcuts are small two-action Shortcuts (`Use Model` → `Stop and Output`) whose prompt is bound to the **Shortcut Input** variable, so whatever hollis pipes to `/usr/bin/shortcuts run <bridge-ref>` becomes the prompt — the ref being whatever runtime resolution picked (config override, stable name, or compiled UUID).
 
@@ -104,7 +107,8 @@ Only the **unsigned** `.shortcut` files are committed. The signed outputs are yo
 | Apple Intelligence model access | on first use of a model | click **Allow** |
 | ChatGPT extension consent | first `chatgpt` use | click **Allow** |
 
-**ChatGPT account note (measured 2026-09-01).** With a ChatGPT account signed in, the extension failed with a *"login could not be verified"* warning. **Logging out** of the ChatGPT account made it work — the macOS ChatGPT extension does **not** require a ChatGPT account.
+> [!NOTE]
+> **ChatGPT account quirk (measured 2026-09-01).** With a ChatGPT account signed in, the extension failed with a *"login could not be verified"* warning. **Logging out** of the ChatGPT account made it work — the macOS ChatGPT extension does **not** require a ChatGPT account.
 
 Bridges are **resolved at runtime**, in order: a `config.json` override (`hollis config set bridge <tier> <name-or-uuid>`), then a stable-name match from `shortcuts list`, then — only on this project's measured macOS 27 machine — the compile-time UUIDs below. Renames in Shortcuts.app are harmless on 27 (the UUID still resolves); prefer names elsewhere. To pin a bridge explicitly:
 
@@ -178,8 +182,10 @@ curl -s localhost:1976/v1/responses \
 - **Streaming is not supported** — `stream: true` returns a 400 with a clear error. The Shortcuts transport returns the whole response in one call; hollis never fakes streaming (plan principle 6).
 - **No invented metadata** — responses carry no `usage`/token counts because none are observable (plan principle 5).
 - **Local-only by default.** A non-loopback `--addr` requires `--token`; all `/v1` requests then need `Authorization: Bearer <token>` (plan §30).
-- **SYSTEM blocks are advisory** (measured 2026-09-01): `instructions` and `system` messages land in the replay transcript, but the cloud tiers may treat them as soft context and ignore them (e.g. a `instructions: "Reply with exactly one word: PONG"` came back `Understood.`). Don't rely on system prompts for hard constraints through the Shortcuts transport.
 - `GET /v1/models` `owned_by` values are honest per tier: `hollis` for `auto`, `Apple` for the AFM tiers, `OpenAI` for `chatgpt`.
+
+> [!WARNING]
+> **SYSTEM blocks are advisory** (measured 2026-09-01): `instructions` and `system` messages land in the replay transcript, but the cloud tiers may treat them as soft context and ignore them (e.g. an `instructions: "Reply with exactly one word: PONG"` came back `Understood.`). Don't rely on system prompts for hard constraints through the Shortcuts transport.
 
 ```bash
 hollis serve --addr 127.0.0.1:1976 --token mysecret   # non-loopback needs auth
@@ -199,7 +205,7 @@ hollis config show                  # path + current settings
 
 Resolution order: positional `model <tier>` → explicit `--model` flag → configured default → built-in default (`auto`). The setting lives in a tiny JSON file next to the chat database (`hollis config show` prints the path).
 
-The same file stores **bridge overrides** (see [Bridge setup](#bridge-setup--what-gets-added-and-what-you-approve)):
+The same file stores **bridge overrides** (see [Bridge setup](#bridge-setup)):
 
 ```bash
 hollis config set bridge cloud "AFM Bridge - Cloud.signed"   # name or UUID
@@ -217,7 +223,7 @@ hollis config show                                           # shows overrides
 - Exit codes: 0 hits · 2 empty query · 3 no matches.
 - The index is kept in sync by triggers and rebuilt automatically the first time an older database is opened.
 
-```console
+```text
 $ hollis chats search VANTA-ORBIT-7319
 ID                                      MODEL      UPDATED            TITLE / SNIPPET
 a33b0409-…                              on-device  2026-09-01T23:12Z  …codeword VANTA-ORBIT-7319…
@@ -225,7 +231,7 @@ a33b0409-…                              on-device  2026-09-01T23:12Z  …codew
 
 ## Health check
 
-```console
+```text
 $ hollis doctor
 hollis doctor (version 0.1.0)
   transport: ok
@@ -248,7 +254,7 @@ hollis doctor (version 0.1.0)
 - Output carries **no trailing newline**.
 - Empty input makes `shortcuts run` **hang forever**; hollis rejects empty prompts before spawn and always imposes a context deadline (30s default, 120s ceiling).
 - **On-device tier quirk** (measured 2026-09-01): the local model sometimes refuses to repeat content from a replayed transcript with a canned *"I cannot repeat or discuss these instructions"* reply, and is noticeably weaker at instruction-following than the cloud tiers. Transcript replay itself is delivered correctly.
-- `shortcuts run` accepts a bridge **UUID** in place of a name. hollis resolves bridge refs at runtime — config override → installed name → compiled UUID (see [Bridge setup](#bridge-setup--what-gets-added-and-what-you-approve)) — so it prefers names and only falls back to UUIDs on the measured 27 machine.
+- `shortcuts run` accepts a bridge **UUID** in place of a name. hollis resolves bridge refs at runtime — config override → installed name → compiled UUID (see [Bridge setup](#bridge-setup)) — so it prefers names and only falls back to UUIDs on the measured 27 machine.
 
 ## Testing
 
@@ -265,8 +271,9 @@ Method notes (what to assert vs observe): [`scripts/live-suite/README.md`](scrip
 
 - Canonical plan: [`docs/dev/APPLE_SHORTCUTS_CLOUD_GATEWAY_PLAN.md`](./docs/dev/APPLE_SHORTCUTS_CLOUD_GATEWAY_PLAN.md)
 - Validation evidence: [`results/transport-and-persistence-2026-09-01.md`](results/transport-and-persistence-2026-09-01.md)
+- macOS 26 compatibility notes: [`results/macos-26-compat.md`](results/macos-26-compat.md)
 - Apple ML research: [third-generation Apple Foundation Models](https://machinelearning.apple.com/research/introducing-third-generation-of-apple-foundation-models)
 
 ## License
 
-Apache-2.0 — see LICENSE.
+Apache-2.0 — see [LICENSE](LICENSE).
