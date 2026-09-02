@@ -102,7 +102,7 @@ conversation is created and auto-titled from the first message.`,
 
 			// Read and validate the prompt BEFORE creating anything, so an
 			// empty prompt never leaves a 0-message conversation behind
-			// (results advanced-cli-test-2026-09-01, defect 5).
+			// (a measured defect: the conversation used to be created first).
 			var prompt string
 			interactive := false
 			switch {
@@ -111,8 +111,8 @@ conversation is created and auto-titled from the first message.`,
 			case interactiveStdin() && !flags.noInput:
 				interactive = true
 			case flags.noInput && interactiveStdin():
-				// --no-input never waits on a terminal (TEST-REPORT §6.4):
-				// fail fast instead of blocking on stdin forever.
+				// --no-input never waits on a terminal (measured: it would
+				// otherwise block on stdin forever).
 				return usageErr(errors.New("no prompt provided: pass an argument or pipe stdin (refusing to wait on a terminal in --no-input mode)"))
 			default:
 				b, err := io.ReadAll(cmd.InOrStdin())

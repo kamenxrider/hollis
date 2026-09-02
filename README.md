@@ -221,9 +221,6 @@ or shared with anyone, including Apple.”
 
 ## More
 
-Working notes (not the user manual): [`docs/dev/`](docs/dev/).
-
-- Plan: [`docs/dev/APPLE_SHORTCUTS_CLOUD_GATEWAY_PLAN.md`](docs/dev/APPLE_SHORTCUTS_CLOUD_GATEWAY_PLAN.md)
 - Transport evidence: [`results/transport-and-persistence-2026-09-01.md`](results/transport-and-persistence-2026-09-01.md)
 - Apple: [on-device prompting](https://developer.apple.com/documentation/foundationmodels/prompting-an-on-device-foundation-model) · [PCC](https://developer.apple.com/documentation/foundationmodels/adding-server-side-intelligence-with-private-cloud-compute)
 

@@ -322,8 +322,8 @@ func TestChatNoInputDoesNotEnterREPL(t *testing.T) {
 }
 
 func TestBridgeCheckMarshalsRealObjects(t *testing.T) {
-	// results/advanced-cli-test-2026-09-01 defect 1: unexported fields
-	// made `doctor --json` emit "bridges":[{},{},{},{}].
+	// Regression guard: unexported fields once made
+	// `doctor --json` emit "bridges":[{},{},{},{}].
 	b, err := json.Marshal(bridgeCheck{Model: "cloud", UUID: "X", Name: "n", Installed: true})
 	if err != nil {
 		t.Fatal(err)
@@ -500,8 +500,8 @@ func TestChatsSearchValidatesFlags(t *testing.T) {
 }
 
 func TestChatEmptyPromptLeavesNoConversation(t *testing.T) {
-	// results/advanced-cli-test-2026-09-01 defect 5: the conversation was
-	// created before the prompt was validated, leaving 0-message rows.
+	// Regression guard: the conversation used to be created before the
+	// prompt was validated, leaving 0-message rows.
 	stubConfigPath(t)
 	old := interactiveStdin
 	interactiveStdin = func() bool { return false }

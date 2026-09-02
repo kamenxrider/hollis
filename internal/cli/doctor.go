@@ -11,8 +11,8 @@ import (
 )
 
 // bridgeCheck carries one bridge's health. Exported fields with JSON
-// tags so `doctor --json` emits real objects instead of {} (results
-// advanced-cli-test-2026-09-01, defect 1).
+// tags so `doctor --json` emits real objects instead of {} — a measured
+// defect when the fields were unexported.
 type bridgeCheck struct {
 	Model string `json:"model"`
 	// UUID is the compiled fallback reference — a private artifact of the

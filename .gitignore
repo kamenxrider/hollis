@@ -17,10 +17,11 @@ coverage.html
 # (ship unsigned + `shortcuts sign`, per README)
 *.signed.shortcut
 
-# local-only working material: Apple Help page dumps (copyrighted),
+# local-only working material: build history (docs/dev/ is kept out of
+# the public tree entirely), Apple Help page dumps (copyrighted),
 # agent skill tooling
-/docs/dev/shortcuts-docs.md
-/docs/dev/shotcuts-mac-apple-intelligence.md
+/docs/dev/
+/results/advanced-cli-test-2026-09-01.md
 .agents/
 .claude/
 skills-lock.json
