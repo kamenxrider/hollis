@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build macOS binaries
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for arch in arm64 amd64; do
+            CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" \
+              go build -trimpath \
+              -ldflags "-s -w -X github.com/kamenxrider/hollis/internal/cli.version=$VERSION" \
+              -o "dist/hollis-darwin-$arch" ./cmd/hollis
+          done
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum hollis-darwin-arm64 hollis-darwin-amd64 > SHA256SUMS
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "hollis $GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/hollis-darwin-arm64 dist/hollis-darwin-amd64 dist/SHA256SUMS \
+            || gh release upload "$GITHUB_REF_NAME" \
+                 dist/hollis-darwin-arm64 dist/hollis-darwin-amd64 dist/SHA256SUMS --clobber
