@@ -18,9 +18,9 @@ type echoRunner struct {
 	lastPrompt string
 }
 
-func (r *echoRunner) Run(_ context.Context, _ runner.Model, prompt string) (string, error) {
+func (r *echoRunner) Run(_ context.Context, m runner.Model, prompt string) (string, runner.Model, error) {
 	r.lastPrompt = prompt
-	return prompt, nil
+	return prompt, m, nil
 }
 
 func openTempStore(t *testing.T) *store.Store {

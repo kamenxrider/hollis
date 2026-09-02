@@ -128,8 +128,14 @@ var ErrUnknownModel = errors.New("unknown model")
 // Runner sends one prompt to Apple Intelligence and returns the plain-text
 // response. Implementations must be safe for concurrent use.
 type Runner interface {
-	// Run submits prompt and returns the model response. The returned text
-	// is the child's stdout exactly as produced (no trailing newline added
-	// or stripped beyond what Apple emits).
-	Run(ctx context.Context, model Model, prompt string) (string, error)
+	// Run submits prompt and returns the model response plus the tier that
+	// actually served it. The returned text is the child's stdout exactly as
+	// produced (no trailing newline added or stripped beyond what Apple
+	// emits).
+	//
+	// The returned Model matters for ModelAuto, which silently falls back:
+	// callers must be able to tell a cloud answer from an on-device one,
+	// because they are not interchangeable (results Test: on-device refused
+	// a task cloud completed). Every other tier returns what was asked for.
+	Run(ctx context.Context, model Model, prompt string) (string, Model, error)
 }

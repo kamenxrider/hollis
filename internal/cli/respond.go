@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -87,16 +88,26 @@ Apple Intelligence & Siri). See hollis models.`,
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
 			}
-			text, err := r.Run(ctx, m, prompt)
+			text, used, err := r.Run(ctx, m, prompt)
 			if err != nil {
 				return toCLIError(err)
 			}
 
 			if flags.asJSON {
+				// model is what was asked for; model_used is what answered.
+				// They differ when auto falls back, and the two tiers are not
+				// interchangeable — a silent substitution would be the one
+				// place hollis hides something from the caller.
 				return printJSONFiltered(map[string]any{
-					"model":    string(m),
-					"response": text,
+					"model":      string(m),
+					"model_used": string(used),
+					"response":   text,
 				}, flags)
+			}
+			// Human output stays clean on stdout; the fallback notice goes to
+			// stderr so pipelines are unaffected.
+			if m == runner.ModelAuto && used != runner.ModelCloud {
+				fmt.Fprintf(os.Stderr, "hollis: cloud unavailable, answered with %s\n", used)
 			}
 			// Plain text out. Apple emits no trailing newline; add one
 			// only for terminal ergonomics, never into stored values.

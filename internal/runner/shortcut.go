@@ -47,11 +47,11 @@ func New() *ShortcutRunner {
 // ModelAuto is resolved here: cloud first, one on-device retry on any
 // transport-class failure (Apple's documented PCC fallback pattern).
 // Explicit tier selections are passed through untouched.
-func (r *ShortcutRunner) Run(ctx context.Context, model Model, prompt string) (string, error) {
+func (r *ShortcutRunner) Run(ctx context.Context, model Model, prompt string) (string, Model, error) {
 	// Rule 4: reject empty prompts before spawning. Empty input hangs
 	// `shortcuts run` forever; there is no exit code to map, only a kill.
 	if strings.TrimSpace(prompt) == "" {
-		return "", &Error{
+		return "", model, &Error{
 			Kind:     KindEmptyPrompt,
 			ExitCode: -1,
 			Err:      fmt.Errorf("%w: shortcuts run hangs forever on empty input; refusing to spawn", ErrEmptyPrompt),
@@ -60,22 +60,24 @@ func (r *ShortcutRunner) Run(ctx context.Context, model Model, prompt string) (s
 	if model == ModelAuto {
 		return r.runAuto(ctx, prompt)
 	}
-	return r.runTier(ctx, model, prompt)
+	text, err := r.runTier(ctx, model, prompt)
+	return text, model, err
 }
 
 // runAuto tries the default tier (cloud) once, then the on-device model
 // once. Empty-prompt errors are never retried: both tiers would refuse
 // the same way, and the caller was already told before any spawn.
-func (r *ShortcutRunner) runAuto(ctx context.Context, prompt string) (string, error) {
+func (r *ShortcutRunner) runAuto(ctx context.Context, prompt string) (string, Model, error) {
 	text, err := r.runTier(ctx, ModelCloud, prompt)
 	if err == nil {
-		return text, nil
+		return text, ModelCloud, nil
 	}
 	var re *Error
 	if !errors.As(err, &re) || re.Kind == KindEmptyPrompt {
-		return "", err
+		return "", ModelCloud, err
 	}
-	return r.runTier(ctx, ModelOnDevice, prompt)
+	text, err = r.runTier(ctx, ModelOnDevice, prompt)
+	return text, ModelOnDevice, err
 }
 
 func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string) (string, error) {

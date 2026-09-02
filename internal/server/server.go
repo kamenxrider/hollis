@@ -203,20 +203,23 @@ func transcriptFrom(msgs []reqMessage) string {
 // across hollis (the runner clamps to the 120s ceiling). ctx comes from the
 // request: a disconnected client cancels the run instead of leaving an
 // orphaned shortcut process for up to the ceiling.
-func (s *Server) runModel(ctx context.Context, w http.ResponseWriter, model runner.Model, prompt string) (string, bool) {
+// The returned Model is the tier that actually served, which differs from
+// the request when auto falls back. OpenAI reports the model that answered,
+// not the one asked for, so responses carry this rather than the request.
+func (s *Server) runModel(ctx context.Context, w http.ResponseWriter, model runner.Model, prompt string) (string, runner.Model, bool) {
 	ctx, cancel := context.WithTimeout(ctx, runner.DefaultTimeout)
 	defer cancel()
-	text, err := s.Runner.Run(ctx, model, prompt)
+	text, used, err := s.Runner.Run(ctx, model, prompt)
 	if err == nil {
-		return text, true
+		return text, used, true
 	}
 	var re *runner.Error
 	if errors.As(err, &re) && re.Kind == runner.KindTimeout {
 		writeError(w, http.StatusGatewayTimeout, "the model run exceeded its deadline and was killed")
-		return "", false
+		return "", model, false
 	}
 	writeError(w, http.StatusBadGateway, "the model run failed: "+err.Error())
-	return "", false
+	return "", model, false
 }
 
 type inMessage struct {
@@ -260,10 +263,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	text, ok := s.runModel(r.Context(), w, runner.Model(model), transcriptFrom(msgs))
+	text, used, ok := s.runModel(r.Context(), w, runner.Model(model), transcriptFrom(msgs))
 	if !ok {
 		return
 	}
+	model = string(used)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":      newID("chatcmpl-"),
 		"object":  "chat.completion",
@@ -337,10 +341,11 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		msgs = append([]reqMessage{{Role: "system", Content: req.Instructions}}, msgs...)
 	}
 
-	text, ok := s.runModel(r.Context(), w, runner.Model(model), transcriptFrom(msgs))
+	text, used, ok := s.runModel(r.Context(), w, runner.Model(model), transcriptFrom(msgs))
 	if !ok {
 		return
 	}
+	model = string(used)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":         newID("resp_"),
 		"object":     "response",
