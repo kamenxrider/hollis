@@ -529,7 +529,7 @@ func TestChatEmptyPromptLeavesNoConversation(t *testing.T) {
 }
 
 func TestRespondUnavailableModelExits2(t *testing.T) {
-	// results/macos-26-compat.md step 2: cloud-pro without a usable bridge
+	// cloud-pro without a usable bridge
 	// is a clean usage error, not a missing-shortcut transport failure.
 	// The md's 27 test points Pro at a fake name in config; the real
 	// runner is required so the gate engages, the listing is stubbed.
@@ -623,7 +623,7 @@ func TestConfigSetBridgePersistsAndClears(t *testing.T) {
 }
 
 func TestModelsOmitUnavailablePro(t *testing.T) {
-	// results/macos-26-compat.md step 2: the catalog is what resolves.
+	// the catalog is what resolves.
 	// A fake Pro config name removes cloud-pro from models without
 	// touching the other tiers.
 	stubConfigPath(t)
@@ -831,7 +831,7 @@ func TestModelsCommandJSONShape(t *testing.T) {
 		t.Fatalf("models JSON rows = %d, want 5 (auto + 4 tiers)", len(got))
 	}
 	// auto leads the list: selectable, but a strategy without a bridge —
-	// the same shape GET /v1/models reports (results/macos-26-compat.md).
+	// the same shape GET /v1/models reports.
 	if got[0]["model"] != "auto" {
 		t.Fatalf("first row = %v, want auto", got[0])
 	}

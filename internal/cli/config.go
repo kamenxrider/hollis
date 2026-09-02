@@ -22,7 +22,7 @@ type config struct {
 	// `model <tier>` prefix nor the --model flag is given.
 	DefaultModel string `json:"default_model"`
 	// Bridges overrides the bridge reference (name or UUID) invoked per
-	// tier (results/macos-26-compat.md step 1). Keys are concrete tier
+	// tier. Keys are concrete tier
 	// names; "auto" is not a tier with a bridge. Overrides beat the
 	// `shortcuts list` name match and the compiled UUIDs.
 	Bridges map[string]string `json:"bridges,omitempty"`
@@ -190,8 +190,7 @@ func newConfigSetCmd(_ *rootFlags) *cobra.Command {
 				if !runner.Model(value).Valid() {
 					return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", value))
 				}
-				// Explicit tiers must resolve on this machine (results/
-				// macos-26-compat.md step 2); auto always applies.
+				// Explicit tiers must resolve on this machine; auto always applies.
 				if m := runner.Model(value); m != runner.ModelAuto {
 					resolved, err := resolveBridges(cmd.Context())
 					if err != nil {

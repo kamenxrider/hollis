@@ -60,7 +60,7 @@ func TestMakeBridgeDefaultProfileIs27(t *testing.T) {
 }
 
 func TestMakeBridgeOS26Profile(t *testing.T) {
-	// results/macos-26-compat.md step 4: the 26 profile writes exactly
+	// The 26 profile writes exactly
 	// three bridges, none carrying Cloud Pro, with the pre-27 client
 	// version. The strings themselves remain untested guesses on 26.
 	if _, err := exec.LookPath("python3"); err != nil {

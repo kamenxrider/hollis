@@ -138,7 +138,7 @@ conversation is created and auto-titled from the first message.`,
 				return usageErr(errors.New("empty prompt: give a prompt as an argument or pipe it via stdin"))
 			}
 
-			// Runtime bridge resolution (results/macos-26-compat.md step 1):
+			// Runtime bridge resolution:
 			// explicit tiers refuse to run when their bridge did not resolve,
 			// and every turn's transport is retargeted at the resolved refs.
 			resolved, err := resolveForRunner(cmd.Context(), newRunner)

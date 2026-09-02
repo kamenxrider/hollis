@@ -80,8 +80,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
-	// Catalog = what resolves on this machine (results/macos-26-compat.md
-	// step 2): auto plus tiers whose bridges resolve. ChatGPT is OpenAI's
+	// Catalog = what resolves on this machine: auto plus tiers whose
+	// bridges resolve. ChatGPT is OpenAI's
 	// model exposed through Apple's extension — owned_by must not claim
 	// Apple.
 	data := []map[string]any{
@@ -362,7 +362,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 }
 
 // unavailableMessage renders the CLI's stable wording for an explicit
-// tier whose bridge did not resolve (results/macos-26-compat.md step 2).
+// tier whose bridge did not resolve.
 // The canonical wording lives in runner.UnavailableErr — never copy it.
 func unavailableMessage(m runner.Model) string {
 	return runner.UnavailableErr(m).Error()

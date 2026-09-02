@@ -5,8 +5,8 @@ package runner
 import "fmt"
 
 // MeasuredOSMajor is the macOS major version where hollis's bridge UUIDs,
-// WFLLMModel strings, and transport rules were measured (results/
-// macos-26-compat.md). Compiled UUIDs are artifacts of that install: they
+// WFLLMModel strings, and transport rules were measured. Compiled UUIDs
+// are artifacts of that install: they
 // are only trusted as availability evidence on this OS generation.
 const MeasuredOSMajor = 27
 
@@ -66,8 +66,7 @@ type ResolvedBridge struct {
 	Available bool
 }
 
-// ResolveBridges computes per-tier bridge resolution (results/
-// macos-26-compat.md step 1). Precedence per tier:
+// ResolveBridges computes per-tier bridge resolution. Precedence per tier:
 //
 //  1. overrides[tier] from config — a UUID is trusted as-is (`shortcuts
 //     run <UUID>` is measured on 27); a name is verified against the
@@ -138,8 +137,7 @@ func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[
 		// Cloud Pro did not exist on macOS 26 (Use Model had no Pro
 		// location), so no imported or configured bridge can make it work
 		// there — even a matching name is a hand-made artifact. The OS gate
-		// wins for Pro regardless of how it resolved (results/
-		// macos-26-compat.md: doctor shows UNSUPPORTED, catalog omits it).
+		// wins for Pro regardless of how it resolved.
 		if m == ModelCloudPro && osMajor < MeasuredOSMajor {
 			res.Available = false
 		}
@@ -173,7 +171,7 @@ func looksLikeUUID(s string) bool {
 }
 
 // UnavailableErr builds the stable usage error for an explicit tier whose
-// bridge did not resolve (results/macos-26-compat.md step 2).
+// bridge did not resolve.
 func UnavailableErr(m Model) error {
 	if m == ModelCloudPro {
 		return fmt.Errorf("%s is not available (bridge not installed; Cloud Pro requires macOS 27)", m)

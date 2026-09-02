@@ -205,7 +205,7 @@ class Suite:
                     )
                 )
             # Runtime resolution must be visible: macos, resolved_ref,
-            # source, status (results/macos-26-compat.md step 3).
+            # source, status.
             resolution_ok = (
                 bool(data.get("macos"))
                 and all(
@@ -343,7 +343,7 @@ class Suite:
             3,
         )
 
-        # Bridge override roundtrip (results/macos-26-compat.md step 2): a
+        # Bridge override roundtrip: a
         # fake config name must drop cloud-pro from the catalog, then the
         # override is cleared again. No Apple quota involved.
         before_cfg = run(self.h("config", "show", "--json"))

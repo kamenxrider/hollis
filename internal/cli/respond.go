@@ -71,7 +71,7 @@ Apple Intelligence & Siri). See hollis models.`,
 
 			r := newRunner()
 			ctx := cmd.Context()
-			// Runtime bridge resolution (results/macos-26-compat.md step 1):
+			// Runtime bridge resolution:
 			// explicit tiers refuse to run when their bridge did not resolve,
 			// and the real transport is retargeted at the resolved refs.
 			resolved, err := resolveForRunner(ctx, newRunner)

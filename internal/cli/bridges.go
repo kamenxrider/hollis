@@ -20,7 +20,7 @@ var listInstalledShortcuts = func(ctx context.Context) ([]string, error) {
 
 // macosVersion returns sw_vers -productVersion (e.g. "27.0"), or "" when
 // unreadable. ProductVersion, not uname: this 27 machine's build string
-// starts at 26 (results/macos-26-compat.md).
+// starts at 26.
 var macosVersion = func() string {
 	out, err := exec.Command("/usr/bin/sw_vers", "-productVersion").Output()
 	if err != nil {
@@ -74,7 +74,7 @@ func bridgeOverrides(c config) map[runner.Model]string {
 }
 
 // resolveBridges computes the runtime bridge resolution used across the
-// CLI (results/macos-26-compat.md step 1): config override > `shortcuts
+// CLI: config override > `shortcuts
 // list` name match > compiled UUID. The list subprocess is skipped only
 // when every tier has a config override.
 func resolveBridges(ctx context.Context) (map[runner.Model]runner.ResolvedBridge, error) {
@@ -110,9 +110,8 @@ func applyResolvedRefs(r runner.Runner, resolved map[runner.Model]runner.Resolve
 	sr.BridgeRefs = refs
 }
 
-// checkModelAvailable refuses explicit tiers whose bridge did not resolve
-// (results/macos-26-compat.md step 2). auto is never gated: it runs and
-// falls back on its own.
+// checkModelAvailable refuses explicit tiers whose bridge did not resolve.
+// auto is never gated: it runs and falls back on its own.
 func checkModelAvailable(resolved map[runner.Model]runner.ResolvedBridge, m runner.Model) error {
 	if m == runner.ModelAuto {
 		return nil

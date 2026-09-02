@@ -61,8 +61,14 @@ printf 'Reply with the single word: pong' \
 # stdout: pong (4 bytes, no trailing newline), exit 0
 ```
 
-hollis therefore references bridges by UUID (plan §36 rule 7) with name-based
-display strings kept only for doctor's human-readable report.
+`shortcuts run <UUID>` therefore works, which is what this test set out to
+establish.
+
+**Superseded:** hollis originally referenced bridges by UUID with names kept
+only for display. It now resolves the other way round — config override, then
+a name match from `shortcuts list`, and the compiled UUID only as a reference
+that is never treated as evidence the bridge exists. Those UUIDs are artifacts
+of this machine; on any other Mac they name nothing.
 
 ### Addendum (model expansion, same day): On-Device and ChatGPT bridges
 
