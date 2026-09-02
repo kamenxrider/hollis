@@ -71,6 +71,3 @@ func roleLabel(role string) string {
 	}
 }
 
-// ApproxSize returns the transcript size in characters — an approximate
-// local metric only. Never call this "tokens" (plan §14).
-func SizeChars(s string) int { return len([]rune(s)) }

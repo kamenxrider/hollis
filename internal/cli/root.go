@@ -115,7 +115,7 @@ func configErr(err error) error    { return &cliError{code: 10, err: err} }
 // ExitCode maps an error returned from Execute to a process exit code.
 // Exit codes are stable and agent-parseable (plan §23):
 // 0 success; 1 unclassified; 2 usage; 3 missing resource; 5 transport;
-// 7 timeout.
+// 7 timeout; 10 config.
 func ExitCode(err error) int {
 	if err == nil {
 		return 0

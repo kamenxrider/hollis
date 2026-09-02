@@ -32,7 +32,7 @@ func defaultOpenStore() (*store.Store, error) {
 // runTurn executes one conversation turn: build the replay transcript from
 // stored messages, run the transport, store the user and assistant messages,
 // and record run diagnostics either way (plan §12 runs table).
-func runTurn(st *store.Store, conv store.Conversation, prompt string, newRunner newRunnerFunc) (string, error) {
+func runTurn(ctx context.Context, st *store.Store, conv store.Conversation, prompt string, newRunner newRunnerFunc) (string, error) {
 	history, err := st.Messages(conv.ID)
 	if err != nil {
 		return "", configErr(err)
@@ -41,7 +41,7 @@ func runTurn(st *store.Store, conv store.Conversation, prompt string, newRunner 
 
 	r := newRunner()
 	start := time.Now()
-	text, err := r.Run(context.Background(), runner.Model(conv.Model), transcript)
+	text, err := r.Run(ctx, runner.Model(conv.Model), transcript)
 	durationMs := time.Since(start).Milliseconds()
 
 	if err != nil {
@@ -146,7 +146,7 @@ conversation is created and auto-titled from the first message.`,
 			// Resolve or create the conversation.
 			var conv store.Conversation
 			if interactive {
-				return runInteractiveChat(st, model, useRunner)
+				return runInteractiveChat(cmd.Context(), st, model, useRunner)
 			}
 			if continueID != "" {
 				conv, err = st.GetConversation(continueID)
@@ -160,7 +160,7 @@ conversation is created and auto-titled from the first message.`,
 				}
 			}
 
-			text, err := runTurn(st, conv, prompt, useRunner)
+			text, err := runTurn(cmd.Context(), st, conv, prompt, useRunner)
 			if err != nil {
 				return err
 			}
@@ -191,7 +191,7 @@ conversation is created and auto-titled from the first message.`,
 
 // runInteractiveChat runs the plan §18 REPL: "> " prompts, "< " responses,
 // Ctrl-D ends the session.
-func runInteractiveChat(st *store.Store, model string, newRunner newRunnerFunc) error {
+func runInteractiveChat(ctx context.Context, st *store.Store, model string, newRunner newRunnerFunc) error {
 	conv, err := st.CreateConversation(model, "")
 	if err != nil {
 		return configErr(err)
@@ -207,7 +207,7 @@ func runInteractiveChat(st *store.Store, model string, newRunner newRunnerFunc) 
 		if line == "" {
 			continue
 		}
-		text, err := runTurn(st, conv, line, newRunner)
+		text, err := runTurn(ctx, st, conv, line, newRunner)
 		if err != nil {
 			return err
 		}
@@ -330,19 +330,18 @@ func newChatsListCmd(flags *rootFlags) *cobra.Command {
 			if err != nil {
 				return configErr(err)
 			}
-			defer st.Close()
 			convs, err := st.ListConversations(true)
 			if err != nil {
 				return configErr(err)
 			}
+			defer st.Close()
 			rows := make([]map[string]any, 0, len(convs))
 			for _, c := range convs {
-				n, _ := st.MessageCount(c.ID)
 				rows = append(rows, map[string]any{
 					"id":         c.ID,
 					"title":      c.Title,
 					"model":      c.Model,
-					"messages":   n,
+					"messages":   c.Messages,
 					"created_at": c.CreatedAt,
 					"updated_at": c.UpdatedAt,
 					"archived":   c.Archived,
@@ -354,8 +353,7 @@ func newChatsListCmd(flags *rootFlags) *cobra.Command {
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "%-38s  %-9s  %-9s  %s\n", "ID", "MESSAGES", "MODEL", "TITLE")
 			for _, c := range convs {
-				n, _ := st.MessageCount(c.ID)
-				fmt.Fprintf(w, "%s  %-9d  %-9s  %s\n", c.ID, n, c.Model, c.Title)
+				fmt.Fprintf(w, "%s  %-9d  %-9s  %s\n", c.ID, c.Messages, c.Model, c.Title)
 			}
 			return nil
 		},

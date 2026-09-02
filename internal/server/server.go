@@ -186,9 +186,11 @@ func transcriptFrom(msgs []reqMessage) string {
 }
 
 // runModel invokes the transport with the per-call deadline policy used
-// across hollis (the runner clamps to the 120s ceiling).
-func (s *Server) runModel(w http.ResponseWriter, model runner.Model, prompt string) (string, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), runner.DefaultTimeout)
+// across hollis (the runner clamps to the 120s ceiling). ctx comes from the
+// request: a disconnected client cancels the run instead of leaving an
+// orphaned shortcut process for up to the ceiling.
+func (s *Server) runModel(ctx context.Context, w http.ResponseWriter, model runner.Model, prompt string) (string, bool) {
+	ctx, cancel := context.WithTimeout(ctx, runner.DefaultTimeout)
 	defer cancel()
 	text, err := s.Runner.Run(ctx, model, prompt)
 	if err == nil {
@@ -244,7 +246,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	text, ok := s.runModel(w, runner.Model(model), transcriptFrom(msgs))
+	text, ok := s.runModel(r.Context(), w, runner.Model(model), transcriptFrom(msgs))
 	if !ok {
 		return
 	}
@@ -321,7 +323,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		msgs = append([]reqMessage{{Role: "system", Content: req.Instructions}}, msgs...)
 	}
 
-	text, ok := s.runModel(w, runner.Model(model), transcriptFrom(msgs))
+	text, ok := s.runModel(r.Context(), w, runner.Model(model), transcriptFrom(msgs))
 	if !ok {
 		return
 	}
@@ -345,13 +347,11 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// unavailableMessage mirrors the CLI's stable wording for an explicit
+// unavailableMessage renders the CLI's stable wording for an explicit
 // tier whose bridge did not resolve (results/macos-26-compat.md step 2).
+// The canonical wording lives in runner.UnavailableErr — never copy it.
 func unavailableMessage(m runner.Model) string {
-	if m == runner.ModelCloudPro {
-		return fmt.Sprintf("%s is not available (bridge not installed; Cloud Pro requires macOS 27)", m)
-	}
-	return fmt.Sprintf("%s is not available (bridge not installed)", m)
+	return runner.UnavailableErr(m).Error()
 }
 
 // unsupportedStreaming answers stream=true with a clear unsupported
