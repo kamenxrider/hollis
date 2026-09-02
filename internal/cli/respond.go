@@ -45,8 +45,8 @@ Apple Intelligence & Siri). See hollis models.`,
 			if len(promptArgs) > 0 {
 				prompt = strings.Join(promptArgs, " ")
 			} else {
-				// --no-input never waits on a terminal (TEST-REPORT §6.4):
-				// fail fast instead of blocking on stdin forever.
+				// --no-input never waits on a terminal (measured: it would
+				// otherwise block on stdin forever).
 				if flags.noInput && interactiveStdin() {
 					return usageErr(errors.New("no prompt provided: pass an argument or pipe stdin (refusing to wait on a terminal in --no-input mode)"))
 				}
