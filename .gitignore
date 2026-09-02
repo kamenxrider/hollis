@@ -6,6 +6,21 @@
 *.test
 *.out
 coverage.html
+cover.html
+*.pprof
+*.log
+# a bare `go build` (as the README suggests) drops the binary in place
+/hollis
+/cmd/hollis/hollis
+# generated locally by make-bridge.py and by the README's bridge step
+/bridges/26/
+hollis-bridges.zip
+# local databases and anything env-shaped
+*.db
+.env
+.env.*
+__pycache__/
+.venv/
 
 # editor junk
 .idea/
@@ -23,6 +38,10 @@ coverage.html
 # agent skill tooling
 /docs/dev/
 /results/advanced-cli-test-2026-09-01.md
+# working memo addressed to the implementer; describes code that has since
+# shipped, so it reads as a live defect report. Kept local until it can be
+# rewritten as a compatibility reference (needs a real macOS 26 machine).
+/results/macos-26-compat.md
 .agents/
 .claude/
 skills-lock.json

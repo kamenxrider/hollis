@@ -70,4 +70,3 @@ func roleLabel(role string) string {
 		return strings.ToUpper(role)
 	}
 }
-

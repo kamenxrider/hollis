@@ -47,8 +47,8 @@ response in a single call, and faking it is forbidden (plan principle 6).`,
 
 			r := newRunner()
 			srv := server.New(r, token)
-			// Resolve bridges once at startup (results/macos-26-compat.md
-			// steps 1+2): the transport invokes resolved refs and /v1/models
+			// Resolve bridges once at startup: the transport invokes
+			// resolved refs and /v1/models
 			// lists only tiers whose bridges resolve. Fakes skip resolution.
 			if resolved, err := resolveForRunner(cmd.Context(), newRunner); err != nil {
 				return configErr(err)

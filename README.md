@@ -285,7 +285,7 @@ hollis doctor
 hollis respond --model cloud "Reply with OK"
 ```
 
-Please include `hollis doctor` output when reporting macOS 26 results. Notes: [`results/macos-26-compat.md`](results/macos-26-compat.md).
+Please include `hollis doctor` output when reporting macOS 26 results — that is the fastest way for this to stop being untested.
 
 ## Model notes
 
@@ -314,7 +314,6 @@ Suite documentation: [`scripts/live-suite/README.md`](scripts/live-suite/README.
 
 * [`results/two-cloud-tiers-26A5421a.md`](results/two-cloud-tiers-26A5421a.md) — the two-tier finding, with evidence and prior art
 * [`results/transport-and-persistence-2026-09-01.md`](results/transport-and-persistence-2026-09-01.md) — measured transport behaviour
-* [`results/macos-26-compat.md`](results/macos-26-compat.md) — macOS 26 notes
 * [Apple: Prompting an on-device foundation model](https://developer.apple.com/documentation/foundationmodels/prompting-an-on-device-foundation-model)
 * [Apple: Adding server-side intelligence with Private Cloud Compute](https://developer.apple.com/documentation/foundationmodels/adding-server-side-intelligence-with-private-cloud-compute)
 

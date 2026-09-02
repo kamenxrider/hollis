@@ -149,7 +149,7 @@ func TestChatCompletionsLastMessageMustBeUser(t *testing.T) {
 }
 
 func TestModelsOmitUnavailableTiers(t *testing.T) {
-	// results/macos-26-compat.md step 2: the catalog is what resolves.
+	// the catalog is what resolves.
 	// A 26 machine (no Pro bridge) lists auto + its three tiers only.
 	srv := New(&echoRunner{}, "")
 	srv.Available = map[string]bool{"cloud": true, "on-device": true, "chatgpt": true, "cloud-pro": false}

@@ -35,7 +35,7 @@ def token_string(attachment: dict) -> dict:
     }
 
 
-# OS profiles (results/macos-26-compat.md step 4). The 27 profile is the
+# OS profiles. The 27 profile is the
 # measured one; the 26 profile is a best guess and ships labeled untested:
 # the on-device/ChatGPT WFLLMModel strings have not been decoded on a 26
 # install, and the Cloud string is inferred from public plists. Cloud Pro
@@ -138,7 +138,7 @@ def main() -> int:
     outdir.mkdir(parents=True, exist_ok=True)
     if args.os == "26":
         print(
-            "WARNING: the 26 profile is a best guess (results/macos-26-compat.md): "
+            "WARNING: the 26 profile is a best guess: "
             "the on-device/ChatGPT WFLLMModel strings were never decoded on 26, "
             "and Cloud Pro does not exist on 26. Treat the output as untested."
         )

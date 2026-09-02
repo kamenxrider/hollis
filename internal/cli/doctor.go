@@ -53,7 +53,7 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 				report["shortcuts_cli"] = "ok"
 			}
 
-			// Runtime bridge resolution (results/macos-26-compat.md steps 1+3):
+			// Runtime bridge resolution:
 			// what each tier would invoke and whether it is usable here.
 			resolved, resErr := resolveBridges(cmd.Context())
 			osMajor := macosMajorVersion()

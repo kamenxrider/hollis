@@ -19,7 +19,7 @@ type modelInfo struct {
 	appleName string
 	// legacyName is the description on macOS < 27, where the AFM 3
 	// family does not apply (the cloud tier is the pre-AFM-3 PCC model;
-	// results/macos-26-compat.md: do not print "AFM 3" for 26).
+	// do not print "AFM 3" for 26.
 	legacyName string
 }
 
@@ -60,9 +60,7 @@ sources.`,
 			if flags.asJSON {
 				// auto first — it is selectable but a strategy, not a tier:
 				// no WFLLMModel parameter and no bridge of its own, matching
-				// the human output and GET /v1/models (results/
-				// macos-26-compat.md: both surfaces list auto plus what
-				// resolves).
+				// the human output and GET /v1/models.
 				rows := []map[string]any{{
 					"model":       "auto",
 					"apple_model": "fallback strategy: cloud first, on-device on failure",
