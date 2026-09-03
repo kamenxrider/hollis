@@ -2,8 +2,8 @@
 
 // Package runner invokes Apple Intelligence through the AFM bridge shortcuts.
 //
-// Every rule here is earned by a measured failure; see
-// results/transport-and-persistence-2026-09-01.md and plan §36:
+// Every rule here is earned by measured transport behavior summarized in
+// EVIDENCE.md:
 //
 //  1. Always pass --output-type public.plain-text (the default output is RTF).
 //  2. Capture stdout via pipes, never a TTY (a TTY silently suppresses output).
@@ -59,8 +59,8 @@ func (m Model) Valid() bool {
 	return false
 }
 
-// Bridge UUIDs measured from the installed signed shortcuts
-// (results/transport-and-persistence-2026-09-01.md). UUIDs are stable across
+// Bridge UUIDs measured from the installed signed shortcuts on the development
+// Mac. UUIDs are stable across
 // renames; the imported display names carry a `.signed` suffix from the file
 // name and can be renamed in Shortcuts.app at any time.
 const (

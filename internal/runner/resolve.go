@@ -20,10 +20,9 @@ var BridgeNameCandidates = map[Model][]string{
 	ModelChatGPT:  {"AFM Bridge - ChatGPT.signed", "AFM Bridge - ChatGPT"},
 }
 
-// CompiledUUID returns the compile-time fallback UUID for a concrete tier
-// (results/transport-and-persistence-2026-09-01.md). This is a private
-// artifact of the macOS 27 development machine: any other Mac gets new
-// UUIDs at import time and must not rely on these.
+// CompiledUUID returns the compile-time fallback UUID for a concrete tier.
+// This is a private artifact of the macOS 27 development machine: any other
+// Mac gets new UUIDs at import time and must not rely on these.
 func CompiledUUID(m Model) string {
 	switch m {
 	case ModelCloud:
