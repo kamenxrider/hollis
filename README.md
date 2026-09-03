@@ -345,6 +345,8 @@ go build ./cmd/hollis
 
 The default suite is provider-free: subprocess tests inject deterministic runners without a production backdoor, HTTP uses `httptest`, and bridge generation is checked for both macOS profiles. CI runs the race suite on an official macOS Go 1.27 runner before packaging.
 
+Pull requests from branches in this repository also receive an automated Poolside review. Fork pull requests are skipped because GitHub does not provide repository secrets to them.
+
 The separately gated live suite needs the exact built binary and invokes real Shortcuts models, so run it only when those calls are intended:
 
 ```bash
