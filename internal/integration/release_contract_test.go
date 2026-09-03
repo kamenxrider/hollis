@@ -92,7 +92,7 @@ func TestActionsUseImmutableCommitPins(t *testing.T) {
 	t.Parallel()
 	repo := repoRoot(t)
 	mutable := regexp.MustCompile(`uses:\s+[^\s]+@v[0-9]+(?:\s|$)`)
-	for _, name := range []string{"ci.yml", "release.yml"} {
+	for _, name := range []string{"ci.yml", "poolside-review.yml", "release.yml"} {
 		raw, err := os.ReadFile(filepath.Join(repo, ".github", "workflows", name))
 		if err != nil {
 			t.Fatal(err)
@@ -100,6 +100,35 @@ func TestActionsUseImmutableCommitPins(t *testing.T) {
 		if hit := mutable.Find(raw); hit != nil {
 			t.Errorf("%s contains mutable action pin %q", name, hit)
 		}
+	}
+}
+
+func TestPoolsideReviewWorkflowIsSecretSafe(t *testing.T) {
+	t.Parallel()
+	repo := repoRoot(t)
+	raw, err := os.ReadFile(filepath.Join(repo, ".github", "workflows", "poolside-review.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(raw)
+	for _, required := range []string{
+		"github.event.pull_request.head.repo.full_name == github.repository",
+		"github.event.pull_request.draft == false",
+		"POOL_INSTALL_ACCEPT_EULA: \"1\"",
+		"POOLSIDE_API_KEY: ${{ secrets.POOLSIDE_API_KEY }}",
+		"POOLSIDE_STANDALONE_BASE_URL: https://inference.poolside.ai",
+		"test -s review.md",
+		"gh pr comment \"$PR_NUMBER\" --body-file review.md",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("Poolside review workflow missing %q", required)
+		}
+	}
+	if strings.Contains(workflow, "pull_request_target") {
+		t.Error("Poolside review must not expose its secret through pull_request_target")
+	}
+	if strings.Contains(workflow, "POOLSIDE_STANDALONE_MODEL:") {
+		t.Error("Poolside review should use the API key's configured default model unless a tested model ID is selected")
 	}
 }
 
