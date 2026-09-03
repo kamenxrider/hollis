@@ -722,6 +722,36 @@ func TestDoctorJSONMacosAndStatus(t *testing.T) {
 	}
 }
 
+func TestDoctorMissingTransportExits5(t *testing.T) {
+	stubConfigPath(t)
+	stubResolution(t, allImportedNames(), true, 27)
+	lookPath = func(path string) (string, error) {
+		return "", fmt.Errorf("%s not found", path)
+	}
+
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"doctor", "--json"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	err := cmd.Execute()
+	if ExitCode(err) != 5 || !ErrorReported(err) {
+		t.Fatalf("exit=%d reported=%v err=%v output=%s", ExitCode(err), ErrorReported(err), err, out.String())
+	}
+
+	var got map[string]any
+	if unmarshalErr := json.Unmarshal(out.Bytes(), &got); unmarshalErr != nil {
+		t.Fatalf("invalid JSON: %v (%q)", unmarshalErr, out.String())
+	}
+	if got["shortcuts_cli"] != "ERROR not found at /usr/bin/shortcuts" {
+		t.Fatalf("shortcuts_cli=%v", got["shortcuts_cli"])
+	}
+	errorBody, ok := got["error"].(map[string]any)
+	if !ok || errorBody["code"] != "transport" || errorBody["exit_code"] != float64(5) {
+		t.Fatalf("error=%#v", got["error"])
+	}
+}
+
 func TestDoctorExitContracts(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -998,10 +1028,13 @@ func stubResolution(t *testing.T, installed []string, listOK bool, major int) {
 	macosMajorVersion = func() int { return major }
 	oldVersion := macosVersion
 	macosVersion = func() string { return fmt.Sprintf("%d.0", major) }
+	oldLookPath := lookPath
+	lookPath = func(path string) (string, error) { return path, nil }
 	t.Cleanup(func() {
 		listInstalledShortcuts = oldList
 		macosMajorVersion = oldMajor
 		macosVersion = oldVersion
+		lookPath = oldLookPath
 	})
 }
 
