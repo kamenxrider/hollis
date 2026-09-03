@@ -34,6 +34,10 @@ type bridgeCheck struct {
 	Status string `json:"status"`
 }
 
+// lookPath is the production executable probe. Tests replace it so doctor
+// diagnostics do not depend on the host running the provider-free suite.
+var lookPath = exec.LookPath
+
 func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
@@ -50,7 +54,7 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 			r := runner.New()
 
 			// Transport binary.
-			if _, err := exec.LookPath(r.ShortcutsPath); err != nil {
+			if _, err := lookPath(r.ShortcutsPath); err != nil {
 				report["shortcuts_cli"] = fmt.Sprintf("ERROR not found at %s", r.ShortcutsPath)
 				diagnosticErr = transportErr(fmt.Errorf("Shortcuts transport not found at %s", r.ShortcutsPath))
 			} else {
