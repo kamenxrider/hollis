@@ -275,12 +275,19 @@ func TestCLIProcessReadOnlyAndConfigCommands(t *testing.T) {
 				// but must not invoke a provider just to list.
 				return
 			}
-			if tc.name == "doctor" && result.exit == 5 {
-				// Doctor still returns its structured report when discovery
-				// itself fails; preserve that useful diagnostic and its stable
-				// transport exit code.
+			if tc.name == "doctor" && (result.exit == 3 || result.exit == 5 || result.exit == 10) {
+				// Doctor is intentionally host-dependent. A clean CI Mac can
+				// list Shortcuts but have no Hollis bridges (3), discovery can
+				// fail (5), or OS/config state can be unverified (10). Every
+				// diagnostic path must still return structured JSON and must
+				// never invoke a model provider.
 				var report map[string]any
 				decodeObject(t, result.stdout, &report)
+				errorBody, ok := report["error"].(map[string]any)
+				reportedExit, exitOK := errorBody["exit_code"].(float64)
+				if !ok || !exitOK || int(reportedExit) != result.exit {
+					t.Fatalf("doctor error body does not match exit %d: %#v", result.exit, report)
+				}
 				return
 			}
 			if result.exit != 0 {
