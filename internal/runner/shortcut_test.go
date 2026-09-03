@@ -18,6 +18,7 @@ import (
 //
 //	echo      cat the recorded stdin back (round-trip)
 //	empty     exit 0 with no stdout (the ambiguous signature)
+//	whitespace exit 0 with only non-content whitespace
 //	missing   exit 1 with Apple-like stderr
 //	usage     exit 64
 //	sigabrt   raise SIGABRT (exit 134 via signal)
@@ -40,9 +41,13 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 		"case \"$mode\" in\n" +
 		"  echo) cat " + dir + "/stdin.txt ;;\n" +
 		"  empty) exit 0 ;;\n" +
+		"  whitespace) printf ' \\n\\t' ;;\n" +
 		"  missing) echo 'The shortcut named \"AFM Bridge\" could not be found' >&2; exit 1 ;;\n" +
 		"  usage) echo 'Error: invalid value ... for --output-type' >&2; exit 64 ;;\n" +
+		"  rate) echo 'Too many incoming requests' >&2; exit 1 ;;\n" +
+		"  generic) echo 'temporary transport problem' >&2; exit 1 ;;\n" +
 		"  sigabrt) kill -ABRT $$ ;;\n" +
+		"  sigterm) kill -TERM $$ ;;\n" +
 		// The sleep runs in the background so its PID can be recorded, and
 		// `wait` keeps the script alive as the direct child. Tests assert
 		// against that exact PID rather than pgrep-ing for a command line.
@@ -111,11 +116,13 @@ func TestEmptyPromptRefusedWithoutSpawn(t *testing.T) {
 }
 
 func TestExitZeroEmptyStdoutIsNoOutput(t *testing.T) {
-	r, _ := runnerWithFake(t, "empty")
-	_, _, err := r.Run(context.Background(), ModelCloud, "hello")
-	var re *Error
-	if !errors.As(err, &re) || re.Kind != KindNoOutput {
-		t.Fatalf("want KindNoOutput, got %v", err)
+	for _, mode := range []string{"empty", "whitespace"} {
+		r, _ := runnerWithFake(t, mode)
+		_, _, err := r.Run(context.Background(), ModelCloud, "hello")
+		var re *Error
+		if !errors.As(err, &re) || re.Kind != KindNoOutput {
+			t.Fatalf("mode %s: want KindNoOutput, got %v", mode, err)
+		}
 	}
 }
 
@@ -140,6 +147,88 @@ func TestUsageErrorMapsExit64(t *testing.T) {
 	}
 }
 
+func TestRateLimitAndGenericExitOneAreNotMissing(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		want Kind
+	}{{"rate", KindRateLimited}, {"generic", KindTransport}} {
+		r, _ := runnerWithFake(t, tc.mode)
+		_, _, err := r.Run(context.Background(), ModelCloud, "hello")
+		var runErr *Error
+		if !errors.As(err, &runErr) || runErr.Kind != tc.want {
+			t.Fatalf("mode %s: got %v, want %s", tc.mode, err, tc.want)
+		}
+	}
+}
+
+func TestRealSignalsAreClassifiedBeforeText(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		want Kind
+		sig  syscall.Signal
+	}{{"sigabrt", KindSIGABRT, syscall.SIGABRT}, {"sigterm", KindSignal, syscall.SIGTERM}} {
+		r, _ := runnerWithFake(t, tc.mode)
+		_, _, err := r.Run(context.Background(), ModelCloud, "hello")
+		var runErr *Error
+		if !errors.As(err, &runErr) || runErr.Kind != tc.want || runErr.Signal != tc.sig {
+			t.Fatalf("mode %s: got %+v, want kind=%s signal=%s", tc.mode, runErr, tc.want, tc.sig)
+		}
+	}
+}
+
+func TestCanceledRunDoesNotFallback(t *testing.T) {
+	r, dir := runnerWithFake(t, "hang")
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(500*time.Millisecond, cancel)
+	_, _, err := r.Run(ctx, ModelAuto, "hello")
+	var runErr *Error
+	if !errors.As(err, &runErr) || runErr.Kind != KindContextCanceled {
+		t.Fatalf("got %v, want context_canceled", err)
+	}
+	count, _ := os.ReadFile(dir + "/count.txt")
+	if strings.TrimSpace(string(count)) != "1" {
+		t.Fatalf("spawn count=%q, want one", count)
+	}
+}
+
+func TestAutoFallbackPolicy(t *testing.T) {
+	for _, mode := range []string{"rate", "generic", "empty"} {
+		r, dir := runnerWithFake(t, mode)
+		// Make only the first invocation fail; the fake's fail-once mode is
+		// already covered separately. These cases assert policy classification.
+		if mode != "empty" {
+			// After the first spawn the environment-driven mode is still the same,
+			// so both calls fail; two spawns are the assertion.
+		}
+		_, _, _ = r.Run(context.Background(), ModelAuto, "hello")
+		count, _ := os.ReadFile(dir + "/count.txt")
+		if strings.TrimSpace(string(count)) != "2" {
+			t.Fatalf("mode %s spawn count=%q, want two", mode, count)
+		}
+	}
+	for _, mode := range []string{"usage", "sigabrt", "sigterm"} {
+		r, dir := runnerWithFake(t, mode)
+		_, _, _ = r.Run(context.Background(), ModelAuto, "hello")
+		count, _ := os.ReadFile(dir + "/count.txt")
+		if strings.TrimSpace(string(count)) != "1" {
+			t.Fatalf("mode %s spawn count=%q, want one", mode, count)
+		}
+	}
+}
+
+func TestBridgeReferenceBeginningWithDashRejectedBeforeSpawn(t *testing.T) {
+	r, dir := runnerWithFake(t, "echo")
+	r.BridgeRefs[ModelCloud] = "--help"
+	_, _, err := r.Run(context.Background(), ModelCloud, "hello")
+	var runErr *Error
+	if !errors.As(err, &runErr) || runErr.Kind != KindUsage {
+		t.Fatalf("got %v, want usage", err)
+	}
+	if _, statErr := os.Stat(dir + "/count.txt"); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("transport spawned: %v", statErr)
+	}
+}
+
 func TestDefaultBridgeRefsCoverAllModels(t *testing.T) {
 	r := New()
 	if len(r.BridgeRefs) != len(Models) {
@@ -149,6 +238,16 @@ func TestDefaultBridgeRefsCoverAllModels(t *testing.T) {
 		if r.BridgeRefs[m] == "" {
 			t.Fatalf("model %q missing bridge ref", m)
 		}
+	}
+}
+
+func TestMissingResolvedRefDoesNotInvokeCompiledCandidate(t *testing.T) {
+	r := New()
+	r.BridgeRefs = map[Model]string{}
+	_, err := r.runTier(context.Background(), ModelCloud, "quiet test")
+	var runErr *Error
+	if !errors.As(err, &runErr) || runErr.Kind != KindShortcutMissing {
+		t.Fatalf("err=%v kind=%v, want shortcut_missing", err, runErr)
 	}
 }
 
@@ -184,6 +283,26 @@ func TestAutoFallsBackToOnDevice(t *testing.T) {
 	argv, _ := os.ReadFile(dir + "/argv.txt")
 	if !strings.Contains(string(argv), BridgeUUIDOnDevice) {
 		t.Fatalf("fallback argv missing on-device UUID: %q", string(argv))
+	}
+}
+
+func TestAutoSkipsUndiscoveredCloudWithoutSpawningIt(t *testing.T) {
+	r, dir := runnerWithFake(t, "echo")
+	r.BridgeRefs = map[Model]string{ModelOnDevice: "verified-on-device"}
+	got, used, fallback, err := r.RunWithFallback(context.Background(), ModelAuto, "hello")
+	if err != nil || got != "hello" || used != ModelOnDevice {
+		t.Fatalf("got=%q used=%s fallback=%+v err=%v", got, used, fallback, err)
+	}
+	if !fallback.Used || fallback.Reason != KindShortcutMissing {
+		t.Fatalf("fallback=%+v, want unavailable-cloud fallback", fallback)
+	}
+	count, _ := os.ReadFile(dir + "/count.txt")
+	if strings.TrimSpace(string(count)) != "1" {
+		t.Fatalf("spawn count=%q, want only on-device", count)
+	}
+	argv, _ := os.ReadFile(dir + "/argv.txt")
+	if !strings.Contains(string(argv), "verified-on-device") || strings.Contains(string(argv), BridgeUUIDCloud) {
+		t.Fatalf("unexpected transport argv: %q", argv)
 	}
 }
 

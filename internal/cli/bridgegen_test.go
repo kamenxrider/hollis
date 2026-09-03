@@ -3,12 +3,36 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestMakeBridgeProfilesAreDeterministic(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	for _, profile := range []string{"26", "27"} {
+		t.Run(profile, func(t *testing.T) {
+			first, second := t.TempDir(), t.TempDir()
+			runMakeBridge(t, "--os", profile, first)
+			runMakeBridge(t, "--os", profile, second)
+			left, right := bridgeFiles(t, first), bridgeFiles(t, second)
+			if len(left) != len(right) {
+				t.Fatalf("profile %s file count changed between runs: %d != %d", profile, len(left), len(right))
+			}
+			for name, want := range left {
+				got, ok := right[name]
+				if !ok || !bytes.Equal(got, want) {
+					t.Fatalf("profile %s bridge %q is not byte-for-byte deterministic", profile, name)
+				}
+			}
+		})
+	}
+}
 
 func runMakeBridge(t *testing.T, args ...string) string {
 	t.Helper()

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,24 +33,12 @@ func respondJSON(t *testing.T, args ...string) map[string]any {
 	t.Helper()
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs(append([]string{"respond", "--json"}, args...))
-	cmd.SetOut(&bytes.Buffer{})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
 	cmd.SetErr(&bytes.Buffer{})
-
-	old := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stdout = w
 	execErr := cmd.Execute()
-	os.Stdout = old
-	w.Close()
 	if execErr != nil {
 		t.Fatalf("Execute: %v", execErr)
-	}
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatal(err)
 	}
 	var got map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
@@ -86,35 +73,78 @@ func TestRespondEmptyPromptExitsUsage2(t *testing.T) {
 	}
 }
 
+func TestRespondRejectsOversizedArgumentAndStdinBeforeRunner(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		in   string
+	}{
+		{name: "argument", args: []string{"respond", strings.Repeat("x", 128<<10+1)}},
+		{name: "stdin", args: []string{"respond"}, in: strings.Repeat("x", 128<<10+1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &recordingRunner{response: "must not run"}
+			cmd := NewRootCmd(func() runner.Runner { return r })
+			cmd.SetArgs(tc.args)
+			cmd.SetIn(strings.NewReader(tc.in))
+			cmd.SetOut(&bytes.Buffer{})
+			err := cmd.Execute()
+			if err == nil || ExitCode(err) != 2 {
+				t.Fatalf("err=%v exit=%d, want usage 2", err, ExitCode(err))
+			}
+			if r.calls != 0 {
+				t.Fatalf("runner calls=%d, want 0", r.calls)
+			}
+		})
+	}
+}
+
+func TestCommandsRejectInvalidExplicitTimeouts(t *testing.T) {
+	for _, args := range [][]string{
+		{"respond", "--timeout", "0s", "hello"},
+		{"respond", "--timeout", "121s", "hello"},
+		{"chat", "--timeout", "-1s", "hello"},
+		{"chat", "--timeout", "121s", "hello"},
+	} {
+		cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+		cmd.SetArgs(args)
+		cmd.SetOut(&bytes.Buffer{})
+		if err := cmd.Execute(); err == nil || ExitCode(err) != 2 {
+			t.Fatalf("args %v: err=%v exit=%d, want usage 2", args, err, ExitCode(err))
+		}
+	}
+}
+
+func TestJSONDeleteRequiresExplicitYesAndRenameRejectsBlankTitle(t *testing.T) {
+	for _, args := range [][]string{
+		{"chats", "delete", "some-id", "--json"},
+		{"chats", "rename", "some-id", "   "},
+	} {
+		cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+		cmd.SetArgs(args)
+		cmd.SetOut(&bytes.Buffer{})
+		if err := cmd.Execute(); err == nil || ExitCode(err) != 2 {
+			t.Fatalf("args %v: err=%v exit=%d, want usage 2", args, err, ExitCode(err))
+		}
+	}
+}
+
 func TestRespondJSONOutput(t *testing.T) {
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"respond", "--json", "--model", "cloud", "hello world"})
-	cmd.SetOut(&bytes.Buffer{})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
 	cmd.SetErr(&bytes.Buffer{})
-
-	// printJSONFiltered writes to os.Stdout; swap it for a pipe.
-	old := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stdout = w
 	execErr := cmd.Execute()
-	os.Stdout = old
-	w.Close()
 	if execErr != nil {
 		t.Fatalf("Execute: %v", execErr)
-	}
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatal(err)
 	}
 
 	var got map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatalf("JSON output: %v (%q)", err, buf.String())
 	}
-	if got["model"] != "cloud" || got["response"] != "hello world" {
+	if got["model_requested"] != "cloud" || got["response"] != "hello world" {
 		t.Fatalf("unexpected JSON: %s", buf.String())
 	}
 }
@@ -122,8 +152,8 @@ func TestRespondJSONOutput(t *testing.T) {
 func TestRespondJSONReportsModelUsed(t *testing.T) {
 	stubConfigPath(t)
 	got := respondJSON(t, "hello")
-	if got["model"] != "auto" {
-		t.Fatalf("model = %v, want the requested tier (auto)", got["model"])
+	if got["model_requested"] != "auto" {
+		t.Fatalf("model_requested = %v, want auto", got["model_requested"])
 	}
 	if _, ok := got["model_used"]; !ok {
 		t.Fatal("model_used missing: auto must report which tier answered")
@@ -176,31 +206,19 @@ func TestRespondDefaultsToAuto(t *testing.T) {
 	stubConfigPath(t)
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"respond", "--json", "hello"})
-	cmd.SetOut(&bytes.Buffer{})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
 	cmd.SetErr(&bytes.Buffer{})
-
-	old := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stdout = w
 	execErr := cmd.Execute()
-	os.Stdout = old
-	w.Close()
 	if execErr != nil {
 		t.Fatalf("Execute: %v", execErr)
-	}
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatal(err)
 	}
 	var got map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatalf("JSON output: %v (%q)", err, buf.String())
 	}
-	if got["model"] != "auto" {
-		t.Fatalf("default model = %v, want auto", got["model"])
+	if got["model_requested"] != "auto" {
+		t.Fatalf("default model = %v, want auto", got["model_requested"])
 	}
 }
 
@@ -224,30 +242,18 @@ func TestSplitModelArgs(t *testing.T) {
 func TestRespondPositionalModelSelectsTier(t *testing.T) {
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"respond", "--json", "model", "on-device", "hello"})
-	cmd.SetOut(&bytes.Buffer{})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
 	cmd.SetErr(&bytes.Buffer{})
-
-	old := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stdout = w
 	execErr := cmd.Execute()
-	os.Stdout = old
-	w.Close()
 	if execErr != nil {
 		t.Fatalf("Execute: %v", execErr)
-	}
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatal(err)
 	}
 	var got map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatalf("JSON output: %v (%q)", err, buf.String())
 	}
-	if got["model"] != "on-device" || got["response"] != "hello" {
+	if got["model_requested"] != "on-device" || got["response"] != "hello" {
 		t.Fatalf("unexpected JSON: %s", buf.String())
 	}
 }
@@ -267,18 +273,18 @@ func TestConfigSetChangesRespondDefault(t *testing.T) {
 		t.Fatalf("config set: %v", err)
 	}
 	got := respondJSON(t, "hello")
-	if got["model"] != "cloud-pro" {
-		t.Fatalf("configured default = %v, want cloud-pro", got["model"])
+	if got["model_requested"] != "cloud-pro" {
+		t.Fatalf("configured default = %v, want cloud-pro", got["model_requested"])
 	}
 	// Positional prefix beats the config default.
 	got = respondJSON(t, "model", "on-device", "hello")
-	if got["model"] != "on-device" {
-		t.Fatalf("positional model = %v, want on-device", got["model"])
+	if got["model_requested"] != "on-device" {
+		t.Fatalf("positional model = %v, want on-device", got["model_requested"])
 	}
 	// Explicit flag beats the config default.
 	got = respondJSON(t, "--model", "chatgpt", "hello")
-	if got["model"] != "chatgpt" {
-		t.Fatalf("flag model = %v, want chatgpt", got["model"])
+	if got["model_requested"] != "chatgpt" {
+		t.Fatalf("flag model = %v, want chatgpt", got["model_requested"])
 	}
 }
 
@@ -452,24 +458,12 @@ func TestChatsSearchJSONShape(t *testing.T) {
 
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"chats", "search", "--json", "heating poll"})
-	cmd.SetOut(&bytes.Buffer{})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
 	cmd.SetErr(&bytes.Buffer{})
-
-	old := os.Stdout
-	r, w, pipeErr := os.Pipe()
-	if pipeErr != nil {
-		t.Fatal(pipeErr)
-	}
-	os.Stdout = w
 	execErr := cmd.Execute()
-	os.Stdout = old
-	w.Close()
 	if execErr != nil {
 		t.Fatalf("Execute: %v", execErr)
-	}
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatal(err)
 	}
 
 	var got []map[string]any
@@ -656,31 +650,41 @@ func TestModelsOmitUnavailablePro(t *testing.T) {
 
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"models", "--json"})
-	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetErr(&bytes.Buffer{})
 	var buf bytes.Buffer
-	oldOut := os.Stdout
-	r, w, pipeErr := os.Pipe()
-	if pipeErr != nil {
-		t.Fatal(pipeErr)
-	}
-	os.Stdout = w
+	cmd.SetOut(&buf)
+	cmd.SetErr(&bytes.Buffer{})
 	execErr := cmd.Execute()
-	os.Stdout = oldOut
-	w.Close()
 	if execErr != nil {
 		t.Fatalf("Execute: %v", execErr)
-	}
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatal(err)
 	}
 	if strings.Contains(buf.String(), "cloud-pro") {
 		t.Fatalf("unavailable pro surfaced: %s", buf.String())
 	}
-	for _, want := range []string{"\"cloud\"", "\"on-device\"", "\"chatgpt\"", "resolved_ref"} {
+	for _, want := range []string{"\"cloud\"", "\"on-device\"", "\"chatgpt\"", "resolved_ref", "verified"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Fatalf("models JSON missing %s: %s", want, buf.String())
 		}
+	}
+}
+
+func TestAutoNeverUsesUnverifiedCompiledCandidates(t *testing.T) {
+	resolved := runner.ResolveBridges(nil, true, 27, nil)
+	if err := checkModelAvailable(resolved, runner.ModelAuto); err == nil || ExitCode(err) != 2 {
+		t.Fatalf("auto availability err=%v exit=%d, want usage 2", err, ExitCode(err))
+	}
+	r := runner.New()
+	applyResolvedRefs(r, resolved)
+	if len(r.BridgeRefs) != 0 {
+		t.Fatalf("compiled candidates became runnable refs: %#v", r.BridgeRefs)
+	}
+
+	partial := runner.ResolveBridges([]string{"AFM Bridge - On-Device.signed"}, true, 27, nil)
+	if err := checkModelAvailable(partial, runner.ModelAuto); err != nil {
+		t.Fatalf("auto should remain usable through discovered on-device fallback: %v", err)
+	}
+	applyResolvedRefs(r, partial)
+	if len(r.BridgeRefs) != 1 || r.BridgeRefs[runner.ModelOnDevice] == "" {
+		t.Fatalf("runnable refs=%#v, want discovered on-device only", r.BridgeRefs)
 	}
 }
 
@@ -689,23 +693,12 @@ func TestDoctorJSONMacosAndStatus(t *testing.T) {
 	stubResolution(t, allImportedNames(), true, 27)
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"doctor", "--json"})
-	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetErr(&bytes.Buffer{})
 	var buf bytes.Buffer
-	oldOut := os.Stdout
-	r, w, pipeErr := os.Pipe()
-	if pipeErr != nil {
-		t.Fatal(pipeErr)
-	}
-	os.Stdout = w
+	cmd.SetOut(&buf)
+	cmd.SetErr(&bytes.Buffer{})
 	execErr := cmd.Execute()
-	os.Stdout = oldOut
-	w.Close()
 	if execErr != nil {
 		t.Fatalf("Execute: %v", execErr)
-	}
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatal(err)
 	}
 	var got map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
@@ -719,13 +712,115 @@ func TestDoctorJSONMacosAndStatus(t *testing.T) {
 		t.Fatalf("bridges = %+v", got["bridges"])
 	}
 	first, _ := bridges[0].(map[string]any)
-	for _, key := range []string{"resolved_ref", "source", "status", "uuid", "name", "installed", "model"} {
+	for _, key := range []string{"resolved_ref", "source", "status", "uuid", "name", "installed", "model", "verified"} {
 		if _, ok := first[key]; !ok {
 			t.Fatalf("bridge entry missing %q: %+v", key, first)
 		}
 	}
 	if first["status"] != "ok" || first["source"] != "shortcuts-list" {
 		t.Fatalf("first bridge = %+v", first)
+	}
+}
+
+func TestDoctorExitContracts(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		installed []string
+		listOK    bool
+		major     int
+		wantExit  int
+	}{
+		{"all verified on 27", allImportedNames(), true, 27, 0},
+		{"missing supported bridge", []string{"AFM Bridge - Cloud.signed"}, true, 27, 3},
+		{"discovery failure", nil, false, 27, 5},
+		{"unknown operating system", allImportedNames(), true, 0, 10},
+		{"pro informationally unsupported on 26", allImportedNames(), true, 26, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stubConfigPath(t)
+			stubResolution(t, tc.installed, tc.listOK, tc.major)
+			cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+			cmd.SetArgs([]string{"doctor", "--json"})
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&bytes.Buffer{})
+			err := cmd.Execute()
+			if got := ExitCode(err); got != tc.wantExit {
+				t.Fatalf("exit=%d want=%d err=%v output=%s", got, tc.wantExit, err, out.String())
+			}
+			if !json.Valid(out.Bytes()) {
+				t.Fatalf("doctor output is not JSON: %q", out.String())
+			}
+		})
+	}
+}
+
+func TestDoctorAgentErrorKeepsTopLevelErrorWhenResultsAreSelected(t *testing.T) {
+	stubConfigPath(t)
+	stubResolution(t, []string{"AFM Bridge - Cloud.signed"}, true, 27)
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"doctor", "--agent", "--select", "bridges"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	err := cmd.Execute()
+	if ExitCode(err) != 3 || !ErrorReported(err) {
+		t.Fatalf("exit=%d reported=%v err=%v", ExitCode(err), ErrorReported(err), err)
+	}
+	var got map[string]any
+	if json.Unmarshal(out.Bytes(), &got) != nil {
+		t.Fatalf("invalid JSON: %q", out.String())
+	}
+	if got["meta"] == nil || got["error"] == nil {
+		t.Fatalf("agent diagnostic lacks top-level meta/error: %#v", got)
+	}
+	results, ok := got["results"].(map[string]any)
+	if !ok || len(results) != 1 || results["bridges"] == nil {
+		t.Fatalf("selected results=%#v", got["results"])
+	}
+}
+
+func TestDoctorDiscoveryFailureReportsSupportedBridgesUnverified(t *testing.T) {
+	stubConfigPath(t)
+	stubResolution(t, nil, false, 27)
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"doctor", "--json"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	err := cmd.Execute()
+	if ExitCode(err) != 5 {
+		t.Fatalf("exit=%d err=%v output=%s", ExitCode(err), err, out.String())
+	}
+	var got map[string]any
+	if json.Unmarshal(out.Bytes(), &got) != nil {
+		t.Fatalf("invalid JSON: %q", out.String())
+	}
+	bridges, ok := got["bridges"].([]any)
+	if !ok || len(bridges) != len(runner.Models) {
+		t.Fatalf("bridges=%#v", got["bridges"])
+	}
+	for _, raw := range bridges {
+		bridge, _ := raw.(map[string]any)
+		if bridge["status"] != "unverified" {
+			t.Fatalf("bridge status=%#v, want unverified", bridge)
+		}
+	}
+}
+
+func TestDoctorConfiguredUUIDIsUnverifiedState(t *testing.T) {
+	stubConfigPath(t)
+	stubResolution(t, allImportedNames(), true, 27)
+	if err := saveConfig(config{Bridges: map[string]string{"cloud": runner.BridgeUUIDCloud}}); err != nil {
+		t.Fatal(err)
+	}
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"doctor", "--json"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	err := cmd.Execute()
+	if ExitCode(err) != 10 || !strings.Contains(out.String(), `"status":"unverified"`) {
+		t.Fatalf("exit=%d err=%v output=%s", ExitCode(err), err, out.String())
 	}
 }
 
@@ -750,12 +845,130 @@ func TestUnknownSubcommandExits2(t *testing.T) {
 	}
 }
 
+func TestGeneratedHelpAndCompletionRejectUnexpectedArguments(t *testing.T) {
+	for _, args := range [][]string{
+		{"help", "respond", "extra"},
+		{"completion", "zsh", "extra"},
+		{"completion", "unknown", "extra"},
+	} {
+		cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+		cmd.SetArgs(args)
+		cmd.SetOut(&bytes.Buffer{})
+		err := cmd.Execute()
+		if err == nil || ExitCode(err) != 2 {
+			t.Fatalf("args=%v err=%v exit=%d, want usage 2", args, err, ExitCode(err))
+		}
+	}
+}
+
+func TestHelpDoesNotBypassGlobalFlagContracts(t *testing.T) {
+	for _, args := range [][]string{
+		{"--select", "response", "--help"},
+		{"--agent", "--json=false", "--help"},
+		{"--agent", "--no-input=false", "respond", "--help"},
+	} {
+		cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+		cmd.SetArgs(args)
+		cmd.SetOut(&bytes.Buffer{})
+		err := cmd.Execute()
+		if err == nil || ExitCode(err) != 2 {
+			t.Fatalf("args=%v err=%v exit=%d, want usage 2", args, err, ExitCode(err))
+		}
+	}
+
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	cmd.SetArgs([]string{"--json", "--select", "command", "respond", "--help"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("valid selected JSON help: %v", err)
+	}
+	if !json.Valid(out.Bytes()) || !strings.Contains(out.String(), `"command":"hollis respond"`) {
+		t.Fatalf("selected JSON help=%q", out.String())
+	}
+}
+
+func TestHelpDoesNotBypassCommandValidation(t *testing.T) {
+	for _, args := range [][]string{
+		{"bogus", "--help"},
+		{"--version", "extra", "--help"},
+		{"chats", "bogus", "--help"},
+		{"config", "bogus", "--help"},
+		{"chats", "delete", "a", "b", "--help"},
+		{"chats", "rename", "a", "", "--help"},
+		{"chats", "search", "--limit", "0", "query", "--help"},
+		{"chats", "search", "--model", "nope", "query", "--help"},
+		{"config", "set", "model", "cloud", "extra", "--help"},
+		{"config", "set", "bridge", "cloud", "--help"},
+		{"config", "set", "nonsense", "value", "--help"},
+		{"config", "set", "model", "nope", "--help"},
+		{"respond", "--timeout", "0s", "--help"},
+		{"respond", "--model", "nope", "--help"},
+		{"chat", "--timeout", "0s", "--help"},
+		{"chat", "--model", "nope", "--help"},
+		{"serve", "--max-concurrency", "0", "--help"},
+		{"serve", "--addr", "not-an-address", "--help"},
+	} {
+		cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+		cmd.SetArgs(args)
+		cmd.SetOut(&bytes.Buffer{})
+		err := cmd.Execute()
+		if err == nil || ExitCode(err) != 2 {
+			t.Fatalf("args=%v err=%v exit=%d, want usage 2", args, err, ExitCode(err))
+		}
+	}
+}
+
 func TestAgentContextSchemaPresent(t *testing.T) {
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"agent-context"})
-	cmd.SetOut(&bytes.Buffer{})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("agent-context: %v", err)
+	}
+	var got agentContext
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("agent-context JSON: %v (%q)", err, out.String())
+	}
+	if got.SchemaVersion != "2" || got.Contracts.ExitCodes["unexpected"] != 1 || got.Contracts.ExitCodes["config"] != 10 {
+		t.Fatalf("agent contract header = %+v", got)
+	}
+	byPath := map[string]agentContextCommand{}
+	var walk func(string, []agentContextCommand)
+	walk = func(parent string, commands []agentContextCommand) {
+		for _, command := range commands {
+			path := strings.TrimSpace(parent + " " + command.Name)
+			byPath[path] = command
+			walk(path, command.Subcommands)
+		}
+	}
+	walk("hollis", got.Commands)
+	for _, path := range []string{
+		"hollis agent-context", "hollis chat", "hollis chats", "hollis chats delete",
+		"hollis chats list", "hollis chats rename", "hollis chats search", "hollis chats show",
+		"hollis completion", "hollis config", "hollis config set", "hollis config show",
+		"hollis doctor", "hollis help", "hollis models", "hollis respond", "hollis serve", "hollis version",
+	} {
+		if _, ok := byPath[path]; !ok {
+			t.Errorf("agent-context missing %s", path)
+		}
+	}
+	respond := byPath["hollis respond"]
+	counts := map[string]int{}
+	for _, flag := range respond.Flags {
+		counts[flag.Name]++
+	}
+	for _, inherited := range []string{"agent", "json", "no-input", "select"} {
+		if counts[inherited] != 1 {
+			t.Errorf("respond flag %s occurs %d times, want once: %+v", inherited, counts[inherited], respond.Flags)
+		}
+	}
+	if len(respond.SideEffects) == 0 || strings.Join(respond.OutputModes, ",") != "human,json,agent" {
+		t.Errorf("respond contract incomplete: %+v", respond)
+	}
+	if modes := strings.Join(byPath["hollis completion"].OutputModes, ","); modes != "human" {
+		t.Errorf("completion output modes = %q", modes)
 	}
 }
 
@@ -793,6 +1006,7 @@ func stubResolution(t *testing.T, installed []string, listOK bool, major int) {
 }
 
 func TestModelsCommandListsAllTiers(t *testing.T) {
+	stubConfigPath(t)
 	stubResolution(t, allImportedNames(), true, 27)
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"models"})
@@ -817,27 +1031,16 @@ func TestModelsCommandListsAllTiers(t *testing.T) {
 }
 
 func TestModelsCommandJSONShape(t *testing.T) {
+	stubConfigPath(t)
 	stubResolution(t, allImportedNames(), true, 27)
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"models", "--json"})
-	cmd.SetOut(&bytes.Buffer{})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
 	cmd.SetErr(&bytes.Buffer{})
-
-	old := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stdout = w
 	execErr := cmd.Execute()
-	os.Stdout = old
-	w.Close()
 	if execErr != nil {
 		t.Fatalf("Execute: %v", execErr)
-	}
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatal(err)
 	}
 
 	var got []map[string]any

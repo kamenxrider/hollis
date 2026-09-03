@@ -16,8 +16,23 @@ def main() -> int:
     if len(sys.argv) != 3:
         print("usage: count_bridges.py <dir> <expected-count>", file=sys.stderr)
         return 2
-    directory, expected = sys.argv[1], int(sys.argv[2])
-    files = sorted(glob.glob(os.path.join(directory, "*.shortcut")))
+    directory = sys.argv[1]
+    try:
+        expected = int(sys.argv[2])
+    except ValueError:
+        print("usage: expected-count must be an integer", file=sys.stderr)
+        return 2
+    if not os.path.isdir(directory):
+        print(
+            f"FAIL: directory does not exist or is not a directory: {directory}",
+            file=sys.stderr,
+        )
+        return 1
+    files = sorted(
+        path
+        for path in glob.glob(os.path.join(directory, "*.shortcut"))
+        if os.path.isfile(path) and not path.endswith(".signed.shortcut")
+    )
     if len(files) != expected:
         print(
             f"FAIL: {directory} contains {len(files)} .shortcut file(s), want {expected}: {files}",

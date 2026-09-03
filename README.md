@@ -2,7 +2,7 @@
 
 **Apple Intelligence from your terminal — including both cloud tiers.**
 
-Apple's own `fm` CLI, on the macOS 27 build tested here, offers exactly one model: the on-device one. Its Private Cloud Compute option is gone.
+Apple's own `fm` CLI, on the macOS 27 builds tested here, offers exactly one model: the on-device one. Its Private Cloud Compute option is gone.
 
 The Shortcuts **Use Model** action, on the same machine at the same moment, offers four choices — and two of them are separate cloud tiers:
 
@@ -20,19 +20,21 @@ hollis serve                      # local OpenAI-shaped API
 
 Chats and configuration stay on your Mac. Model requests go to whichever provider you select through Shortcuts.
 
-Measured on **macOS 27.0 (26A5421a)**. macOS 26 is untested — see [Compatibility](#compatibility).
+Measured on **macOS 27.0 (26A5421a and 26A5425a)**. macOS 26 is untested — see [Compatibility](#compatibility).
 
 ## Quickstart
 
 **1. Install the binary.**
 
 ```bash
-# Apple Silicon
-curl -fsSL -o hollis https://github.com/kamenxrider/hollis/releases/latest/download/hollis-darwin-arm64
-# Intel
-curl -fsSL -o hollis https://github.com/kamenxrider/hollis/releases/latest/download/hollis-darwin-amd64
+# Apple Silicon. On Intel, use: HOLLIS_ASSET=hollis-darwin-amd64
+HOLLIS_ASSET=hollis-darwin-arm64
+curl -fsSL -o "$HOLLIS_ASSET" "https://github.com/kamenxrider/hollis/releases/latest/download/$HOLLIS_ASSET"
 
-chmod +x hollis && sudo mv hollis /usr/local/bin/
+curl -fsSL -o SHA256SUMS https://github.com/kamenxrider/hollis/releases/latest/download/SHA256SUMS
+shasum -a 256 -c SHA256SUMS --ignore-missing
+
+chmod +x "$HOLLIS_ASSET" && sudo mv "$HOLLIS_ASSET" /usr/local/bin/hollis
 ```
 
 **2. Install the bridge shortcuts.** Hollis reaches Apple Intelligence through four small Shortcuts, one per model tier. They ship unsigned, because a signed shortcut is an artifact of the Mac that signed it:
@@ -67,7 +69,7 @@ go build -o "$(go env GOPATH)/bin/hollis" ./cmd/hollis        # from a clone
 
 From a clone you can generate the bridges yourself instead of downloading them: `python3 scripts/make-bridge.py bridges/`.
 
-Release binaries are not codesigned by a developer ID, but they carry the ad-hoc signature Go's linker produces, and files downloaded with `curl` get no quarantine flag — so macOS runs them without a Gatekeeper prompt. If a command seems to be missing after a `git pull`, rebuild: an older binary on `PATH` is usually the cause.
+Release binaries and Shortcut files are **unsigned by a Developer ID and not notarized**. Verify the downloaded checksum as shown above; releases also carry a GitHub build-provenance attestation and an SPDX SBOM. For the smallest trust chain, inspect the source and build it yourself with the second command above. Hollis does not claim Gatekeeper approval. If a command seems to be missing after a `git pull`, rebuild: an older binary on `PATH` is usually the cause.
 
 ### What you need
 
@@ -77,7 +79,7 @@ A Mac with **Apple Intelligence** enabled, macOS 27 for the measured setup, and 
 
 | You type | Shortcuts model | Notes |
 | --- | --- | --- |
-| `auto` | Cloud → On-Device | Default; falls back locally if Cloud fails |
+| `auto` | Cloud → On-Device | Default; one local fallback only for unavailable, rate-limited, transient, or empty Cloud results |
 | `cloud` | Cloud | "Great, fast answers" — Apple's server model on Private Cloud Compute |
 | `cloud-pro` | Cloud Pro | "Increased reasoning" — macOS 27+; slower than Cloud, stronger on harder prompts |
 | `on-device` | On-Device | Runs locally, works offline |
@@ -100,7 +102,7 @@ hollis respond model cloud-pro "same thing, model before the prompt"
 hollis respond --timeout 90s "A question worth waiting for"
 ```
 
-The prompt comes from the argument or from stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120.
+The prompt comes from the argument or from stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple.
 
 ## Persistent chats
 
@@ -134,6 +136,8 @@ hollis chats delete <id> --yes
 
 The whole search query is treated as one phrase, so hyphenated tokens like `VANTA-ORBIT` match verbatim. Archived conversations are skipped.
 
+A continuation always uses the model stored with that conversation. Combining `--continue` with a positional model or explicit `--model` is rejected. Hollis stores complete turns atomically and preserves complete history; when a chat reaches 256 stored messages or its rendered prompt exceeds 128 KiB, it fails clearly instead of trimming or summarizing it.
+
 ## Scripts and agents
 
 ```bash
@@ -143,23 +147,24 @@ hollis doctor --json --select bridges
 hollis agent-context                                  # machine-readable CLI description
 ```
 
-JSON output carries both `model` (what you asked for) and `model_used` (what
+JSON output carries both `model_requested` (what you asked for) and `model_used` (what
 answered). They differ when `auto` falls back from Cloud to On-Device — the two
 are not interchangeable, so the substitution is reported rather than hidden. In
 human mode that fallback prints one line to stderr, leaving stdout clean for
 pipelines. The local API reports the serving tier in its `model` field, as
 OpenAI does.
 
-`--agent` is shorthand for `--json --no-input`. In `--no-input` mode hollis never waits on a terminal, and destructive commands require explicit confirmation flags (`hollis chats delete <id> --yes`).
+`--agent` is shorthand for `--json --no-input` on data commands. In `--no-input` mode hollis never waits on a terminal, and destructive commands require explicit confirmation flags (`hollis chats delete <id> --yes`). Long-running `serve` and shell `completion` support human output only and reject JSON/agent mode clearly.
 
 Exit codes are stable and parseable:
 
 | Code | Meaning |
 | --- | --- |
 | 0 | Success |
+| 1 | Unexpected internal error |
 | 2 | Usage error — bad flag, unknown model, empty prompt, no matching command |
 | 3 | Missing resource — unknown conversation id, no search hits, bridge not installed |
-| 5 | Transport failure — the shortcut ran but produced nothing usable |
+| 5 | Discovery, transport, or Apple rate-limit failure |
 | 7 | Timeout — the run exceeded its deadline and was killed |
 | 10 | Config or database error |
 
@@ -171,18 +176,35 @@ curl -s localhost:1978/health
 curl -s localhost:1978/v1/models
 curl -s localhost:1978/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model":"cloud-pro","messages":[{"role":"user","content":"Explain closures in Go."}]}'
+  -d '{"model":"cloud-pro","stream":false,"messages":[{"role":"user","content":"Explain closures in Go."}]}'
 ```
 
 `POST /v1/responses` is also available, with `input` as a string or a message array plus optional `instructions`. `/v1/models` lists `auto` plus only the tiers whose bridges resolve here, so `cloud-pro` disappears when its bridge is not installed.
 
 Port **1978**, not 1976 — `fm serve` uses 1976 throughout Apple's own examples, and two servers cannot share a port.
 
+Model work is serialized by default. `--max-concurrency` accepts 1–4; work beyond the limit is rejected immediately with HTTP 429 and `Retry-After: 1`. `/health` remains available independently of model capacity. Request headers have 5 seconds, reads 15 seconds, writes 125 seconds, idle connections 60 seconds, and shutdown gets five seconds to finish.
+
+### Clients: listing is not the same as working
+
+Point an OpenAI-compatible client at `http://127.0.0.1:1978/v1` and it will usually **see** the models. That does not mean it can **call** them.
+
+Set `stream: false` in the **JSON body**. A custom HTTP header does not count; Hollis never reads streaming from headers. `stream: true` returns **400** (`use stream=false`). Clients that always stream — Osaurus Chat is one — will populate the model picker from `/v1/models` and then fail every completion. Clients that can turn streaming off (Aider: `stream: false` plus per-model `streaming: false`) do work.
+
+The v0.2 API does not accept `tools` or return native function calls. The
+underlying Shortcut returns one block of text. Separate live probes show that
+the models can sometimes follow a prompt-defined, client-executed tool protocol,
+including consuming a supplied tool result, but emitting the call was not
+reliable enough to ship. That path remains explicitly experimental work for a
+later release; Hollis never executes tools server-side.
+
 ### What it deliberately does not do
 
-Shortcuts returns a complete response rather than a token stream, so `stream: true` returns **400** instead of a faked stream. Apple exposes no token counts through this path, so no `usage` field is invented. `system` and `instructions` are advisory prompt content, not hard isolation boundaries.
+Shortcuts returns a complete response rather than a token stream, so `stream: true` returns **400** instead of a faked stream. Apple exposes no token counts through this path, so no `usage` field is invented. The v0.2 HTTP contract has no `tools` / function calls. `system` and `instructions` are advisory prompt content, not hard isolation boundaries. Both model routes reject malformed or trailing JSON, unknown fields, unsupported parameters/content, empty input, and prompts over 128 KiB before calling a model.
 
-Binding outside loopback requires `--token`, after which `/v1/*` expects `Authorization: Bearer <token>`. `/health` stays unauthenticated. Note that a token passed on the command line is visible to other local users via `ps`.
+Authentication is configured with `--token-file <private-file>` or `HOLLIS_API_TOKEN`; the token must contain at least 32 bytes and is never printed. `/v1/*` then expects `Authorization: Bearer <token>`, while `/health` stays unauthenticated. Hollis deliberately has no command-line `--token`, because process arguments can be visible through `ps`.
+
+Binding outside loopback requires **both** `--allow-remote` and authentication. Hollis does not provide TLS: expose it only through an encrypted trusted path such as Tailscale, WireGuard, or an SSH tunnel.
 
 ## Your data
 
@@ -191,10 +213,14 @@ Everything hollis stores lives in one directory:
 ```
 ~/Library/Application Support/hollis/
 ├── hollis.db       conversations, messages, and per-run diagnostics
-└── config.json     default model and any bridge overrides
+├── hollis.db.chat.lock  cross-process chat-continuation lock
+├── config.json.lock     cross-process config update lock
+└── config.json          default model and any bridge overrides
 ```
 
-The run diagnostics record timing, exit code and an error class for each call — never prompt or response bodies beyond the messages you asked to store. To delete everything hollis knows, remove that directory. To delete one conversation, `hollis chats delete <id>`.
+The state directory is mode `0700`; its database, config, lock, migration backups, and temporary files are mode `0600`. Set `HOLLIS_STATE_DIR` to an **absolute** directory for an isolated test or alternate state location. Existing Hollis-owned modes are tightened without changing broader parent directories.
+
+Run diagnostics contain only request ID, requested/used tier, timing, exit code, error class, fallback, and byte counts — never prompts, replies, or raw Apple stderr. Conversation deletion removes its messages, run records, and search entries in one transaction. To delete everything Hollis knows, remove that directory. To delete one conversation, `hollis chats delete <id>`.
 
 ## How it works
 
@@ -210,7 +236,7 @@ Shortcuts UUIDs differ on every Mac, so hollis resolves each tier at runtime, in
 
 1. An explicit configured bridge
 2. A stable bridge name found via `shortcuts list`
-3. A compiled development UUID — kept as a reference for overrides, but never treated as proof the bridge exists
+3. A compiled development UUID — kept only as an unverified candidate, never treated as proof the bridge exists
 
 ```bash
 hollis config set bridge cloud "AFM Bridge - Cloud.signed"
@@ -244,13 +270,13 @@ Apple ships its own Foundation Models CLI, `fm`, and hollis neither patches nor 
 
 **Granularity.** Even when `fm` supported Private Cloud Compute, its selector was a single `pcc` target — one generic cloud model, with no way to ask for a specific tier. Shortcuts exposes Cloud and Cloud Pro as separate choices, so hollis can offer a distinction the CLI never had.
 
-**Availability.** On macOS 27.0 build `26A5421a`, `fm` lists only `system`, and `fm available --model pcc` is rejected at argument validation. Whether that is deliberate or a beta regression, Apple has not said.
+**Availability.** On macOS 27.0 builds `26A5421a` and `26A5425a`, `fm` lists only `system`, and `fm available --model pcc` is rejected at argument validation — including from Terminal.app, so this is not a Warp/PTY quirk. Whether that is deliberate or a beta regression, Apple has not said.
 
 There is also a reason not to link the framework directly. Apple gates third-party PCC access behind an entitlement, App Store Small Business Program enrollment, and a two-million-download ceiling; a non-entitled binary calling `PrivateCloudComputeLanguageModel` fails with `ModelManagerError 1046`. That entitlement gates the **developer framework, not the user-facing automation surface** — Shortcuts is a shipped consumer feature, `shortcuts run` is a documented Apple CLI, and the bridges are shortcuts you could build by hand in a minute. Hollis automates a supported surface rather than working around a restriction.
 
 That surface is one Apple can change in any build, exactly as it changed `fm` in this one, which is why every claim here names the build it was measured on.
 
-Prior art: bridging to Apple Intelligence through a Shortcut was shown by **Joseph Humfrey** in [*The Shortcut to integrating Private Cloud Compute into my app*](https://joethephish.me/blog/the-shortcut-to-integrating-PCC/) (June 2025). Hollis is the hardened version of that idea plus the tier selection. Full evidence and citations: [`results/two-cloud-tiers-26A5421a.md`](results/two-cloud-tiers-26A5421a.md).
+Prior art: bridging to Apple Intelligence through a Shortcut was shown by **Joseph Humfrey** in [*The Shortcut to integrating Private Cloud Compute into my app*](https://joethephish.me/blog/the-shortcut-to-integrating-PCC/) (June 2025). Hollis is the hardened version of that idea plus the tier selection. A documented web and GitHub search on 2026-09-03 found many on-device or single-`pcc` CLIs, but no other public CLI exposing the two Shortcuts choices separately. Hollis is therefore, **to our knowledge**, the first public CLI to expose both Cloud and Cloud Pro—not the first Shortcut bridge or Apple-model CLI. Full scope, counterexamples, and falsification conditions: [`results/capability-and-prior-art-2026-09-03.md`](results/capability-and-prior-art-2026-09-03.md).
 
 ## Doctor
 
@@ -261,10 +287,10 @@ hollis doctor --json
 
 ```text
 $ hollis doctor
-hollis doctor (version 0.1.0)
+hollis doctor (version 0.2.0)
   transport: ok
   macos: 27.0 (26A5421a)
-  support: macOS 27 measured; macOS 26 untested
+  support: macOS 27 measured; Cloud Pro unsupported on macOS 26
   timeout default: 30s (ceiling 120s)
   bridges (resolved at runtime):
     [OK]        cloud      AFM Bridge - Cloud.signed (shortcuts-list)
@@ -276,13 +302,13 @@ hollis doctor (version 0.1.0)
   hollis config set bridge <tier> <name-or-uuid>
 ```
 
-`MISSING` means no bridge for that tier resolved here. Hollis refuses explicit tiers whose bridge did not resolve, rather than failing at the first prompt with a bare error.
+`doctor` exits 0 only when every tier supported by the detected macOS version is verified through `shortcuts list`. A missing supported bridge exits 3, discovery or transport failure exits 5, and unknown or unverified state exits 10. Cloud Pro is informationally unsupported on macOS 26. An explicit configured reference may still be attempted, but remains labelled unverified until its name is visible in discovery.
 
-JSON output adds the macOS version and build, each bridge's `resolved_ref`, its resolution `source` (`config`, `shortcuts-list`, `compiled-uuid`) and its `status` (`ok`, `missing`, `unsupported`).
+JSON output adds the macOS version and build, each bridge's `resolved_ref`, its resolution `source`, verification state, and `status` (`ok`, `missing`, `unsupported`, or `unverified`).
 
 ## Compatibility
 
-**macOS 27 — measured.** The tested Shortcuts selector exposes Cloud, Cloud Pro, On-Device and ChatGPT, and all four bridges work.
+**macOS 27 — measured.** On `26A5421a` and `26A5425a` the Shortcuts selector exposes Cloud, Cloud Pro, On-Device and ChatGPT, and all four bridges work.
 
 **macOS 26 — experimental, untested.** macOS 26 Shortcuts exposed three model locations: Cloud, On-Device and ChatGPT. There was no Cloud Pro, and hollis refuses `cloud-pro` when that bridge is unavailable. The macOS 26 `cloud` choice is the earlier PCC model generation, not the 27 Cloud / Cloud Pro pair.
 
@@ -310,16 +336,28 @@ Apple exposes no stable backend IDs through this interface, so these mappings st
 ## Testing
 
 ```bash
-go test ./...                                   # unit tests
-python3 scripts/live-suite/live_suite.py        # transport suite, no model quota
-python3 scripts/live-suite/live_suite.py --live # live model tests
+test -z "$(gofmt -l .)"
+go vet ./...
+go test ./...
+go test -race ./...
+go build ./cmd/hollis
 ```
 
-Suite documentation: [`scripts/live-suite/README.md`](scripts/live-suite/README.md).
+The default suite is provider-free: subprocess tests inject deterministic runners without a production backdoor, HTTP uses `httptest`, and bridge generation is checked for both macOS profiles. CI runs the race suite on an official macOS Go 1.27 runner before packaging.
+
+The separately gated live suite needs the exact built binary and invokes real Shortcuts models, so run it only when those calls are intended:
+
+```bash
+HOLLIS_LIVE=1 HOLLIS_BIN=/absolute/path/to/hollis \
+  go test -tags=hollis_live ./internal/integration -run TestLiveRealSystem -v
+```
+
+It uses a temporary absolute `HOLLIS_STATE_DIR`, quiet prompts, an ephemeral loopback port, and cleans up only the conversation it creates. Its six Cloud Pro calls are serialized with at least 45 seconds between them, with no retries; any rate limit stops that lane.
 
 ## More
 
 * [`results/two-cloud-tiers-26A5421a.md`](results/two-cloud-tiers-26A5421a.md) — the two-tier finding, with evidence and prior art
+* [`results/capability-and-prior-art-2026-09-03.md`](results/capability-and-prior-art-2026-09-03.md) — current Apple capability split and a reproducible prior-art search
 * [`results/transport-and-persistence-2026-09-01.md`](results/transport-and-persistence-2026-09-01.md) — measured transport behaviour
 * [Apple: Prompting an on-device foundation model](https://developer.apple.com/documentation/foundationmodels/prompting-an-on-device-foundation-model)
 * [Apple: Adding server-side intelligence with Private Cloud Compute](https://developer.apple.com/documentation/foundationmodels/adding-server-side-intelligence-with-private-cloud-compute)

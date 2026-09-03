@@ -29,21 +29,20 @@ func defaultOpenStore() (*store.Store, error) {
 	return store.Open(path)
 }
 
-// runTurn executes one conversation turn: build the replay transcript from
-// stored messages, run the transport, store the user and assistant messages,
-// and record run diagnostics either way (plan §12 runs table).
-//
-// The timeout is applied here, per turn, rather than by the caller wrapping
-// its context once: the REPL passes one context across every turn, so a
-// deadline set upstream would expire the whole session instead of bounding
-// a single run. Zero means "no per-turn deadline", leaving the runner's own
-// default in charge.
-func runTurn(ctx context.Context, st *store.Store, conv store.Conversation, prompt string, newRunner newRunnerFunc, timeout time.Duration) (string, error) {
-	history, err := st.Messages(conv.ID)
-	if err != nil {
-		return "", configErr(err)
-	}
+type turnResult struct {
+	Text           string
+	ModelUsed      runner.Model
+	FallbackReason string
+}
+
+// executeTurn builds and runs one turn, but does not persist it. Keeping the
+// transport step separate lets a first chat run before a conversation row is
+// visible, so failed first runs cannot leave empty conversations behind.
+func executeTurn(ctx context.Context, history []store.Message, requested runner.Model, prompt string, newRunner newRunnerFunc, timeout time.Duration) (turnResult, store.RunRecord, error) {
 	transcript := chat.RenderTranscript(history, prompt)
+	if err := chat.ValidateTranscript(history, transcript); err != nil {
+		return turnResult{}, store.RunRecord{}, usageErr(err)
+	}
 
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -53,29 +52,135 @@ func runTurn(ctx context.Context, st *store.Store, conv store.Conversation, prom
 
 	r := newRunner()
 	start := time.Now()
-	text, used, err := r.Run(ctx, runner.Model(conv.Model), transcript)
-	durationMs := time.Since(start).Milliseconds()
-
-	if err != nil {
-		// Record the failed run too; never store secrets — only the error
-		// class and a stderr excerpt (plan §12).
-		var re *runner.Error
-		if errors.As(err, &re) {
-			_ = st.RecordRun(conv.ID, string(used), start, durationMs, re.ExitCode, string(re.Kind), excerpt(re.Stderr, 512))
-		} else {
-			_ = st.RecordRun(conv.ID, string(used), start, durationMs, -1, "unknown", "")
+	var fallback runner.Fallback
+	var text string
+	var used runner.Model
+	var runErr error
+	if rich, ok := r.(runner.FallbackRunner); ok {
+		text, used, fallback, runErr = rich.RunWithFallback(ctx, requested, transcript)
+	} else {
+		text, used, runErr = r.Run(ctx, requested, transcript)
+		if requested == runner.ModelAuto && used != "" && used != runner.ModelCloud {
+			fallback = runner.Fallback{Used: true, From: runner.ModelCloud, To: used, Reason: runner.KindTransport}
 		}
-		return "", toCLIError(err)
 	}
-	_ = st.RecordRun(conv.ID, string(used), start, durationMs, 0, "", "")
+	durationMs := time.Since(start).Milliseconds()
+	if used == "" {
+		used = requested
+	}
+	record := store.RunRecord{
+		ModelRequested: string(requested),
+		ModelUsed:      string(used),
+		StartedAt:      start,
+		DurationMs:     durationMs,
+		ExitCode:       0,
+		RequestBytes:   len(transcript),
+		ResponseBytes:  len(text),
+	}
+	if fallback.Used {
+		record.FallbackReason = string(fallback.Reason)
+	}
+	if runErr != nil {
+		record.ExitCode = -1
+		record.ErrorClass = "unknown"
+		var re *runner.Error
+		if errors.As(runErr, &re) {
+			record.ExitCode = re.ExitCode
+			record.ErrorClass = string(re.Kind)
+		}
+		// Never persist prompt, response, or raw stderr. The stable class and
+		// exit code are enough for private diagnostics.
+		return turnResult{}, record, toCLIError(runErr)
+	}
+	return turnResult{
+		Text:           text,
+		ModelUsed:      used,
+		FallbackReason: fallbackReason(requested, used, fallback),
+	}, record, nil
+}
 
-	if _, err := st.AppendMessage(conv.ID, "user", prompt); err != nil {
-		return "", configErr(fmt.Errorf("store user message: %w", err))
+// runTurn executes one existing-conversation turn. The timeout is applied per
+// turn, rather than by the caller wrapping one context around the whole REPL.
+func runTurnResult(ctx context.Context, st *store.Store, conv store.Conversation, prompt string, newRunner newRunnerFunc, timeout time.Duration) (turnResult, error) {
+	turnCtx := ctx
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		turnCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
-	if _, err := st.AppendMessage(conv.ID, "assistant", text); err != nil {
-		return "", configErr(fmt.Errorf("store assistant message: %w", err))
+	unlock, err := st.LockContinuation(turnCtx)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return turnResult{}, timeoutErr(fmt.Errorf("wait for chat continuation lock: %w", err))
+		}
+		if errors.Is(err, context.Canceled) {
+			return turnResult{}, transportErr(fmt.Errorf("wait for chat continuation lock: %w", err))
+		}
+		return turnResult{}, configErr(fmt.Errorf("serialize chat continuation: %w", err))
 	}
-	return text, nil
+	defer unlock()
+
+	history, err := st.Messages(conv.ID)
+	if err != nil {
+		return turnResult{}, configErr(err)
+	}
+	result, record, runErr := executeTurn(turnCtx, history, runner.Model(conv.Model), prompt, newRunner, 0)
+	if runErr != nil {
+		if err := recordFailedRun(st, conv.ID, record); err != nil {
+			return turnResult{}, configErr(fmt.Errorf("record run diagnostics: %w", err))
+		}
+		return turnResult{}, runErr
+	}
+	if err := st.AppendTurn(conv.ID, prompt, result.Text, record); err != nil {
+		return turnResult{}, configErr(fmt.Errorf("store chat turn: %w", err))
+	}
+	return result, nil
+}
+
+// runTurn preserves the small helper used by package tests and callers that
+// only need the response text.
+func runTurn(ctx context.Context, st *store.Store, conv store.Conversation, prompt string, newRunner newRunnerFunc, timeout time.Duration) (string, error) {
+	result, err := runTurnResult(ctx, st, conv, prompt, newRunner, timeout)
+	return result.Text, err
+}
+
+// runFirstTurn runs a new chat before creating its conversation row. Failed
+// diagnostics are unattached; successful content and metadata commit in one
+// store transaction.
+func runFirstTurn(ctx context.Context, st *store.Store, model runner.Model, prompt string, newRunner newRunnerFunc, timeout time.Duration) (turnResult, store.Conversation, error) {
+	result, record, runErr := executeTurn(ctx, nil, model, prompt, newRunner, timeout)
+	if runErr != nil {
+		if err := recordFailedRun(st, "", record); err != nil {
+			return turnResult{}, store.Conversation{}, configErr(fmt.Errorf("record run diagnostics: %w", err))
+		}
+		return turnResult{}, store.Conversation{}, runErr
+	}
+	conv, err := st.CreateConversationWithTurn(string(model), truncateTitle(prompt), prompt, result.Text, record)
+	if err != nil {
+		return turnResult{}, store.Conversation{}, configErr(fmt.Errorf("store new chat: %w", err))
+	}
+	return result, conv, nil
+}
+
+func recordFailedRun(st *store.Store, convID string, record store.RunRecord) error {
+	if record.StartedAt.IsZero() {
+		// Validation failed before a transport run began, so there is no run
+		// diagnostic to persist. In particular, oversized prompts must fail
+		// before Apple and must not create an empty diagnostic row.
+		return nil
+	}
+	return st.RecordRunMetadata(convID, record)
+}
+
+func fallbackReason(requested, used runner.Model, fallback runner.Fallback) string {
+	if requested == runner.ModelAuto && used != "" && used != runner.ModelCloud {
+		reason := string(fallback.Reason)
+		if reason == "" {
+			reason = "transport"
+		}
+		return reason
+	}
+	return ""
 }
 
 func newChatCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
@@ -102,15 +207,42 @@ conversation is created and auto-titled from the first message.`,
   hollis chat model cloud-pro "Two ideas for naming a CLI"
   hollis chat --continue <id> "And the downside?"
   printf 'question' | hollis chat --continue <id>`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			posModel, promptArgs, hasPosModel := splitModelArgs(args)
-			m, err := effectiveModel(cmd, modelFlag, posModel, hasPosModel)
-			if err != nil {
-				return configErr(err)
+		Args: func(cmd *cobra.Command, args []string) error {
+			if err := validateTimeout(cmd, timeout); err != nil {
+				return err
 			}
-			model := string(m)
-			if !m.Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", model))
+			_, promptArgs, hasPosModel := splitModelArgs(args)
+			if continueID != "" && (hasPosModel || cmd.Flags().Changed("model")) {
+				return usageErr(errors.New("--continue uses the conversation's stored model; do not pass --model or a positional model"))
+			}
+			if continueID == "" && cmd.Flags().Changed("model") && !runner.Model(modelFlag).Valid() {
+				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", modelFlag))
+			}
+			if len(promptArgs) > 0 {
+				if err := chat.ValidatePrompt(strings.Join(promptArgs, " ")); err != nil {
+					return usageErr(err)
+				}
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateTimeout(cmd, timeout); err != nil {
+				return err
+			}
+			posModel, promptArgs, hasPosModel := splitModelArgs(args)
+			if continueID != "" && (hasPosModel || cmd.Flags().Changed("model")) {
+				return usageErr(errors.New("--continue uses the conversation's stored model; do not pass --model or a positional model"))
+			}
+			var m runner.Model
+			if continueID == "" {
+				var err error
+				m, err = effectiveModel(cmd, modelFlag, posModel, hasPosModel)
+				if err != nil {
+					return configErr(err)
+				}
+				if !m.Valid() {
+					return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", m))
+				}
 			}
 
 			// Read and validate the prompt BEFORE creating anything, so an
@@ -128,7 +260,7 @@ conversation is created and auto-titled from the first message.`,
 				// otherwise block on stdin forever).
 				return usageErr(errors.New("no prompt provided: pass an argument or pipe stdin (refusing to wait on a terminal in --no-input mode)"))
 			default:
-				b, err := io.ReadAll(cmd.InOrStdin())
+				b, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), chat.MaxRenderedPromptBytes+1))
 				if err != nil {
 					return usageErr(fmt.Errorf("read prompt from stdin: %w", err))
 				}
@@ -138,62 +270,59 @@ conversation is created and auto-titled from the first message.`,
 				return usageErr(errors.New("empty prompt: give a prompt as an argument or pipe it via stdin"))
 			}
 
-			// Runtime bridge resolution:
-			// explicit tiers refuse to run when their bridge did not resolve,
-			// and every turn's transport is retargeted at the resolved refs.
-			resolved, err := resolveForRunner(cmd.Context(), newRunner)
-			if err != nil {
-				return configErr(err)
-			}
-			if err := checkModelAvailable(resolved, m); err != nil {
-				return err
-			}
-			useRunner := resolvedNewRunnerFunc(newRunner, resolved)
-
 			st, err := openStore()
 			if err != nil {
 				return configErr(err)
 			}
 			defer st.Close()
 
-			// Resolve or create the conversation.
 			var conv store.Conversation
-			if interactive {
-				return runInteractiveChat(cmd.Context(), st, model, continueID, useRunner, timeout)
-			}
+			selectedModel := m
 			if continueID != "" {
 				conv, err = st.GetConversation(continueID)
 				if err != nil {
 					return notFoundErr(err)
 				}
-			} else {
-				conv, err = st.CreateConversation(model, "")
-				if err != nil {
-					return configErr(err)
+				selectedModel = runner.Model(conv.Model)
+				if !selectedModel.Valid() {
+					return configErr(fmt.Errorf("conversation %s has unknown stored model %q", conv.ID, conv.Model))
 				}
 			}
 
-			text, err := runTurn(cmd.Context(), st, conv, prompt, useRunner, timeout)
+			// Runtime bridge resolution:
+			// explicit tiers refuse to run when their bridge did not resolve,
+			// and every turn's transport is retargeted at the resolved refs.
+			resolved, err := resolveForRunner(cmd.Context(), newRunner)
+			if err != nil && !canAttemptAfterDiscoveryFailure(resolved, selectedModel) {
+				return resolutionCLIError(err)
+			}
+			if err := checkModelAvailable(resolved, selectedModel); err != nil {
+				return err
+			}
+			useRunner := resolvedNewRunnerFunc(newRunner, resolved)
+
+			if interactive {
+				return runInteractiveChat(cmd.Context(), st, string(selectedModel), continueID, useRunner, timeout, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+			}
+			if continueID != "" {
+				result, err := runTurnResult(cmd.Context(), st, conv, prompt, useRunner, timeout)
+				if err != nil {
+					return err
+				}
+				if flags.asJSON {
+					return printChatJSON(cmd, result, conv, flags)
+				}
+				writeChatHuman(cmd, result, conv)
+				return nil
+			}
+			result, conv, err := runFirstTurn(cmd.Context(), st, m, prompt, useRunner, timeout)
 			if err != nil {
 				return err
 			}
-
-			// Auto-title a new conversation from its first user message.
-			if conv.Title == "" {
-				_ = st.SetTitle(conv.ID, truncateTitle(prompt))
-			}
-
 			if flags.asJSON {
-				return printJSONFiltered(map[string]any{
-					"conversation_id": conv.ID,
-					"model":           conv.Model,
-					"response":        text,
-				}, flags)
+				return printChatJSON(cmd, result, conv, flags)
 			}
-			fmt.Print(text)
-			if !strings.HasSuffix(text, "\n") {
-				fmt.Println()
-			}
+			writeChatHuman(cmd, result, conv)
 			return nil
 		},
 	}
@@ -211,33 +340,44 @@ conversation is created and auto-titled from the first message.`,
 // one. It used to be ignored here: `hollis chat --continue <id>` at a
 // terminal silently opened a fresh conversation, so the flag looked like it
 // worked and quietly lost the thread the user asked for.
-func runInteractiveChat(ctx context.Context, st *store.Store, model, continueID string, newRunner newRunnerFunc, timeout time.Duration) error {
+func runInteractiveChat(ctx context.Context, st *store.Store, model, continueID string, newRunner newRunnerFunc, timeout time.Duration, in io.Reader, out, errOut io.Writer) error {
 	var conv store.Conversation
 	var err error
 	if continueID != "" {
 		if conv, err = st.GetConversation(continueID); err != nil {
 			return notFoundErr(err)
 		}
-		fmt.Printf("Continuing · %s · %s\n", conv.Model, conv.ID)
+		fmt.Fprintf(errOut, "Continuing · %s · %s\n", conv.Model, conv.ID)
 	} else {
-		if conv, err = st.CreateConversation(model, ""); err != nil {
-			return configErr(err)
-		}
-		fmt.Printf("New chat · %s · %s\n", model, conv.ID)
+		fmt.Fprintf(errOut, "New chat · %s\n", model)
 	}
 
 	// bufio.Reader, not Scanner: Scanner caps a line at 64KB and reports the
 	// overflow as EOF, so pasting a long prompt silently ended the session.
-	rd := bufio.NewReader(os.Stdin)
+	rd := bufio.NewReader(in)
 	for {
-		fmt.Print("> ")
-		raw, readErr := rd.ReadString('\n')
+		fmt.Fprint(out, "> ")
+		raw, readErr := readBoundedPromptLine(rd, chat.MaxRenderedPromptBytes)
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return usageErr(readErr)
+		}
 		if line := strings.TrimSpace(raw); line != "" {
-			text, err := runTurn(ctx, st, conv, line, newRunner, timeout)
+			var result turnResult
+			if conv.ID == "" {
+				result, conv, err = runFirstTurn(ctx, st, runner.Model(model), line, newRunner, timeout)
+				if err == nil {
+					fmt.Fprintf(errOut, "conversation_id: %s\n", conv.ID)
+				}
+			} else {
+				result, err = runTurnResult(ctx, st, conv, line, newRunner, timeout)
+			}
 			if err != nil {
 				return err
 			}
-			fmt.Println("<", text)
+			if result.FallbackReason != "" {
+				fmt.Fprintf(errOut, "hollis: fallback %s: answered with %s\n", result.FallbackReason, result.ModelUsed)
+			}
+			fmt.Fprintln(out, "<", result.Text)
 		}
 		if readErr != nil {
 			// EOF (Ctrl-D). Any trailing line without a newline was just
@@ -247,13 +387,67 @@ func runInteractiveChat(ctx context.Context, st *store.Store, model, continueID 
 	}
 }
 
+func readBoundedPromptLine(rd *bufio.Reader, limit int) (string, error) {
+	var line strings.Builder
+	for {
+		fragment, err := rd.ReadSlice('\n')
+		if line.Len()+len(fragment) > limit {
+			return "", fmt.Errorf("prompt line exceeds %d bytes", limit)
+		}
+		line.Write(fragment)
+		switch {
+		case err == nil:
+			return strings.TrimSuffix(line.String(), "\n"), nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF):
+			return line.String(), io.EOF
+		default:
+			return "", fmt.Errorf("read prompt: %w", err)
+		}
+	}
+}
+
+func printChatJSON(cmd *cobra.Command, result turnResult, conv store.Conversation, flags *rootFlags) error {
+	data := map[string]any{
+		"conversation_id": conv.ID,
+		"model_requested": conv.Model,
+		"model_used":      result.ModelUsed,
+		"response":        result.Text,
+	}
+	if result.FallbackReason != "" {
+		data["fallback_reason"] = result.FallbackReason
+	}
+	return printJSONFilteredTo(cmd.OutOrStdout(), data, flags)
+}
+
+func writeChatHuman(cmd *cobra.Command, result turnResult, conv store.Conversation) {
+	if result.FallbackReason != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "hollis: fallback %s: answered with %s\n", result.FallbackReason, result.ModelUsed)
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "conversation_id: %s\n", conv.ID)
+	fmt.Fprint(cmd.OutOrStdout(), result.Text)
+	if !strings.HasSuffix(result.Text, "\n") {
+		fmt.Fprintln(cmd.OutOrStdout())
+	}
+}
+
 func newChatsCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "chats",
 		Short: "Inspect persistent chats (list, search, show, rename, delete)",
+		Args: func(_ *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return nil
+			}
+			return usageErr(fmt.Errorf("unknown chats command %q: run 'hollis chats --help'", args[0]))
+		},
 		// Unknown subcommands are a usage error for agents, not help + exit 0.
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
+				if flags.asJSON {
+					return usageErr(errors.New("chats requires a subcommand in JSON or agent mode"))
+				}
 				return cmd.Help()
 			}
 			return usageErr(fmt.Errorf("unknown chats command %q: run 'hollis chats --help'", args[0]))
@@ -285,7 +479,21 @@ Exit codes: 0 hits, 2 empty query, 3 no matches.`,
 		Example: `  hollis chats search VANTA-ORBIT
   hollis chats search --model cloud-pro "gateway design"
   hollis chats search --json --limit 5 heating`,
-		Args: cobra.MinimumNArgs(1),
+		Args: func(_ *cobra.Command, args []string) error {
+			if len(args) < 1 {
+				return usageErr(errors.New("chats search requires a query"))
+			}
+			if strings.TrimSpace(strings.Join(args, " ")) == "" {
+				return usageErr(errors.New("empty search query"))
+			}
+			if modelFilter != "" && !runner.Model(modelFilter).Valid() {
+				return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", modelFilter))
+			}
+			if limit < 1 {
+				return usageErr(fmt.Errorf("invalid --limit %d: must be at least 1", limit))
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := strings.Join(args, " ")
 			if strings.TrimSpace(query) == "" {
@@ -321,7 +529,7 @@ Exit codes: 0 hits, 2 empty query, 3 no matches.`,
 						"updated_at": m.UpdatedAt, "hits": hits,
 					})
 				}
-				return printJSONArrayFiltered(rows, flags)
+				return printJSONArrayFilteredTo(cmd.OutOrStdout(), rows, flags)
 			}
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "%-38s  %-9s  %-17s  %s\n", "ID", "MODEL", "UPDATED", "TITLE / SNIPPET")
@@ -354,6 +562,7 @@ func newChatsListCmd(flags *rootFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List persistent chats (newest first)",
+		Args:  cobra.NoArgs,
 		Example: `  hollis chats list
   hollis chats list --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -379,7 +588,7 @@ func newChatsListCmd(flags *rootFlags) *cobra.Command {
 				})
 			}
 			if flags.asJSON {
-				return printJSONArrayFiltered(rows, flags)
+				return printJSONArrayFilteredTo(cmd.OutOrStdout(), rows, flags)
 			}
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "%-38s  %-9s  %-9s  %s\n", "ID", "MESSAGES", "MODEL", "TITLE")
@@ -417,7 +626,7 @@ func newChatsShowCmd(flags *rootFlags) *cobra.Command {
 						"seq": m.Seq, "role": m.Role, "content": m.Content,
 					})
 				}
-				return printJSONFiltered(map[string]any{
+				return printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
 					"id": conv.ID, "title": conv.Title, "model": conv.Model,
 					"created_at": conv.CreatedAt, "updated_at": conv.UpdatedAt,
 					"messages": rows,
@@ -438,19 +647,37 @@ func newChatsRenameCmd(flags *rootFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "rename <id> <title>",
 		Short: "Rename a conversation",
-		Args:  cobra.MinimumNArgs(2),
+		Args: func(_ *cobra.Command, args []string) error {
+			if len(args) < 2 {
+				return usageErr(errors.New("usage: hollis chats rename <id> <title>"))
+			}
+			if strings.TrimSpace(strings.Join(args[1:], " ")) == "" {
+				return usageErr(errors.New("conversation title must not be empty"))
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			title := strings.TrimSpace(strings.Join(args[1:], " "))
+			if title == "" {
+				return usageErr(errors.New("conversation title must not be empty"))
+			}
 			st, err := openStore()
 			if err != nil {
 				return configErr(err)
 			}
 			defer st.Close()
-			if err := st.SetTitle(args[0], strings.Join(args[1:], " ")); err != nil {
+			if err := st.SetTitle(args[0], title); err != nil {
 				if errors.Is(err, store.ErrNotFound) {
 					return notFoundErr(err)
 				}
 				return configErr(err)
 			}
+			if flags.asJSON {
+				return printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
+					"ok": true, "conversation_id": args[0], "title": title,
+				}, flags)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "conversation %s renamed\n", args[0])
 			return nil
 		},
 	}
@@ -463,16 +690,17 @@ func newChatsDeleteCmd(flags *rootFlags) *cobra.Command {
 		Short: "Delete a conversation, its messages, and run records",
 		Example: `  hollis chats delete <id> --yes
   hollis chats delete <id>          # asks for confirmation`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErr(errors.New("usage: hollis chats delete <id>"))
 			}
 			if !yes {
-				if flags.noInput {
-					return usageErr(errors.New("chats delete requires --yes in --no-input/agent mode"))
+				if flags.noInput || flags.asJSON {
+					return usageErr(errors.New("chats delete requires --yes in JSON, --no-input, or agent mode"))
 				}
-				fmt.Fprint(os.Stderr, "Delete this conversation? [y/N] ")
-				line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+				fmt.Fprint(cmd.ErrOrStderr(), "Delete this conversation? [y/N] ")
+				line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 				answer := strings.ToLower(strings.TrimSpace(line))
 				if answer != "y" && answer != "yes" {
 					return nil
@@ -483,12 +711,18 @@ func newChatsDeleteCmd(flags *rootFlags) *cobra.Command {
 				return configErr(err)
 			}
 			defer st.Close()
-			if _, err := st.GetConversation(args[0]); err != nil {
-				return notFoundErr(err)
-			}
 			if err := st.DeleteConversation(args[0]); err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					return notFoundErr(err)
+				}
 				return configErr(err)
 			}
+			if flags.asJSON {
+				return printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
+					"ok": true, "conversation_id": args[0], "deleted": true,
+				}, flags)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "conversation %s deleted\n", args[0])
 			return nil
 		},
 	}
@@ -504,15 +738,6 @@ var interactiveStdin = func() bool {
 		return false
 	}
 	return (fi.Mode() & os.ModeCharDevice) != 0
-}
-
-// excerpt trims s to at most max runes for diagnostic storage.
-func excerpt(s string, max int) string {
-	r := []rune(strings.TrimSpace(s))
-	if len(r) <= max {
-		return string(r)
-	}
-	return string(r[:max]) + "..."
 }
 
 func truncateTitle(prompt string) string {

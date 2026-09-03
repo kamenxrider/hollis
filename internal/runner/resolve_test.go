@@ -63,10 +63,10 @@ func TestResolveBridgesRenamedBridgeReportsMissing(t *testing.T) {
 	if cloud.ListedName != "" {
 		t.Fatalf("cloud ListedName = %q, want empty", cloud.ListedName)
 	}
-	// The documented remedy restores it.
+	// The documented remedy restores it only when the listed name proves it.
 	res = ResolveBridges(names, true, 27, map[Model]string{ModelCloud: CompiledUUID(ModelCloud)})
-	if rb := refsByModel(res, ModelCloud); !rb.Available || rb.Source != SourceConfig {
-		t.Fatalf("cloud with config UUID override = %+v, want available", rb)
+	if rb := refsByModel(res, ModelCloud); !rb.Available || rb.Verified || rb.Source != SourceConfiguredUnverified {
+		t.Fatalf("cloud with config UUID override = %+v, want callable but configured-unverified", rb)
 	}
 	// On-device was never renamed, so it still resolves by name.
 	if rb := refsByModel(res, ModelOnDevice); !rb.Available || rb.Source != SourceList {
@@ -108,8 +108,8 @@ func TestResolveBridgesPartialInstallGatesPerTier(t *testing.T) {
 func TestResolveBridgesConfigUUIDOverrideTrusted(t *testing.T) {
 	res := ResolveBridges(nil, true, 27, map[Model]string{ModelChatGPT: "ABCDE123-0000-4000-8000-000000000000"})
 	chatgpt := refsByModel(res, ModelChatGPT)
-	if chatgpt.Ref != "ABCDE123-0000-4000-8000-000000000000" || chatgpt.Source != SourceConfig || !chatgpt.Available {
-		t.Fatalf("chatgpt = %+v, want available config UUID override", chatgpt)
+	if chatgpt.Ref != "ABCDE123-0000-4000-8000-000000000000" || chatgpt.Source != SourceConfiguredUnverified || !chatgpt.Available || chatgpt.Verified {
+		t.Fatalf("chatgpt = %+v, want callable but configured-unverified", chatgpt)
 	}
 }
 
@@ -151,13 +151,25 @@ func TestResolveBridges26WithImportedBridgesUsesNames(t *testing.T) {
 	}
 }
 
-func TestResolveBridgesListFailureFailsOpen(t *testing.T) {
-	// `shortcuts list` broken on the measured OS: trust the compiled refs
-	// (the machine keeps working) instead of bricking every command.
+func TestResolveBridgesListFailureFailsClosed(t *testing.T) {
+	// `shortcuts list` broken: compiled UUIDs are candidates, never proof of
+	// installation. No tier may claim availability without positive evidence.
 	res := ResolveBridges(nil, false, 27, nil)
 	for _, m := range Models {
-		if rb := refsByModel(res, m); !rb.Available || rb.Source != SourceCompiled {
-			t.Fatalf("%s with failed list = %+v, want fail-open compiled", m, rb)
+		if rb := refsByModel(res, m); rb.Available || rb.Source != SourceCompiled || !rb.OSKnown {
+			t.Fatalf("%s with failed list = %+v, want unavailable compiled candidate", m, rb)
+		}
+	}
+}
+
+func TestResolveBridgesUnknownOSIsNotMeasuredOS(t *testing.T) {
+	res := ResolveBridges(allNames(), true, 0, nil)
+	if refsByModel(res, ModelCloudPro).Available {
+		t.Fatalf("cloud-pro with unknown OS = %+v, want unavailable", refsByModel(res, ModelCloudPro))
+	}
+	for _, m := range []Model{ModelCloud, ModelOnDevice, ModelChatGPT} {
+		if rb := refsByModel(res, m); !rb.Available || rb.OSKnown {
+			t.Fatalf("%s with unknown OS = %+v, want name-verified and OSKnown=false", m, rb)
 		}
 	}
 }
