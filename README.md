@@ -177,9 +177,13 @@ curl -s localhost:1978/v1/models
 curl -s localhost:1978/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"cloud-pro","stream":false,"messages":[{"role":"user","content":"Explain closures in Go."}]}'
+
+curl -s localhost:1978/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"cloud-pro","stream":false,"input":"Explain closures in Go."}'
 ```
 
-`POST /v1/responses` is also available, with `input` as a string or a message array plus optional `instructions`. `/v1/models` lists `auto` plus only the tiers whose bridges resolve here, so `cloud-pro` disappears when its bridge is not installed.
+The Responses reply text is at `output[0].content[0].text`. Its `input` may be a string or a message array, with optional `instructions`. `/v1/models` lists `auto` plus only the tiers whose bridges resolve here, so `cloud-pro` disappears when its bridge is not installed.
 
 Port **1978**, not 1976 — `fm serve` uses 1976 throughout Apple's own examples, and two servers cannot share a port.
 
@@ -258,7 +262,7 @@ The transport rules below are not stylistic. Each one is a behaviour that was me
 | Exit 0 with empty stdout is indistinguishable from success | Treats it as failure, never as an empty response |
 | Responses are complete, not streamed | Does not fake streaming |
 
-Details: [`results/transport-and-persistence-2026-09-01.md`](results/transport-and-persistence-2026-09-01.md).
+The measured evidence behind these rules is summarized in [EVIDENCE.md](EVIDENCE.md).
 
 ### The ChatGPT quirk
 
@@ -276,7 +280,7 @@ There is also a reason not to link the framework directly. Apple gates third-par
 
 That surface is one Apple can change in any build, exactly as it changed `fm` in this one, which is why every claim here names the build it was measured on.
 
-Prior art: bridging to Apple Intelligence through a Shortcut was shown by **Joseph Humfrey** in [*The Shortcut to integrating Private Cloud Compute into my app*](https://joethephish.me/blog/the-shortcut-to-integrating-PCC/) (June 2025). Hollis is the hardened version of that idea plus the tier selection. A documented web and GitHub search on 2026-09-03 found many on-device or single-`pcc` CLIs, but no other public CLI exposing the two Shortcuts choices separately. Hollis is therefore, **to our knowledge**, the first public CLI to expose both Cloud and Cloud Pro—not the first Shortcut bridge or Apple-model CLI. Full scope, counterexamples, and falsification conditions: [`results/capability-and-prior-art-2026-09-03.md`](results/capability-and-prior-art-2026-09-03.md).
+Prior art: bridging to Apple Intelligence through a Shortcut was shown by **Joseph Humfrey** in [*The Shortcut to integrating Private Cloud Compute into my app*](https://joethephish.me/blog/the-shortcut-to-integrating-PCC/) (June 2025). Hollis is the hardened version of that idea plus the tier selection. A documented web and GitHub search on 2026-09-03 found many on-device or single-`pcc` CLIs, but no other public CLI exposing the two Shortcuts choices separately. Hollis is therefore, **to our knowledge**, the first public CLI to expose both Cloud and Cloud Pro—not the first Shortcut bridge or Apple-model CLI. Full scope, counterexamples, and falsification conditions: [EVIDENCE.md](EVIDENCE.md).
 
 ## Doctor
 
@@ -356,11 +360,9 @@ HOLLIS_LIVE=1 HOLLIS_BIN=/absolute/path/to/hollis \
 
 It uses a temporary absolute `HOLLIS_STATE_DIR`, quiet prompts, an ephemeral loopback port, and cleans up only the conversation it creates. Its six Cloud Pro calls are serialized with at least 45 seconds between them, with no retries; any rate limit stops that lane.
 
-## More
+## Evidence and references
 
-* [`results/two-cloud-tiers-26A5421a.md`](results/two-cloud-tiers-26A5421a.md) — the two-tier finding, with evidence and prior art
-* [`results/capability-and-prior-art-2026-09-03.md`](results/capability-and-prior-art-2026-09-03.md) — current Apple capability split and a reproducible prior-art search
-* [`results/transport-and-persistence-2026-09-01.md`](results/transport-and-persistence-2026-09-01.md) — measured transport behaviour
+* [Hollis evidence and prior-art scope](EVIDENCE.md)
 * [Apple: Prompting an on-device foundation model](https://developer.apple.com/documentation/foundationmodels/prompting-an-on-device-foundation-model)
 * [Apple: Adding server-side intelligence with Private Cloud Compute](https://developer.apple.com/documentation/foundationmodels/adding-server-side-intelligence-with-private-cloud-compute)
 

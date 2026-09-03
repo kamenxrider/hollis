@@ -1,4 +1,4 @@
-# Capability and prior-art check — 2026-09-03
+# Evidence and prior art
 
 This note separates what Apple documents for its developer framework from what
 Hollis has measured through the user-facing Shortcuts transport. Those are
@@ -17,6 +17,37 @@ This is not a claim that Hollis invented calling Apple Intelligence from a
 Shortcut. Joseph Humfrey publicly demonstrated that technique in June 2025.
 It is also not a claim that Hollis is the first Apple Foundation Models CLI;
 many on-device and generic-PCC tools predate or overlap it.
+
+## Measured product evidence
+
+![The Use Model action on macOS 27.0 (26A5421a), showing Cloud, Cloud Pro, On-Device and ChatGPT](results/img/use-model-picker-26A5421a.png)
+
+On macOS 27.0 build `26A5421a`, the Shortcuts **Use Model** picker exposed
+Cloud, Cloud Pro, On-Device and ChatGPT. On the same Mac, `fm --help` listed
+only `system`, while `fm available --model pcc` rejected `pcc` during argument
+validation. The imported Hollis bridges successfully invoked all four
+Shortcuts choices.
+
+Direct transport tests on that build established the rules Hollis now enforces:
+
+- prompts travel through standard input and output must be requested as
+  `public.plain-text`;
+- attaching `shortcuts run` directly to a terminal can produce empty output;
+- an empty prompt can wait indefinitely, so Hollis rejects it before launch;
+- separate model calls are stateless, while replaying a stored transcript
+  preserves a conversation;
+- exit 0 with empty output is not treated as a successful response.
+
+The `v0.2.0` gate ran on macOS 27.0 build `26A5425a`. It covered the complete
+CLI, configuration and chat lifecycle, authentication, both HTTP model
+endpoints, method and input errors, model identity, and clean shutdown. All six
+planned Cloud Pro calls completed serially without retry: CLI response, new
+chat, continued chat, agent output, Chat Completions and Responses. Its test
+conversation, temporary state and server process were removed afterward.
+
+The repository keeps the provider-free regression suite as the living proof of
+these contracts. The detailed live record is retained outside the source tree
+for attachment to the `v0.2.0` release.
 
 ## Evidence matrix
 
@@ -41,6 +72,11 @@ Hollis does not use that entitled API. It invokes imported Shortcuts whose **Use
 Model** action selects `Apple Intelligence` or `Apple Intelligence Pro`. That
 surface currently returns completed text, so Hollis must not advertise the
 framework's streaming or native tool channel as its own.
+
+All observations are specific to the named beta builds. Apple exposes no stable
+backend model IDs through Shortcuts, and a future macOS build may change the
+picker or restore `pcc` to `fm`. Neither search results nor one machine can prove
+universal availability.
 
 ## Prior-art search
 
@@ -100,4 +136,4 @@ prior public CLI that separately selects both Shortcuts tiers is found.
 - [`fm-proxy`](https://github.com/gregbarbosa/fm-proxy)
 - [`fm-server`](https://github.com/tariqwest/fm-server)
 - [Foundation Models Framework CLI (`afm`)](https://github.com/rudrankriyam/Foundation-Models-Framework-CLI)
-- Hollis local evidence: [`two-cloud-tiers-26A5421a.md`](two-cloud-tiers-26A5421a.md), [`transport-and-persistence-2026-09-01.md`](transport-and-persistence-2026-09-01.md), and the local-only `tool-protocol-26A5425a.md` probe log.
+- Hollis implementation evidence: the [Use Model picker](results/img/use-model-picker-26A5421a.png), the [provider-free integration suite](internal/integration), and the separately gated [real-Mac suite](internal/integration/live_test.go).

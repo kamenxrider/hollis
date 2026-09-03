@@ -38,6 +38,8 @@ __pycache__/
 # agent skill tooling
 /docs/dev/
 /results/advanced-cli-test-2026-09-01.md
+# Sanitized live record retained locally for the v0.2.0 release assets.
+/results/v0.2.0-live-validation-2026-09-03.json
 # working memo addressed to the implementer; describes code that has since
 # shipped, so it reads as a live defect report. Kept local until it can be
 # rewritten as a compatibility reference (needs a real macOS 26 machine).
