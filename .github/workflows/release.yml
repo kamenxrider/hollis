@@ -6,23 +6,30 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
 
       # A tag must not be able to publish a build the tests reject.
       - name: Test
-        run: go test ./...
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+          go test -race ./...
 
       - name: Build macOS binaries
         run: |
+          mkdir -p dist
           VERSION="${GITHUB_REF_NAME#v}"
           for arch in arm64 amd64; do
             CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" \
@@ -59,13 +66,33 @@ jobs:
           cd dist
           sha256sum hollis-darwin-arm64 hollis-darwin-amd64 hollis-bridges.zip > SHA256SUMS
 
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/hollis.spdx.json
+          upload-artifact: false
+
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: dist/*
+
       - name: Create release and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          assets="dist/hollis-darwin-arm64 dist/hollis-darwin-amd64 dist/hollis-bridges.zip dist/SHA256SUMS"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists; refusing to overwrite immutable assets" >&2
+            exit 1
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --title "hollis $GITHUB_REF_NAME" \
             --generate-notes \
-            $assets \
-            || gh release upload "$GITHUB_REF_NAME" $assets --clobber
+            --notes "Unsigned macOS binaries and user-imported Shortcut bridges. Verify SHA256SUMS and the GitHub build attestation before use; no Developer ID or notarization is claimed." \
+            dist/hollis-darwin-arm64 \
+            dist/hollis-darwin-amd64 \
+            dist/hollis-bridges.zip \
+            dist/SHA256SUMS \
+            dist/hollis.spdx.json

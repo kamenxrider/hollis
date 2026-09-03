@@ -8,6 +8,7 @@
 package chat
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/kamenxrider/hollis/internal/store"
@@ -17,7 +18,35 @@ import (
 const (
 	replayPreamble = `You are continuing an existing conversation.`
 	replayClosing  = "Respond to the final USER message while preserving the conversation context."
+
+	// MaxHistoryMessages prevents an accidentally unbounded replay from
+	// consuming the transport's prompt budget. Stored history is never
+	// trimmed; callers fail before invoking a model when this is exceeded.
+	MaxHistoryMessages = 256
+	// MaxRenderedPromptBytes is a byte, rather than rune, limit because the
+	// transport receives UTF-8 bytes and Apple rejects oversized prompts.
+	MaxRenderedPromptBytes = 128 << 10
 )
+
+// ValidatePrompt checks the byte limit for any prompt before a caller invokes
+// Apple Intelligence.
+func ValidatePrompt(prompt string) error {
+	if len(prompt) > MaxRenderedPromptBytes {
+		return fmt.Errorf("rendered prompt is %d bytes; maximum is %d", len(prompt), MaxRenderedPromptBytes)
+	}
+	return nil
+}
+
+// ValidateTranscript checks the immutable history and rendered prompt limits
+// before a caller invokes Apple Intelligence. A completed turn adds one user
+// and one assistant message, so the projected stored total must also fit. It
+// intentionally does not trim, summarize, or otherwise alter user content.
+func ValidateTranscript(history []store.Message, rendered string) error {
+	if len(history)+2 > MaxHistoryMessages {
+		return fmt.Errorf("completed turn would store %d messages; maximum is %d", len(history)+2, MaxHistoryMessages)
+	}
+	return ValidatePrompt(rendered)
+}
 
 // RenderTranscript builds the deterministic replay prompt from stored
 // messages plus the new user message (not yet stored). Format per plan §13:

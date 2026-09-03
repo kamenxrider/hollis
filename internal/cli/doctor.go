@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 
@@ -23,13 +24,13 @@ type bridgeCheck struct {
 	// Installed reports whether an expected name was seen in
 	// `shortcuts list` (or supplied by a matching config override).
 	Installed bool `json:"installed"`
+	Verified  bool `json:"verified"`
 	// ResolvedRef is what Run actually invokes: a name or a UUID.
 	ResolvedRef string `json:"resolved_ref"`
 	// Source is how the ref was resolved: config, shortcuts-list, or
 	// compiled-uuid.
 	Source string `json:"source"`
-	// Status is ok, missing, or (for cloud-pro on macOS < 27)
-	// unsupported.
+	// Status is ok, unverified, missing, or unsupported.
 	Status string `json:"status"`
 }
 
@@ -40,8 +41,10 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 		Example: `  hollis doctor
   hollis doctor --json
   hollis doctor --agent`,
+		Args: noExtraArgs("doctor"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report := map[string]any{}
+			var diagnosticErr error
 
 			// Doctor always probes the real transport.
 			r := runner.New()
@@ -49,6 +52,7 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 			// Transport binary.
 			if _, err := exec.LookPath(r.ShortcutsPath); err != nil {
 				report["shortcuts_cli"] = fmt.Sprintf("ERROR not found at %s", r.ShortcutsPath)
+				diagnosticErr = transportErr(fmt.Errorf("Shortcuts transport not found at %s", r.ShortcutsPath))
 			} else {
 				report["shortcuts_cli"] = "ok"
 			}
@@ -61,32 +65,80 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 			report["macos_build"] = macosBuild()
 			report["support"] = supportNote
 			bridges := []bridgeCheck{}
+			missing := false
+			unverified := false
 			for _, m := range runner.Models {
 				rb := resolved[m]
+				status := resolvedStatus(rb, osMajor)
+				if resErr != nil {
+					status = "unverified"
+					if m == runner.ModelCloudPro && osMajor > 0 && osMajor < runner.MeasuredOSMajor {
+						status = "unsupported"
+					}
+				}
 				bridges = append(bridges, bridgeCheck{
 					Model:       string(m),
 					UUID:        runner.CompiledUUID(m),
 					Name:        runner.BridgeNameCandidates[m][0],
 					Installed:   rb.ListedName != "",
+					Verified:    rb.Verified,
 					ResolvedRef: rb.Ref,
 					Source:      string(rb.Source),
-					Status:      resolvedStatus(rb, osMajor),
+					Status:      status,
 				})
+				if status == "missing" {
+					missing = true
+				}
+				if status == "unverified" {
+					unverified = true
+				}
 			}
 			report["bridges"] = bridges
 			if resErr != nil {
 				report["resolution"] = fmt.Sprintf("ERROR %s", resErr)
+				if diagnosticErr == nil {
+					diagnosticErr = resolutionCLIError(resErr)
+				}
+			}
+			if osMajor == 0 && diagnosticErr == nil {
+				diagnosticErr = configErr(errors.New("could not detect the macOS version; support status is unverified"))
+			}
+			if unverified && diagnosticErr == nil {
+				diagnosticErr = configErr(errors.New("one or more configured bridge references are unverified"))
+			}
+			if missing && diagnosticErr == nil {
+				diagnosticErr = notFoundErr(errors.New("one or more supported bridge shortcuts are missing"))
 			}
 
 			report["timeout_default"] = runner.DefaultTimeout.String()
 			report["exit_codes"] = map[string]int{
-				"success": 0, "usage": 2, "missing": 3, "transport": 5,
+				"success": 0, "unexpected": 1, "usage": 2, "missing": 3, "transport": 5,
 				"timeout": 7, "config": 10,
 			}
 			report["version"] = version
 
 			if flags.asJSON {
-				return printJSONFiltered(report, flags)
+				if diagnosticErr != nil {
+					errorBody := map[string]any{
+						"code": errorCode(diagnosticErr), "message": diagnosticErr.Error(), "exit_code": ExitCode(diagnosticErr),
+					}
+					data := filterFields(report, flags.selectFields)
+					payload := data
+					if flags.agent {
+						payload = map[string]any{"meta": agentMeta(), "results": data}
+					}
+					// Error metadata is never filtered out: callers must not
+					// receive a nonzero exit with an apparently successful body.
+					payload["error"] = errorBody
+					if err := encodeJSON(cmd.OutOrStdout(), payload); err != nil {
+						return err
+					}
+					return &reportedError{err: diagnosticErr}
+				}
+				if err := printJSONFilteredTo(cmd.OutOrStdout(), report, flags); err != nil {
+					return err
+				}
+				return nil
 			}
 
 			w := cmd.OutOrStdout()
@@ -100,13 +152,14 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 			fmt.Fprintf(w, "  support: %s\n", supportNote)
 			fmt.Fprintf(w, "  timeout default: %s (ceiling 120s)\n", runner.DefaultTimeout)
 			fmt.Fprintf(w, "  bridges (resolved at runtime):\n")
-			missing := false
 			for _, b := range bridges {
 				indicator := "OK"
 				if b.Status != "ok" {
 					indicator = "MISSING"
 					if b.Status == "unsupported" {
 						indicator = "UNSUPPORTED"
+					} else if b.Status == "unverified" {
+						indicator = "UNVERIFIED"
 					}
 				}
 				// Pad the bracketed indicator so MISSING/UNSUPPORTED rows do
@@ -115,9 +168,6 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 				if b.Status == "unsupported" {
 					fmt.Fprintf(w, "           %s\n", unresolvedProNote)
 				}
-				if b.Status == "missing" {
-					missing = true
-				}
 			}
 			// A MISSING row is the one doctor result that needs an action, so
 			// say what the action is rather than leaving the reader to find
@@ -125,7 +175,7 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 			if missing {
 				fmt.Fprintf(w, "\n  %s\n", missingBridgeRemedy)
 			}
-			return nil
+			return diagnosticErr
 		},
 	}
 	return cmd

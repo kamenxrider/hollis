@@ -5,9 +5,8 @@ package runner
 import "fmt"
 
 // MeasuredOSMajor is the macOS major version where hollis's bridge UUIDs,
-// WFLLMModel strings, and transport rules were measured. Compiled UUIDs
-// are artifacts of that install: they
-// are only trusted as availability evidence on this OS generation.
+// WFLLMModel strings, and transport rules were measured. Compiled UUIDs are
+// artifacts of that install and are never availability evidence on a host.
 const MeasuredOSMajor = 27
 
 // BridgeNameCandidates maps each concrete tier to the display names its
@@ -43,9 +42,10 @@ func CompiledUUID(m Model) string {
 type ResolutionSource string
 
 const (
-	SourceConfig   ResolutionSource = "config"         // bridges.<tier> override
-	SourceList     ResolutionSource = "shortcuts-list" // stable name match
-	SourceCompiled ResolutionSource = "compiled-uuid"  // last resort
+	SourceConfig               ResolutionSource = "config"
+	SourceList                 ResolutionSource = "shortcuts-list"
+	SourceCompiled             ResolutionSource = "compiled-uuid"
+	SourceConfiguredUnverified ResolutionSource = "configured-unverified"
 )
 
 // ResolvedBridge is the runtime resolution outcome for one tier.
@@ -64,12 +64,18 @@ type ResolvedBridge struct {
 	// It is the catalog gate for models/serve and the explicit-tier
 	// usage check in respond/chat/config.
 	Available bool
+	// Verified means discovery positively matched the configured or standard
+	// bridge name. An explicit UUID remains callable but unverified.
+	Verified bool
+	// OSKnown is false only when the host macOS version could not be
+	// measured. Compiled artifacts never become evidence about the host.
+	OSKnown bool
 }
 
 // ResolveBridges computes per-tier bridge resolution. Precedence per tier:
 //
-//  1. overrides[tier] from config — a UUID is trusted as-is (`shortcuts
-//     run <UUID>` is measured on 27); a name is verified against the
+//  1. overrides[tier] from config — a UUID remains an explicit callable but
+//     unverified candidate (`shortcuts run <UUID>` is measured on 27); a name is verified against the
 //     installed list when that list is available, so a stale or fake
 //     name marks the tier unavailable.
 //  2. first BridgeNameCandidates match in installed — the ref is the
@@ -78,9 +84,9 @@ type ResolvedBridge struct {
 //     later fix has something to point at, but NOT evidence of presence.
 //
 // listOK reports whether `shortcuts list` could run at all. When it could
-// not, verification is impossible and the compiled refs are trusted
-// as-is (fail-open): behavior is unchanged from the pre-resolution
-// builds rather than bricked by a listing failure.
+// not, verification is impossible and every tier is unavailable. The caller
+// must preserve the list failure rather than treat this as a harmless local
+// configuration state.
 //
 // When the listing DID work and no name matched, the tier is unavailable.
 // The compiled UUIDs are private artifacts of the machine they were
@@ -98,7 +104,9 @@ type ResolvedBridge struct {
 // machine; the false-OK affected every other machine.
 //
 // osMajor now gates only Cloud Pro, which cannot work below the measured
-// generation no matter how it resolved (see the check below).
+// generation no matter how it resolved (see the check below). Zero means
+// "unknown": hollis does not trust the compiled development environment as
+// evidence about the host.
 func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[Model]string) map[Model]ResolvedBridge {
 	have := map[string]bool{}
 	for _, n := range installed {
@@ -106,19 +114,34 @@ func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[
 	}
 	out := make(map[Model]ResolvedBridge, len(Models))
 	for _, m := range Models {
-		res := ResolvedBridge{Model: m, Ref: CompiledUUID(m), Source: SourceCompiled}
-		// Fail-open only when nothing is verifiable. A successful listing
-		// that matched no name is positive evidence of absence.
-		res.Available = !listOK
+		res := ResolvedBridge{
+			Model:   m,
+			Ref:     CompiledUUID(m),
+			Source:  SourceCompiled,
+			OSKnown: osMajor != 0,
+		}
+		// Discovery is fail-closed. A failed `shortcuts list` is a transport
+		// problem, not evidence that bridges are installed; the caller keeps
+		// the list error and classifies it separately.
+		res.Available = false
 
 		if override, ok := overrides[m]; ok && override != "" {
 			res.Ref = override
-			res.Source = SourceConfig
 			switch {
-			case !listOK || looksLikeUUID(override):
+			case !listOK:
+				// The override is user intent, but discovery cannot verify
+				// it. It is therefore never reported healthy.
+				res.Source = SourceConfiguredUnverified
+				res.Available = true
+			case looksLikeUUID(override):
+				// `shortcuts list` reports names, not UUIDs. A UUID override
+				// cannot be proven present or absent by listing alone.
+				res.Source = SourceConfiguredUnverified
 				res.Available = true
 			default:
+				res.Source = SourceConfig
 				res.Available = have[override]
+				res.Verified = res.Available
 				if have[override] {
 					res.ListedName = override
 				}
@@ -130,6 +153,7 @@ func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[
 					res.Source = SourceList
 					res.ListedName = cand
 					res.Available = true
+					res.Verified = true
 					break
 				}
 			}
@@ -138,8 +162,9 @@ func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[
 		// location), so no imported or configured bridge can make it work
 		// there — even a matching name is a hand-made artifact. The OS gate
 		// wins for Pro regardless of how it resolved.
-		if m == ModelCloudPro && osMajor < MeasuredOSMajor {
+		if m == ModelCloudPro && (osMajor == 0 || osMajor < MeasuredOSMajor) {
 			res.Available = false
+			res.Verified = false
 		}
 		out[m] = res
 	}
@@ -148,8 +173,8 @@ func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[
 
 // looksLikeUUID reports whether s has the RFC 4122 8-4-4-4-12 shape.
 // A UUID override cannot be checked against `shortcuts list` (which
-// shows names only), so it is trusted: UUID invocation is the measured
-// 27 path.
+// shows names only), so it remains an explicit, callable but unverified
+// candidate. UUID invocation itself is measured on the development Mac.
 func looksLikeUUID(s string) bool {
 	if len(s) != 36 {
 		return false

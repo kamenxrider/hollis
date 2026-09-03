@@ -8,14 +8,17 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -27,7 +30,8 @@ var ErrNotFound = errors.New("not found")
 // Store is the persistent chat store. SQLite serializes writers via
 // busy_timeout; callers keep concurrency policy (rule 8).
 type Store struct {
-	db *sql.DB
+	db                   *sql.DB
+	continuationLockPath string
 }
 
 // Conversation is one persistent chat.
@@ -55,6 +59,31 @@ type Message struct {
 	CreatedAt      string
 }
 
+// RunRecord contains the non-content diagnostics for one transport run.
+// Prompts and responses deliberately do not have fields here: run history
+// must never become a second content store.
+type RunRecord struct {
+	// Model is retained for callers compiled against v0.1. New code should
+	// set ModelRequested and ModelUsed explicitly.
+	Model          string
+	RequestID      string
+	ModelRequested string
+	ModelUsed      string
+	StartedAt      time.Time
+	DurationMs     int64
+	ExitCode       int
+	ErrorClass     string
+	FallbackReason string
+	RequestBytes   int
+	ResponseBytes  int
+}
+
+const (
+	schemaVersion = 2
+	stateDirMode  = 0o700
+	stateFileMode = 0o600
+)
+
 const schema = `
 CREATE TABLE IF NOT EXISTS conversations (
 	id            TEXT PRIMARY KEY,
@@ -72,17 +101,22 @@ CREATE TABLE IF NOT EXISTS messages (
 	role              TEXT NOT NULL,
 	content           TEXT NOT NULL,
 	created_at        TEXT NOT NULL,
-	metadata_json     TEXT
+	metadata_json     TEXT,
+	UNIQUE (conversation_id, seq)
 );
 CREATE TABLE IF NOT EXISTS runs (
 	id                INTEGER PRIMARY KEY AUTOINCREMENT,
 	conversation_id   TEXT,
-	model             TEXT NOT NULL,
+	request_id        TEXT NOT NULL,
+	model_requested   TEXT NOT NULL,
+	model_used        TEXT NOT NULL,
 	started_at        TEXT NOT NULL,
 	duration_ms       INTEGER,
 	exit_code         INTEGER,
 	error_class       TEXT,
-	stderr_excerpt    TEXT
+	fallback_reason   TEXT,
+	request_bytes     INTEGER NOT NULL DEFAULT 0,
+	response_bytes    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, seq);
 
@@ -122,27 +156,348 @@ END;
 
 // Open opens (creating if needed) the database at path and applies migrations.
 func Open(path string) (*Store, error) {
-	if path == "" {
+	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("empty database path")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := ensurePrivateDir(dir); err != nil {
 		return nil, fmt.Errorf("create database directory: %w", err)
 	}
-	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)"
+	existing, err := prepareDatabaseFile(path)
+	if err != nil {
+		return nil, err
+	}
+	databaseURL := &url.URL{Scheme: "file", Path: path}
+	query := databaseURL.Query()
+	query.Add("_pragma", "busy_timeout(5000)")
+	query.Add("_pragma", "journal_mode(WAL)")
+	query.Add("_pragma", "foreign_keys(ON)")
+	databaseURL.RawQuery = query.Encode()
+	dsn := databaseURL.String()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	version, err := schemaVersionOf(db)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read schema version %s: %w", path, err)
+	}
+	if version > schemaVersion {
+		db.Close()
+		return nil, fmt.Errorf("database schema version %d is newer than supported version %d", version, schemaVersion)
+	}
+	needsMigration, err := needsMigration(db, version)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("inspect schema %s: %w", path, err)
+	}
+	if existing && needsMigration {
+		if _, err := backupDatabase(db, dir); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("back up %s before migration: %w", path, err)
+		}
 	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate %s: %w", path, err)
 	}
-	s := &Store{db: db}
+	s := &Store{db: db, continuationLockPath: path + ".chat.lock"}
+	if err := s.migrate(version); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate %s: %w", path, err)
+	}
+	if err := os.Chmod(path, stateFileMode); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("protect database %s: %w", path, err)
+	}
 	if err := s.backfillFTS(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("backfill search index: %w", err)
 	}
 	return s, nil
+}
+
+func prepareDatabaseFile(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			file, createErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, stateFileMode)
+			if createErr != nil {
+				if os.IsExist(createErr) {
+					return prepareDatabaseFile(path)
+				}
+				return false, fmt.Errorf("create database %s: %w", path, createErr)
+			}
+			if closeErr := file.Close(); closeErr != nil {
+				return false, closeErr
+			}
+			return false, nil
+		}
+		return false, fmt.Errorf("stat database %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return false, fmt.Errorf("database path %s must be a regular file, not a symlink or special file", path)
+	}
+	if err := os.Chmod(path, stateFileMode); err != nil {
+		return false, fmt.Errorf("protect database %s: %w", path, err)
+	}
+	return info.Size() > 0, nil
+}
+
+func ensurePrivateDir(dir string) error {
+	if err := os.MkdirAll(dir, stateDirMode); err != nil {
+		return err
+	}
+	// A pre-existing directory keeps its old mode after MkdirAll. The CLI
+	// passes an application-owned state directory; tighten that exact path,
+	// but do not chmod the current directory for a relative bare filename.
+	if dir != "." {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("state path %s must be a real directory, not a symlink", dir)
+		}
+		if err := os.Chmod(dir, stateDirMode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func schemaVersionOf(db *sql.DB) (int, error) {
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return 0, err
+	}
+	return version, nil
+}
+
+func needsMigration(db *sql.DB, version int) (bool, error) {
+	if version < schemaVersion {
+		return true, nil
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'idx_messages_conv_seq_unique'`).Scan(&count); err != nil {
+		return false, err
+	}
+	if count == 0 {
+		return true, nil
+	}
+	columns, err := tableColumns(db, "runs")
+	if err != nil {
+		return false, err
+	}
+	return !columns["model_requested"], nil
+}
+
+type queryer interface {
+	Query(string, ...any) (*sql.Rows, error)
+}
+
+func tableColumns(db queryer, table string) (map[string]bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return nil, err
+		}
+		columns[name] = true
+	}
+	return columns, rows.Err()
+}
+
+// backupDatabase creates a consistent SQLite backup before schema migration.
+// VACUUM INTO includes WAL content, unlike copying the main database file
+// directly. The backup is intentionally retained for manual recovery.
+func backupDatabase(db *sql.DB, dir string) (string, error) {
+	f, err := os.CreateTemp(dir, ".hollis.db.backup-*")
+	if err != nil {
+		return "", err
+	}
+	backup := f.Name()
+	if err := f.Close(); err != nil {
+		os.Remove(backup)
+		return "", err
+	}
+	if err := os.Remove(backup); err != nil {
+		return "", err
+	}
+	if _, err := db.Exec(`VACUUM INTO ?`, backup); err != nil {
+		os.Remove(backup)
+		return "", err
+	}
+	if err := os.Chmod(backup, stateFileMode); err != nil {
+		return "", err
+	}
+	if err := syncDir(dir); err != nil {
+		return "", err
+	}
+	return backup, nil
+}
+
+func syncDir(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+func (s *Store) migrate(version int) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if err = repairDuplicateSequences(tx); err != nil {
+		return err
+	}
+	if err = migrateRunDiagnostics(tx); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_conv_seq_unique
+		ON messages(conversation_id, seq)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
+		return err
+	}
+	err = tx.Commit()
+	return err
+}
+
+func migrateRunDiagnostics(tx *sql.Tx) error {
+	columns, err := tableColumns(tx, "runs")
+	if err != nil {
+		return err
+	}
+	if columns["model_requested"] {
+		for _, required := range []string{"request_id", "model_used", "fallback_reason", "request_bytes", "response_bytes"} {
+			if !columns[required] {
+				return fmt.Errorf("runs table is missing required column %s", required)
+			}
+		}
+		return nil
+	}
+	if _, err := tx.Exec(`CREATE TABLE runs_v2 (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		conversation_id TEXT,
+		request_id TEXT NOT NULL,
+		model_requested TEXT NOT NULL,
+		model_used TEXT NOT NULL,
+		started_at TEXT NOT NULL,
+		duration_ms INTEGER,
+		exit_code INTEGER,
+		error_class TEXT,
+		fallback_reason TEXT,
+		request_bytes INTEGER NOT NULL DEFAULT 0,
+		response_bytes INTEGER NOT NULL DEFAULT 0
+	)`); err != nil {
+		return err
+	}
+	if columns["model"] {
+		if _, err := tx.Exec(`INSERT INTO runs_v2
+			(id, conversation_id, request_id, model_requested, model_used, started_at,
+			 duration_ms, exit_code, error_class, fallback_reason, request_bytes, response_bytes)
+			SELECT id, conversation_id, '', model, model, started_at,
+			       duration_ms, exit_code, error_class, '', 0, 0 FROM runs`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`DROP TABLE runs`); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`ALTER TABLE runs_v2 RENAME TO runs`)
+	return err
+}
+
+// repairDuplicateSequences preserves every message while making sequence
+// order deterministic. Only conversations with duplicate sequence values are
+// rewritten; their rows are ordered by the old seq and then immutable id.
+func repairDuplicateSequences(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT conversation_id FROM messages
+		GROUP BY conversation_id, seq HAVING COUNT(*) > 1
+		ORDER BY conversation_id`)
+	if err != nil {
+		return err
+	}
+	var conversations []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		if len(conversations) == 0 || conversations[len(conversations)-1] != id {
+			conversations = append(conversations, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, conversationID := range conversations {
+		messageRows, err := tx.Query(`SELECT id FROM messages
+			WHERE conversation_id = ? ORDER BY seq ASC, id ASC`, conversationID)
+		if err != nil {
+			return err
+		}
+		var ids []int64
+		for messageRows.Next() {
+			var id int64
+			if err := messageRows.Scan(&id); err != nil {
+				messageRows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		if err := messageRows.Err(); err != nil {
+			messageRows.Close()
+			return err
+		}
+		if err := messageRows.Close(); err != nil {
+			return err
+		}
+		// Move rows to unique temporary values first, so a future unique
+		// constraint cannot observe a transient collision.
+		for _, id := range ids {
+			if _, err := tx.Exec(`UPDATE messages SET seq = ? WHERE id = ?`, -id-1, id); err != nil {
+				return err
+			}
+		}
+		for seq, id := range ids {
+			if _, err := tx.Exec(`UPDATE messages SET seq = ? WHERE id = ?`, seq, id); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // backfillFTS rebuilds the FTS tables exactly once, when rows exist but
@@ -171,15 +526,80 @@ func (s *Store) backfillFTS() error {
 // DefaultPath returns the canonical per-user database path:
 // ~/Library/Application Support/hollis/hollis.db (darwin UserConfigDir).
 func DefaultPath() (string, error) {
+	base, err := DefaultStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "hollis.db"), nil
+}
+
+// DefaultStateDir returns the application state directory. HOLLIS_STATE_DIR
+// is useful for isolated runs and tests, but must be absolute so changing the
+// process working directory cannot redirect persistence unexpectedly.
+func DefaultStateDir() (string, error) {
+	if raw := strings.TrimSpace(os.Getenv("HOLLIS_STATE_DIR")); raw != "" {
+		if !filepath.IsAbs(raw) {
+			return "", fmt.Errorf("HOLLIS_STATE_DIR must be an absolute path")
+		}
+		return filepath.Clean(raw), nil
+	}
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "hollis", "hollis.db"), nil
+	return filepath.Join(base, "hollis"), nil
 }
 
 // Close releases the database handle.
 func (s *Store) Close() error { return s.db.Close() }
+
+// LockContinuation serializes the read-run-append sequence for chat
+// continuations across goroutines and Hollis processes. SQLite already makes
+// each write atomic; this lock also prevents two callers from both running a
+// model against the same history snapshot and exceeding the history limit.
+func (s *Store) LockContinuation(ctx context.Context) (func() error, error) {
+	fd, err := syscall.Open(s.continuationLockPath, syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, stateFileMode)
+	if err != nil {
+		return nil, fmt.Errorf("open continuation lock: %w", err)
+	}
+	file := os.NewFile(uintptr(fd), s.continuationLockPath)
+	closeWithError := func(lockErr error) (func() error, error) {
+		if closeErr := file.Close(); closeErr != nil {
+			return nil, errors.Join(lockErr, closeErr)
+		}
+		return nil, lockErr
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return closeWithError(err)
+	}
+	if !info.Mode().IsRegular() {
+		return closeWithError(fmt.Errorf("continuation lock must be a regular file"))
+	}
+	if err := file.Chmod(stateFileMode); err != nil {
+		return closeWithError(err)
+	}
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		err = syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return func() error {
+				unlockErr := syscall.Flock(fd, syscall.LOCK_UN)
+				return errors.Join(unlockErr, file.Close())
+			}, nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			return closeWithError(fmt.Errorf("lock continuation: %w", err))
+		}
+		select {
+		case <-ctx.Done():
+			return closeWithError(ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
 
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
@@ -246,7 +666,7 @@ func (s *Store) ListConversations(includeArchived bool) ([]Conversation, error) 
 	}
 	query += `
 		GROUP BY c.id
-		ORDER BY c.updated_at DESC`
+		ORDER BY c.updated_at DESC, c.id ASC`
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, err
@@ -276,7 +696,7 @@ func (s *Store) MessageCount(convID string) (int, error) {
 // Messages returns all messages of a conversation in seq order.
 func (s *Store) Messages(convID string) ([]Message, error) {
 	rows, err := s.db.Query(`SELECT id, conversation_id, seq, role, content, created_at
-		FROM messages WHERE conversation_id = ? ORDER BY seq ASC`, convID)
+		FROM messages WHERE conversation_id = ? ORDER BY seq ASC, id ASC`, convID)
 	if err != nil {
 		return nil, err
 	}
@@ -293,33 +713,32 @@ func (s *Store) Messages(convID string) ([]Message, error) {
 }
 
 // AppendMessage stores a message with the next seq and touches updated_at.
-//
-// The seq is computed inside the INSERT rather than by a preceding SELECT.
-// As two statements, two processes appending to the same conversation — say
-// two `hollis chat --continue <id>` runs — could both read the same MAX(seq)
-// and write duplicate sequence numbers, which would then replay the
-// transcript out of order. One statement makes the read and the write atomic.
+// The immediate write transaction serializes sequence allocation with other
+// processes using this store.
 func (s *Store) AppendMessage(convID, role, content string) (Message, error) {
 	created := now()
-	res, err := s.db.Exec(`INSERT INTO messages (conversation_id, seq, role, content, created_at)
-		SELECT ?, COALESCE(MAX(seq), -1) + 1, ?, ?, ?
-		FROM messages WHERE conversation_id = ?`,
-		convID, role, content, created, convID)
-	if err != nil {
-		return Message{}, err
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return Message{}, err
-	}
-	var seq int64
-	if err := s.db.QueryRow(`SELECT seq FROM messages WHERE id = ?`, id).Scan(&seq); err != nil {
-		return Message{}, err
-	}
-	if err := s.touchConversation(convID); err != nil {
-		return Message{}, err
-	}
-	return Message{ID: id, ConversationID: convID, Seq: seq, Role: role, Content: content, CreatedAt: created}, nil
+	var message Message
+	err := s.withWriteTx(func(db dbConn) error {
+		seq, err := nextMessageSeq(db, convID)
+		if err != nil {
+			return err
+		}
+		res, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at)
+			VALUES (?, ?, ?, ?, ?)`, convID, seq, role, content, created)
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		if err := touchConversationDB(db, convID); err != nil {
+			return err
+		}
+		message = Message{ID: id, ConversationID: convID, Seq: seq, Role: role, Content: content, CreatedAt: created}
+		return nil
+	})
+	return message, err
 }
 
 func (s *Store) touchConversation(convID string) error {
@@ -327,9 +746,138 @@ func (s *Store) touchConversation(convID string) error {
 	return err
 }
 
+type dbConn interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func (s *Store) withWriteTx(fn func(dbConn) error) (err error) {
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+		}
+	}()
+	if err = fn(conn); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, "COMMIT")
+	return err
+}
+
+func nextMessageSeq(db dbConn, convID string) (int64, error) {
+	var exists int
+	if err := db.QueryRowContext(context.Background(), `SELECT 1 FROM conversations WHERE id = ?`, convID).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("%w: %s", ErrNotFound, convID)
+		}
+		return 0, err
+	}
+	var seq int64
+	if err := db.QueryRowContext(context.Background(), `SELECT COALESCE(MAX(seq), -1) + 1
+		FROM messages WHERE conversation_id = ?`, convID).Scan(&seq); err != nil {
+		return 0, err
+	}
+	return seq, nil
+}
+
+func touchConversationDB(db dbConn, convID string) error {
+	res, err := db.ExecContext(context.Background(), `UPDATE conversations SET updated_at = ? WHERE id = ?`, now(), convID)
+	if err != nil {
+		return err
+	}
+	return requireAffected(res, convID)
+}
+
+func insertRun(db dbConn, convID string, run RunRecord) error {
+	var conversation any
+	if convID != "" {
+		conversation = convID
+	}
+	requested := run.ModelRequested
+	used := run.ModelUsed
+	if requested == "" {
+		requested = run.Model
+	}
+	if used == "" {
+		used = run.Model
+	}
+	if run.RequestID == "" {
+		run.RequestID = newID()
+	}
+	_, err := db.ExecContext(context.Background(), `INSERT INTO runs
+		(conversation_id, request_id, model_requested, model_used, started_at,
+		 duration_ms, exit_code, error_class, fallback_reason, request_bytes, response_bytes)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		conversation, run.RequestID, requested, used, run.StartedAt.UTC().Format(time.RFC3339Nano),
+		run.DurationMs, run.ExitCode, run.ErrorClass, run.FallbackReason, run.RequestBytes, run.ResponseBytes)
+	return err
+}
+
+// AppendTurn atomically records a completed turn and its run diagnostic.
+func (s *Store) AppendTurn(convID, userContent, assistantContent string, run RunRecord) error {
+	return s.withWriteTx(func(db dbConn) error {
+		seq, err := nextMessageSeq(db, convID)
+		if err != nil {
+			return err
+		}
+		if err := insertRun(db, convID, run); err != nil {
+			return err
+		}
+		created := now()
+		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at)
+			VALUES (?, ?, 'user', ?, ?)`, convID, seq, userContent, created); err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at)
+			VALUES (?, ?, 'assistant', ?, ?)`, convID, seq+1, assistantContent, now()); err != nil {
+			return err
+		}
+		return touchConversationDB(db, convID)
+	})
+}
+
+// CreateConversationWithTurn creates a conversation and atomically records
+// its first completed turn. A failed operation leaves no visible chat row.
+func (s *Store) CreateConversationWithTurn(model, title, userContent, assistantContent string, run RunRecord) (Conversation, error) {
+	ts := now()
+	c := Conversation{ID: newID(), Title: title, Model: model, CreatedAt: ts, UpdatedAt: ts}
+	err := s.withWriteTx(func(db dbConn) error {
+		if _, err := db.ExecContext(context.Background(), `INSERT INTO conversations (id, title, model, summary, created_at, updated_at, archived)
+			VALUES (?, ?, ?, '', ?, ?, 0)`, c.ID, c.Title, c.Model, c.CreatedAt, c.UpdatedAt); err != nil {
+			return err
+		}
+		if err := insertRun(db, c.ID, run); err != nil {
+			return err
+		}
+		created := now()
+		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at)
+			VALUES (?, 0, 'user', ?, ?)`, c.ID, userContent, created); err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at)
+			VALUES (?, 1, 'assistant', ?, ?)`, c.ID, assistantContent, now()); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return Conversation{}, err
+	}
+	return c, nil
+}
+
 // SetTitle renames a conversation; not-found yields an error wrapping ErrNotFound.
 func (s *Store) SetTitle(convID, title string) error {
-	res, err := s.db.Exec(`UPDATE conversations SET title = ? WHERE id = ?`, title, convID)
+	res, err := s.db.Exec(`UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?`, title, now(), convID)
 	if err != nil {
 		return err
 	}
@@ -338,7 +886,7 @@ func (s *Store) SetTitle(convID, title string) error {
 
 // SetSummary stores compaction output (future use).
 func (s *Store) SetSummary(convID, summary string) error {
-	res, err := s.db.Exec(`UPDATE conversations SET summary = ? WHERE id = ?`, summary, convID)
+	res, err := s.db.Exec(`UPDATE conversations SET summary = ?, updated_at = ? WHERE id = ?`, summary, now(), convID)
 	if err != nil {
 		return err
 	}
@@ -347,24 +895,54 @@ func (s *Store) SetSummary(convID, summary string) error {
 
 // Delete removes a conversation and its messages and run records.
 func (s *Store) DeleteConversation(convID string) error {
-	for _, stmt := range []string{
-		`DELETE FROM messages WHERE conversation_id = ?`,
-		`DELETE FROM runs WHERE conversation_id = ?`,
-		`DELETE FROM conversations WHERE id = ?`,
-	} {
-		if _, err := s.db.Exec(stmt, convID); err != nil {
+	return s.withWriteTx(func(db dbConn) error {
+		var exists int
+		if err := db.QueryRowContext(context.Background(), `SELECT 1 FROM conversations WHERE id = ?`, convID).Scan(&exists); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("%w: %s", ErrNotFound, convID)
+			}
 			return err
 		}
-	}
-	return nil
+		for _, stmt := range []string{
+			`DELETE FROM messages WHERE conversation_id = ?`,
+			`DELETE FROM runs WHERE conversation_id = ?`,
+			`DELETE FROM conversations WHERE id = ?`,
+		} {
+			if _, err := db.ExecContext(context.Background(), stmt, convID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // RecordRun inserts one transport-run diagnostic row (plan §12 runs table).
-func (s *Store) RecordRun(convID, model string, startedAt time.Time, durationMs int64, exitCode int, errClass, stderrExcerpt string) error {
-	_, err := s.db.Exec(`INSERT INTO runs (conversation_id, model, started_at, duration_ms, exit_code, error_class, stderr_excerpt)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		convID, model, startedAt.UTC().Format(time.RFC3339Nano), durationMs, exitCode, errClass, stderrExcerpt)
-	return err
+func (s *Store) RecordRun(convID, model string, startedAt time.Time, durationMs int64, exitCode int, errClass, _ string) error {
+	return s.RecordRunMetadata(convID, RunRecord{
+		ModelRequested: model,
+		ModelUsed:      model,
+		StartedAt:      startedAt,
+		DurationMs:     durationMs,
+		ExitCode:       exitCode,
+		ErrorClass:     errClass,
+	})
+}
+
+// RecordRunMetadata inserts privacy-safe diagnostics without prompt, reply,
+// or raw transport output.
+func (s *Store) RecordRunMetadata(convID string, record RunRecord) error {
+	return s.withWriteTx(func(db dbConn) error {
+		if convID != "" {
+			var exists int
+			if err := db.QueryRowContext(context.Background(), `SELECT 1 FROM conversations WHERE id = ?`, convID).Scan(&exists); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("%w: %s", ErrNotFound, convID)
+				}
+				return err
+			}
+		}
+		return insertRun(db, convID, record)
+	})
 }
 
 // SearchHit is one matching message inside a conversation.

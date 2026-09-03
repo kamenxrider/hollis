@@ -3,6 +3,7 @@
 package chat
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kamenxrider/hollis/internal/store"
@@ -46,5 +47,33 @@ func TestRenderTranscriptEmptyHistory(t *testing.T) {
 func TestUnknownRoleUppercase(t *testing.T) {
 	if got := roleLabel("tool"); got != "TOOL" {
 		t.Fatalf("roleLabel = %q, want TOOL", got)
+	}
+}
+
+func TestValidateTranscriptRejectsOversizedHistory(t *testing.T) {
+	history := make([]store.Message, MaxHistoryMessages-1)
+	if err := ValidateTranscript(history, "small prompt"); err == nil {
+		t.Fatal("ValidateTranscript accepted a turn whose stored result exceeds the message limit")
+	}
+}
+
+func TestValidateTranscriptRejectsOversizedRenderedPrompt(t *testing.T) {
+	rendered := strings.Repeat("x", MaxRenderedPromptBytes+1)
+	if err := ValidateTranscript(nil, rendered); err == nil {
+		t.Fatal("ValidateTranscript accepted a prompt over the byte limit")
+	}
+}
+
+func TestValidateTranscriptAcceptsLimits(t *testing.T) {
+	history := make([]store.Message, MaxHistoryMessages-2)
+	rendered := strings.Repeat("x", MaxRenderedPromptBytes)
+	if err := ValidateTranscript(history, rendered); err != nil {
+		t.Fatalf("ValidateTranscript rejected the exact limits: %v", err)
+	}
+}
+
+func TestValidatePromptRejectsOversizedOneShot(t *testing.T) {
+	if err := ValidatePrompt(strings.Repeat("x", MaxRenderedPromptBytes+1)); err == nil {
+		t.Fatal("ValidatePrompt accepted a one-shot prompt over the byte limit")
 	}
 }

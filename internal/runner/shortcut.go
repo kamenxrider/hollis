@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// ShortcutRunner invokes `/usr/bin/shortcuts run <bridge-UUID>` with piped
+// ShortcutRunner invokes `/usr/bin/shortcuts run <bridge-reference>` with piped
 // stdio and a hard deadline. It satisfies runner rules 1–7; rule 8 (concurrency
 // policy) lives with callers. Run is safe for concurrent use — `shortcuts run`
 // is stateless and 4 parallel invocations were proven clean.
@@ -21,7 +21,8 @@ type ShortcutRunner struct {
 	// ShortcutsPath is the transport binary. Tests point this at a fake.
 	ShortcutsPath string
 	// BridgeRefs maps models to the identifier passed to `shortcuts run`.
-	// Defaults to UUIDs; names collide and get renamed (plan §36 rule 7).
+	// New defaults to UUID candidates; callers should replace them with the
+	// positively discovered names or explicit configured references.
 	BridgeRefs map[Model]string
 	// Timeout applies when the caller's context carries no deadline.
 	// Measured p50 is ~1s; 30s default, 120s ceiling per plan §25.
@@ -29,7 +30,7 @@ type ShortcutRunner struct {
 }
 
 // New returns a ShortcutRunner with measured defaults: the system shortcuts
-// CLI, bridge references by UUID, and the 30s default timeout.
+// CLI, compiled bridge candidates, and the 30s default timeout.
 func New() *ShortcutRunner {
 	return &ShortcutRunner{
 		ShortcutsPath: DefaultShortcutsPath,
@@ -44,9 +45,7 @@ func New() *ShortcutRunner {
 }
 
 // Run implements Runner. See the package doc for the rules this enforces.
-// ModelAuto is resolved here: cloud first, one on-device retry on any
-// transport-class failure (Apple's documented PCC fallback pattern).
-// Explicit tier selections are passed through untouched.
+// Callers that need to explain auto behavior should use RunWithFallback.
 func (r *ShortcutRunner) Run(ctx context.Context, model Model, prompt string) (string, Model, error) {
 	// Rule 4: reject empty prompts before spawning. Empty input hangs
 	// `shortcuts run` forever; there is no exit code to map, only a kill.
@@ -58,32 +57,66 @@ func (r *ShortcutRunner) Run(ctx context.Context, model Model, prompt string) (s
 		}
 	}
 	if model == ModelAuto {
-		return r.runAuto(ctx, prompt)
+		text, used, _, err := r.runAuto(ctx, prompt)
+		return text, used, err
 	}
-	text, err := r.runTier(ctx, model, prompt)
+	text, _, _, err := r.RunWithFallback(ctx, model, prompt)
 	return text, model, err
 }
 
+// RunWithFallback implements FallbackRunner. ModelAuto tries cloud once and,
+// only for explicitly eligible transient failures, on-device once. Explicit
+// tiers never fall back.
+func (r *ShortcutRunner) RunWithFallback(ctx context.Context, model Model, prompt string) (string, Model, Fallback, error) {
+	if strings.TrimSpace(prompt) == "" {
+		return "", model, Fallback{}, &Error{
+			Kind: KindEmptyPrompt, ExitCode: -1,
+			Err: fmt.Errorf("%w: shortcuts run hangs forever on empty input; refusing to spawn", ErrEmptyPrompt),
+		}
+	}
+	if model != ModelAuto {
+		text, err := r.runTier(ctx, model, prompt)
+		return text, model, Fallback{}, err
+	}
+	return r.runAuto(ctx, prompt)
+}
+
 // runAuto tries the default tier (cloud) once, then the on-device model
-// once. Empty-prompt errors are never retried: both tiers would refuse
-// the same way, and the caller was already told before any spawn.
-func (r *ShortcutRunner) runAuto(ctx context.Context, prompt string) (string, Model, error) {
+// once. Empty prompts, usage errors, timeout/cancel, and process crashes are
+// never retried: retrying them either produces the same local failure or
+// risks another charge/usage event.
+func (r *ShortcutRunner) runAuto(ctx context.Context, prompt string) (string, Model, Fallback, error) {
 	text, err := r.runTier(ctx, ModelCloud, prompt)
 	if err == nil {
-		return text, ModelCloud, nil
+		return text, ModelCloud, Fallback{}, nil
 	}
 	var re *Error
-	if !errors.As(err, &re) || re.Kind == KindEmptyPrompt {
-		return "", ModelCloud, err
+	if !errors.As(err, &re) || !FallbackEligible(re.Kind) {
+		return "", ModelCloud, Fallback{}, err
 	}
+	primaryKind := re.Kind
 	text, err = r.runTier(ctx, ModelOnDevice, prompt)
-	return text, ModelOnDevice, err
+	return text, ModelOnDevice, Fallback{
+		Used:   true,
+		From:   ModelCloud,
+		To:     ModelOnDevice,
+		Reason: primaryKind,
+	}, err
 }
 
 func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string) (string, error) {
-	ref, ok := r.BridgeRefs[model]
-	if !ok {
+	if !model.Valid() || model == ModelAuto {
 		return "", &Error{Kind: KindUsage, ExitCode: -1, Err: fmt.Errorf("%w: %q", ErrUnknownModel, model)}
+	}
+	ref, ok := r.BridgeRefs[model]
+	if !ok || strings.TrimSpace(ref) == "" {
+		return "", &Error{
+			Kind: KindShortcutMissing, ExitCode: -1,
+			Err: fmt.Errorf("bridge for %q was not positively discovered or explicitly configured", model),
+		}
+	}
+	if strings.HasPrefix(strings.TrimSpace(ref), "-") {
+		return "", &Error{Kind: KindUsage, Ref: ref, ExitCode: -1, Err: errors.New("bridge reference must not begin with '-'")}
 	}
 
 	// Rule 3: always a deadline. The caller's deadline is authoritative in
@@ -115,6 +148,7 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 			Err:      errors.New("deadline already passed before the shortcut could be spawned"),
 		}
 	}
+	parentCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, effective)
 	defer cancel()
 
@@ -143,6 +177,30 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 	cmd.WaitDelay = 2 * time.Second
 
 	if err := cmd.Start(); err != nil {
+		switch parentCtx.Err() {
+		case context.Canceled:
+			return "", &Error{
+				Kind:     KindContextCanceled,
+				Ref:      ref,
+				ExitCode: -1,
+				Err:      fmt.Errorf("context canceled before %s could start: %w", r.ShortcutsPath, err),
+			}
+		case context.DeadlineExceeded:
+			return "", &Error{
+				Kind:     KindTimeout,
+				Ref:      ref,
+				ExitCode: -1,
+				Err:      fmt.Errorf("deadline already exceeded before %s could start: %w", r.ShortcutsPath, err),
+			}
+		}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", &Error{
+				Kind:     KindTimeout,
+				Ref:      ref,
+				ExitCode: -1,
+				Err:      fmt.Errorf("deadline exceeded before %s could start: %w", r.ShortcutsPath, err),
+			}
+		}
 		return "", &Error{
 			Kind:     KindTransport,
 			Ref:      ref,
@@ -174,6 +232,12 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 
 	out := stdout.String()
 	if res.deadline {
+		if errors.Is(parentCtx.Err(), context.Canceled) {
+			return "", &Error{
+				Kind: KindContextCanceled, Ref: ref, ExitCode: -1,
+				Err: errors.New("shortcut run canceled by caller"),
+			}
+		}
 		return "", &Error{
 			Kind:     KindTimeout,
 			Ref:      ref,
@@ -188,7 +252,16 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 	// Rule 5: exit 0 + empty stdout is shortcut_no_output, never a response.
 	// On a TTY this is exactly what suppressed-but-successful output looks
 	// like, so it must always be treated as failure here.
-	if res.err == nil && len(out) == 0 {
+	if res.err == nil && strings.TrimSpace(out) == "" {
+		if isRateLimited(stderr.String()) {
+			return "", &Error{
+				Kind:     KindRateLimited,
+				Ref:      ref,
+				ExitCode: 0,
+				Stderr:   stderr.String(),
+				Err:      errors.New("rate limit reported"),
+			}
+		}
 		return "", &Error{
 			Kind:     KindNoOutput,
 			Ref:      ref,
@@ -198,14 +271,47 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 	}
 
 	if res.err != nil {
+		switch parentCtx.Err() {
+		case context.Canceled:
+			return "", &Error{
+				Kind:     KindContextCanceled,
+				Ref:      ref,
+				ExitCode: -1,
+				Err:      fmt.Errorf("context canceled while running %s: %w", r.ShortcutsPath, res.err),
+			}
+		case context.DeadlineExceeded:
+			return "", &Error{
+				Kind:     KindTimeout,
+				Ref:      ref,
+				ExitCode: -1,
+				Err:      fmt.Errorf("deadline exceeded while running %s: %w", r.ShortcutsPath, res.err),
+			}
+		}
+		// The runner adds its own default/ceiling deadline when the caller has
+		// none. cmd.Wait can win the select race against ctx.Done after the
+		// process is killed; consult the derived context before treating that
+		// SIGKILL as an ordinary process crash.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", &Error{
+				Kind:     KindTimeout,
+				Ref:      ref,
+				ExitCode: -1,
+				Err:      fmt.Errorf("shortcut run exceeded %s and was killed", effective),
+			}
+		}
+		signal, signaled := processSignal(res.err)
 		kind := KindTransport
-		switch exitCode {
-		case 1:
-			kind = KindShortcutMissing
-		case 64:
-			kind = KindUsage
-		case 134:
+		switch {
+		case signaled && signal == syscall.SIGABRT:
 			kind = KindSIGABRT
+		case signaled:
+			kind = KindSignal
+		case isRateLimited(stderrText):
+			kind = KindRateLimited
+		case isMissingShortcut(stderrText):
+			kind = KindShortcutMissing
+		case exitCode == 64:
+			kind = KindUsage
 		}
 		err := res.err
 		if exitCode >= 0 {
@@ -217,6 +323,7 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 			Kind:     kind,
 			Ref:      ref,
 			ExitCode: exitCode,
+			Signal:   signal,
 			Stderr:   stderrText,
 			Err:      err,
 		}
@@ -228,11 +335,29 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 }
 
 func (r *ShortcutRunner) ListShortcuts(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		kind := KindTransport
+		switch err {
+		case context.Canceled:
+			kind = KindContextCanceled
+		case context.DeadlineExceeded:
+			kind = KindTimeout
+		}
+		return nil, &Error{Kind: kind, ExitCode: -1, Err: err}
+	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(cctx, r.ShortcutsPath, "list").Output()
 	if err != nil {
-		return nil, &Error{Kind: KindTransport, ExitCode: exitOf(err), Err: err}
+		kind := KindListFailure
+		signal, _ := processSignal(err)
+		switch cctx.Err() {
+		case context.Canceled:
+			kind = KindContextCanceled
+		case context.DeadlineExceeded:
+			kind = KindTimeout
+		}
+		return nil, &Error{Kind: kind, ExitCode: exitOf(err), Signal: signal, Err: err}
 	}
 	var names []string
 	for _, line := range strings.Split(string(out), "\n") {
@@ -249,4 +374,29 @@ func exitOf(err error) int {
 		return ee.ExitCode()
 	}
 	return -1
+}
+
+func processSignal(err error) (syscall.Signal, bool) {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ProcessState == nil {
+		return 0, false
+	}
+	ws, ok := ee.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok || !ws.Signaled() {
+		return 0, false
+	}
+	return ws.Signal(), true
+}
+
+func isRateLimited(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "too many incoming requests") ||
+		strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "rate-limit")
+}
+
+func isMissingShortcut(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "could not be found") ||
+		strings.Contains(lower, "shortcut not found")
 }

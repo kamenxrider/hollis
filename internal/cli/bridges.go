@@ -4,12 +4,30 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
 
 	"github.com/kamenxrider/hollis/internal/runner"
 )
+
+type bridgeResolutionError struct {
+	state bool
+	err   error
+}
+
+func (e *bridgeResolutionError) Error() string { return e.err.Error() }
+func (e *bridgeResolutionError) Unwrap() error { return e.err }
+
+func resolutionCLIError(err error) error {
+	var resolutionErr *bridgeResolutionError
+	if errors.As(err, &resolutionErr) && resolutionErr.state {
+		return configErr(err)
+	}
+	return toCLIError(err)
+}
 
 // listInstalledShortcuts lists installed shortcut display names via the
 // transport. Package var so tests stub resolution without spawning
@@ -42,16 +60,16 @@ var macosBuild = func() string {
 }
 
 // macosMajorVersion reports the macOS major version. The measured
-// development environment (27) is the fail-open default when sw_vers is
-// unreadable. Package var so tests can simulate a macOS 26 machine.
+// Zero means the OS could not be detected. Never assume the measured macOS
+// 27 environment when detection fails.
 var macosMajorVersion = func() int {
 	v := macosVersion()
 	if v == "" {
-		return runner.MeasuredOSMajor
+		return 0
 	}
 	major, err := strconv.Atoi(strings.SplitN(v, ".", 2)[0])
 	if err != nil || major == 0 {
-		return runner.MeasuredOSMajor
+		return 0
 	}
 	return major
 }
@@ -80,17 +98,12 @@ func bridgeOverrides(c config) map[runner.Model]string {
 func resolveBridges(ctx context.Context) (map[runner.Model]runner.ResolvedBridge, error) {
 	c, err := loadConfig()
 	if err != nil {
-		return nil, err
+		return nil, &bridgeResolutionError{state: true, err: fmt.Errorf("load bridge config: %w", err)}
 	}
 	overrides := bridgeOverrides(c)
-	if len(overrides) >= len(runner.Models) {
-		return runner.ResolveBridges(nil, false, macosMajorVersion(), overrides), nil
-	}
 	names, listErr := listInstalledShortcuts(ctx)
 	if listErr != nil {
-		// Fail-open: keep the measured refs rather than brick every
-		// command because the listing failed.
-		return runner.ResolveBridges(nil, false, macosMajorVersion(), overrides), nil
+		return runner.ResolveBridges(nil, false, macosMajorVersion(), overrides), &bridgeResolutionError{err: listErr}
 	}
 	return runner.ResolveBridges(names, true, macosMajorVersion(), overrides), nil
 }
@@ -105,21 +118,44 @@ func applyResolvedRefs(r runner.Runner, resolved map[runner.Model]runner.Resolve
 	}
 	refs := make(map[runner.Model]string, len(resolved))
 	for m, rb := range resolved {
-		refs[m] = rb.Ref
+		if rb.Available {
+			refs[m] = rb.Ref
+		}
 	}
 	sr.BridgeRefs = refs
 }
 
-// checkModelAvailable refuses explicit tiers whose bridge did not resolve.
-// auto is never gated: it runs and falls back on its own.
+// checkModelAvailable refuses tiers whose bridge did not resolve. Auto is
+// viable when at least cloud or on-device resolved; its runner skips any
+// unavailable primary and can fall back without invoking a compiled UUID.
 func checkModelAvailable(resolved map[runner.Model]runner.ResolvedBridge, m runner.Model) error {
 	if m == runner.ModelAuto {
-		return nil
+		if resolved == nil { // Fake runners abstract transport discovery in tests.
+			return nil
+		}
+		if resolved[runner.ModelCloud].Available || resolved[runner.ModelOnDevice].Available {
+			return nil
+		}
+		return usageErr(errors.New("auto is not available (neither cloud nor on-device bridge is installed or explicitly configured)"))
 	}
 	if rb, ok := resolved[m]; ok && !rb.Available {
 		return usageErr(runner.UnavailableErr(m))
 	}
 	return nil
+}
+
+// canAttemptAfterDiscoveryFailure is deliberately narrow: only explicit
+// user-configured references survive a failed `shortcuts list`. Compiled UUIDs
+// are candidates, never installation proof.
+func canAttemptAfterDiscoveryFailure(resolved map[runner.Model]runner.ResolvedBridge, m runner.Model) bool {
+	configured := func(tier runner.Model) bool {
+		rb, ok := resolved[tier]
+		return ok && rb.Available && rb.Source == runner.SourceConfiguredUnverified
+	}
+	if m == runner.ModelAuto {
+		return configured(runner.ModelCloud) || configured(runner.ModelOnDevice)
+	}
+	return configured(m)
 }
 
 // availabilityMap flattens a resolution into the server's per-tier gate.
@@ -140,7 +176,7 @@ func requireRealRunner(r runner.Runner) bool {
 }
 
 // supportNote is the honest compatibility line shared by doctor output.
-const supportNote = "macOS 27 measured; macOS 26 untested"
+const supportNote = "macOS 27 measured; Cloud Pro is unsupported on macOS 26"
 
 // resolveForRunner resolves bridges only when the factory hands out the
 // real transport; fake runners in tests resolve to nil (no gate, no refs).
@@ -167,11 +203,17 @@ func resolvedNewRunnerFunc(newRunner newRunnerFunc, resolved map[runner.Model]ru
 
 // resolvedStatus renders a doctor status for one resolution.
 func resolvedStatus(rb runner.ResolvedBridge, osMajor int) string {
-	if rb.Available {
+	if rb.Verified {
 		return "ok"
+	}
+	if rb.Model == runner.ModelCloudPro && osMajor == 0 {
+		return "unverified"
 	}
 	if rb.Model == runner.ModelCloudPro && osMajor < runner.MeasuredOSMajor {
 		return "unsupported"
+	}
+	if rb.Available {
+		return "unverified"
 	}
 	return "missing"
 }

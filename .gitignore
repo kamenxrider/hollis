@@ -42,6 +42,9 @@ __pycache__/
 # shipped, so it reads as a live defect report. Kept local until it can be
 # rewritten as a compatibility reference (needs a real macOS 26 machine).
 /results/macos-26-compat.md
+/results/tool-protocol-26A5425a.md
+/scripts/live-suite/
 .agents/
 .claude/
 skills-lock.json
+.aider*

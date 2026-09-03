@@ -12,8 +12,8 @@
 //  4. Reject empty prompts before spawning.
 //  5. Treat exit 0 + empty stdout as shortcut_no_output, never as a response.
 //  6. Don't expect a trailing newline; don't store one that wasn't there.
-//  7. Reference bridges by UUID, not name (names collide and get renamed;
-//     verified 2026-09-01 that `shortcuts run <UUID>` is accepted).
+//  7. Invoke positively discovered bridge names or explicit configured
+//     references. Compiled UUIDs are candidates, never installation proof.
 //  8. Default concurrency 1, configurable — 4 parallel runs proven clean.
 package runner
 
@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"syscall"
 	"time"
 )
 
@@ -35,9 +36,9 @@ const (
 )
 
 // Models is the exhaustive set of concrete model tiers. ModelAuto is a
-// strategy, not a tier: it tries the default tier first and falls back to
-// the on-device model on failure (Apple's documented PCC pattern), so it
-// is valid for selection but has no bridge of its own.
+// strategy, not a tier: it tries the default tier first and may fall back to
+// the on-device model for a narrow set of availability/transport failures, so
+// it is valid for selection but has no bridge of its own.
 var Models = []Model{ModelCloud, ModelCloudPro, ModelOnDevice, ModelChatGPT}
 
 // ModelAuto selects the default tier (cloud) and falls back to the
@@ -86,10 +87,14 @@ type Kind string
 const (
 	KindEmptyPrompt     Kind = "empty_prompt"       // refused before spawn (hangs forever)
 	KindNoOutput        Kind = "shortcut_no_output" // exit 0 + empty stdout (also what a TTY run looks like)
-	KindShortcutMissing Kind = "shortcut_missing"   // exit 1
+	KindShortcutMissing Kind = "shortcut_missing"   // confirmed by Apple error text
+	KindRateLimited     Kind = "rate_limited"       // explicit rate-limit text from Apple
 	KindUsage           Kind = "usage"              // exit 64
 	KindSIGABRT         Kind = "sigabrt"            // exit 134 (the -o /dev/stdout crash; never used by us)
+	KindSignal          Kind = "signal"             // another real Unix signal terminated the child
 	KindTimeout         Kind = "timeout"            // deadline hit, child killed
+	KindContextCanceled Kind = "context_canceled"   // caller canceled before/during run
+	KindListFailure     Kind = "list_failure"       // `shortcuts list` transport failure
 	KindTransport       Kind = "transport"          // anything else
 )
 
@@ -100,6 +105,8 @@ type Error struct {
 	Ref string
 	// ExitCode is the child's exit status, or -1 when it never exited.
 	ExitCode int
+	// Signal is set when the child was terminated by a real POSIX signal.
+	Signal syscall.Signal
 	// Stderr carries the child's stderr verbatim (Apple prints useful hints).
 	Stderr string
 	Err    error
@@ -109,6 +116,9 @@ func (e *Error) Error() string {
 	msg := "shortcuts transport error"
 	if e.Err != nil {
 		msg = e.Err.Error()
+	}
+	if e.Signal != 0 {
+		return fmt.Sprintf("%s (SIG%s)", msg, e.Signal)
 	}
 	if e.ExitCode >= 0 {
 		return fmt.Sprintf("%s (shortcut exit %d)", msg, e.ExitCode)
@@ -138,4 +148,34 @@ type Runner interface {
 	// because they are not interchangeable (results Test: on-device refused
 	// a task cloud completed). Every other tier returns what was asked for.
 	Run(ctx context.Context, model Model, prompt string) (string, Model, error)
+}
+
+// Fallback describes why an auto strategy moved from one tier to another.
+// Reason is empty unless Fallback is true.
+type Fallback struct {
+	Used   bool
+	From   Model
+	To     Model
+	Reason Kind
+}
+
+// FallbackRunner is the optional richer form of Runner. Callers that need
+// to explain auto behavior can type-assert; callers that only need the
+// response and used tier can continue using Runner.
+type FallbackRunner interface {
+	// RunWithFallback executes one request and returns the fallback metadata
+	// when ModelAuto changes tiers. Explicit tiers always have Used=false.
+	RunWithFallback(ctx context.Context, model Model, prompt string) (string, Model, Fallback, error)
+}
+
+// FallbackEligible reports whether a primary-model failure may be retried on
+// the on-device tier. Context timeout/cancel, usage, empty prompt, and real
+// process crashes are never eligible.
+func FallbackEligible(kind Kind) bool {
+	switch kind {
+	case KindShortcutMissing, KindRateLimited, KindNoOutput, KindTransport:
+		return true
+	default:
+		return false
+	}
 }
