@@ -29,6 +29,10 @@ func (processRunner) Run(_ context.Context, model runner.Model, prompt string) (
 	return "fixture response for " + prompt, used, nil
 }
 
+func (processRunner) RunWithImages(_ context.Context, model runner.Model, prompt string, imagePaths []string) (string, runner.Model, error) {
+	return fmt.Sprintf("fixture image response for %s with %d image(s)", prompt, len(imagePaths)), model, nil
+}
+
 func TestCLIHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HOLLIS_HELPER") != "1" {
 		return
@@ -251,6 +255,35 @@ func TestCLIProcessJSONAndChatLifecycle(t *testing.T) {
 	deleted := runHelper(t, state, "chats", "delete", "--json", "--yes", id)
 	if deleted.exit != 0 || !json.Valid([]byte(deleted.stdout)) {
 		t.Fatalf("delete: exit=%d stdout=%s stderr=%s", deleted.exit, deleted.stdout, deleted.stderr)
+	}
+}
+
+func TestCLIProcessImageContract(t *testing.T) {
+	state := t.TempDir()
+	image := filepath.Join(t.TempDir(), "quiet image.png")
+	if err := os.WriteFile(image, []byte("fixture image bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runHelper(t, state, "respond", "--json", "--image", image, "Describe it")
+	if result.exit != 0 || result.stderr != "" {
+		t.Fatalf("image respond: exit=%d stdout=%s stderr=%s", result.exit, result.stdout, result.stderr)
+	}
+	var response map[string]any
+	decodeObject(t, result.stdout, &response)
+	if response["model_requested"] != "cloud" || response["model_used"] != "cloud" || !strings.Contains(fmt.Sprint(response["response"]), "with 1 image(s)") {
+		t.Fatalf("unexpected image response: %#v", response)
+	}
+
+	for _, args := range [][]string{
+		{"respond", "--model", "auto", "--image", image, "Describe it"},
+		{"respond", "--model", "on-device", "--image", image, "Describe it"},
+		{"respond", "--model", "chatgpt", "--image", image, "--image", image, "Compare"},
+	} {
+		failed := runHelper(t, state, args...)
+		if failed.exit != 2 {
+			t.Fatalf("args=%v exit=%d stdout=%s stderr=%s, want usage 2", args, failed.exit, failed.stdout, failed.stderr)
+		}
 	}
 }
 

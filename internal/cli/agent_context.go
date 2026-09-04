@@ -110,7 +110,7 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 			},
 			JSONSchema:    "agent meta schema_version=2; data under results; --select filters results",
 			ErrorSchema:   "{meta:{source,schema_version},error:{code,message,exit_code}}",
-			ModelDefaults: "positional model <tier> > explicit --model flag > config model > auto",
+			ModelDefaults: "positional model <tier> > explicit --model flag > config model > built-in default; text defaults to auto, --image defaults directly to cloud",
 			Fallback: "auto tries cloud once, then on-device once, only for missing/rate-limited/" +
 				"transient/no-output failures; invalid input, timeout, cancellation, and crashes never retry",
 			Network: "HTTP defaults to loopback; remote bind requires --allow-remote plus bearer authentication and an external encrypted tunnel",
@@ -186,7 +186,7 @@ func commandOutputModes(command *cobra.Command) []string {
 func commandSideEffects(command *cobra.Command) []string {
 	switch command.CommandPath() {
 	case "hollis respond":
-		return []string{"invokes one Shortcut model run"}
+		return []string{"invokes one Shortcut model run", "with --image, reads local image files and creates then removes a private temporary prompt file"}
 	case "hollis chat":
 		return []string{"invokes Shortcut model runs", "writes local conversation state after successful turns"}
 	case "hollis chats rename":

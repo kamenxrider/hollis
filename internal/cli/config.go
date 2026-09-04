@@ -251,6 +251,14 @@ func syncConfigDir(dir string) error {
 // built-in default (auto). Explicit-flag detection uses cobra's
 // Changed, so the flag's static default never masks the config value.
 func effectiveModel(cmd *cobra.Command, flagModel, posModel string, hasPosModel bool) (runner.Model, error) {
+	return effectiveModelWithDefault(cmd, flagModel, posModel, hasPosModel, runner.ModelAuto)
+}
+
+// effectiveModelWithDefault keeps the normal precedence while allowing a
+// command to choose a safer built-in default. Image responses use Cloud
+// directly because the normal auto strategy may fall back to an on-device
+// tier that did not consume pixels in the measured Shortcuts transport.
+func effectiveModelWithDefault(cmd *cobra.Command, flagModel, posModel string, hasPosModel bool, builtIn runner.Model) (runner.Model, error) {
 	if hasPosModel {
 		return runner.Model(posModel), nil
 	}
@@ -264,7 +272,7 @@ func effectiveModel(cmd *cobra.Command, flagModel, posModel string, hasPosModel 
 	if c.DefaultModel != "" {
 		return runner.Model(c.DefaultModel), nil
 	}
-	return runner.ModelAuto, nil
+	return builtIn, nil
 }
 
 func newConfigCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {

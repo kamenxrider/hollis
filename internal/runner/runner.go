@@ -15,6 +15,8 @@
 //  7. Invoke positively discovered bridge names or explicit configured
 //     references. Compiled UUIDs are candidates, never installation proof.
 //  8. Default concurrency 1, configurable — 4 parallel runs proven clean.
+//  9. For image requests, pass a private prompt file and image files together
+//     as repeated --input-path arguments; stdin is not part of that call.
 package runner
 
 import (
@@ -148,6 +150,18 @@ type Runner interface {
 	// because they are not interchangeable (results Test: on-device refused
 	// a task cloud completed). Every other tier returns what was asked for.
 	Run(ctx context.Context, model Model, prompt string) (string, Model, error)
+}
+
+// ImageRunner is the optional transport extension for one-shot prompts with
+// image files. Images are deliberately separate from Runner: chats and the
+// HTTP server remain text-only, while the respond command can detect this
+// capability without changing every provider-free test runner.
+type ImageRunner interface {
+	// RunWithImages submits one prompt and one or more local image files. Auto
+	// and on-device are invalid because auto can fall back to on-device, whose
+	// Shortcut ignored the tested image input. Cloud and Cloud Pro accept
+	// multiple images; ChatGPT accepts exactly one.
+	RunWithImages(ctx context.Context, model Model, prompt string, imagePaths []string) (string, Model, error)
 }
 
 // Fallback describes why an auto strategy moved from one tier to another.
