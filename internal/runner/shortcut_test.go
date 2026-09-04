@@ -18,7 +18,8 @@ import (
 // runnerWithFake installs a fake `shortcuts` shell script that records argv,
 // drains stdin to disk, and behaves according to mode:
 //
-//	echo      cat the recorded stdin back (round-trip)
+//	echo        cat the recorded stdin back (round-trip)
+//	echo-direct cat stdin directly (parallel-run isolation)
 //	echo-image cat the first --input-path back (the private prompt file)
 //	empty     exit 0 with no stdout (the ambiguous signature)
 //	whitespace exit 0 with only non-content whitespace
@@ -35,13 +36,14 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 	dir := t.TempDir()
 	path := dir + "/shortcuts"
 	script := "#!/bin/sh\n" +
+		"mode=${HOLLIS_FAKE_MODE:-" + mode + "}\n" +
+		"if [ \"$mode\" = 'echo-direct' ]; then cat; exit; fi\n" +
 		"printf '%s\\n' \"$*\" > " + dir + "/argv.txt\n" +
 		"printf '%s\\n' \"$@\" > " + dir + "/argv-lines.txt\n" +
 		"cat > " + dir + "/stdin.txt\n" +
 		"count=$(cat " + dir + "/count.txt 2>/dev/null || echo 0)\n" +
 		"count=$((count + 1))\n" +
 		"echo \"$count\" > " + dir + "/count.txt\n" +
-		"mode=${HOLLIS_FAKE_MODE:-" + mode + "}\n" +
 		"case \"$mode\" in\n" +
 		"  echo) cat " + dir + "/stdin.txt ;;\n" +
 		"  echo-image) previous=''; for value in \"$@\"; do if [ \"$previous\" = '--input-path' ]; then cat \"$value\"; exit; fi; previous=\"$value\"; done; exit 64 ;;\n" +
@@ -627,7 +629,10 @@ func TestTimeoutKillsChild(t *testing.T) {
 }
 
 func TestConcurrencyFourParallel(t *testing.T) {
-	r, _ := runnerWithFake(t, "echo")
+	// The direct mode gives each child its own stdin/stdout pipe. Using the
+	// fake's shared recording file here lets concurrent test processes truncate
+	// one another and tests the fixture rather than ShortcutRunner.
+	r, _ := runnerWithFake(t, "echo-direct")
 	var errs [4]error
 	var resps [4]string
 	done := make(chan int, 4)
