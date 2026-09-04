@@ -7,10 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // ShortcutRunner invokes `/usr/bin/shortcuts run <bridge-reference>` with piped
@@ -81,6 +85,77 @@ func (r *ShortcutRunner) RunWithFallback(ctx context.Context, model Model, promp
 	return r.runAuto(ctx, prompt)
 }
 
+// RunWithImages invokes a concrete image-capable Shortcut tier. The measured
+// Shortcuts transport requires both the prompt and images to be supplied as a
+// repeated --input-path list; stdin is intentionally left empty.
+func (r *ShortcutRunner) RunWithImages(ctx context.Context, model Model, prompt string, imagePaths []string) (string, Model, error) {
+	if err := ValidateImageRequest(model, prompt, imagePaths); err != nil {
+		return "", model, err
+	}
+	text, err := r.runTierWithImages(ctx, model, prompt, imagePaths)
+	return text, model, err
+}
+
+// ValidateImageRequest checks the measured v0.2 image contract before any
+// Shortcut process is spawned. PNG and JPEG are the only formats currently
+// promised; content sniffing and additional formats remain future work.
+func ValidateImageRequest(model Model, prompt string, imagePaths []string) error {
+	usage := func(err error) error {
+		return &Error{Kind: KindUsage, ExitCode: -1, Err: err}
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return &Error{
+			Kind: KindEmptyPrompt, ExitCode: -1,
+			Err: fmt.Errorf("%w: image requests require a non-empty prompt argument", ErrEmptyPrompt),
+		}
+	}
+	if !utf8.ValidString(prompt) {
+		return usage(errors.New("image prompt must be valid UTF-8"))
+	}
+	if len(imagePaths) == 0 {
+		return usage(errors.New("image request requires at least one --image path"))
+	}
+	switch model {
+	case ModelCloud, ModelCloudPro:
+		// Multiple images were measured successfully on both Apple cloud tiers.
+	case ModelChatGPT:
+		if len(imagePaths) != 1 {
+			return usage(errors.New("chatgpt accepts exactly one --image; multiple image paths were unreliable in testing"))
+		}
+	case ModelOnDevice:
+		return usage(errors.New("--image is unavailable with on-device: the tested Shortcut ignored the pixels"))
+	case ModelAuto:
+		return usage(errors.New("--image is unavailable with auto because auto can fall back to on-device"))
+	default:
+		return usage(fmt.Errorf("%w: %q", ErrUnknownModel, model))
+	}
+
+	for _, path := range imagePaths {
+		if strings.TrimSpace(path) == "" {
+			return usage(errors.New("--image path must not be empty"))
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".png" && ext != ".jpg" && ext != ".jpeg" {
+			return usage(fmt.Errorf("unsupported image %q: use a PNG or JPEG file", path))
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return usage(fmt.Errorf("open image %q: %w", path, err))
+		}
+		if !info.Mode().IsRegular() {
+			return usage(fmt.Errorf("image %q must be a regular file", path))
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return usage(fmt.Errorf("open image %q: %w", path, err))
+		}
+		if err := file.Close(); err != nil {
+			return usage(fmt.Errorf("close image %q after validation: %w", path, err))
+		}
+	}
+	return nil
+}
+
 // runAuto tries the default tier (cloud) once, then the on-device model
 // once. Empty prompts, usage errors, timeout/cancel, and process crashes are
 // never retried: retrying them either produces the same local failure or
@@ -105,6 +180,10 @@ func (r *ShortcutRunner) runAuto(ctx context.Context, prompt string) (string, Mo
 }
 
 func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string) (string, error) {
+	return r.runTierWithImages(ctx, model, prompt, nil)
+}
+
+func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, prompt string, imagePaths []string) (string, error) {
 	if !model.Valid() || model == ModelAuto {
 		return "", &Error{Kind: KindUsage, ExitCode: -1, Err: fmt.Errorf("%w: %q", ErrUnknownModel, model)}
 	}
@@ -153,8 +232,27 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 	defer cancel()
 
 	// Rule 1: plain text, never the RTF default. Rule 7: reference by UUID.
-	cmd := exec.CommandContext(ctx, r.ShortcutsPath, "run", ref, "--output-type", "public.plain-text")
-	cmd.Stdin = strings.NewReader(prompt)
+	args := []string{"run", ref, "--output-type", "public.plain-text"}
+	var removePrompt func()
+	if len(imagePaths) > 0 {
+		promptPath, cleanup, err := writeImagePromptFile(prompt)
+		if err != nil {
+			return "", &Error{
+				Kind: KindTransport, Ref: ref, ExitCode: -1,
+				Err: fmt.Errorf("prepare private image prompt: %w", err),
+			}
+		}
+		removePrompt = cleanup
+		defer removePrompt()
+		args = append(args, "--input-path", promptPath)
+		for _, imagePath := range imagePaths {
+			args = append(args, "--input-path", imagePath)
+		}
+	}
+	cmd := exec.CommandContext(ctx, r.ShortcutsPath, args...)
+	if len(imagePaths) == 0 {
+		cmd.Stdin = strings.NewReader(prompt)
+	}
 
 	// Rule 2: capture via pipes. bytes.Buffer forces exec to create an
 	// os.Pipe for stdout — the child never sees a TTY, which is the one
@@ -332,6 +430,31 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 	// Rule 6: return stdout exactly as produced. Apple omits the trailing
 	// newline; we neither expect nor add one here.
 	return out, nil
+}
+
+func writeImagePromptFile(prompt string) (string, func(), error) {
+	file, err := os.CreateTemp("", "hollis-image-prompt-*.txt")
+	if err != nil {
+		return "", nil, err
+	}
+	path := file.Name()
+	cleanup := func() { _ = os.Remove(path) }
+	fail := func(err error) (string, func(), error) {
+		_ = file.Close()
+		cleanup()
+		return "", nil, err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		return fail(err)
+	}
+	if _, err := io.WriteString(file, prompt); err != nil {
+		return fail(err)
+	}
+	if err := file.Close(); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	return path, cleanup, nil
 }
 
 func (r *ShortcutRunner) ListShortcuts(ctx context.Context) ([]string, error) {

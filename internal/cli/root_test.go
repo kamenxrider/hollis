@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -57,6 +58,37 @@ func (f *fakeRunner) Run(_ context.Context, m runner.Model, prompt string) (stri
 		return "", m, f.err
 	}
 	return prompt, m, nil
+}
+
+type imageRecordingRunner struct {
+	calls      int
+	model      runner.Model
+	prompt     string
+	imagePaths []string
+}
+
+func (r *imageRecordingRunner) Run(_ context.Context, model runner.Model, prompt string) (string, runner.Model, error) {
+	r.calls++
+	r.model = model
+	r.prompt = prompt
+	return prompt, model, nil
+}
+
+func (r *imageRecordingRunner) RunWithImages(_ context.Context, model runner.Model, prompt string, imagePaths []string) (string, runner.Model, error) {
+	r.calls++
+	r.model = model
+	r.prompt = prompt
+	r.imagePaths = append([]string(nil), imagePaths...)
+	return "image fixture response", model, nil
+}
+
+func writeCLIImage(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte("fixture image bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestRespondEmptyPromptExitsUsage2(t *testing.T) {
@@ -199,6 +231,123 @@ func TestRespondNewModelsAccepted(t *testing.T) {
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("respond --model %s: %v", model, err)
 		}
+	}
+}
+
+func TestRespondImageDefaultsToCloudAndPassesPaths(t *testing.T) {
+	stubConfigPath(t)
+	image := writeCLIImage(t, "quiet fixture.png")
+	r := &imageRecordingRunner{}
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs([]string{"respond", "--json", "--image", image, "Describe it"})
+	cmd.SetIn(&bytes.Buffer{})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if r.calls != 1 || r.model != runner.ModelCloud || r.prompt != "Describe it" || len(r.imagePaths) != 1 || r.imagePaths[0] != image {
+		t.Fatalf("image runner call=%+v", r)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["model_requested"] != "cloud" || body["model_used"] != "cloud" || body["response"] != "image fixture response" {
+		t.Fatalf("unexpected JSON: %s", out.String())
+	}
+}
+
+func TestRespondImageAllowsMeasuredFilesPerTier(t *testing.T) {
+	first := writeCLIImage(t, "first.png")
+	second := writeCLIImage(t, "second.jpg")
+	for _, tc := range []struct {
+		model string
+		paths []string
+	}{
+		{model: "cloud", paths: []string{first, second}},
+		{model: "cloud-pro", paths: []string{first, second}},
+		{model: "chatgpt", paths: []string{first}},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			r := &imageRecordingRunner{}
+			cmd := NewRootCmd(func() runner.Runner { return r })
+			args := []string{"respond", "--model", tc.model}
+			for _, path := range tc.paths {
+				args = append(args, "--image", path)
+			}
+			args = append(args, "Describe them")
+			cmd.SetArgs(args)
+			cmd.SetIn(&bytes.Buffer{})
+			cmd.SetOut(&bytes.Buffer{})
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if r.calls != 1 || len(r.imagePaths) != len(tc.paths) {
+				t.Fatalf("image runner call=%+v", r)
+			}
+			for i, path := range tc.paths {
+				if r.imagePaths[i] != path {
+					t.Fatalf("image path %d=%q, want %q", i, r.imagePaths[i], path)
+				}
+			}
+		})
+	}
+}
+
+func TestRespondImageUsageErrorsDoNotCallRunner(t *testing.T) {
+	oldInteractive := interactiveStdin
+	interactiveStdin = func() bool { return false }
+	t.Cleanup(func() { interactiveStdin = oldInteractive })
+
+	one := writeCLIImage(t, "one.png")
+	two := writeCLIImage(t, "two.jpeg")
+	missing := filepath.Join(t.TempDir(), "missing.png")
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		in   string
+	}{
+		{name: "explicit auto", args: []string{"respond", "--model", "auto", "--image", one, "Describe it"}},
+		{name: "on-device", args: []string{"respond", "--model", "on-device", "--image", one, "Describe it"}},
+		{name: "chatgpt multiple", args: []string{"respond", "--model", "chatgpt", "--image", one, "--image", two, "Compare"}},
+		{name: "missing file", args: []string{"respond", "--model", "cloud", "--image", missing, "Describe it"}},
+		{name: "piped stdin", args: []string{"respond", "--model", "cloud", "--image", one, "Describe it"}, in: "extra prompt"},
+		{name: "no prompt argument", args: []string{"respond", "--model", "cloud", "--image", one, "--no-input"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &imageRecordingRunner{}
+			cmd := NewRootCmd(func() runner.Runner { return r })
+			cmd.SetArgs(tc.args)
+			cmd.SetIn(strings.NewReader(tc.in))
+			cmd.SetOut(&bytes.Buffer{})
+			err := cmd.Execute()
+			if err == nil || ExitCode(err) != 2 {
+				t.Fatalf("err=%v exit=%d, want usage 2", err, ExitCode(err))
+			}
+			if r.calls != 0 {
+				t.Fatalf("runner calls=%d, want 0", r.calls)
+			}
+		})
+	}
+}
+
+func TestRespondImageRejectsConfiguredAuto(t *testing.T) {
+	stubConfigPath(t)
+	if err := saveConfig(config{DefaultModel: string(runner.ModelAuto)}); err != nil {
+		t.Fatal(err)
+	}
+	image := writeCLIImage(t, "one.png")
+	r := &imageRecordingRunner{}
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs([]string{"respond", "--image", image, "Describe it"})
+	cmd.SetIn(&bytes.Buffer{})
+	cmd.SetOut(&bytes.Buffer{})
+	err := cmd.Execute()
+	if err == nil || ExitCode(err) != 2 || r.calls != 0 {
+		t.Fatalf("err=%v exit=%d calls=%d, want configured-auto usage error before runner", err, ExitCode(err), r.calls)
 	}
 }
 
