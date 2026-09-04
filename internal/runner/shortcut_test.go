@@ -6,17 +6,20 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // runnerWithFake installs a fake `shortcuts` shell script that records argv,
 // drains stdin to disk, and behaves according to mode:
 //
 //	echo      cat the recorded stdin back (round-trip)
+//	echo-image cat the first --input-path back (the private prompt file)
 //	empty     exit 0 with no stdout (the ambiguous signature)
 //	whitespace exit 0 with only non-content whitespace
 //	missing   exit 1 with Apple-like stderr
@@ -33,6 +36,7 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 	path := dir + "/shortcuts"
 	script := "#!/bin/sh\n" +
 		"printf '%s\\n' \"$*\" > " + dir + "/argv.txt\n" +
+		"printf '%s\\n' \"$@\" > " + dir + "/argv-lines.txt\n" +
 		"cat > " + dir + "/stdin.txt\n" +
 		"count=$(cat " + dir + "/count.txt 2>/dev/null || echo 0)\n" +
 		"count=$((count + 1))\n" +
@@ -40,6 +44,7 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 		"mode=${HOLLIS_FAKE_MODE:-" + mode + "}\n" +
 		"case \"$mode\" in\n" +
 		"  echo) cat " + dir + "/stdin.txt ;;\n" +
+		"  echo-image) previous=''; for value in \"$@\"; do if [ \"$previous\" = '--input-path' ]; then cat \"$value\"; exit; fi; previous=\"$value\"; done; exit 64 ;;\n" +
 		"  empty) exit 0 ;;\n" +
 		"  whitespace) printf ' \\n\\t' ;;\n" +
 		"  missing) echo 'The shortcut named \"AFM Bridge\" could not be found' >&2; exit 1 ;;\n" +
@@ -60,6 +65,133 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 	r := New()
 	r.ShortcutsPath = path
 	return r, dir
+}
+
+func writeTestImage(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte("fixture image bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestRunWithImagesUsesInputPathsAndNoStdin(t *testing.T) {
+	r, dir := runnerWithFake(t, "echo-image")
+	first := writeTestImage(t, "first image.png")
+	second := writeTestImage(t, "second.jpg")
+	prompt := "Compare the two images ✓"
+
+	got, used, err := r.RunWithImages(context.Background(), ModelCloudPro, prompt, []string{first, second})
+	if err != nil {
+		t.Fatalf("RunWithImages: %v", err)
+	}
+	if got != prompt || used != ModelCloudPro {
+		t.Fatalf("got=%q used=%s, want prompt round-trip via cloud-pro", got, used)
+	}
+	stdin, err := os.ReadFile(filepath.Join(dir, "stdin.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stdin) != 0 {
+		t.Fatalf("image run wrote stdin: %q", stdin)
+	}
+	rawArgs, err := os.ReadFile(filepath.Join(dir, "argv-lines.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Split(strings.TrimSuffix(string(rawArgs), "\n"), "\n")
+	if len(args) != 10 {
+		t.Fatalf("argv=%q, want 10 arguments", args)
+	}
+	if args[0] != "run" || args[1] != BridgeUUIDCloudPro || args[2] != "--output-type" || args[3] != "public.plain-text" || args[4] != "--input-path" || args[6] != "--input-path" || args[7] != first || args[8] != "--input-path" || args[9] != second {
+		t.Fatalf("unexpected image argv: %#v", args)
+	}
+	promptPath := args[5]
+	if filepath.Ext(promptPath) != ".txt" {
+		t.Fatalf("private prompt path %q is not a .txt file", promptPath)
+	}
+	if _, err := os.Stat(promptPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private prompt file was not removed: %v", err)
+	}
+}
+
+func TestPrivateImagePromptFileIs0600UTF8AndRemoved(t *testing.T) {
+	prompt := "hello ✓"
+	path, cleanup, err := writeImagePromptFile(prompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("prompt mode=%#o, want 0600", got)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != prompt || !utf8.Valid(raw) {
+		t.Fatalf("prompt content=%q valid_utf8=%v", raw, utf8.Valid(raw))
+	}
+	cleanup()
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cleanup left prompt file behind: %v", err)
+	}
+}
+
+func TestPrivateImagePromptFileIsRemovedAfterTransportFailure(t *testing.T) {
+	r, dir := runnerWithFake(t, "generic")
+	image := writeTestImage(t, "one.png")
+	if _, _, err := r.RunWithImages(context.Background(), ModelCloud, "Describe it", []string{image}); err == nil {
+		t.Fatal("want transport failure")
+	}
+	rawArgs, err := os.ReadFile(filepath.Join(dir, "argv-lines.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Split(strings.TrimSuffix(string(rawArgs), "\n"), "\n")
+	if len(args) < 6 || args[4] != "--input-path" {
+		t.Fatalf("unexpected image argv: %#v", args)
+	}
+	if _, err := os.Stat(args[5]); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private prompt survived failed transport: %v", err)
+	}
+}
+
+func TestImageRequestValidationRefusesUnsafeShapesWithoutSpawn(t *testing.T) {
+	one := writeTestImage(t, "one.png")
+	two := writeTestImage(t, "two.jpeg")
+	unsupported := writeTestImage(t, "three.heic")
+	missing := filepath.Join(t.TempDir(), "missing.png")
+
+	for _, tc := range []struct {
+		name   string
+		model  Model
+		prompt string
+		paths  []string
+	}{
+		{name: "auto", model: ModelAuto, prompt: "describe", paths: []string{one}},
+		{name: "on-device", model: ModelOnDevice, prompt: "describe", paths: []string{one}},
+		{name: "chatgpt multiple", model: ModelChatGPT, prompt: "compare", paths: []string{one, two}},
+		{name: "empty prompt", model: ModelCloud, prompt: " ", paths: []string{one}},
+		{name: "missing file", model: ModelCloud, prompt: "describe", paths: []string{missing}},
+		{name: "unsupported extension", model: ModelCloud, prompt: "describe", paths: []string{unsupported}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, dir := runnerWithFake(t, "echo-image")
+			_, _, err := r.RunWithImages(context.Background(), tc.model, tc.prompt, tc.paths)
+			var runErr *Error
+			if !errors.As(err, &runErr) || (runErr.Kind != KindUsage && runErr.Kind != KindEmptyPrompt) {
+				t.Fatalf("err=%v, want usage/empty-prompt runner error", err)
+			}
+			if _, statErr := os.Stat(filepath.Join(dir, "count.txt")); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("transport spawned for invalid image request: %v", statErr)
+			}
+		})
+	}
 }
 
 func TestRoundTripMultiLineNoTrailingNewline(t *testing.T) {

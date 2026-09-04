@@ -37,6 +37,7 @@ Direct transport tests on that build established the rules Hollis now enforces:
 - separate model calls are stateless, while replaying a stored transcript
   preserves a conversation;
 - exit 0 with empty output is not treated as a successful response.
+- repeated `--input-path` co-delivers a prompt file plus multiple images to Cloud/Cloud Pro and one image to ChatGPT; the tested On-Device Shortcut did not consume the pixels.
 
 The `v0.2.0` gate ran on macOS 27.0 build `26A5425a`. It covered the complete
 CLI, configuration and chat lifecycle, authentication, both HTTP model

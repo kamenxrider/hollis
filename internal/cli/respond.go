@@ -19,6 +19,7 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 	var (
 		model   string
 		timeout time.Duration
+		images  []string
 	)
 	cmd := &cobra.Command{
 		Use:   "respond [prompt]",
@@ -26,18 +27,23 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		Long: `Send one prompt to Apple Intelligence and print the plain-text response.
 
 The prompt comes from the positional argument, or from stdin when no argument
-is given (multi-line safe). Each call is stateless; use "hollis chat" for
-persistent, SQLite-backed conversations.
+is given (multi-line safe). With --image, the prompt must be an argument;
+Hollis passes the prompt and image files together through Shortcuts. Each call
+is stateless; use "hollis chat" for persistent, SQLite-backed conversations.
 
 The default model is auto: cloud first, with automatic fallback to the
 on-device model if the cloud run fails. Explicit choices: cloud (AFM 3
 Cloud), cloud-pro (AFM 3 Cloud Pro; macOS 27+ — unavailable if that
 bridge is not installed), on-device (AFM 3 Core / Core Advanced by
 hardware), or chatgpt (ChatGPT extension; enable it in System Settings >
-Apple Intelligence & Siri). See hollis models.`,
+Apple Intelligence & Siri). Image requests with no selected or configured
+model default directly to cloud because auto cannot safely fall back. See
+hollis models.`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
   hollis respond model cloud-pro "Draft a reply"
   printf 'long prompt from a pipeline' | hollis respond
+  hollis respond --image photo.jpg "What is this?"
+  hollis respond --model cloud-pro --image a.png --image b.png "Compare them"
   hollis respond --model cloud-pro "Flag form also works"
   hollis respond --agent "Return strict JSON describing X"`,
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -48,6 +54,9 @@ Apple Intelligence & Siri). See hollis models.`,
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", model))
 			}
 			_, promptArgs, _ := splitModelArgs(args)
+			if len(images) > 0 && len(promptArgs) == 0 {
+				return usageErr(errors.New("--image requires the prompt as an argument; piped stdin cannot be combined with image input"))
+			}
 			if len(promptArgs) > 0 {
 				if err := chat.ValidatePrompt(strings.Join(promptArgs, " ")); err != nil {
 					return usageErr(err)
@@ -84,12 +93,27 @@ Apple Intelligence & Siri). See hollis models.`,
 				return usageErr(err)
 			}
 
-			m, err := effectiveModel(cmd, model, posModel, hasPosModel)
+			builtInModel := runner.ModelAuto
+			if len(images) > 0 {
+				// Auto is unsafe for vision because it can fall back to the
+				// on-device tier. An image request with no selected/configured
+				// tier therefore defaults directly to Cloud.
+				builtInModel = runner.ModelCloud
+			}
+			m, err := effectiveModelWithDefault(cmd, model, posModel, hasPosModel, builtInModel)
 			if err != nil {
 				return configErr(err)
 			}
 			if !m.Valid() {
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", m))
+			}
+			if len(images) > 0 {
+				if err := rejectImageStdin(cmd); err != nil {
+					return err
+				}
+				if err := runner.ValidateImageRequest(m, prompt, images); err != nil {
+					return toCLIError(err)
+				}
 			}
 
 			r := newRunner()
@@ -113,7 +137,13 @@ Apple Intelligence & Siri). See hollis models.`,
 			var fallback runner.Fallback
 			var text string
 			var used runner.Model
-			if rich, ok := r.(runner.FallbackRunner); ok {
+			if len(images) > 0 {
+				imageRunner, ok := r.(runner.ImageRunner)
+				if !ok {
+					return transportErr(errors.New("configured runner does not support image input"))
+				}
+				text, used, err = imageRunner.RunWithImages(ctx, m, prompt, images)
+			} else if rich, ok := r.(runner.FallbackRunner); ok {
 				text, used, fallback, err = rich.RunWithFallback(ctx, m, prompt)
 			} else {
 				text, used, err = r.Run(ctx, m, prompt)
@@ -159,6 +189,24 @@ Apple Intelligence & Siri). See hollis models.`,
 		},
 	}
 	cmd.Flags().StringVar(&model, "model", string(runner.ModelAuto), "Model tier: auto (default: cloud first, on-device fallback), cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro; macOS 27+), on-device (AFM 3 Core / Core Advanced by hardware), or chatgpt (ChatGPT extension); see hollis models")
+	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (ChatGPT accepts one; unavailable with auto/on-device)")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	return cmd
+}
+
+// rejectImageStdin refuses the measured-broken mix of a positional prompt and
+// piped stdin. A closed or empty non-terminal stdin is harmless, which keeps
+// image calls usable from agents and CI processes that do not own a TTY.
+func rejectImageStdin(cmd *cobra.Command) error {
+	if interactiveStdin() {
+		return nil
+	}
+	b, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 1))
+	if err != nil {
+		return usageErr(fmt.Errorf("check stdin for image request: %w", err))
+	}
+	if len(b) > 0 {
+		return usageErr(errors.New("--image cannot be combined with piped stdin; pass the prompt as an argument"))
+	}
+	return nil
 }

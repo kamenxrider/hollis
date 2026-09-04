@@ -9,6 +9,9 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net/http"
 	"net/url"
@@ -23,6 +26,62 @@ import (
 )
 
 const proSpacing = 45 * time.Second
+
+// TestLiveCloudImage is the narrow v0.2 image gate. It is separate from the
+// complete live suite so verifying this feature consumes one Cloud request and
+// no Cloud Pro, ChatGPT, or On-Device capacity.
+func TestLiveCloudImage(t *testing.T) {
+	if os.Getenv("HOLLIS_LIVE_IMAGE") != "1" {
+		t.Skip("set HOLLIS_LIVE_IMAGE=1 to authorize one real Cloud image call")
+	}
+	bin := os.Getenv("HOLLIS_BIN")
+	if !filepath.IsAbs(bin) {
+		t.Fatal("HOLLIS_BIN must name the absolute path of the exact binary under test")
+	}
+
+	imagePath := filepath.Join(t.TempDir(), "orange-triangle.png")
+	writeTrianglePNG(t, imagePath)
+	marker := fmt.Sprintf("HOLLIS-IMAGE-%d", time.Now().UnixNano())
+	prompt := "Inspect the attached picture. If it contains one orange triangle, reply with exactly " + marker + ". Otherwise reply FAIL."
+	result := runProcess(bin, []string{"respond", "--json", "--model", "cloud", "--image", imagePath, prompt}, t.TempDir(), nil)
+	if result.exit != 0 {
+		t.Fatalf("live Cloud image call failed: exit=%d; response omitted", result.exit)
+	}
+	var response map[string]any
+	decodeObject(t, result.stdout, &response)
+	if response["model_requested"] != "cloud" || response["model_used"] != "cloud" || strings.TrimSpace(fmt.Sprint(response["response"])) != marker {
+		t.Fatal("live Cloud image response did not prove prompt-and-pixel co-delivery; response omitted")
+	}
+}
+
+func writeTrianglePNG(t *testing.T, path string) {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, 160, 120))
+	white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	orange := color.NRGBA{R: 240, G: 120, B: 20, A: 255}
+	for y := range 120 {
+		for x := range 160 {
+			img.SetNRGBA(x, y, white)
+		}
+	}
+	for y := 20; y < 100; y++ {
+		halfWidth := (y - 20) / 2
+		for x := 80 - halfWidth; x <= 80+halfWidth; x++ {
+			img.SetNRGBA(x, y, orange)
+		}
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(file, img); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 type liveHarness struct {
 	t             *testing.T

@@ -13,6 +13,7 @@ The Shortcuts **Use Model** action, on the same machine at the same moment, offe
 ```bash
 hollis respond "Summarize this repo in one sentence"
 hollis respond --model cloud-pro "Analyze this bug"
+hollis respond --image photo.jpg "Describe this image"
 printf 'long prompt' | hollis respond
 hollis chat                       # interactive, remembers the conversation
 hollis serve                      # local OpenAI-shaped API
@@ -103,6 +104,19 @@ hollis respond --timeout 90s "A question worth waiting for"
 ```
 
 The prompt comes from the argument or from stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple.
+
+### Images
+
+`respond` accepts PNG and JPEG files through the existing bridges:
+
+```bash
+hollis respond --image photo.jpg "What is this?"
+hollis respond --model cloud-pro --image a.png --image b.png "Compare them"
+```
+
+An image request with no selected or configured model defaults directly to Cloud. Cloud and Cloud Pro accept repeated `--image`; ChatGPT accepts one image. `auto` and On-Device are rejected for images because the tested On-Device Shortcut ignored the pixels, making automatic fallback unsafe.
+
+When images are present, give the prompt as an argument. Hollis writes it to a private temporary UTF-8 text file and passes that file plus the images as repeated Shortcuts inputs; the temporary prompt is deleted after the run. Do not pipe a second prompt through stdin with `--image`. Image chat history and HTTP image uploads are not part of `v0.2.0`.
 
 ## Persistent chats
 
@@ -232,7 +246,7 @@ Run diagnostics contain only request ID, requested/used tier, timing, exit code,
 hollis → /usr/bin/shortcuts → Use Model → Cloud / Cloud Pro / On-Device / ChatGPT
 ```
 
-Each bridge shortcut is three actions: **Receive** input, **Use Model**, **Stop and Output**. Hollis feeds the prompt in on stdin and captures plain text back. It does not patch or modify `fm`, and it holds no credentials — the transport is the local Shortcuts app, running as you.
+Each bridge shortcut is three actions: **Receive** input, **Use Model**, **Stop and Output**. Text-only requests feed the prompt on stdin. Image requests pass a private temporary prompt file and the image files together as repeated inputs. Hollis captures plain text back. It does not patch or modify `fm`, and it holds no credentials — the transport is the local Shortcuts app, running as you.
 
 ### Bridge discovery
 
@@ -260,6 +274,7 @@ The transport rules below are not stylistic. Each one is a behaviour that was me
 | Empty input makes `shortcuts run` wait forever, and macOS has no `timeout(1)` | Refuses empty prompts before spawning; every run has a deadline |
 | A killed run can orphan the child | Puts the child in its own process group and kills the group |
 | Exit 0 with empty stdout is indistinguishable from success | Treats it as failure, never as an empty response |
+| With file input, piped stdin does not reach the model | Passes the prompt text file and image files together through repeated `--input-path` arguments |
 | Responses are complete, not streamed | Does not fake streaming |
 
 The measured evidence behind these rules is summarized in [EVIDENCE.md](EVIDENCE.md).
