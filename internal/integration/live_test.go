@@ -6,6 +6,7 @@ package integration_test
 import (
 	"bufio"
 	"bytes"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -39,35 +40,89 @@ func TestLiveCloudImage(t *testing.T) {
 		t.Fatal("HOLLIS_BIN must name the absolute path of the exact binary under test")
 	}
 
-	imagePath := filepath.Join(t.TempDir(), "orange-triangle.png")
-	writeTrianglePNG(t, imagePath)
+	imageSpec := randomLiveImageSpec(t)
+	imagePath := filepath.Join(t.TempDir(), "visual-probe.png")
+	writeVisualPNG(t, imagePath, imageSpec)
 	marker := fmt.Sprintf("HOLLIS-IMAGE-%d", time.Now().UnixNano())
-	prompt := "Inspect the attached picture. If it contains one orange triangle, reply with exactly " + marker + ". Otherwise reply FAIL."
+	prompt := "Inspect the attached picture. Reply exactly " + marker + "|color,shape,position using lowercase visual values."
 	result := runProcess(bin, []string{"respond", "--json", "--model", "cloud", "--image", imagePath, prompt}, t.TempDir(), nil)
 	if result.exit != 0 {
 		t.Fatalf("live Cloud image call failed: exit=%d; response omitted", result.exit)
 	}
 	var response map[string]any
 	decodeObject(t, result.stdout, &response)
-	if response["model_requested"] != "cloud" || response["model_used"] != "cloud" || strings.TrimSpace(fmt.Sprint(response["response"])) != marker {
+	want := []string{strings.ToLower(marker), imageSpec.colorName, imageSpec.shape, imageSpec.position}
+	if response["model_requested"] != "cloud" || response["model_used"] != "cloud" || !containsTokensInOrder(strings.ToLower(fmt.Sprint(response["response"])), want) {
 		t.Fatal("live Cloud image response did not prove prompt-and-pixel co-delivery; response omitted")
 	}
 }
 
-func writeTrianglePNG(t *testing.T, path string) {
+type liveImageSpec struct {
+	colorName string
+	shape     string
+	position  string
+	color     color.NRGBA
+}
+
+func randomLiveImageSpec(t *testing.T) liveImageSpec {
 	t.Helper()
-	img := image.NewNRGBA(image.Rect(0, 0, 160, 120))
+	// Every candidate passed the bounded Cloud and Cloud Pro image matrix on
+	// build 26A5425a. Selecting one at runtime keeps the visual answer out of
+	// both the prompt and filename without making the model solve OCR.
+	candidates := []liveImageSpec{
+		{colorName: "red", shape: "circle", position: "left", color: color.NRGBA{R: 220, G: 30, B: 30, A: 255}},
+		{colorName: "green", shape: "square", position: "right", color: color.NRGBA{R: 30, G: 175, B: 70, A: 255}},
+		{colorName: "blue", shape: "triangle", position: "center", color: color.NRGBA{R: 25, G: 90, B: 225, A: 255}},
+		{colorName: "yellow", shape: "square", position: "center", color: color.NRGBA{R: 240, G: 205, B: 20, A: 255}},
+		{colorName: "orange", shape: "circle", position: "right", color: color.NRGBA{R: 240, G: 120, B: 20, A: 255}},
+	}
+	var pick [1]byte
+	if _, err := cryptorand.Read(pick[:]); err != nil {
+		t.Fatal(err)
+	}
+	return candidates[int(pick[0])%len(candidates)]
+}
+
+func containsTokensInOrder(text string, tokens []string) bool {
+	position := 0
+	for _, token := range tokens {
+		index := strings.Index(text[position:], token)
+		if index < 0 {
+			return false
+		}
+		position += index + len(token)
+	}
+	return true
+}
+
+func writeVisualPNG(t *testing.T, path string, spec liveImageSpec) {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, 600, 400))
 	white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-	orange := color.NRGBA{R: 240, G: 120, B: 20, A: 255}
-	for y := range 120 {
-		for x := range 160 {
+	for y := range 400 {
+		for x := range 600 {
 			img.SetNRGBA(x, y, white)
 		}
 	}
-	for y := 20; y < 100; y++ {
-		halfWidth := (y - 20) / 2
-		for x := 80 - halfWidth; x <= 80+halfWidth; x++ {
-			img.SetNRGBA(x, y, orange)
+	cx := map[string]int{"left": 150, "center": 300, "right": 450}[spec.position]
+	const cy, radius = 200, 90
+	for y := cy - radius; y <= cy+radius; y++ {
+		for x := cx - radius; x <= cx+radius; x++ {
+			dx, dy := x-cx, y-cy
+			inside := false
+			switch spec.shape {
+			case "circle":
+				inside = dx*dx+dy*dy <= radius*radius
+			case "square":
+				inside = true
+			case "triangle":
+				relativeY := y - (cy - radius)
+				halfWidth := relativeY / 2
+				inside = relativeY >= 0 && relativeY <= 2*radius && dx >= -halfWidth && dx <= halfWidth
+			}
+			if inside {
+				img.SetNRGBA(x, y, spec.color)
+			}
 		}
 	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
