@@ -55,6 +55,7 @@ type Message struct {
 	ConversationID string
 	Seq            int64
 	Role           string // system | user | assistant
+	ImageArtifact  bool   // trusted local generation provenance; never inferred from content
 	Content        string
 	CreatedAt      string
 }
@@ -695,8 +696,9 @@ func (s *Store) MessageCount(convID string) (int, error) {
 
 // Messages returns all messages of a conversation in seq order.
 func (s *Store) Messages(convID string) ([]Message, error) {
-	rows, err := s.db.Query(`SELECT id, conversation_id, seq, role, content, created_at
-		FROM messages WHERE conversation_id = ? ORDER BY seq ASC, id ASC`, convID)
+	rows, err := s.db.Query(`SELECT id, conversation_id, seq, role, content, created_at,
+        CASE WHEN metadata_json = '{"hollis_image_artifact":true}' THEN 1 ELSE 0 END
+        FROM messages WHERE conversation_id = ? ORDER BY seq ASC, id ASC`, convID)
 	if err != nil {
 		return nil, err
 	}
@@ -704,7 +706,7 @@ func (s *Store) Messages(convID string) ([]Message, error) {
 	var out []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Seq, &m.Role, &m.Content, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Seq, &m.Role, &m.Content, &m.CreatedAt, &m.ImageArtifact); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -837,8 +839,8 @@ func (s *Store) AppendTurn(convID, userContent, assistantContent string, run Run
 			VALUES (?, ?, 'user', ?, ?)`, convID, seq, userContent, created); err != nil {
 			return err
 		}
-		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at)
-			VALUES (?, ?, 'assistant', ?, ?)`, convID, seq+1, assistantContent, now()); err != nil {
+		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at, metadata_json)
+			VALUES (?, ?, 'assistant', ?, ?, ?)`, convID, seq+1, assistantContent, now(), assistantMetadata(run)); err != nil {
 			return err
 		}
 		return touchConversationDB(db, convID)
@@ -863,8 +865,8 @@ func (s *Store) CreateConversationWithTurn(model, title, userContent, assistantC
 			VALUES (?, 0, 'user', ?, ?)`, c.ID, userContent, created); err != nil {
 			return err
 		}
-		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at)
-			VALUES (?, 1, 'assistant', ?, ?)`, c.ID, assistantContent, now()); err != nil {
+		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at, metadata_json)
+			VALUES (?, 1, 'assistant', ?, ?, ?)`, c.ID, assistantContent, now(), assistantMetadata(run)); err != nil {
 			return err
 		}
 		return nil
@@ -1075,4 +1077,12 @@ func requireAffected(res sql.Result, convID string) error {
 		return fmt.Errorf("%w: %s", ErrNotFound, convID)
 	}
 	return nil
+}
+
+// assistantMetadata records provenance from the local execution path, never model text.
+func assistantMetadata(run RunRecord) string {
+	if run.ModelRequested == "image" && strings.HasPrefix(run.ModelUsed, "image:") && run.ExitCode == 0 {
+		return `{"hollis_image_artifact":true}`
+	}
+	return ""
 }

@@ -123,6 +123,13 @@ func testGenerationServer(generator *recordingGenerator, token string) *Server {
 	return server
 }
 
+func testUnifiedGenerationServer(generator *recordingGenerator, token string) *Server {
+	server := testGenerationServer(generator, token)
+	server.ImageBridges = nil
+	server.ImageBridge = "Hollis Image Unified"
+	return server
+}
+
 func testGeneratedPNG() []byte {
 	var buffer bytes.Buffer
 	imageValue := image.NewNRGBA(image.Rect(0, 0, 2, 1))
@@ -132,6 +139,52 @@ func testGeneratedPNG() []byte {
 		panic(err)
 	}
 	return buffer.Bytes()
+}
+
+func testAlternatePNG() []byte {
+	var buffer bytes.Buffer
+	imageValue := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	imageValue.Set(0, 0, color.NRGBA{G: 255, A: 255})
+	if err := png.Encode(&buffer, imageValue); err != nil {
+		panic(err)
+	}
+	return buffer.Bytes()
+}
+
+func testImageDataURL(mimeType string, data []byte) string {
+	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
+}
+
+func testChatAssistantMessage(t *testing.T, response *httptest.ResponseRecorder) any {
+	t.Helper()
+	var body struct {
+		Choices []struct {
+			Message json.RawMessage `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || len(body.Choices) != 1 {
+		t.Fatalf("chat response: err=%v body=%s", err, response.Body.String())
+	}
+	var message any
+	if err := json.Unmarshal(body.Choices[0].Message, &message); err != nil {
+		t.Fatalf("chat assistant message: %v", err)
+	}
+	return message
+}
+
+func testResponsesOutputMessage(t *testing.T, response *httptest.ResponseRecorder) any {
+	t.Helper()
+	var body struct {
+		Output []json.RawMessage `json:"output"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || len(body.Output) != 1 {
+		t.Fatalf("responses output: err=%v body=%s", err, response.Body.String())
+	}
+	var item any
+	if err := json.Unmarshal(body.Output[0], &item); err != nil {
+		t.Fatalf("responses output message: %v", err)
+	}
+	return item
 }
 
 func TestImageGenerationsSuccessUsesConfiguredDefaultStyle(t *testing.T) {
@@ -314,9 +367,46 @@ func TestImageGenerationAuthAndUnconfiguredStyleRefuseBeforeGenerator(t *testing
 	}
 }
 
+func TestImageGenerationReferenceRejectsFixedStyleBridgeBeforeGenerator(t *testing.T) {
+	dataURL := testImageDataURL("image/png", testGeneratedPNG())
+	tests := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "images endpoint",
+			path: "/v1/images/generations",
+			body: `{"model":"hollis-image","prompt":"edit this","style":"animation","reference_image":"` + dataURL + `"}`,
+		},
+		{
+			name: "chat completions",
+			path: "/v1/chat/completions",
+			body: `{"model":"hollis-image","messages":[{"role":"user","content":[{"type":"text","text":"edit this"},{"type":"image_url","image_url":{"url":"` + dataURL + `"}}]}],"image_generation":{"style":"animation"}}`,
+		},
+		{
+			name: "responses",
+			path: "/v1/responses",
+			body: `{"model":"hollis-image","input":[{"role":"user","content":[{"type":"input_text","text":"edit this"},{"type":"input_image","image_url":"` + dataURL + `"}]}],"image_generation":{"style":"animation"}}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			generator := &recordingGenerator{}
+			res := post(t, testGenerationServer(generator, "").Handler(), test.path, test.body)
+			if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), `"code":"reference_requires_parameterized_bridge"`) {
+				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+			}
+			if generator.callCount() != 0 {
+				t.Fatalf("generator called %d times", generator.callCount())
+			}
+		})
+	}
+}
+
 func TestChatImageGenerationIncludesConversationAndReplaysOwnOutput(t *testing.T) {
 	generator := &recordingGenerator{}
-	server := testGenerationServer(generator, "")
+	server := testUnifiedGenerationServer(generator, "")
 	requestBody := `{
 		"model":"hollis-image",
 		"messages":[
@@ -349,7 +439,7 @@ func TestChatImageGenerationIncludesConversationAndReplaysOwnOutput(t *testing.T
 	if err := json.Unmarshal(first.Body.Bytes(), &body); err != nil || len(body.Choices) != 1 {
 		t.Fatalf("first response: err=%v body=%s", err, first.Body.String())
 	}
-	if !bytes.Contains(body.Choices[0].Message, []byte("not retained or reused")) || !bytes.Contains(body.Choices[0].Message, []byte("Add one white sail")) || !bytes.Contains(body.Choices[0].Message, []byte(`"native_width":2`)) || !bytes.Contains(body.Choices[0].Message, []byte(`"width":4`)) {
+	if !bytes.Contains(body.Choices[0].Message, []byte("replay the complete assistant image message")) || !bytes.Contains(body.Choices[0].Message, []byte("Add one white sail")) || !bytes.Contains(body.Choices[0].Message, []byte(`"native_width":2`)) || !bytes.Contains(body.Choices[0].Message, []byte(`"width":4`)) {
 		t.Fatalf("generation marker lacks prompt or memory boundary: %s", body.Choices[0].Message)
 	}
 	var replayMessage any
@@ -368,8 +458,12 @@ func TestChatImageGenerationIncludesConversationAndReplaysOwnOutput(t *testing.T
 	if second.Code != http.StatusOK {
 		t.Fatalf("replay status=%d body=%s", second.Code, second.Body.String())
 	}
+	replayedReference := generator.lastCall().Reference
+	if replayedReference == nil || replayedReference.MIMEType != "image/png" || replayedReference.Width != 4 || replayedReference.Height != 4 {
+		t.Fatalf("generated image replay was not delivered as a validated reference: %+v", replayedReference)
+	}
 	secondPrompt := generator.lastCall().Prompt
-	wantSecondPrompt := "Original image description:\nDraw a red boat\n\nRequested revision 1:\nAdd one white sail\n\nRequested revision 2:\nMake the sail blue"
+	wantSecondPrompt := "Requested revision:\nMake the sail blue\n\nPrevious image context:\nOriginal image description:\nDraw a red boat\n\nRequested revision:\nAdd one white sail"
 	if secondPrompt != wantSecondPrompt {
 		t.Fatalf("replay prompt = %q, want %q", secondPrompt, wantSecondPrompt)
 	}
@@ -378,9 +472,104 @@ func TestChatImageGenerationIncludesConversationAndReplaysOwnOutput(t *testing.T
 	}
 }
 
+func TestChatImageGenerationSelectsLatestHistoricalReferenceAndFinalOverride(t *testing.T) {
+	generator := &recordingGenerator{}
+	server := testUnifiedGenerationServer(generator, "")
+	first := post(t, server.Handler(), "/v1/chat/completions", `{"model":"hollis-image","messages":[{"role":"user","content":"first image"}],"image_generation":{"style":"animation"}}`)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first status=%d body=%s", first.Code, first.Body.String())
+	}
+	firstMessage := testChatAssistantMessage(t, first)
+	historicalURL := testImageDataURL("image/png", testAlternatePNG())
+	historyUser := map[string]any{
+		"role": "user",
+		"content": []any{
+			map[string]any{"type": "text", "text": "first image"},
+			map[string]any{"type": "image_url", "image_url": map[string]any{"url": historicalURL}},
+		},
+	}
+	secondRequest, err := json.Marshal(map[string]any{
+		"model": "hollis-image",
+		"messages": []any{
+			historyUser,
+			firstMessage,
+			map[string]any{"role": "user", "content": "second image"},
+		},
+		"image_generation": map[string]any{"style": "animation", "size": "4x4", "fit": "pad"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := post(t, server.Handler(), "/v1/chat/completions", string(secondRequest))
+	if second.Code != http.StatusOK {
+		t.Fatalf("second status=%d body=%s", second.Code, second.Body.String())
+	}
+	secondMessage := testChatAssistantMessage(t, second)
+	if reference := generator.lastCall().Reference; reference == nil || reference.Width != 2 || reference.Height != 1 {
+		t.Fatalf("second turn did not select the prior assistant image: %+v", reference)
+	}
+
+	thirdRequest, err := json.Marshal(map[string]any{
+		"model": "hollis-image",
+		"messages": []any{
+			historyUser,
+			firstMessage,
+			map[string]any{"role": "user", "content": "second image"},
+			secondMessage,
+			map[string]any{"role": "user", "content": "third image"},
+		},
+		"image_generation": map[string]any{"style": "animation"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third := post(t, server.Handler(), "/v1/chat/completions", string(thirdRequest))
+	if third.Code != http.StatusOK {
+		t.Fatalf("third status=%d body=%s", third.Code, third.Body.String())
+	}
+	if reference := generator.lastCall().Reference; reference == nil || reference.Width != 4 || reference.Height != 4 {
+		t.Fatalf("third turn did not select the latest assistant image: %+v", reference)
+	}
+	if prompt := generator.lastCall().Prompt; !strings.HasPrefix(prompt, "Requested revision:\nthird image") {
+		t.Fatalf("third turn prompt = %q, want final user description only", prompt)
+	}
+
+	explicitURL := testImageDataURL("image/png", testGeneratedPNG())
+	fourthRequest, err := json.Marshal(map[string]any{
+		"model": "hollis-image",
+		"messages": []any{
+			historyUser,
+			firstMessage,
+			map[string]any{"role": "user", "content": "second image"},
+			secondMessage,
+			map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{"type": "text", "text": "explicit final reference"},
+					map[string]any{"type": "image_url", "image_url": map[string]any{"url": explicitURL}},
+				},
+			},
+		},
+		"image_generation": map[string]any{"style": "animation"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fourth := post(t, server.Handler(), "/v1/chat/completions", string(fourthRequest))
+	if fourth.Code != http.StatusOK {
+		t.Fatalf("explicit override status=%d body=%s", fourth.Code, fourth.Body.String())
+	}
+	if reference := generator.lastCall().Reference; reference == nil || !bytes.Equal(reference.Bytes, testGeneratedPNG()) || reference.Width != 2 || reference.Height != 1 {
+		t.Fatalf("final user reference did not override historical images: %+v", reference)
+	}
+	if prompt := generator.lastCall().Prompt; !strings.HasPrefix(prompt, "Requested revision:\nexplicit final reference") {
+		t.Fatalf("explicit-reference prompt = %q, want final user description only", prompt)
+	}
+}
+
 func TestResponsesImageGenerationIncludesConversationAndReplaysOwnOutput(t *testing.T) {
 	generator := &recordingGenerator{}
-	server := testGenerationServer(generator, "")
+	server := testUnifiedGenerationServer(generator, "")
 	first := post(t, server.Handler(), "/v1/responses", `{
 		"model":"hollis-image",
 		"instructions":"Use flat colors",
@@ -418,8 +607,107 @@ func TestResponsesImageGenerationIncludesConversationAndReplaysOwnOutput(t *test
 	if second.Code != http.StatusOK {
 		t.Fatalf("replay status=%d body=%s", second.Code, second.Body.String())
 	}
-	if prompt := generator.lastCall().Prompt; prompt != "Original image description:\nDraw a green tree\n\nRequested revision:\nMake it autumn" {
+	replayedReference := generator.lastCall().Reference
+	if replayedReference == nil || replayedReference.MIMEType != "image/png" || replayedReference.Width != 1 || replayedReference.Height != 1 {
+		t.Fatalf("generated output replay was not delivered as a validated reference: %+v", replayedReference)
+	}
+	if prompt := generator.lastCall().Prompt; !strings.HasPrefix(prompt, "Requested revision:\nMake it autumn") {
 		t.Fatalf("replay prompt retained marker or lost context: %q", prompt)
+	}
+}
+
+func TestResponsesImageGenerationSelectsLatestHistoricalReferenceAndFinalOverride(t *testing.T) {
+	generator := &recordingGenerator{}
+	server := testUnifiedGenerationServer(generator, "")
+	first := post(t, server.Handler(), "/v1/responses", `{"model":"hollis-image","input":"first image","image_generation":{"style":"animation"}}`)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first status=%d body=%s", first.Code, first.Body.String())
+	}
+	firstOutput := testResponsesOutputMessage(t, first)
+	historicalURL := testImageDataURL("image/png", testAlternatePNG())
+	historyUser := map[string]any{
+		"role": "user",
+		"content": []any{
+			map[string]any{"type": "input_text", "text": "first image"},
+			map[string]any{"type": "input_image", "image_url": historicalURL},
+		},
+	}
+	secondRequest, err := json.Marshal(map[string]any{
+		"model": "hollis-image",
+		"input": []any{
+			historyUser,
+			firstOutput,
+			map[string]any{"role": "user", "content": "second image"},
+		},
+		"image_generation": map[string]any{"style": "animation", "size": "4x4", "fit": "pad"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := post(t, server.Handler(), "/v1/responses", string(secondRequest))
+	if second.Code != http.StatusOK {
+		t.Fatalf("second status=%d body=%s", second.Code, second.Body.String())
+	}
+	secondOutput := testResponsesOutputMessage(t, second)
+	if reference := generator.lastCall().Reference; reference == nil || reference.Width != 2 || reference.Height != 1 {
+		t.Fatalf("second turn did not select the prior assistant image: %+v", reference)
+	}
+
+	thirdRequest, err := json.Marshal(map[string]any{
+		"model": "hollis-image",
+		"input": []any{
+			historyUser,
+			firstOutput,
+			map[string]any{"role": "user", "content": "second image"},
+			secondOutput,
+			map[string]any{"role": "user", "content": "third image"},
+		},
+		"image_generation": map[string]any{"style": "animation"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third := post(t, server.Handler(), "/v1/responses", string(thirdRequest))
+	if third.Code != http.StatusOK {
+		t.Fatalf("third status=%d body=%s", third.Code, third.Body.String())
+	}
+	if reference := generator.lastCall().Reference; reference == nil || reference.Width != 4 || reference.Height != 4 {
+		t.Fatalf("third turn did not select the latest assistant image: %+v", reference)
+	}
+	if prompt := generator.lastCall().Prompt; !strings.HasPrefix(prompt, "Requested revision:\nthird image") {
+		t.Fatalf("third turn prompt = %q, want final user description only", prompt)
+	}
+
+	explicitURL := testImageDataURL("image/png", testGeneratedPNG())
+	fourthRequest, err := json.Marshal(map[string]any{
+		"model": "hollis-image",
+		"input": []any{
+			historyUser,
+			firstOutput,
+			map[string]any{"role": "user", "content": "second image"},
+			secondOutput,
+			map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{"type": "input_text", "text": "explicit final reference"},
+					map[string]any{"type": "input_image", "image_url": explicitURL},
+				},
+			},
+		},
+		"image_generation": map[string]any{"style": "animation"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fourth := post(t, server.Handler(), "/v1/responses", string(fourthRequest))
+	if fourth.Code != http.StatusOK {
+		t.Fatalf("explicit override status=%d body=%s", fourth.Code, fourth.Body.String())
+	}
+	if reference := generator.lastCall().Reference; reference == nil || !bytes.Equal(reference.Bytes, testGeneratedPNG()) || reference.Width != 2 || reference.Height != 1 {
+		t.Fatalf("final user reference did not override historical images: %+v", reference)
+	}
+	if prompt := generator.lastCall().Prompt; !strings.HasPrefix(prompt, "Requested revision:\nexplicit final reference") {
+		t.Fatalf("explicit-reference prompt = %q, want final user description only", prompt)
 	}
 }
 
@@ -535,5 +823,116 @@ func TestImageGenerationExtensionRejectsModelAndInputImagesWithoutCalls(t *testi
 	}
 	if generator.callCount() != 0 {
 		t.Fatalf("generator called %d times", generator.callCount())
+	}
+}
+
+func TestImageGenerationAcceptsInlineReferenceAndPassesItToGenerator(t *testing.T) {
+	data := testGeneratedPNG()
+	dataURL := testImageDataURL("image/png", data)
+	tests := []struct {
+		name       string
+		path       string
+		body       string
+		wantMarker bool
+	}{
+		{
+			name: "images endpoint",
+			path: "/v1/images/generations",
+			body: `{"model":"hollis-image","prompt":"use this image","style":"animation","reference_image":"` + dataURL + `"}`,
+		},
+		{
+			name:       "chat completions",
+			path:       "/v1/chat/completions",
+			body:       `{"model":"hollis-image","messages":[{"role":"user","content":[{"type":"text","text":"use this image"},{"type":"image_url","image_url":{"url":"` + dataURL + `"}}]}],"image_generation":{"style":"animation"}}`,
+			wantMarker: true,
+		},
+		{
+			name:       "responses",
+			path:       "/v1/responses",
+			body:       `{"model":"hollis-image","input":[{"role":"user","content":[{"type":"input_text","text":"use this image"},{"type":"input_image","image_url":"` + dataURL + `"}]}],"image_generation":{"style":"animation"}}`,
+			wantMarker: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			generator := &recordingGenerator{}
+			server := testUnifiedGenerationServer(generator, "")
+			res := post(t, server.Handler(), test.path, test.body)
+			if res.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+			}
+			call := generator.lastCall()
+			if call.Reference == nil {
+				t.Fatal("generator did not receive a reference image")
+			}
+			if !bytes.Equal(call.Reference.Bytes, data) || call.Reference.MIMEType != "image/png" || call.Reference.Width != 2 || call.Reference.Height != 1 {
+				t.Fatalf("reference metadata = %+v", call.Reference)
+			}
+			if !strings.Contains(res.Body.String(), `"reference_image_sent":true`) {
+				t.Fatalf("response did not record reference delivery: %s", res.Body.String())
+			}
+			if test.wantMarker && !strings.Contains(res.Body.String(), "supplied reference image was sent") {
+				t.Fatalf("response marker did not explain reference handling: %s", res.Body.String())
+			}
+		})
+	}
+}
+
+func TestImageGenerationRejectsInvalidReferencesBeforeProvider(t *testing.T) {
+	dataURL := testImageDataURL("image/png", testGeneratedPNG())
+	oversizedURL := testImageDataURL("image/png", make([]byte, int(imagegen.MaxReferenceBytes)+1))
+	tests := []struct {
+		name       string
+		path       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "standalone remote URL",
+			path: "/v1/images/generations",
+			body: `{"prompt":"remote","reference_image":"https://example.invalid/image.png"}`,
+		},
+		{
+			name: "standalone MIME mismatch",
+			path: "/v1/images/generations",
+			body: `{"prompt":"wrong MIME","reference_image":"` + testImageDataURL("image/jpeg", testGeneratedPNG()) + `"}`,
+		},
+		{
+			name: "chat invalid base64",
+			path: "/v1/chat/completions",
+			body: `{"model":"hollis-image","messages":[{"role":"user","content":[{"type":"text","text":"bad data"},{"type":"image_url","image_url":{"url":"data:image/png;base64,not-valid-base64!"}}]}],"image_generation":{}}`,
+		},
+		{
+			name: "chat multiple references",
+			path: "/v1/chat/completions",
+			body: `{"model":"hollis-image","messages":[{"role":"user","content":[{"type":"text","text":"two images"},{"type":"image_url","image_url":{"url":"` + dataURL + `"}},{"type":"image_url","image_url":{"url":"` + dataURL + `"}}]}],"image_generation":{}}`,
+		},
+		{
+			name: "responses multiple references",
+			path: "/v1/responses",
+			body: `{"model":"hollis-image","input":[{"role":"user","content":[{"type":"input_text","text":"two images"},{"type":"input_image","image_url":"` + dataURL + `"},{"type":"input_image","image_url":"` + dataURL + `"}]}],"image_generation":{}}`,
+		},
+		{
+			name:       "standalone oversized reference",
+			path:       "/v1/images/generations",
+			body:       `{"prompt":"too large","reference_image":"` + oversizedURL + `"}`,
+			wantStatus: http.StatusRequestEntityTooLarge,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			generator := &recordingGenerator{}
+			res := post(t, testGenerationServer(generator, "").Handler(), test.path, test.body)
+			wantStatus := test.wantStatus
+			if wantStatus == 0 {
+				wantStatus = http.StatusBadRequest
+			}
+			if res.Code != wantStatus {
+				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+			}
+			if generator.callCount() != 0 {
+				t.Fatalf("generator called %d times for rejected reference", generator.callCount())
+			}
+		})
 	}
 }

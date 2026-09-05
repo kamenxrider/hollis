@@ -50,7 +50,13 @@ The repository keeps the provider-free regression suite as the living proof of
 these contracts. The detailed live record is retained outside the source tree
 for attachment to the `v0.2.0` release.
 
-## Unreleased local implementation evidence (2026-09-05)
+## Earlier image-generation checkpoints (historical, pre-reference bridge, 2026-09-05)
+
+The image-generation paragraphs in this historical section describe the
+diagnostic and pre-reference-bridge checkpoints. Statements that dynamic
+attachments, API conversations, interactive turns, or ChatGPT were
+unresolved describe that earlier state. The current reference-bridge evidence
+and the remaining qualification boundary are recorded in the section below.
 
 Latest image diagnostics add nine serial CLI attempts: six validated PNGs and
 three Apple rejections. Two photographic Any Style requests generated animated
@@ -63,10 +69,11 @@ A clean description-plus-revision prompt successfully reproduced the requested
 turtle scene change after the full CLI chat transcript had failed. Separately,
 a diagnostic copy of the unified Shortcut with the generated turtle PNG fixed
 in Photo passed two revision-only requests (greenhouse sunset and snowy forest).
-Those tests prove reference-image feasibility; dynamic CLI/API attachments are
-not yet implemented. ChatGPT with the Photo attachment still failed through
-Shortcuts. Calls were serial with at least 30 seconds between them. Earlier
-checkpoints and failures follow below; they are retained as historical evidence.
+At that checkpoint, those tests proved reference-image feasibility, while
+dynamic CLI/API attachments were not yet implemented. ChatGPT with the Photo
+attachment still failed through Shortcuts. Calls were serial with at least 30
+seconds between them. The later reference-bridge implementation supersedes
+the attachment status; these checkpoints remain historical evidence.
 
 The resulting shared image-context renderer omits Hollis artifact records and
 general chat boilerplate while preserving user revisions, other text and input
@@ -76,7 +83,8 @@ All PNGs were inspected. A Responses follow-up changed the setting but lost the
 miniature greenhouse on the turtle shell; successful generation is not proof of
 exact visual continuity. Total this diagnostic phase: 14 Shortcut attempts, 11
 PNGs and three rejections, plus one successful native app submission. Dynamic
-photo attachment and the Shortcuts ChatGPT route remain unresolved.
+photo attachment and the Shortcuts ChatGPT route were unresolved at that
+checkpoint.
 
 Validation after the renderer change: `go test ./...`, focused race tests and
 `go vet` for imagegen/cli/server passed. Both Darwin architectures built; the
@@ -127,15 +135,16 @@ An identical Any Style repeat was rejected by Apple. ChatGPT failed through
 both the parameterized bridge and a fixed-style comparison. These failures
 remain part of the record and do not justify a reliability claim.
 
-API attempts returned 502; a temporary private diagnostic identified the native
+At this pre-reference-bridge checkpoint, API attempts returned 502; a temporary private diagnostic identified the native
 error “This shortcut requires your Mac to be unlocked.” The console-lock flag
 subsequently read false, so the exact session/context requirement still needs
 verification. An initial CLI conversation request also received Apple's generic
 prompt rejection. The full 28-case matrix is **not complete**; successful live
 API generation, conversation follow-ups, interactive `/image`, and ChatGPT
-image generation remain unqualified. Broad live testing stopped pending this
-session issue. No automatic retries or fallbacks were used; manual diagnostic
-comparisons were separately recorded, with at least 30 seconds between attempts.
+image generation were unqualified at that checkpoint. Broad live testing then
+stopped pending the session issue. No automatic retries or fallbacks were used;
+manual diagnostic comparisons were separately recorded, with at least 30
+seconds between attempts.
 
 The observed unlocked-session message is now classified into an actionable
 CLI error and API HTTP 409 `image_session_locked`. Provider-free transport, CLI,
@@ -152,10 +161,11 @@ and Any Style, plus two standalone HTTP outputs and an initial CLI conversation
 image. ChatGPT rejected an alpine-cabin prompt; the CLI follow-up also received
 an Apple rejection. The API session error did not recur in these two later
 requests, but changed prompts and session/awake conditions prevent attributing
-that improvement to a single cause. API conversations, successful CLI follow-ups,
-and interactive image turns remain unqualified. The realistic preset supplements
-the geometry cases; it does not erase earlier failures or validate the prompting
-guide's architecture/API claims. The harness has 23 provider-free tests.
+that improvement to a single cause. API conversations, successful CLI
+follow-ups, and interactive image turns were unqualified at that checkpoint.
+The realistic preset supplements the geometry cases; it does not erase earlier
+failures or validate the prompting guide's architecture/API claims. The harness
+had 23 provider-free tests at that point.
 
 See [setup and capability boundaries](docs/image-generation.md).
 
@@ -163,6 +173,47 @@ The prior document, HTTP-image and batch candidate also passed 21 real requests
 across On-Device, Cloud, Cloud Pro and ChatGPT on this build. Completed batches
 resumed without additional attempts. These earlier smoke tests are not repeated
 by the provider-free suite and do not imply a measured failure rate or quota.
+
+## Final reference-bridge evidence (2026-09-05)
+
+The source-generated and signed **Hollis Image - Reference Input v2** Shortcut
+was imported on an already authorized macOS 27.0 build `26A5425a`. The source
+generator is `scripts/make-image-bridge.py`; the reproducible signing and
+import setup is documented in [the image-generation guide](docs/image-generation.md#setup-generated-parameterized-shortcut).
+
+The complete qualification produced 52 valid images across diagnostic and
+acceptance runs. Calls were serialized with at least three seconds from one
+generation's completion to the next start. Coverage included CLI continuation,
+interactive `/image`, Chat Completions, Responses, standalone image API,
+PNG/JPEG references, all five working styles with and without a reference,
+and local crop/pad geometry. Reference-delivery metadata and checksums matched.
+
+Earlier prompt formats exposed visual failures: stale scenes and lost subjects.
+The final renderer places the newest revision first and retains earlier
+subject and text context. All nine final images passed visual review across
+three-turn interactive, Chat Completions, and Responses sequences: subjects
+remained recognizable and requested scene changes appeared. The 52 total is a
+transport-success count, not a claim that every diagnostic image was visually
+correct. Neither successful reference delivery nor these visual matches prove
+exact pixel conditioning or identity preservation by Apple's backend.
+
+The reference contract is implemented for standalone CLI input, automatic
+trusted-artifact reuse, explicit `none`, API inline input, and API assistant
+image replay. With a reference, Hollis puts the newest revision before earlier
+subject descriptions and text context, while validating the complete original
+history. CLI history is stored locally; API conversations remain stateless.
+Without a reference, chronological text replay remains available. The reference is guidance
+for a new generation, not guaranteed pixel editing.
+
+A scoped investigation on macOS 27.0 build `26A5425a` found that the Image
+Playground ChatGPT Shortcut route fails before inference: fixed, parameterized,
+native-Shortcuts, and fresh-extension checks all reproduced Apple's
+`GenerativePlaygroundAppIntents` Shortcuts ToolKit database sandbox denial
+(SQLite error 23), while the native Image Playground app succeeded. This is a
+host/build-scoped result, not proof of universal impossibility. Do not
+advertise, silently retry, or substitute that route; requalify after a
+supported Apple route or OS fix. First-ever permission prompts on a new Mac
+remain untested.
 
 ## Evidence matrix
 
