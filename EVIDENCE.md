@@ -50,6 +50,24 @@ The repository keeps the provider-free regression suite as the living proof of
 these contracts. The detailed live record is retained outside the source tree
 for attachment to the `v0.2.0` release.
 
+## Unreleased local implementation evidence (2026-09-05)
+
+An isolated candidate adds UTF-8 instruction/document files and inline PNG/JPEG
+input for both HTTP model endpoints. The full Go race suite and `go vet ./...`
+passed after integration. Tests use injected runners and synthetic images;
+they cover exact document preparation, malformed input, image format and size
+limits, endpoint history, model selection, authentication, capacity and staging
+cleanup. These are local implementation checks, not new live Apple model tests.
+
+The image research harness also has 13 provider-free plan/answer tests and six
+synthetic subprocess tests. The subprocess checks need host `ps` access; they
+passed with that access after the sandbox denied process inspection. No live
+mode was used for these checks.
+
+Image generation remains separate research. Installed action metadata and fake
+PNG subprocess tests do not prove an exported image-generation Shortcut works
+unattended. It is not registered as a public command in this candidate.
+
 ## Evidence matrix
 
 | Surface | Evidence | Cloud choices | Streaming | Tools / structured output |

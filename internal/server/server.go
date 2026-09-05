@@ -42,6 +42,7 @@ type Server struct {
 
 	capacityOnce sync.Once
 	capacity     chan struct{}
+	stageImages  imageStagingFunc
 }
 
 func New(r runner.Runner, token string) *Server {
@@ -129,6 +130,7 @@ func (s *Server) modelAvailable(id string) bool {
 type rawContent json.RawMessage
 
 type requestValidationError struct {
+	status  int
 	code    string
 	message string
 }
@@ -136,7 +138,15 @@ type requestValidationError struct {
 func (e *requestValidationError) Error() string { return e.message }
 
 func unsupportedParameter(message string) error {
-	return &requestValidationError{code: "unsupported_parameter", message: message}
+	return &requestValidationError{status: http.StatusBadRequest, code: "unsupported_parameter", message: message}
+}
+
+func invalidImage(message string) error {
+	return &requestValidationError{status: http.StatusBadRequest, code: "invalid_image", message: message}
+}
+
+func imageLimitExceeded(message string) error {
+	return &requestValidationError{status: http.StatusRequestEntityTooLarge, code: "context_too_large", message: message}
 }
 
 func (c *rawContent) UnmarshalJSON(b []byte) error {
@@ -256,19 +266,31 @@ func (s *Server) slots() chan struct{} {
 	return s.capacity
 }
 
-func (s *Server) runModel(ctx context.Context, w http.ResponseWriter, model runner.Model, prompt string) (string, runner.Model, bool) {
+func (s *Server) acquireCapacity(w http.ResponseWriter) (func(), bool) {
 	select {
 	case s.slots() <- struct{}{}:
-		defer func() { <-s.slots() }()
+		return func() { <-s.slots() }, true
 	default:
 		w.Header().Set("Retry-After", "1")
 		writeAPIError(w, http.StatusTooManyRequests, "rate_limit_error", "server_busy", "model capacity is busy; retry later")
+		return nil, false
+	}
+}
+
+func (s *Server) runModel(ctx context.Context, w http.ResponseWriter, model runner.Model, prompt string) (string, runner.Model, bool) {
+	release, ok := s.acquireCapacity(w)
+	if !ok {
 		return "", model, false
 	}
+	defer release()
 
 	ctx, cancel := context.WithTimeout(ctx, runner.MaxTimeout)
 	defer cancel()
 	text, used, err := s.Runner.Run(ctx, model, prompt)
+	return writeRunResult(w, model, text, used, err)
+}
+
+func writeRunResult(w http.ResponseWriter, requested runner.Model, text string, used runner.Model, err error) (string, runner.Model, bool) {
 	if err == nil {
 		return text, used, true
 	}
@@ -285,18 +307,14 @@ func (s *Server) runModel(ctx context.Context, w http.ResponseWriter, model runn
 		default:
 			writeAPIError(w, http.StatusBadGateway, "server_error", "shortcut_failed", "the Shortcut model run failed")
 		}
-		return "", model, false
+		return "", requested, false
 	}
 	writeAPIError(w, http.StatusBadGateway, "server_error", "shortcut_failed", "the Shortcut model run failed")
-	return "", model, false
+	return "", requested, false
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		Model    string      `json:"model"`
-		Messages []inMessage `json:"messages"`
-		Stream   bool        `json:"stream"`
-	}
+	var request chatCompletionsRequest
 	if !decodeRequest(w, r, &request) {
 		return
 	}
@@ -304,20 +322,16 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		unsupportedStreaming(w)
 		return
 	}
-	model, ok := s.validateModel(w, request.Model)
-	if !ok {
-		return
-	}
-	messages, err := parseMessages(request.Messages)
+	prepared, err := prepareChatImageRequest(request)
 	if err != nil {
 		writeRequestValidationError(w, err)
 		return
 	}
-	prompt := transcriptFrom(messages)
-	if !validatePrompt(w, prompt) {
+	model, ok := s.validatePreparedModel(w, prepared)
+	if !ok || !validatePrompt(w, prepared.Prompt) {
 		return
 	}
-	text, used, ok := s.runModel(r.Context(), w, model, prompt)
+	text, used, ok := s.runPrepared(r.Context(), w, model, prepared)
 	if !ok {
 		return
 	}
@@ -330,12 +344,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		Model        string     `json:"model"`
-		Instructions string     `json:"instructions"`
-		Input        rawContent `json:"input"`
-		Stream       bool       `json:"stream"`
-	}
+	var request responsesRequest
 	if !decodeRequest(w, r, &request) {
 		return
 	}
@@ -343,47 +352,16 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		unsupportedStreaming(w)
 		return
 	}
-	model, ok := s.validateModel(w, request.Model)
-	if !ok {
+	prepared, err := prepareResponsesImageRequest(request)
+	if err != nil {
+		writeRequestValidationError(w, err)
 		return
 	}
-	if len(request.Input) == 0 || bytes.Equal(bytes.TrimSpace(request.Input), []byte("null")) {
-		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "invalid_input", "input is required and must not be null")
+	model, ok := s.validatePreparedModel(w, prepared)
+	if !ok || !validatePrompt(w, prepared.Prompt) {
 		return
 	}
-	var messages []reqMessage
-	var input string
-	if err := json.Unmarshal(request.Input, &input); err == nil {
-		if strings.TrimSpace(input) == "" {
-			writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "invalid_input", "input must not be empty")
-			return
-		}
-		messages = []reqMessage{{Role: "user", Content: input}}
-	} else {
-		var incoming []inMessage
-		if err := strictUnmarshal([]byte(request.Input), &incoming); err != nil {
-			if strings.Contains(err.Error(), "unknown field") {
-				writeRequestValidationError(w, unsupportedParameter("input contains an unsupported parameter"))
-			} else {
-				writeRequestValidationError(w, errors.New("input must be a string or an array of messages"))
-			}
-			return
-		}
-		var parseErr error
-		messages, parseErr = parseMessages(incoming)
-		if parseErr != nil {
-			writeRequestValidationError(w, parseErr)
-			return
-		}
-	}
-	if strings.TrimSpace(request.Instructions) != "" {
-		messages = append([]reqMessage{{Role: "system", Content: request.Instructions}}, messages...)
-	}
-	prompt := transcriptFrom(messages)
-	if !validatePrompt(w, prompt) {
-		return
-	}
-	text, used, ok := s.runModel(r.Context(), w, model, prompt)
+	text, used, ok := s.runPrepared(r.Context(), w, model, prepared)
 	if !ok {
 		return
 	}
@@ -394,6 +372,74 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 			"content": []map[string]any{{"type": "output_text", "text": text, "annotations": []any{}}},
 		}},
 	})
+}
+
+func (s *Server) validatePreparedModel(w http.ResponseWriter, request preparedRequest) (runner.Model, bool) {
+	name := request.Model
+	if name == "" && request.hasImages() {
+		name = string(runner.ModelCloud)
+	}
+	model, ok := s.validateModel(w, name)
+	if !ok || !request.hasImages() {
+		return model, ok
+	}
+
+	limit := MaxCloudImages
+	switch model {
+	case runner.ModelCloud, runner.ModelCloudPro:
+	case runner.ModelChatGPT:
+		limit = MaxChatGPTImages
+	case runner.ModelAuto, runner.ModelOnDevice:
+		writeRequestValidationError(w, unsupportedParameter("image input requires cloud, cloud-pro, or chatgpt"))
+		return "", false
+	default:
+		panic("validated model missing image policy: " + model)
+	}
+	if len(request.Images) > limit {
+		writeRequestValidationError(w, imageLimitExceeded(fmt.Sprintf("model %q accepts at most %d image(s)", model, limit)))
+		return "", false
+	}
+	return model, true
+}
+
+func (s *Server) runPrepared(ctx context.Context, w http.ResponseWriter, model runner.Model, request preparedRequest) (string, runner.Model, bool) {
+	if !request.hasImages() {
+		return s.runModel(ctx, w, model, request.Prompt)
+	}
+	imageRunner, ok := s.Runner.(runner.ImageRunner)
+	if !ok {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "model_unavailable", "the configured runner does not support image input")
+		return "", model, false
+	}
+	release, ok := s.acquireCapacity(w)
+	if !ok {
+		return "", model, false
+	}
+	defer release()
+
+	ctx, cancel := context.WithTimeout(ctx, runner.MaxTimeout)
+	defer cancel()
+	stager := s.stageImages
+	if stager == nil {
+		stager = stageImages
+	}
+	staged, err := stager(ctx, request.Images)
+	if err != nil {
+		var validationErr *requestValidationError
+		switch {
+		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+			writeAPIError(w, http.StatusGatewayTimeout, "server_error", "shortcut_timeout", "the image request did not complete before its deadline")
+		case errors.As(err, &validationErr):
+			writeRequestValidationError(w, err)
+		default:
+			writeAPIError(w, http.StatusInternalServerError, "server_error", "image_staging_failed", "image input could not be prepared")
+		}
+		return "", model, false
+	}
+	defer staged.Cleanup()
+
+	text, used, err := imageRunner.RunWithImages(ctx, model, request.Prompt, staged.Paths)
+	return writeRunResult(w, model, text, used, err)
 }
 
 func (s *Server) validateModel(w http.ResponseWriter, name string) (runner.Model, bool) {
@@ -455,14 +501,18 @@ func unsupportedStreaming(w http.ResponseWriter) {
 }
 
 func writeRequestValidationError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
 	code := "invalid_input"
 	message := err.Error()
 	var validationErr *requestValidationError
 	if errors.As(err, &validationErr) {
+		if validationErr.status != 0 {
+			status = validationErr.status
+		}
 		code = validationErr.code
 		message = validationErr.message
 	}
-	writeAPIError(w, http.StatusBadRequest, "invalid_request_error", code, message)
+	writeAPIError(w, status, "invalid_request_error", code, message)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
