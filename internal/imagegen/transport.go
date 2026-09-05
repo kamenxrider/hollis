@@ -171,6 +171,9 @@ func validateRequest(ctx context.Context, req Request) error {
 	if strings.TrimSpace(req.Prompt) == "" {
 		return &Error{Kind: KindEmptyPrompt, ExitCode: -1, Err: ErrEmptyPrompt}
 	}
+	if len(req.Prompt) > MaxPromptBytes {
+		return &Error{Kind: KindUsage, ExitCode: -1, Err: errors.New("image prompt exceeds 128 KiB")}
+	}
 	if !utf8.ValidString(req.Prompt) {
 		return &Error{Kind: KindInvalidPrompt, ExitCode: -1, Err: ErrInvalidPrompt}
 	}

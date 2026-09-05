@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/kamenxrider/hollis/internal/chat"
+	"github.com/kamenxrider/hollis/internal/imagegen"
 	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/kamenxrider/hollis/internal/store"
 )
@@ -39,10 +40,15 @@ type Server struct {
 	Token          string
 	Available      map[string]bool
 	MaxConcurrency int
+	ImageGenerator imagegen.Generator
+	// ImageBridges is an explicit style-to-Shortcut allowlist. HTTP callers
+	// select a style ID and can never provide a bridge name or filesystem path.
+	ImageBridges map[string]string
 
 	capacityOnce sync.Once
 	capacity     chan struct{}
 	stageImages  imageStagingFunc
+	cleanupImage func(imagegen.Result) error
 }
 
 func New(r runner.Runner, token string) *Server {
@@ -55,6 +61,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/models", s.method(http.MethodGet, s.guard(s.handleModels)))
 	mux.HandleFunc("/v1/chat/completions", s.method(http.MethodPost, s.guard(s.handleChatCompletions)))
 	mux.HandleFunc("/v1/responses", s.method(http.MethodPost, s.guard(s.handleResponses)))
+	mux.HandleFunc("/v1/images/generations", s.method(http.MethodPost, s.guard(s.handleImageGenerations)))
 	return mux
 }
 
@@ -99,6 +106,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
 	data := []map[string]any{}
+	if s.imageRouteAvailable() {
+		data = append(data, map[string]any{"id": "hollis-image", "object": "model", "owned_by": "hollis"})
+	}
 	if s.modelAvailable(string(runner.ModelAuto)) {
 		data = append(data, map[string]any{"id": "auto", "object": "model", "owned_by": "hollis"})
 	}
@@ -111,6 +121,18 @@ func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
+}
+
+func (s *Server) imageRouteAvailable() bool {
+	if s.ImageGenerator == nil {
+		return false
+	}
+	for style, bridge := range s.ImageBridges {
+		if validImageStyle(style) && strings.TrimSpace(bridge) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) modelAvailable(id string) bool {
@@ -322,6 +344,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		unsupportedStreaming(w)
 		return
 	}
+	if len(request.ImageGeneration) != 0 {
+		s.handleChatImageGeneration(w, r, request)
+		return
+	}
 	prepared, err := prepareChatImageRequest(request)
 	if err != nil {
 		writeRequestValidationError(w, err)
@@ -350,6 +376,10 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	if request.Stream {
 		unsupportedStreaming(w)
+		return
+	}
+	if len(request.ImageGeneration) != 0 {
+		s.handleResponsesImageGeneration(w, r, request)
 		return
 	}
 	prepared, err := prepareResponsesImageRequest(request)

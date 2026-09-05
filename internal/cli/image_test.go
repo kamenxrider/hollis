@@ -5,6 +5,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"image"
@@ -54,11 +56,17 @@ func newFakeImageGenerator(t *testing.T) *fakeImageGenerator {
 	if err := file.Close(); err != nil {
 		t.Fatalf("close fake staged PNG: %v", err)
 	}
-	return &fakeImageGenerator{result: imagegen.Result{Path: stagedPath}}
+	data, err := os.ReadFile(stagedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	return &fakeImageGenerator{result: imagegen.Result{Path: stagedPath, Width: 4, Height: 3, Bytes: int64(len(data)), SHA256: hex.EncodeToString(digest[:])}}
 }
 
 func executeImageCommand(t *testing.T, cmd *cobra.Command, args []string) (*bytes.Buffer, *bytes.Buffer, error) {
 	t.Helper()
+	stubConfigPath(t)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(stdout)
