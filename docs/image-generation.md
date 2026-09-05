@@ -34,11 +34,15 @@ The current Mac rejected ChatGPT-style generation with the same immediate
 Apple error through both the JSON bridge and a fixed-style comparison. This
 style is configurable but is not live-qualified here. An Any Style repeat
 also received an Apple prompt rejection after the same prompt had succeeded.
+Later realistic scenes passed Any Style twice as well as Animation, Genmoji,
+Illustration and Sketch twice each; ChatGPT still rejected a realistic scene.
 Hollis preserves such failures and does not retry automatically.
 
 Live API attempts also encountered Apple's “This shortcut requires your Mac to
-be unlocked” error. API and conversation success remain unqualified until
-that session requirement is resolved and the remaining live cases pass. The
+be unlocked” error. A later realistic-prompt run completed two standalone API requests and an
+initial CLI conversation image successfully; the session error did not recur
+in those requests. A CLI follow-up was still rejected. Successful follow-ups,
+API conversation generation and interactive image turns remain unqualified. The
 console-lock flag alone is not sufficient proof that the action can execute.
 The exact observed native diagnostic now produces API HTTP 409 with code
 `image_session_locked`, and actionable CLI guidance. Unknown/localized native
