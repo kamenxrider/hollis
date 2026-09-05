@@ -27,6 +27,7 @@ type chatImageOptions struct {
 	Style          string
 	Bridge         string
 	ResolvedBridge string
+	ResolvedStyle  string
 	Output         string
 	Timeout        time.Duration
 	Generator      imagegen.Generator
@@ -138,6 +139,7 @@ func executeChatImageTurn(ctx context.Context, history []store.Message, prompt s
 	generated, err := options.Generator.Generate(ctx, imagegen.Request{
 		Prompt:    transcript,
 		BridgeRef: options.ResolvedBridge,
+		Style:     options.ResolvedStyle,
 		Timeout:   options.Timeout,
 	})
 	record.DurationMs = time.Since(started).Milliseconds()

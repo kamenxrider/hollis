@@ -5,6 +5,7 @@ package imagegen
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image/png"
@@ -54,7 +55,11 @@ func (g *ShortcutTransport) Generate(ctx context.Context, req Request) (Result, 
 		return Result{}, joinCleanup(err, cleanup.run())
 	}
 
-	promptPath, err := writePrompt(stageDir, req.Prompt)
+	input, err := bridgeInput(req)
+	if err != nil {
+		return fail(err)
+	}
+	promptPath, err := writePrompt(stageDir, input)
 	if err != nil {
 		return fail(&Error{
 			Kind:      KindOutputInspection,
@@ -177,6 +182,11 @@ func validateRequest(ctx context.Context, req Request) error {
 	if !utf8.ValidString(req.Prompt) {
 		return &Error{Kind: KindInvalidPrompt, ExitCode: -1, Err: ErrInvalidPrompt}
 	}
+	if req.Style != "" {
+		if _, ok := StyleLabel(req.Style); !ok {
+			return &Error{Kind: KindUsage, ExitCode: -1, Err: fmt.Errorf("unknown image style %q", req.Style)}
+		}
+	}
 	bridge := strings.TrimSpace(req.BridgeRef)
 	if bridge == "" {
 		return &Error{Kind: KindMissingBridge, ExitCode: -1, Err: ErrMissingBridge}
@@ -191,6 +201,27 @@ func validateRequest(ctx context.Context, req Request) error {
 		return contextError(ctx, ctx, req.BridgeRef, 0)
 	}
 	return nil
+}
+
+func bridgeInput(req Request) (string, error) {
+	if req.Style == "" {
+		return req.Prompt, nil
+	}
+	label, ok := StyleLabel(req.Style)
+	if !ok {
+		return "", &Error{Kind: KindUsage, ExitCode: -1, Err: fmt.Errorf("unknown image style %q", req.Style)}
+	}
+	payload, err := json.Marshal(struct {
+		Prompt string `json:"prompt"`
+		Style  string `json:"style"`
+	}{Prompt: req.Prompt, Style: label})
+	if err != nil {
+		return "", &Error{Kind: KindUsage, ExitCode: -1, Err: fmt.Errorf("encode image bridge input: %w", err)}
+	}
+	if len(payload) > MaxPromptBytes+256 {
+		return "", &Error{Kind: KindUsage, ExitCode: -1, Err: errors.New("encoded image bridge input exceeds its limit")}
+	}
+	return string(payload), nil
 }
 
 func (g *ShortcutTransport) requestTimeout(requestTimeout time.Duration) (time.Duration, error) {

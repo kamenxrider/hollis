@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/color"
@@ -179,6 +180,42 @@ func TestGenerateStagesAndVerifiesPNG(t *testing.T) {
 	}
 	if _, err := os.Stat(stageDir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stage directory after cleanup: %v", err)
+	}
+}
+
+func TestBridgeInputUsesCanonicalJSONForEveryStyle(t *testing.T) {
+	wantLabels := map[string]string{
+		"any": "Any Style", "animation": "Animation", "genmoji": "Genmoji",
+		"illustration": "Illustration", "sketch": "Sketch", "chatgpt": "ChatGPT",
+	}
+	prompt := "line one\nquoted \"snowman\" ☃"
+	for style, wantLabel := range wantLabels {
+		got, err := bridgeInput(Request{Prompt: prompt, Style: style})
+		if err != nil {
+			t.Fatalf("%s: %v", style, err)
+		}
+		var decoded struct {
+			Prompt string `json:"prompt"`
+			Style  string `json:"style"`
+		}
+		if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+			t.Fatalf("%s JSON: %v (%q)", style, err, got)
+		}
+		if decoded.Prompt != prompt || decoded.Style != wantLabel {
+			t.Fatalf("%s payload = %+v", style, decoded)
+		}
+	}
+	legacy, err := bridgeInput(Request{Prompt: prompt})
+	if err != nil || legacy != prompt {
+		t.Fatalf("legacy payload = %q, %v", legacy, err)
+	}
+}
+
+func TestUnknownStyleFailsBeforeSpawn(t *testing.T) {
+	transport, trace := newTestTransport(t, "success")
+	_, err := transport.Generate(context.Background(), Request{Prompt: "draw", BridgeRef: "bridge", Style: "oil"})
+	if err == nil || trace.name != "" {
+		t.Fatalf("err=%v command=%q", err, trace.name)
 	}
 }
 

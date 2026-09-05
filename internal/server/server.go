@@ -41,6 +41,8 @@ type Server struct {
 	Available      map[string]bool
 	MaxConcurrency int
 	ImageGenerator imagegen.Generator
+	// ImageBridge is one parameterized JSON Shortcut supporting every style.
+	ImageBridge string
 	// ImageBridges is an explicit style-to-Shortcut allowlist. HTTP callers
 	// select a style ID and can never provide a bridge name or filesystem path.
 	ImageBridges map[string]string
@@ -126,6 +128,9 @@ func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) imageRouteAvailable() bool {
 	if s.ImageGenerator == nil {
 		return false
+	}
+	if strings.TrimSpace(s.ImageBridge) != "" {
+		return true
 	}
 	for style, bridge := range s.ImageBridges {
 		if validImageStyle(style) && strings.TrimSpace(bridge) != "" {

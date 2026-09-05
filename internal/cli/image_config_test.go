@@ -74,6 +74,34 @@ func TestImageStyleBridgeConfigPersistsAndResolvesExactReferences(t *testing.T) 
 	}
 }
 
+func TestUnifiedImageBridgePersistsAndCarriesEveryStyle(t *testing.T) {
+	stubConfigPath(t)
+	if _, err := executeImageConfigCLI(t, "config", "set", "image-bridge", "Hollis Image Unified"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := loadConfig()
+	if err != nil || got.ImageBridge != "Hollis Image Unified" {
+		t.Fatalf("config = %+v, %v", got, err)
+	}
+	show, err := executeImageConfigCLI(t, "config", "show", "--json")
+	if err != nil || !bytes.Contains(show, []byte(`"image_bridge":"Hollis Image Unified"`)) {
+		t.Fatalf("config show = %q, %v", show, err)
+	}
+	for _, style := range imageStyles {
+		resolved, err := resolveImageBridgeRequest(style, "")
+		if err != nil || resolved.Ref != got.ImageBridge || resolved.Style != style || resolved.Protocol != "json" {
+			t.Fatalf("%s resolution = %+v, %v", style, resolved, err)
+		}
+	}
+	if _, err := executeImageConfigCLI(t, "config", "set", "image-bridge", "sketch", "Legacy Sketch"); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := resolveImageBridgeRequest("sketch", "")
+	if err != nil || resolved.Ref != "Legacy Sketch" || resolved.Style != "" || resolved.Protocol != "text" {
+		t.Fatalf("override = %+v, %v", resolved, err)
+	}
+}
+
 func TestImageStyleBridgeRemovalPreservesExistingConfig(t *testing.T) {
 	stubConfigPath(t)
 	initial := config{
@@ -184,6 +212,9 @@ func TestImageConfigRejectsInvalidPersistedStylesAndReferences(t *testing.T) {
 		`{"image_bridges":{"invented":"bridge"}}`,
 		`{"image_bridges":{"any":"-option"}}`,
 		`{"image_bridges":{"any":"bridge\u0000suffix"}}`,
+		`{"image_bridge":"   "}`,
+		`{"image_bridge":"-option"}`,
+		`{"image_bridge":"bridge\u0000suffix"}`,
 	} {
 		t.Run(raw, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.json")

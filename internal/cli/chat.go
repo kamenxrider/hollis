@@ -262,10 +262,13 @@ they do not control Image Playground's native generation canvas.`,
 			}
 			var m runner.Model
 			if continueID == "" {
-				var err error
-				m, err = effectiveModel(cmd, modelFlag, posModel, hasPosModel)
-				if err != nil {
-					return configErr(err)
+				m = runner.ModelAuto
+				if !generateImage {
+					var err error
+					m, err = effectiveModel(cmd, modelFlag, posModel, hasPosModel)
+					if err != nil {
+						return configErr(err)
+					}
 				}
 				if !m.Valid() {
 					return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", m))
@@ -334,11 +337,12 @@ they do not control Image Playground's native generation canvas.`,
 			}
 
 			if generateImage {
-				bridge, err := resolveImageBridge(imageStyle, imageBridge)
+				resolved, err := resolveImageBridgeRequest(imageStyle, imageBridge)
 				if err != nil {
 					return err
 				}
-				imageOptions.ResolvedBridge = bridge
+				imageOptions.ResolvedBridge = resolved.Ref
+				imageOptions.ResolvedStyle = resolved.Style
 				if continueID != "" {
 					result, err := runChatImageTurn(cmd.Context(), st, conv, prompt, imageOptions)
 					if err != nil {
@@ -444,11 +448,12 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 				if strings.TrimSpace(imageOptions.Output) == "" {
 					return usageErr(errors.New("interactive /image requires chat --output and an image bridge or configured image style"))
 				}
-				bridge, resolveErr := resolveImageBridge(imageOptions.Style, imageOptions.Bridge)
+				resolved, resolveErr := resolveImageBridgeRequest(imageOptions.Style, imageOptions.Bridge)
 				if resolveErr != nil {
 					return resolveErr
 				}
-				imageOptions.ResolvedBridge = bridge
+				imageOptions.ResolvedBridge = resolved.Ref
+				imageOptions.ResolvedStyle = resolved.Style
 				var imageResult chatImageResult
 				if conv.ID == "" {
 					imageResult, conv, err = runFirstChatImageTurn(ctx, st, runner.Model(model), imagePrompt, imageOptions)

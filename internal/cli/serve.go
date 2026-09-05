@@ -109,6 +109,7 @@ WireGuard, or an SSH tunnel. Streaming is intentionally unsupported.`,
 				return configErr(err)
 			}
 			api.ImageGenerator = generator
+			api.ImageBridge = imageConfig.ImageBridge
 			api.ImageBridges = imageConfig.ImageBridges
 			if resolved, resolveErr := resolveForRunner(cmd.Context(), newRunner); resolveErr != nil && !canAttemptAfterDiscoveryFailure(resolved, "auto") {
 				return resolutionCLIError(resolveErr)

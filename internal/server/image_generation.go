@@ -220,6 +220,11 @@ func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, promp
 		return generatedImage{}, false
 	}
 	bridge := strings.TrimSpace(s.ImageBridges[style])
+	requestStyle := ""
+	if bridge == "" {
+		bridge = strings.TrimSpace(s.ImageBridge)
+		requestStyle = style
+	}
 	if bridge == "" || s.ImageGenerator == nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "style_unavailable", "the selected image style is unavailable")
 		return generatedImage{}, false
@@ -233,7 +238,7 @@ func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, promp
 	runCtx, cancel := context.WithTimeout(ctx, imagegen.MaxTimeout)
 	defer cancel()
 	result, err := s.ImageGenerator.Generate(runCtx, imagegen.Request{
-		Prompt: prompt, BridgeRef: bridge, Timeout: imagegen.MaxTimeout,
+		Prompt: prompt, BridgeRef: bridge, Style: requestStyle, Timeout: imagegen.MaxTimeout,
 	})
 	cleanup := s.cleanupImage
 	if cleanup == nil {
