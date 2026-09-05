@@ -146,6 +146,25 @@ An image request with no selected or configured model defaults directly to Cloud
 
 When images are present, give the prompt as an argument or with `--prompt-file`. Hollis writes it to a private temporary UTF-8 text file and passes that file plus the images as repeated Shortcuts inputs; the temporary prompt is deleted after the run. Do not pipe a second prompt through stdin with `--image`. Image chat history remains unsupported. The unreleased HTTP image-input contract is described below; released `v0.2.0` supports images through the CLI only.
 
+## Paced folder processing (unreleased)
+
+```bash
+hollis batch plan --input-dir ./inbox --prompt-file instructions.txt \
+  --model cloud --output-dir ./results --job ./job.json
+hollis batch run --job ./job.json --max-calls 12
+hollis batch resume --job ./job.json --max-calls 12
+```
+
+`plan` reads a sorted, nonrecursive inventory of `.txt`, `.md`, `.png`, `.jpg` and `.jpeg` files and records skipped entries. It makes no model calls. Instructions must be outside the input inventory; job and output destinations must be outside the input folder. Symlinks, existing reserved outputs, invalid text and oversized prepared prompts are rejected. The instruction and each text document together must fit 128 KiB. Image files have a 64 MiB per-file Hollis limit; planning checks readable bytes, not whether a model can interpret the pixels.
+
+Choose a concrete model explicitly. On-Device supports text-only jobs; image jobs use Cloud, Cloud Pro or ChatGPT. Every run or resume requires a new `--max-calls` budget from 1 to 100. A budget-limited run pauses cleanly. Output distinguishes attempts in this invocation from lifetime attempts. There is one call per file, no automatic model switching, and no automatic retry.
+
+Cloud and ChatGPT calls wait at least 15 seconds after completion before the next call; Cloud Pro waits 45 seconds. The pacing checkpoint survives a restart. These are conservative Hollis defaults, not an Apple quota guarantee. Cancellation, a provider failure or a persistence failure stops further calls.
+
+Resume verifies completed results and checks source hashes before continuing. If an interrupted call has no verifiable saved result, its status is **uncertain**. Choose `--retry-uncertain` to risk repeating that call, or `--skip-uncertain` to leave it unresolved and process pending items. Failed items require `--retry-failed` before more work proceeds. Exactly-once provider execution across a crash cannot be guaranteed. Changed inputs require a new plan.
+
+Job manifests contain local paths, hashes and status, but no prompt or response content. Private `.response.json` files intentionally contain the model response and recovery metadata. Existing result files are never overwritten; the job manifest is updated atomically. An existing result directory must already be private (0700 or stricter); Hollis does not change its permissions. Inspect the manifest and results before sharing them. This is a finite command, not a background folder watcher.
+
 ## Persistent chats
 
 Shortcuts model calls are stateless. Hollis stores conversations locally and replays the transcript each turn:
