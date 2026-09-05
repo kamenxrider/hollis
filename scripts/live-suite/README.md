@@ -57,3 +57,11 @@ permissions, response dimensions, checksums, canonical base64, conversation
 replay shape, and the requested local crop/pad or exact-size metadata. It
 cannot decide whether a generated picture is aesthetically correct; the
 retained PNGs are the visual review evidence for that part.
+
+Use `--prompt-set scenes` for realistic scene descriptions adapted from the
+user-supplied prompting guide: a mechanical sea turtle, coffee station, robotic
+arm, croissant character, woodland fox, and alpine cabin. The four previously
+working styles run first. Both repetitions use the same scene, with the existing
+output transforms. Geometry remains available for transport regressions.
+The guide supplies creative examples; its model internals and sample APIs are
+not treated as verified Apple specifications. Reports retain the exact prompts.

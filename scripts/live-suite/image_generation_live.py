@@ -310,7 +310,17 @@ def _output_options_args(options: dict[str, str]) -> list[str]:
     return args
 
 
-def build_plan(root: Path) -> list[dict[str, object]]:
+SCENE_PROMPTS = {
+    "animation": "A stylized 3D animation of an ancient mechanical sea turtle built from polished brass and gears. A glowing miniature glass greenhouse filled with bioluminescent plants is secured to its shell. The turtle glides peacefully through a deep turquoise ocean trench illuminated by soft sunbeams filtering through the water surface.",
+    "illustration": "A flat vector gouache illustration of an artisanal pour-over coffee station from an isometric perspective. Hot water flows smoothly from a copper gooseneck kettle into a white ceramic dripper resting on a glass carafe. The scene sits on a clean, light oak kitchen counter bathed in warm, soft morning window light.",
+    "sketch": "An architectural graphite sketch and technical line study of a six-axis robotic arm with carbon-fiber segments and exposed hydraulic lines. The arm terminates in a precision laser tool, poised mid-calibration. Clean drafting linework with fine cross-hatched shading over an off-white background.",
+    "genmoji": "A cute, expressive golden-brown croissant character wearing classic black sunglasses with a cheeky grin. Isolated sticker design, thick white die-cut border, solid bright fill, high-contrast emoji icon.",
+    "any": "A curious red fox wearing a moss-green scarf sits beside a steaming ceramic teacup in a tiny woodland bookshop. Rounded wooden shelves frame the fox, and warm afternoon sunlight falls across an open book on the table.",
+    "chatgpt": "A watercolor illustration of a small timber cabin beside a still alpine lake at sunrise. Snow-capped mountains reflect in the water, a red canoe rests on the pebbled shore, and soft peach light glows through the morning mist.",
+}
+
+
+def build_plan(root: Path, prompt_set: str = "geometry") -> list[dict[str, object]]:
     """Build the complete 28-call plan without touching Shortcuts."""
     root = root.resolve()
     cases: list[dict[str, object]] = []
@@ -373,6 +383,18 @@ def build_plan(root: Path) -> list[dict[str, object]]:
             "prompt": f"A simple {'orange' if index == 1 else 'yellow'} circle on white, no text.",
             "options": {}, "output": str(root / "interactive" / f"image-{index}.png"), "status": "pending",
         })
+    if prompt_set == "scenes":
+        for case in cases:
+            if case.get("turn") == 2:
+                case["prompt"] = "Keep the same subjects and objects, but change the setting to a cozy greenhouse lit by golden evening sunlight."
+            else:
+                case["prompt"] = SCENE_PROMPTS[str(case["style"])]
+            case["prompt_set"] = "scenes"
+        # Prove the previously working styles before the less reliable routes.
+        order = {style: index for index, style in enumerate(("animation", "illustration", "sketch", "genmoji", "any", "chatgpt"))}
+        cases[:12] = sorted(cases[:12], key=lambda case: (order[str(case["style"])], int(case["repeat"])))
+    elif prompt_set != "geometry":
+        raise ValueError("unknown prompt set")
     if len(cases) != MAX_CALLS:
         raise AssertionError(f"image live plan has {len(cases)} calls, expected {MAX_CALLS}")
     return cases
@@ -866,6 +888,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, help="new private report directory")
     parser.add_argument("--bridges-json", help="JSON object or file mapping all six styles to fixed Shortcut names")
     parser.add_argument("--unified-bridge", help="one parameterized Shortcut used for all six styles")
+    parser.add_argument("--prompt-set", choices=("geometry", "scenes"), default="geometry", help="synthetic geometry or realistic scene descriptions")
     parser.add_argument("--interval", type=float, default=DEFAULT_INTERVAL, help="seconds between completed provider calls (minimum 30)")
     parser.add_argument("--live", action="store_true", help="authorize at most 28 real image generation calls")
     parser.add_argument("--plan", action="store_true", help="print the complete offline 28-case matrix without creating a report or calling a model")
@@ -894,7 +917,7 @@ def main(argv: list[str] | None = None) -> int:
         unified_bridge = None
         bridges = load_bridges(args.bridges_json, require_all=args.live)
     plan_root = args.output.resolve() if args.output else Path("/private/tmp/hollis-image-live-plan")
-    plan = build_plan(plan_root)
+    plan = build_plan(plan_root, args.prompt_set)
     requested_cases = {item for raw in args.case for item in raw.split(",") if item}
     known_cases = {str(case["name"]) for case in plan}
     unknown_cases = requested_cases - known_cases
@@ -915,7 +938,7 @@ def main(argv: list[str] | None = None) -> int:
     root.mkdir(mode=0o700, parents=True)
     # Rebuild paths against the actual report directory after the preflight
     # plan-only pass. Unselected cases remain visible in the report as skipped.
-    plan = build_plan(root)
+    plan = build_plan(root, args.prompt_set)
     if requested_cases:
         selected_indices = [index for index, case in enumerate(plan)
                             if index >= args.start and str(case["name"]) in requested_cases]
@@ -925,7 +948,7 @@ def main(argv: list[str] | None = None) -> int:
             case["skip_reason"] = "not selected by --case"
     report_path = root / "report.json"
     report: dict[str, object] = {
-        "schema_version": 1, "mode": "live" if args.live else "dry-run", "created_at": utc_now(),
+        "schema_version": 1, "prompt_set": args.prompt_set, "mode": "live" if args.live else "dry-run", "created_at": utc_now(),
         "binary": {"path": str(args.binary.resolve()), "sha256": digest(args.binary)},
         "revision": repository_revision(),
         "max_calls": MAX_CALLS, "attempts": 0, "status": "planned", "bridges": bridges,

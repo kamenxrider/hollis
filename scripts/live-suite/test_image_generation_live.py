@@ -40,6 +40,20 @@ def png_bytes(width: int = 4, height: int = 2) -> bytes:
 
 
 class ImageGenerationLiveTests(unittest.TestCase):
+    def test_scene_plan_preserves_routes_and_uses_real_descriptions(self):
+        plan = suite.build_plan(Path("/private/tmp/scene-plan"), "scenes")
+        self.assertEqual(len(plan), 28)
+        self.assertEqual(plan[0]["style"], "animation")
+        self.assertIn("mechanical sea turtle", plan[0]["prompt"])
+        self.assertEqual({case["style"] for case in plan[:12]}, set(suite.STYLES))
+        self.assertTrue(all(case["prompt_set"] == "scenes" for case in plan))
+        self.assertTrue(all("same subjects" in case["prompt"] for case in plan if case.get("turn") == 2))
+        suite.validate_selected_dependencies(plan, list(range(28)))
+
+    def test_unknown_prompt_set_is_rejected(self):
+        with self.assertRaises(ValueError):
+            suite.build_plan(Path("/private/tmp/scene-plan"), "unknown")
+
     def test_api_user_agent_matches_documented_fetch_contract(self):
         self.assertEqual(suite.UA, "OpenAI File Downloader, XaiImageApiFetch/1.0")
 
