@@ -330,6 +330,8 @@ func writeImageGenerationError(w http.ResponseWriter, err error) {
 			writeAPIError(w, http.StatusGatewayTimeout, "server_error", "image_generation_timeout", "image generation did not complete before its deadline")
 		case imagegen.KindMissingBridge:
 			writeAPIError(w, http.StatusBadGateway, "server_error", "style_unavailable", "the selected image style is unavailable")
+		case imagegen.KindSessionLocked:
+			writeAPIError(w, http.StatusConflict, "invalid_request_error", "image_session_locked", "Shortcuts requires an unlocked Mac session; unlock or check the active session and retry manually")
 		default:
 			writeAPIError(w, http.StatusBadGateway, "server_error", "image_generation_failed", "image generation failed")
 		}

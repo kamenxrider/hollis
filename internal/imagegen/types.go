@@ -148,6 +148,7 @@ const (
 	KindCanceled         ErrorKind = "canceled"
 	KindSpawn            ErrorKind = "spawn"
 	KindNonZeroExit      ErrorKind = "nonzero_exit"
+	KindSessionLocked    ErrorKind = "session_locked"
 	KindNoOutput         ErrorKind = "no_output"
 	KindInvalidPNG       ErrorKind = "invalid_png"
 	KindImageTooLarge    ErrorKind = "image_too_large"
@@ -168,6 +169,8 @@ var (
 	ErrCanceled = errors.New("image generation canceled")
 	// ErrNonZeroExit marks a bridge process that did not complete successfully.
 	ErrNonZeroExit = errors.New("image bridge exited unsuccessfully")
+	// ErrSessionLocked marks the observed Shortcuts refusal while macOS is locked.
+	ErrSessionLocked = errors.New("Shortcuts requires an unlocked Mac session")
 	// ErrInvalidTimeout marks a non-positive configured timeout.
 	ErrInvalidTimeout = errors.New("image generation timeout must be positive")
 	// ErrTimeoutTooLarge marks a timeout above the hard product ceiling.
