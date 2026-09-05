@@ -5,7 +5,9 @@ no personal documents or photos are used. The default only creates the plan and
 fixtures. It does not invoke Hollis, Shortcuts, or a model.
 
 Requires Python 3.11+ and Pillow (tested with Pillow 12.3.0; no dependency
-installation is performed). Live execution and process-cleanup tests require
+installation is performed) for the original pixel-semantic suite. The
+conversation acceptance runner uses only the Python standard library. Live
+execution and process-cleanup tests require
 permission to inspect numeric process IDs and sessions with `ps`.
 Run from the repository root:
 
@@ -66,6 +68,58 @@ A zero live exit code means all attempted transports completed; it does **not**
 mean all semantic checks matched. Read the separate report fields. Offline unit
 tests validate plan bounds, answer independence, permission modes, fail-stop
 behavior, strict matching, spacing, and isolated state using fake invocations.
+
+## Conversation acceptance runner
+
+`acceptance_suite.py` is a separate, smaller gate for image conversations. Its
+default `plan` command is offline. The opt-in runner can use a real PTY for
+interactive `/image`, resume a CLI image conversation with a fresh output path,
+send the actual first PNG as a final-user reference through both
+`/v1/chat/completions` (`image_url`) and `/v1/responses` (`input_image`), and
+exercise the standalone `/v1/images/generations` `reference_image` field.
+Both conversation cases also replay the latest assistant image on a third turn.
+The full acceptance plan contains 16 generations; select only the cases needed. It
+shares the live lock name with this suite and enforces a minimum **three-second
+gap after each generation completes**. Reports and output directories must be
+private and fresh. The root test coordinator owns live invocations; do not run
+this from a sub-agent while another live image check is active.
+
+```sh
+python3 scripts/image-suite/acceptance_suite.py plan --json
+
+python3 scripts/image-suite/acceptance_suite.py run \
+  --binary /absolute/path/to/hollis \
+  --state-dir /private/tmp/hollis-acceptance-state \
+  --output-dir /private/tmp/hollis-acceptance-output \
+  --settle-seconds 3 \
+  --case interactive-first \
+  --case interactive-sequence \
+  --case cli-followup
+```
+
+The API reference cases are selected explicitly and require a running local
+server. They decode every returned PNG, compare its SHA-256 with response
+metadata, and require `reference_image_sent` plus the echoed reference checksum:
+
+```sh
+python3 scripts/image-suite/acceptance_suite.py run \
+  --binary /absolute/path/to/hollis \
+  --state-dir /private/tmp/hollis-acceptance-api-state \
+  --output-dir /private/tmp/hollis-acceptance-api-output \
+  --api-base-url http://127.0.0.1:1978 \
+  --settle-seconds 3 \
+  --case api-chat-completions \
+  --case api-responses \
+  --case api-reference-generations
+```
+
+The API cases additionally require `--api-base-url`; an optional
+`HOLLIS_API_TOKEN` supplies a bearer token without placing it in the report.
+`dynamic-reference` is intentionally gated on the landed chat
+`--image-reference path|auto` contract (the standalone image command uses
+`--reference-image`) and a supplied `--reference-image` path to the runner. A
+successful transport and valid PNG still require human visual review for
+continuity.
 
 The process helper also has real local subprocess tests. Timeout, Ctrl-C, and
 SIGTERM cleanup covers children in separate process groups within the invocation's

@@ -138,10 +138,11 @@ Choose one instruction source. File requests require positional text or `--promp
 Generate one PNG through a separately installed Image Playground Shortcut:
 
 ```sh
+hollis config set image-bridge "Hollis Image - Reference Input v2"
 hollis image generate "A red circle on a white background" \
-  --bridge "Hollis Image Generation Probe" --output circle.png
+  --style animation --output circle.png
 hollis image generate "A blue square on a white background" \
-  --bridge "Hollis Image Generation Probe" --output square.png --agent
+  --style animation --output square.png --agent
 ```
 
 This makes one attempt, with no retries or model fallback. The destination must
@@ -149,16 +150,21 @@ end in `.png`; existing files and symlinks are never overwritten. The parent
 folder must already exist. Output is private by default. JSON/agent output
 returns the saved path, format, bytes, dimensions and SHA-256 checksum.
 
-One parameterized Shortcut can serve all six style IDs: `any`, `animation`,
-`genmoji`, `illustration`, `sketch`, and `chatgpt`. Configure it with
-`hollis config set image-bridge <shortcut-name>`, then use `--style <style>`.
-`hollis image styles` shows the routes. Existing per-style fixed Shortcut
-mappings remain supported. See the image-generation guide for live evidence.
+The source-generated, signed **Hollis Image - Reference Input v2** Shortcut can
+serve all six style IDs: `any`, `animation`, `genmoji`, `illustration`, `sketch`,
+and `chatgpt`. Generate and import it using the setup in the
+[image-generation guide](docs/image-generation.md#setup-generated-parameterized-shortcut),
+then configure it with `hollis config set image-bridge <shortcut-name>` and use
+`--style <style>`. `hollis image styles` shows the routes. Existing per-style
+fixed Shortcut mappings remain supported. The guide records the paced runtime
+acceptance and its visual-continuity boundary.
 
 Explicit `--aspect-ratio W:H --fit crop|pad` or `--size WIDTHxHEIGHT --fit
 crop|pad` processes the output locally. These are not native model controls.
 Image generation is also available explicitly during chats and through the
-API; photo-reference editing remains unimplemented.
+API. Local/API reference inputs and automatic reuse of a trusted prior image
+are implemented; they guide a new generation and do not promise pixel-perfect
+editing. See the [image reference contract](docs/image-references.md).
 The default and maximum timeout is 120 seconds. Hollis limits each generated
 PNG to 16 MiB and 16 million pixels; these are application limits, not Apple
 quotas or selectable resolution settings.
@@ -384,6 +390,13 @@ The measured evidence behind these rules is summarized in [EVIDENCE.md](EVIDENCE
 ### The ChatGPT quirk
 
 Measured on macOS 27 during development: a **signed-in** ChatGPT account made the Shortcuts extension fail with `login could not be verified`, and logging out let the bridge work. The macOS ChatGPT extension does not require an account for basic use.
+
+Image Playground's separate **ChatGPT** style has a different scoped result:
+on macOS 27.0 build `26A5425a`, the fixed, parameterized, native-Shortcuts,
+and fresh-extension routes failed before inference with Apple's Shortcuts
+ToolKit database sandbox denial, while the native Image Playground app worked.
+This does not prove universal impossibility; Hollis does not silently retry or
+substitute that route. See the [image-generation qualification note](docs/image-generation.md#setup-generated-parameterized-shortcut).
 
 ## Why not `fm`?
 
