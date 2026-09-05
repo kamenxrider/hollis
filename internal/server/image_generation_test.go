@@ -179,6 +179,31 @@ func TestImageGenerationsSuccessUsesConfiguredDefaultStyle(t *testing.T) {
 	}
 }
 
+func TestUnifiedImageBridgeCarriesStyleAcrossGenerationRoutes(t *testing.T) {
+	for _, test := range []struct {
+		path, body, style string
+	}{
+		{"/v1/images/generations", `{"prompt":"draw one","style":"genmoji"}`, "genmoji"},
+		{"/v1/chat/completions", `{"model":"hollis-image","messages":[{"role":"user","content":"draw two"}],"image_generation":{"style":"sketch"}}`, "sketch"},
+		{"/v1/responses", `{"model":"hollis-image","input":"draw three","image_generation":{"style":"chatgpt"}}`, "chatgpt"},
+	} {
+		t.Run(test.style, func(t *testing.T) {
+			generator := &recordingGenerator{}
+			server := testGenerationServer(generator, "")
+			server.ImageBridges = nil
+			server.ImageBridge = "Hollis Image Unified"
+			res := post(t, server.Handler(), test.path, test.body)
+			if res.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+			}
+			call := generator.lastCall()
+			if call.BridgeRef != server.ImageBridge || call.Style != test.style {
+				t.Fatalf("request = %+v", call)
+			}
+		})
+	}
+}
+
 func TestImageGenerationsRejectsInvalidRequestsWithoutCallingGenerator(t *testing.T) {
 	tests := []struct {
 		name string

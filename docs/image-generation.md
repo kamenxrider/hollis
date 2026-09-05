@@ -4,7 +4,33 @@ Hollis can save one generated PNG using an explicit Image Playground Shortcut.
 This is an experimental, optional CLI and HTTP feature. It is separate from the four
 text/image-understanding model tiers and requires its own Shortcut.
 
-## Setup
+## Setup: one parameterized Shortcut
+
+The preferred setup uses one Shortcut for every style. Create **Hollis Image -
+Unified Probe** with the following actions, in this order:
+
+1. Receive **Text and Rich Text**, with no-input behavior **Continue**.
+2. **Get Dictionary Value**: get `prompt` from **Shortcut Input**.
+3. **Set Variable**: set **Prompt** to that Dictionary Value.
+4. **Get Dictionary Value**: get `style` from **Shortcut Input** again.
+5. **Create Image**: Description = **Prompt**, Style = the second **Dictionary
+   Value**, Photo empty, Save to Playground = **Never**.
+6. **Stop and Output**: output **Image**, fallback **Do Nothing**.
+
+Configure this once:
+
+```sh
+hollis config set image-bridge "Hollis Image - Unified Probe"
+hollis image generate "A blue square on white" --style sketch --output square.png
+```
+
+Hollis sends a JSON object containing `prompt` and `style`. It maps its style
+IDs to the native display values (for example `sketch` becomes `Sketch`). The
+first live feasibility checks passed Animation and Sketch through the same
+unchanged Shortcut, and visual inspection found the expected distinct styles.
+The repeated suite is the source of broader runtime evidence.
+
+## Legacy fixed-style setup
 
 On a Mac with Image Playground and Apple Intelligence available, create a
 Shortcut named **Hollis Image Generation Probe** (or use another explicit name).
@@ -38,8 +64,9 @@ they do not install or validate this optional image Shortcut.
 
 `hollis image styles` lists **any, animation, genmoji, illustration, sketch,
 chatgpt**, corresponding to the choices observed in the installed action.
-Each style selects a separately configured fixed-style Shortcut. Configure
-its exact name after creating the matching Shortcut in the editor:
+The single configured bridge receives the selected style as JSON. You can
+still override individual styles with separately configured fixed-style
+Shortcuts for compatibility or diagnosis:
 
 ```sh
 hollis config set image-bridge animation "Hollis Image Generation Probe"
@@ -48,13 +75,13 @@ hollis image styles --json
 hollis image generate "A lighthouse on a cliff" --style illustration --output lighthouse.png
 ```
 
-For each variant, duplicate the tested bridge, change Style to the matching
-menu option, and give it a distinct name. Configuration is an explicit mapping,
+For each legacy variant, duplicate the tested fixed-style bridge, change Style
+to the matching menu option, and give it a distinct name. Configuration is an explicit mapping,
 not runtime validation of the action. An unconfigured style fails before a
-model runs. Without `--style` or `--bridge`, the configured Animation mapping is
-used. `--bridge` accepts an explicit custom Shortcut and cannot be combined
+model runs. Without `--style` or `--bridge`, Animation is selected. `--bridge` accepts an explicit custom Shortcut and cannot be combined
 with `--style`; its actual style is determined entirely by that Shortcut.
-An empty name in `config set image-bridge` removes a mapping. Restart a running
+An explicit per-style mapping takes precedence over the single bridge. An
+empty name clears the relevant single bridge or per-style mapping. Restart a running
 API server after changing mappings.
 
 ## Run

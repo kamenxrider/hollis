@@ -157,6 +157,28 @@ func TestChatImageTurnUsesTextHistoryAndPersistsHonestArtifact(t *testing.T) {
 	}
 }
 
+func TestChatImageTurnCarriesUnifiedBridgeStyle(t *testing.T) {
+	st := openTempStore(t)
+	defer st.Close()
+	conv, err := st.CreateConversation("cloud", "style context")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generator := &recordingImageGenerator{dir: t.TempDir()}
+	options := explicitChatImageOptions(generator, filepath.Join(t.TempDir(), "styled.png"))
+	options.Style = "illustration"
+	options.Bridge = ""
+	options.ResolvedBridge = "Hollis Image Unified"
+	options.ResolvedStyle = "illustration"
+	if _, err := runChatImageTurn(context.Background(), st, conv, "Draw it", options); err != nil {
+		t.Fatal(err)
+	}
+	_, _, requests := generator.snapshot()
+	if len(requests) != 1 || requests[0].BridgeRef != "Hollis Image Unified" || requests[0].Style != "illustration" {
+		t.Fatalf("requests = %+v", requests)
+	}
+}
+
 func TestFirstChatImageFailureLeavesNoConversation(t *testing.T) {
 	st := openTempStore(t)
 	defer st.Close()

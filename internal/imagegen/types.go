@@ -47,7 +47,31 @@ const (
 type Request struct {
 	Prompt    string
 	BridgeRef string
-	Timeout   time.Duration
+	// Style selects the style in a parameterized JSON bridge. An empty Style
+	// preserves the legacy plain-text protocol used by fixed-style bridges.
+	Style   string
+	Timeout time.Duration
+}
+
+// StyleLabel validates a Hollis style ID and returns the exact label accepted
+// by the Image Playground Shortcut action.
+func StyleLabel(style string) (string, bool) {
+	switch style {
+	case "any":
+		return "Any Style", true
+	case "animation":
+		return "Animation", true
+	case "genmoji":
+		return "Genmoji", true
+	case "illustration":
+		return "Illustration", true
+	case "sketch":
+		return "Sketch", true
+	case "chatgpt":
+		return "ChatGPT", true
+	default:
+		return "", false
+	}
 }
 
 // Result is the verified image owned by one successful Generate call.
