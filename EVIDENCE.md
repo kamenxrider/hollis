@@ -115,6 +115,17 @@ The opt-in paced harness retains every attempt and output, stops on the first
 failure, checks full PNG decoding and metadata, and keeps provider-free contract
 tests separate from live evidence. This is an experimental local candidate,
 not a released image feature.
+A later realistic-scene run made 15 attempts and produced 13 validated,
+visually reviewed PNGs: two each for Animation, Illustration, Sketch, Genmoji,
+and Any Style, plus two standalone HTTP outputs and an initial CLI conversation
+image. ChatGPT rejected an alpine-cabin prompt; the CLI follow-up also received
+an Apple rejection. The API session error did not recur in these two later
+requests, but changed prompts and session/awake conditions prevent attributing
+that improvement to a single cause. API conversations, successful CLI follow-ups,
+and interactive image turns remain unqualified. The realistic preset supplements
+the geometry cases; it does not erase earlier failures or validate the prompting
+guide's architecture/API claims. The harness has 23 provider-free tests.
+
 See [setup and capability boundaries](docs/image-generation.md).
 
 The prior document, HTTP-image and batch candidate also passed 21 real requests
