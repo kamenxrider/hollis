@@ -235,6 +235,20 @@ func TestImageGenerationsRejectsInvalidRequestsWithoutCallingGenerator(t *testin
 	}
 }
 
+func TestImageGenerationLockedSessionReturnsActionableRedactedConflict(t *testing.T) {
+	generator := &recordingGenerator{err: &imagegen.Error{
+		Kind: imagegen.KindSessionLocked, Stderr: "Error: This shortcut requires your Mac to be unlocked.",
+		Err: imagegen.ErrSessionLocked,
+	}}
+	res := post(t, testGenerationServer(generator, "").Handler(), "/v1/images/generations", `{"prompt":"draw"}`)
+	if res.Code != http.StatusConflict || !strings.Contains(res.Body.String(), `"code":"image_session_locked"`) || !strings.Contains(res.Body.String(), "check the active session") {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), "This shortcut requires") || strings.Contains(res.Body.String(), "Error:") {
+		t.Fatalf("raw provider diagnostic leaked: %s", res.Body.String())
+	}
+}
+
 func TestModelsListsConfiguredHollisImageRoute(t *testing.T) {
 	generator := &recordingGenerator{}
 	server := testGenerationServer(generator, "")

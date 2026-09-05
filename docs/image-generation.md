@@ -30,6 +30,21 @@ first live feasibility checks passed Animation and Sketch through the same
 unchanged Shortcut, and visual inspection found the expected distinct styles.
 The repeated suite is the source of broader runtime evidence.
 
+The current Mac rejected ChatGPT-style generation with the same immediate
+Apple error through both the JSON bridge and a fixed-style comparison. This
+style is configurable but is not live-qualified here. An Any Style repeat
+also received an Apple prompt rejection after the same prompt had succeeded.
+Hollis preserves such failures and does not retry automatically.
+
+Live API attempts also encountered Apple's “This shortcut requires your Mac to
+be unlocked” error. API and conversation success remain unqualified until
+that session requirement is resolved and the remaining live cases pass. The
+console-lock flag alone is not sufficient proof that the action can execute.
+The exact observed native diagnostic now produces API HTTP 409 with code
+`image_session_locked`, and actionable CLI guidance. Unknown/localized native
+diagnostics retain the generic failure path; no session manipulation or
+automatic retry is performed.
+
 ## Legacy fixed-style setup
 
 On a Mac with Image Playground and Apple Intelligence available, create a
@@ -127,7 +142,9 @@ the fitted output. `--aspect-ratio` and `--size` are mutually exclusive, and
 both require an explicit fit choice. These operations cannot invent content
 outside the generated image or improve native resolution. Metadata retains
 native dimensions separately from final dimensions and identifies the output
-processing. With no output options, the native PNG is saved.
+processing. With no output options, the native PNG is saved. Genmoji may return
+a transparent background even when a prompt requests white. Cropping can cut
+into the subject; choose padding when preserving the whole composition matters.
 
 Apple's native framework does document size/aspect-ratio selection through
 [SizeSpecification](https://developer.apple.com/documentation/imageplayground/imageplaygroundoptions/sizespecification-swift.struct).

@@ -81,12 +81,40 @@ unattended Animation-style generations on macOS 27.0 build `26A5425a`: red circl
 and blue square, both visually matched 1024×1024 PNGs, in 7.3s and 5.5s. Those
 live calls exercised the command before root registration. Full-root command,
 agent output and no-call validation are separately checked with fake generators.
-The combined candidate also implements six explicit style mappings, local
-crop/pad/resize, CLI conversation image turns, `/v1/images/generations`, and
-explicit generation on both conversation endpoints. Full `go test -race ./...`
-and `go vet ./...` passed with fake providers. Darwin arm64 and amd64 builds
-passed. The live test is opt-in and skipped without authorization/environment.
-API/chat invocation and the remaining five styles have not been live-tested.
+The combined candidate implements one parameterized JSON image Shortcut for all
+six style choices, optional fixed-style overrides, local crop/pad/resize, CLI
+conversation image turns, `/v1/images/generations`, and explicit generation on
+both conversation endpoints. Full `go test -race ./...` and `go vet ./...`
+passed with fake providers, and both Darwin architecture builds passed.
+
+The September 5 repeated live probe produced nine valid CLI PNGs: Any Style once,
+and Animation, Genmoji, Illustration, and Sketch twice each. All nine were fully
+decoded, checked against dimensions/checksums, and visually reviewed. Two prior
+single-bridge feasibility calls also passed, with distinct Animation and Sketch
+images. Genmoji returned transparency; explicit cropping clipped the subject.
+An identical Any Style repeat was rejected by Apple. ChatGPT failed through
+both the parameterized bridge and a fixed-style comparison. These failures
+remain part of the record and do not justify a reliability claim.
+
+API attempts returned 502; a temporary private diagnostic identified the native
+error “This shortcut requires your Mac to be unlocked.” The console-lock flag
+subsequently read false, so the exact session/context requirement still needs
+verification. An initial CLI conversation request also received Apple's generic
+prompt rejection. The full 28-case matrix is **not complete**; successful live
+API generation, conversation follow-ups, interactive `/image`, and ChatGPT
+image generation remain unqualified. Broad live testing stopped pending this
+session issue. No automatic retries or fallbacks were used; manual diagnostic
+comparisons were separately recorded, with at least 30 seconds between attempts.
+
+The observed unlocked-session message is now classified into an actionable
+CLI error and API HTTP 409 `image_session_locked`. Provider-free transport, CLI,
+and server tests cover this exact diagnostic and redaction; the updated error
+classification has not made a new live call.
+
+The opt-in paced harness retains every attempt and output, stops on the first
+failure, checks full PNG decoding and metadata, and keeps provider-free contract
+tests separate from live evidence. This is an experimental local candidate,
+not a released image feature.
 See [setup and capability boundaries](docs/image-generation.md).
 
 The prior document, HTTP-image and batch candidate also passed 21 real requests

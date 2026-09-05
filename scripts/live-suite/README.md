@@ -39,6 +39,11 @@ route has been blocked; the report still records the full matrix and marks
 unselected cases as skipped. There are no automatic retries or bridge
 fallbacks.
 
+The independent API probes use the explicit `Animation` style because the
+live probe observed an initial `Any Style` API failure and repeated prompt
+rejections for `Any Style` and `ChatGPT`. The six direct CLI style cases still
+cover all six configured styles, including `Any Style` and `ChatGPT`.
+
 The suite requires Python 3 and Pillow (`python3 -m pip install Pillow` in an
 isolated environment if it is not already installed). Offline contract tests
 are provider-free:

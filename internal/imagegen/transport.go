@@ -143,6 +143,12 @@ func (g *ShortcutTransport) Generate(ctx context.Context, req Request) (Result, 
 	if waitErr != nil {
 		stderrText := strings.TrimSpace(stderrBuffer.String())
 		exitCode := exitCode(waitErr)
+		if strings.Contains(stderrText, "This shortcut requires your Mac to be unlocked.") {
+			return fail(&Error{
+				Kind: KindSessionLocked, BridgeRef: req.BridgeRef, ExitCode: exitCode,
+				Stderr: stderrText, Err: ErrSessionLocked,
+			})
+		}
 		message := fmt.Errorf("image bridge exited with status %d: %w", exitCode, ErrNonZeroExit)
 		if stderrText != "" {
 			message = fmt.Errorf("%w: %s", message, stderrText)

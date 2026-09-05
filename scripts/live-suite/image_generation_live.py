@@ -98,6 +98,31 @@ def _safe_json(value: object, limit: int = 4000) -> object:
     return value
 
 
+def safe_error_envelope(status: int, response: object) -> dict[str, object]:
+    """Keep only bounded, structured API error fields in the private report.
+
+    Error responses are useful when a provider or bridge refuses a request,
+    but the surrounding response must never be copied into the report: it may
+    contain an inline image or another large payload.  The common OpenAI error
+    fields are sufficient to diagnose a rejected case and are all scalar.
+    """
+    raw_error = response.get("error") if isinstance(response, dict) else None
+    if not isinstance(raw_error, dict):
+        return {
+            "http_status": int(status),
+            "error": {"type": "invalid_error_response", "message": "response omitted a structured error object"},
+        }
+    safe_error: dict[str, object] = {}
+    for key in ("type", "code", "message", "param", "status"):
+        if key in raw_error:
+            value = raw_error[key]
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                safe_error[key] = _safe_json(value, limit=2000)
+    if not safe_error:
+        safe_error["type"] = "unstructured_error"
+    return {"http_status": int(status), "error": safe_error}
+
+
 def load_bridges(raw: str | None, *, require_all: bool) -> dict[str, str]:
     """Load a style-to-Shortcut map from JSON text or a JSON file."""
     if not raw:
@@ -309,7 +334,10 @@ def build_plan(root: Path) -> list[dict[str, object]]:
                 "options": options, "output": str(output), "status": "pending",
             })
     cases += [
-        {"name": "api-generations-aspect", "kind": "api_generations", "style": "any",
+        # Apple rejected repeated Any Style prompts in the live probe. Keep
+        # the independent HTTP route on the proven explicit Animation style;
+        # the six-style CLI cases still exercise Any directly.
+        {"name": "api-generations-aspect", "kind": "api_generations", "style": "animation",
          "prompt": "A simple red circle on a plain white background. No text.",
          "options": {"aspect_ratio": "1:1", "fit": "crop"},
          "output": str(root / "api" / "generations-aspect.png"), "status": "pending"},
@@ -333,7 +361,7 @@ def build_plan(root: Path) -> list[dict[str, object]]:
             for turn in (1, 2):
                 cases.append({
                     "name": f"api-{endpoint}-conversation-{conversation}-turn-{turn}", "kind": endpoint,
-                "style": "any" if conversation == 1 else "illustration", "conversation": conversation,
+                "style": "animation" if conversation == 1 else "illustration", "conversation": conversation,
                 "turn": turn, "prompt": ("Make a simple green triangle on white, no text." if turn == 1
                                                  else "Keep the same shape; change its color to blue."),
                     "options": ({"size": "640x480", "fit": "pad"} if turn == 2 else {}),
@@ -605,6 +633,8 @@ class LiveHarness:
         try:
             decoded = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            if status >= 400:
+                return status, {"error": {"type": "invalid_error_response", "message": f"HTTP {status} returned a non-JSON error"}}
             raise SuiteFailure(f"HTTP {status} response was not JSON") from exc
         if not isinstance(decoded, dict):
             raise SuiteFailure(f"HTTP {status} response was not an object")
@@ -634,6 +664,7 @@ class LiveHarness:
         case["request"] = {key: value for key, value in body.items()}
         case["http_status"] = status
         if status != 200:
+            case["error_response"] = safe_error_envelope(status, data)
             raise SuiteFailure(f"image generations returned HTTP {status}")
         artifact = _extract_generation_image(data, output, case["options"])
         if artifact.get("style") != case["style"]:
@@ -693,6 +724,7 @@ class LiveHarness:
                             "followup_depends_on_text_context": case["turn"] == 2}
         case["http_status"] = status
         if status != 200:
+            case["error_response"] = safe_error_envelope(status, data)
             raise SuiteFailure(f"{endpoint} returned HTTP {status}")
         artifact, replay, marker = _extract_chat_image(data, output, case["options"], responses=responses)
         if artifact.get("style") != case["style"]:

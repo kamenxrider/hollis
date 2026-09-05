@@ -64,6 +64,9 @@ func TestImageGenerationHelperProcess(t *testing.T) {
 	case "nonzero":
 		_, _ = os.Stderr.WriteString("synthetic bridge failure\n")
 		os.Exit(17)
+	case "locked":
+		_, _ = os.Stderr.WriteString("Error: This shortcut requires your Mac to be unlocked.\n")
+		os.Exit(1)
 	case "hang":
 		child := exec.Command("/bin/sh", "-c", "sleep 300")
 		child.Stdout = io.Discard
@@ -284,6 +287,18 @@ func TestGenerateCleansFailedOutputPaths(t *testing.T) {
 				t.Fatalf("failed generation left staging entries: %v", entries)
 			}
 		})
+	}
+}
+
+func TestGenerateClassifiesObservedLockedSessionFailure(t *testing.T) {
+	transport, _ := newTestTransport(t, "locked")
+	_, err := transport.Generate(context.Background(), Request{Prompt: "draw", BridgeRef: "bridge"})
+	if !errors.Is(err, ErrSessionLocked) {
+		t.Fatalf("err=%v, want ErrSessionLocked", err)
+	}
+	var typed *Error
+	if !errors.As(err, &typed) || typed.Kind != KindSessionLocked {
+		t.Fatalf("typed error = %+v", typed)
 	}
 }
 
