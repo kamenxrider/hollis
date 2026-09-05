@@ -15,11 +15,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kamenxrider/hollis/internal/imagegen"
 	"github.com/kamenxrider/hollis/internal/server"
 	"github.com/spf13/cobra"
 )
 
-func newServeCmd(_ *rootFlags, newRunner newRunnerFunc) *cobra.Command {
+func newServeCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
+	return newServeCmdWithImages(flags, newRunner, imagegen.New())
+}
+
+func newServeCmdWithImages(_ *rootFlags, newRunner newRunnerFunc, generator imagegen.Generator) *cobra.Command {
 	var (
 		addr           string
 		tokenFile      string
@@ -36,6 +41,7 @@ Endpoints:
   GET  /v1/models
   POST /v1/chat/completions
   POST /v1/responses
+  POST /v1/images/generations
 
 Loopback is the default. A non-loopback bind requires both --allow-remote and
 authentication supplied by --token-file or HOLLIS_API_TOKEN. Hollis does not
@@ -98,6 +104,12 @@ WireGuard, or an SSH tunnel. Streaming is intentionally unsupported.`,
 			r := newRunner()
 			api := server.New(r, token)
 			api.MaxConcurrency = maxConcurrency
+			imageConfig, err := loadConfig()
+			if err != nil {
+				return configErr(err)
+			}
+			api.ImageGenerator = generator
+			api.ImageBridges = imageConfig.ImageBridges
 			if resolved, resolveErr := resolveForRunner(cmd.Context(), newRunner); resolveErr != nil && !canAttemptAfterDiscoveryFailure(resolved, "auto") {
 				return resolutionCLIError(resolveErr)
 			} else if resolved != nil {

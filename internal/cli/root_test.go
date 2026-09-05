@@ -1127,7 +1127,7 @@ func TestAgentContextSchemaPresent(t *testing.T) {
 		"hollis agent-context", "hollis chat", "hollis chats", "hollis chats delete",
 		"hollis chats list", "hollis chats rename", "hollis chats search", "hollis chats show",
 		"hollis completion", "hollis config", "hollis config set", "hollis config show",
-		"hollis doctor", "hollis help", "hollis models", "hollis respond", "hollis serve", "hollis version",
+		"hollis doctor", "hollis help", "hollis image", "hollis image generate", "hollis models", "hollis respond", "hollis serve", "hollis version",
 	} {
 		if _, ok := byPath[path]; !ok {
 			t.Errorf("agent-context missing %s", path)

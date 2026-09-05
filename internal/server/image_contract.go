@@ -53,16 +53,18 @@ func (s stagedImages) Cleanup() {
 // existing HTTP decoder continues to enforce the top-level schema and body
 // limit.
 type chatCompletionsRequest struct {
-	Model    string          `json:"model"`
-	Messages json.RawMessage `json:"messages"`
-	Stream   bool            `json:"stream"`
+	Model           string          `json:"model"`
+	Messages        json.RawMessage `json:"messages"`
+	Stream          bool            `json:"stream"`
+	ImageGeneration json.RawMessage `json:"image_generation"`
 }
 
 type responsesRequest struct {
-	Model        string          `json:"model"`
-	Instructions string          `json:"instructions"`
-	Input        json.RawMessage `json:"input"`
-	Stream       bool            `json:"stream"`
+	Model           string          `json:"model"`
+	Instructions    string          `json:"instructions"`
+	Input           json.RawMessage `json:"input"`
+	Stream          bool            `json:"stream"`
+	ImageGeneration json.RawMessage `json:"image_generation"`
 }
 
 // Implemented in the endpoint-owned parser files.

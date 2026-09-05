@@ -133,6 +133,40 @@ hollis respond "Summarize the differences" --file first.md --file second.txt
 
 Choose one instruction source. File requests require positional text or `--prompt-file` and reject nonempty piped stdin. Documents cannot be mixed with `--image` in one request. Documents are prompt content; their boundaries do not isolate untrusted instructions.
 
+### Image generation (unreleased, experimental)
+
+Generate one PNG through a separately installed Image Playground Shortcut:
+
+```sh
+hollis image generate "A red circle on a white background" \
+  --bridge "Hollis Image Generation Probe" --output circle.png
+hollis image generate "A blue square on a white background" \
+  --bridge "Hollis Image Generation Probe" --output square.png --agent
+```
+
+This makes one attempt, with no retries or model fallback. The destination must
+end in `.png`; existing files and symlinks are never overwritten. The parent
+folder must already exist. Output is private by default. JSON/agent output
+returns the saved path, format, bytes, dimensions and SHA-256 checksum.
+
+All six observed styles can be mapped to separate Shortcuts: `any`, `animation`,
+`genmoji`, `illustration`, `sketch`, and `chatgpt`. Use `hollis config set
+image-bridge <style> <shortcut-name>`, then `--style <style>`; `hollis image
+styles` shows the mappings. Only Animation has live generation evidence so far.
+
+Explicit `--aspect-ratio W:H --fit crop|pad` or `--size WIDTHxHEIGHT --fit
+crop|pad` processes the output locally. These are not native model controls.
+Image generation is also available explicitly during chats and through the
+API; photo-reference editing remains unimplemented.
+The default and maximum timeout is 120 seconds. Hollis limits each generated
+PNG to 16 MiB and 16 million pixels; these are application limits, not Apple
+quotas or selectable resolution settings.
+
+See [image-generation setup and capability evidence](docs/image-generation.md).
+The four standard text bridges do not provide image generation; this optional
+Shortcut is configured separately. `hollis doctor` checks the standard bridges,
+not the image Shortcut passed with `--bridge`.
+
 ### Images
 
 `respond` accepts PNG and JPEG files through the existing bridges:

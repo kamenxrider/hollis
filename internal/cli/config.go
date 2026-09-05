@@ -30,6 +30,8 @@ type config struct {
 	// names; "auto" is not a tier with a bridge. Overrides beat the
 	// `shortcuts list` name match and the compiled UUIDs.
 	Bridges map[string]string `json:"bridges,omitempty"`
+	// ImageBridges maps explicit style choices to separately configured image Shortcuts.
+	ImageBridges map[string]string `json:"image_bridges,omitempty"`
 }
 
 // configPath is a package var so tests can point it at a temp dir.
@@ -95,6 +97,9 @@ func loadConfigAt(path string) (config, error) {
 }
 
 func validateConfig(c config) error {
+	if err := validateImageBridges(c.ImageBridges); err != nil {
+		return err
+	}
 	if c.DefaultModel != "" && !runner.Model(c.DefaultModel).Valid() {
 		return fmt.Errorf("unknown default model %q", c.DefaultModel)
 	}
@@ -329,6 +334,7 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 					"path":          path,
 					"default_model": c.DefaultModel,
 					"bridges":       bridgesForShow(c),
+					"image_bridges": c.ImageBridges,
 				}, flags)
 			}
 			w := cmd.OutOrStdout()
@@ -338,6 +344,11 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 				defaultModel = string(runner.ModelAuto) + " (built-in default)"
 			}
 			fmt.Fprintf(w, "default model: %s\n", defaultModel)
+			for _, style := range imageStyles {
+				if ref, ok := c.ImageBridges[style]; ok {
+					fmt.Fprintf(w, "image style %-12s %s\n", style, ref)
+				}
+			}
 			if len(c.Bridges) == 0 {
 				fmt.Fprintf(w, "bridge overrides: none\n")
 			} else {
@@ -356,7 +367,7 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 func newConfigSetCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set <key> <value...>",
-		Short: "Set a persisted default (keys: model, bridge)",
+		Short: "Set a persisted default (keys: model, bridge, image-bridge)",
 		Example: `  hollis config set model cloud-pro
   hollis config set model auto
   hollis config set bridge cloud "AFM Bridge - Cloud"
@@ -442,16 +453,17 @@ func newConfigSetCmd(flags *rootFlags) *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "bridge for %s set to %s\n", tier, ref)
 				return nil
 			default:
-				return usageErr(fmt.Errorf("unknown config key %q: only \"model\" and \"bridge\" are supported", key))
+				return usageErr(fmt.Errorf("unknown config key %q: only \"model\", \"bridge\" and \"image-bridge\" are supported", key))
 			}
 		},
 	}
+	cmd.AddCommand(newImageBridgeConfigCmd(flags))
 	return cmd
 }
 
 func validateConfigSetArgs(_ *cobra.Command, args []string) error {
 	if len(args) < 1 {
-		return usageErr(errors.New("config set requires a key: model or bridge"))
+		return usageErr(errors.New("config set requires a key: model, bridge or image-bridge"))
 	}
 	switch args[0] {
 	case "model":
@@ -473,7 +485,7 @@ func validateConfigSetArgs(_ *cobra.Command, args []string) error {
 			return usageErr(errors.New("bridge reference must not begin with '-'"))
 		}
 	default:
-		return usageErr(fmt.Errorf("unknown config key %q: only \"model\" and \"bridge\" are supported", args[0]))
+		return usageErr(fmt.Errorf("unknown config key %q: only \"model\", \"bridge\" and \"image-bridge\" are supported", args[0]))
 	}
 	return nil
 }

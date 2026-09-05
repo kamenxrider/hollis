@@ -173,7 +173,7 @@ func commandOutputModes(command *cobra.Command) []string {
 	switch command.CommandPath() {
 	case "hollis agent-context":
 		return []string{"json"}
-	case "hollis batch", "hollis chats", "hollis completion", "hollis config", "hollis serve":
+	case "hollis image", "hollis batch", "hollis chats", "hollis completion", "hollis config", "hollis serve":
 		return []string{"human"}
 	default:
 		if command.Parent() != nil && command.Parent().CommandPath() == "hollis completion" {
@@ -187,17 +187,19 @@ func commandSideEffects(command *cobra.Command) []string {
 	switch command.CommandPath() {
 	case "hollis respond":
 		return []string{"invokes one Shortcut model run", "with --prompt-file or --file, reads local UTF-8 text files", "with --image, reads local image files and creates then removes a private temporary prompt file"}
+	case "hollis image generate":
+		return []string{"invokes one image-generation Shortcut through an explicit bridge or configured style with no retry or fallback", "creates and removes private prompt and PNG staging files", "writes one private PNG without overwriting an existing destination", "macOS or the chosen Shortcut may require first-run permissions or interaction; --no-input does not answer those prompts"}
 	case "hollis batch plan":
 		return []string{"reads local instruction and input files", "creates a private batch manifest and result directory without invoking a model"}
 	case "hollis batch run", "hollis batch resume":
 		return []string{"locks and updates the local batch manifest", "invokes bounded serial Shortcut model runs with the planned concrete model", "writes private result files", "creates and removes private temporary image copies"}
 	case "hollis chat":
-		return []string{"invokes Shortcut model runs", "writes local conversation state after successful turns"}
+		return []string{"invokes Shortcut model runs", "writes local conversation state after successful turns", "explicit image generation writes a private PNG and stores a textual artifact record; pixels are not retained as model context", "optional crop/pad output processing is performed locally after image generation"}
 	case "hollis chats rename":
 		return []string{"updates local conversation metadata"}
 	case "hollis chats delete":
 		return []string{"deletes one local conversation transactionally"}
-	case "hollis config set":
+	case "hollis config set", "hollis config set image-bridge":
 		return []string{"updates the private local config atomically"}
 	case "hollis models", "hollis doctor":
 		return []string{"runs read-only local Shortcuts discovery"}

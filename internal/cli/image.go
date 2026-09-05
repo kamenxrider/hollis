@@ -5,36 +5,48 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kamenxrider/hollis/internal/imagegen"
 	"github.com/spf13/cobra"
 )
 
-// newImageCmd builds the experimental image command without registering it on
-// the root command. The coordinator owns root registration and public feature
-// claims; the generator is injected so tests never touch Shortcuts or a bridge.
+// newImageCmd uses an injected generator so tests never touch a real bridge.
 func newImageCmd(flags *rootFlags, generator imagegen.Generator) *cobra.Command {
 	imageCmd := &cobra.Command{
 		Use:   "image",
 		Short: "Experimental image generation through an explicit bridge",
 		Long: `Experimental image generation through an explicit bridge.
 
-This command is offline scaffolding and is not registered on the root command
-while the image Shortcut feasibility gate is unresolved. It has no automatic
-bridge discovery, model selection, or fallback. The generator is injected by
-the caller, which keeps this surface provider-free for tests.`,
+Requires an installed Image Playground Shortcut that accepts text and returns
+an image. Choose --style to select its configured bridge, or pass an explicit
+name with --bridge. Style and provider choice are set in the selected Shortcut.
+Run image styles to inspect mappings. No automatic backend or fallback is used.
+See docs/image-generation.md for the tested setup.`,
+		Args: noExtraArgs("image"),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if flags.asJSON {
+				return usageErr(errors.New("image requires a subcommand in JSON or agent mode"))
+			}
+			return cmd.Help()
+		},
 	}
 	imageCmd.AddCommand(newImageGenerateCmd(flags, generator))
+	imageCmd.AddCommand(newImageStylesCmd(flags))
 	return imageCmd
 }
 
 func newImageGenerateCmd(flags *rootFlags, generator imagegen.Generator) *cobra.Command {
 	var (
-		bridge  string
-		output  string
-		timeout time.Duration
+		bridge        string
+		style         string
+		output        string
+		timeout       time.Duration
+		outputOptions imagegen.OutputOptions
 	)
 	cmd := &cobra.Command{
 		Use:   "generate <prompt>",
@@ -42,20 +54,29 @@ func newImageGenerateCmd(flags *rootFlags, generator imagegen.Generator) *cobra.
 		Long: `Generate one PNG image and save it without overwriting files.
 
 The destination is checked before and during publication. The bridge is
-explicit, the prompt is one positional argument, and the output path must
-have a .png extension. Model flags and automatic fallback are intentionally
-unsupported. This command remains experimental until an unattended bridge
-has been proven on the target system.`,
-		Example: `  hollis image generate "A red bicycle beside a blue wall" --bridge "Synthetic Image Bridge" --output bicycle.png`,
+explicit or selected through the configured --style. The prompt is one positional
+argument, and the output path must have a .png extension. Model flags and automatic fallback are intentionally
+unsupported. One invocation makes one generation attempt with no retry.
+
+Requires an installed image Shortcut: Description = Shortcut Input, then
+Stop and Output = Image. The tested setup uses Animation, no Photo, Save to
+Playground Never, and Do Nothing when there is nowhere to output. Other styles
+and first-run permission behavior require validation on your Mac. Hollis never
+answers a macOS permission dialog; --no-input does not suppress those dialogs.`,
+		Example: `  hollis image generate "A red bicycle beside a blue wall" --bridge "Hollis Image Generation Probe" --output bicycle.png`,
 		Args: func(cmd *cobra.Command, args []string) error {
+			// Deferred help is rendered after argument validation. Permit a
+			// bare help request while preserving validation for supplied args.
+			if flag := cmd.Flags().Lookup("help"); flag != nil {
+				if help, ok := flag.Value.(*deferredHelpValue); ok && *help.requested && len(args) == 0 {
+					return nil
+				}
+			}
 			if len(args) != 1 {
 				return usageErr(errors.New("image generate takes exactly one positional prompt"))
 			}
 			if strings.TrimSpace(args[0]) == "" {
 				return usageErr(errors.New("image prompt is empty"))
-			}
-			if !cmd.Flags().Changed("bridge") || strings.TrimSpace(bridge) == "" {
-				return usageErr(errors.New("an explicit --bridge is required"))
 			}
 			if !cmd.Flags().Changed("output") || strings.TrimSpace(output) == "" {
 				return usageErr(errors.New("an --output PNG path is required"))
@@ -66,19 +87,25 @@ has been proven on the target system.`,
 			if err := validateImageTimeout(cmd, timeout); err != nil {
 				return err
 			}
-			if !cmd.Flags().Changed("bridge") || strings.TrimSpace(bridge) == "" {
-				return usageErr(errors.New("an explicit --bridge is required"))
-			}
 			if !cmd.Flags().Changed("output") || strings.TrimSpace(output) == "" {
 				return usageErr(errors.New("an --output PNG path is required"))
+			}
+			if err := imagegen.ValidateOutputOptions(outputOptions); err != nil {
+				return usageErr(err)
 			}
 			if err := imagegen.PreflightDestination(output); err != nil {
 				return toImageCLIError(err)
 			}
 
-			result, err := generator.Generate(cmd.Context(), imagegen.Request{
+			bridgeRef, err := resolveImageBridge(style, bridge)
+			if err != nil {
+				return err
+			}
+			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			result, err := generator.Generate(runCtx, imagegen.Request{
 				Prompt:    args[0],
-				BridgeRef: bridge,
+				BridgeRef: bridgeRef,
 				Timeout:   timeout,
 			})
 			if err != nil {
@@ -94,6 +121,12 @@ has been proven on the target system.`,
 				}
 			}()
 
+			nativeWidth, nativeHeight := result.Width, result.Height
+			processed, err := imagegen.TransformOutput(runCtx, result, outputOptions)
+			if err != nil {
+				return toImageCLIError(err)
+			}
+			result = processed
 			published, err := imagegen.Publish(result.Path, output)
 			if err != nil {
 				return toImageCLIError(err)
@@ -101,12 +134,14 @@ has been proven on the target system.`,
 
 			if flags.asJSON {
 				return printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
-					"path":     published.Path,
-					"format":   published.Format,
-					"bytes":    published.Bytes,
-					"width":    published.Width,
-					"height":   published.Height,
-					"checksum": published.SHA256,
+					"path":         published.Path,
+					"format":       published.Format,
+					"bytes":        published.Bytes,
+					"width":        published.Width,
+					"height":       published.Height,
+					"checksum":     published.SHA256,
+					"native_width": nativeWidth, "native_height": nativeHeight,
+					"output_processing": outputOptions,
 				}, flags)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Saved PNG to %s\n", published.Path)
@@ -116,8 +151,12 @@ has been proven on the target system.`,
 	cmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return usageErr(fmt.Errorf("invalid image flags: %w", err))
 	})
-	cmd.Flags().StringVar(&bridge, "bridge", "", "Explicit image bridge reference passed to Shortcuts")
+	cmd.Flags().StringVar(&bridge, "bridge", "", "Explicit image bridge reference; mutually exclusive with --style")
+	cmd.Flags().StringVar(&style, "style", "", "Configured image style: any, animation (default), genmoji, illustration, sketch, chatgpt")
 	cmd.Flags().StringVar(&output, "output", "", "PNG destination; an existing file or symlink is never replaced")
+	cmd.Flags().StringVar(&outputOptions.AspectRatio, "aspect-ratio", "", "Output ratio W:H; requires --fit crop|pad (post-processing, not a model setting)")
+	cmd.Flags().StringVar(&outputOptions.Size, "size", "", "Output size WIDTHxHEIGHT; requires --fit crop|pad, mutually exclusive with --aspect-ratio")
+	cmd.Flags().StringVar(&outputOptions.Fit, "fit", "", "Explicit output processing: crop or pad; requires --aspect-ratio or --size")
 	cmd.Flags().DurationVar(&timeout, "timeout", imagegen.MaxTimeout, "Per-call timeout (default 120s, ceiling 120s)")
 	return cmd
 }
@@ -147,7 +186,9 @@ func toImageCLIError(err error) error {
 		return timeoutErr(err)
 	case imagegen.KindCanceled:
 		return transportErr(err)
-	case imagegen.KindSpawn, imagegen.KindNonZeroExit, imagegen.KindNoOutput,
+	case imagegen.KindNonZeroExit:
+		return transportErr(fmt.Errorf("%w\nhint: verify --bridge names an installed image-generation Shortcut; see docs/image-generation.md for setup", err))
+	case imagegen.KindSpawn, imagegen.KindNoOutput,
 		imagegen.KindInvalidPNG, imagegen.KindImageTooLarge, imagegen.KindCleanup,
 		imagegen.KindOutputInspection:
 		return transportErr(err)
