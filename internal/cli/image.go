@@ -187,6 +187,8 @@ func toImageCLIError(err error) error {
 		return timeoutErr(err)
 	case imagegen.KindCanceled:
 		return transportErr(err)
+	case imagegen.KindSessionLocked:
+		return transportErr(fmt.Errorf("%w; unlock or check the active session and retry manually", imagegen.ErrSessionLocked))
 	case imagegen.KindNonZeroExit:
 		return transportErr(fmt.Errorf("%w\nhint: verify --bridge names an installed image-generation Shortcut; see docs/image-generation.md for setup", err))
 	case imagegen.KindSpawn, imagegen.KindNoOutput,

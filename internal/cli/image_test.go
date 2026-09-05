@@ -14,6 +14,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kamenxrider/hollis/internal/imagegen"
@@ -164,6 +165,19 @@ func TestImageGeneratePreflightRejectsDestinationBeforeGeneratorCall(t *testing.
 	}
 	if string(data) != "keep" {
 		t.Fatalf("preflight changed destination: %q", data)
+	}
+}
+
+func TestImageLockedSessionErrorGivesUnlockHint(t *testing.T) {
+	err := toImageCLIError(&imagegen.Error{
+		Kind: imagegen.KindSessionLocked, Stderr: "Error: This shortcut requires your Mac to be unlocked.",
+		Err: imagegen.ErrSessionLocked,
+	})
+	if err == nil || !strings.Contains(err.Error(), "unlock or check the active session and retry manually") {
+		t.Fatalf("error = %v", err)
+	}
+	if strings.Contains(err.Error(), "Error: This shortcut") {
+		t.Fatalf("raw provider diagnostic leaked: %v", err)
 	}
 }
 

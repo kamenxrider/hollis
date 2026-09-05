@@ -57,6 +57,16 @@ class ImageGenerationLiveTests(unittest.TestCase):
         self.assertEqual(sum(case["kind"] == "responses" for case in plan), 4)
         self.assertEqual(sum(case["kind"] == "cli_interactive" for case in plan), 2)
 
+    def test_api_matrix_uses_stable_explicit_animation_style(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan = suite.build_plan(Path(directory))
+        api_routes = [case for case in plan if case["kind"] == "api_generations"]
+        self.assertEqual({case["style"] for case in api_routes}, {"animation"})
+        for kind in ("chat_completions", "responses"):
+            conversation_one = [case for case in plan
+                                if case["kind"] == kind and case["conversation"] == 1]
+            self.assertEqual({case["style"] for case in conversation_one}, {"animation"})
+
     def test_plan_distributes_each_local_transform_mode_at_least_twice(self):
         with tempfile.TemporaryDirectory() as directory:
             plan = suite.build_plan(Path(directory))
@@ -126,6 +136,32 @@ class ImageGenerationLiveTests(unittest.TestCase):
         suite.assert_output_processing({"size": "640x480", "fit": "pad"}, {"size": "640x480", "fit": "pad"})
         with self.assertRaises(suite.SuiteFailure):
             suite.assert_output_processing({"size": "640x480", "fit": "crop"}, {"size": "640x480", "fit": "pad"})
+
+    def test_api_error_response_is_persisted_without_image_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = suite.build_plan(root)
+            case = next(item for item in plan if item["name"] == "api-generations-aspect")
+            report_path = root / "report.json"
+            harness = suite.LiveHarness(sys.executable, root, {}, 30, {"pacing": {}}, report_path, plan)
+            response = {"error": {
+                "type": "server_error", "code": "image_generation_failed",
+                "message": "bridge rejected request", "b64_json": "do-not-persist",
+                "image_url": "data:image/png;base64,do-not-persist",
+                "details": {"b64_json": "do-not-persist"},
+            }}
+            with mock.patch.object(harness, "post", return_value=(502, response)):
+                with self.assertRaises(suite.SuiteFailure):
+                    harness.run_api_generations(case)
+            self.assertEqual(case["error_response"], {
+                "http_status": 502,
+                "error": {
+                    "type": "server_error", "code": "image_generation_failed",
+                    "message": "bridge rejected request",
+                },
+            })
+            self.assertNotIn("b64_json", json.dumps(case["error_response"]))
+            self.assertNotIn("image_url", json.dumps(case["error_response"]))
 
     def test_cooldown_is_zero_before_first_call_and_persists_remaining_wait(self):
         self.assertEqual(suite.cooldown_seconds(None, 30, now=100), 0)
