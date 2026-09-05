@@ -84,6 +84,7 @@ func (g *recordingImageGenerator) snapshot() (calls, maxActive int, requests []i
 
 func explicitChatImageOptions(generator imagegen.Generator, output string) chatImageOptions {
 	return chatImageOptions{
+		Reference:      "none",
 		Bridge:         "fixture image bridge",
 		ResolvedBridge: "fixture image bridge",
 		Output:         output,

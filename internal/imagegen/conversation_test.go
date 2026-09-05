@@ -104,3 +104,46 @@ func TestRenderConversationPromptDoesNotDuplicateRequestRecoveredFromAPIMarker(t
 		t.Fatalf("original request duplicated: %q", got)
 	}
 }
+
+func TestReferenceMarkerRequestRecovered(t *testing.T) {
+	marker := `[Hollis generated an image for "a brass turtle" with style animation (native 1024x1024, final 1024x1024, no output transform, SHA-256 ` + strings.Repeat("a", 64) + apiReferenceMarkerSuffix
+	got := RenderConversationPrompt([]ConversationMessage{{Role: "assistant", Content: marker}, {Role: "user", Content: "move it to a forest"}})
+	want := "Original image description:\na brass turtle\n\nRequested revision:\nmove it to a forest"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestRenderConversationPromptWithReferenceUsesFinalUserDescription(t *testing.T) {
+	got := RenderConversationPromptWithReference([]ConversationMessage{
+		{Role: "user", Content: "woodland meadow"},
+		{Role: "assistant", Content: "[Hollis generated an image for \"woodland meadow\"...]"},
+		{Role: "user", Content: "misty meadow"},
+		{Role: "assistant", Content: "[Hollis generated an image for \"misty meadow\"...]"},
+		{Role: "user", Content: "snowy forest under blue moonlight"},
+	}, true)
+	if !strings.HasPrefix(got, "Requested revision:\nsnowy forest under blue moonlight") || !strings.Contains(got, "woodland meadow") || !strings.Contains(got, "misty meadow") {
+		t.Fatalf("reference prompt = %q, want latest revision first with prior subject context", got)
+	}
+}
+
+func TestRenderConversationPromptWithReferenceFalsePreservesFullContext(t *testing.T) {
+	messages := []ConversationMessage{
+		{Role: "user", Content: "woodland meadow"},
+		{Role: "assistant", Content: `HOLLIS_IMAGE_ARTIFACT {"type":"hollis.image_artifact.v1"}`},
+		{Role: "user", Content: "misty meadow"},
+	}
+	got := RenderConversationPromptWithReference(messages, false)
+	want := "Original image description:\nwoodland meadow\n\nRequested revision:\nmisty meadow"
+	if got != want {
+		t.Fatalf("no-reference prompt = %q, want %q", got, want)
+	}
+}
+
+func TestReplayMarkerRequestRecovered(t *testing.T) {
+	marker := `[Hollis generated an image for "a brass turtle" with style animation (native 1024x1024, final 1024x1024, no output transform, SHA-256 ` + strings.Repeat("a", 64) + apiReplayMarkerSuffix
+	got := RenderConversationPrompt([]ConversationMessage{{Role: "assistant", Content: marker}, {Role: "user", Content: "in a forest"}})
+	if !strings.Contains(got, "a brass turtle") || strings.Contains(got, "SHA-256") {
+		t.Fatalf("bad replay: %q", got)
+	}
+}

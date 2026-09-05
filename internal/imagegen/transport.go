@@ -5,6 +5,7 @@ package imagegen
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -193,6 +194,14 @@ func validateRequest(ctx context.Context, req Request) error {
 			return &Error{Kind: KindUsage, ExitCode: -1, Err: fmt.Errorf("unknown image style %q", req.Style)}
 		}
 	}
+	if req.Reference != nil {
+		if req.Style == "" {
+			return &Error{Kind: KindInvalidReference, ExitCode: -1, Err: ErrReferenceRequiresStyle}
+		}
+		if err := ValidateReferenceImage(req.Reference); err != nil {
+			return &Error{Kind: KindInvalidReference, ExitCode: -1, Err: err}
+		}
+	}
 	bridge := strings.TrimSpace(req.BridgeRef)
 	if bridge == "" {
 		return &Error{Kind: KindMissingBridge, ExitCode: -1, Err: ErrMissingBridge}
@@ -211,23 +220,43 @@ func validateRequest(ctx context.Context, req Request) error {
 
 func bridgeInput(req Request) (string, error) {
 	if req.Style == "" {
+		if req.Reference != nil {
+			return "", &Error{Kind: KindInvalidReference, ExitCode: -1, Err: ErrReferenceRequiresStyle}
+		}
 		return req.Prompt, nil
 	}
 	label, ok := StyleLabel(req.Style)
 	if !ok {
 		return "", &Error{Kind: KindUsage, ExitCode: -1, Err: fmt.Errorf("unknown image style %q", req.Style)}
 	}
+	if req.Reference != nil {
+		if err := ValidateReferenceImage(req.Reference); err != nil {
+			return "", &Error{Kind: KindInvalidReference, ExitCode: -1, Err: err}
+		}
+	}
 	payload, err := json.Marshal(struct {
-		Prompt string `json:"prompt"`
-		Style  string `json:"style"`
-	}{Prompt: req.Prompt, Style: label})
+		Prompt          string `json:"prompt"`
+		Style           string `json:"style"`
+		ReferenceBase64 string `json:"reference_base64,omitempty"`
+	}{
+		Prompt:          req.Prompt,
+		Style:           label,
+		ReferenceBase64: referenceBase64(req.Reference),
+	})
 	if err != nil {
 		return "", &Error{Kind: KindUsage, ExitCode: -1, Err: fmt.Errorf("encode image bridge input: %w", err)}
 	}
-	if len(payload) > MaxPromptBytes+256 {
+	if int64(len(payload)) > MaxBridgeInputBytes {
 		return "", &Error{Kind: KindUsage, ExitCode: -1, Err: errors.New("encoded image bridge input exceeds its limit")}
 	}
 	return string(payload), nil
+}
+
+func referenceBase64(reference *ReferenceImage) string {
+	if reference == nil {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(reference.Bytes)
 }
 
 func (g *ShortcutTransport) requestTimeout(requestTimeout time.Duration) (time.Duration, error) {

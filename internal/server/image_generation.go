@@ -37,19 +37,22 @@ type imageGenerationsRequest struct {
 	AspectRatio    string          `json:"aspect_ratio"`
 	Size           string          `json:"size"`
 	Fit            string          `json:"fit"`
+	ReferenceImage string          `json:"reference_image"`
 	N              json.RawMessage `json:"n"`
 	ResponseFormat string          `json:"response_format"`
 }
 
 type generatedImage struct {
-	Base64           string
-	Style            string
-	Width            int
-	Height           int
-	SHA256           string
-	NativeWidth      int
-	NativeHeight     int
-	OutputProcessing imagegen.OutputOptions
+	Base64               string
+	Style                string
+	Width                int
+	Height               int
+	SHA256               string
+	NativeWidth          int
+	NativeHeight         int
+	OutputProcessing     imagegen.OutputOptions
+	ReferenceImageSent   bool
+	ReferenceImageSHA256 string
 }
 
 func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) {
@@ -80,26 +83,37 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 	if !validatePrompt(w, request.Prompt) {
 		return
 	}
+	var reference *imagegen.ReferenceImage
+	if strings.TrimSpace(request.ReferenceImage) != "" {
+		var err error
+		reference, err = parseReferenceDataURL(request.ReferenceImage)
+		if err != nil {
+			writeRequestValidationError(w, err)
+			return
+		}
+	}
 	options := imageGenerationOptions{
 		Style: request.Style, AspectRatio: request.AspectRatio,
 		Size: request.Size, Fit: request.Fit,
 	}
-	image, ok := s.generateImage(r.Context(), w, request.Prompt, options)
+	image, ok := s.generateImage(r.Context(), w, request.Prompt, options, reference)
 	if !ok {
 		return
 	}
+	data := map[string]any{
+		"b64_json":          image.Base64,
+		"style":             image.Style,
+		"width":             image.Width,
+		"height":            image.Height,
+		"sha256":            image.SHA256,
+		"native_width":      image.NativeWidth,
+		"native_height":     image.NativeHeight,
+		"output_processing": image.OutputProcessing,
+	}
+	addReferenceMetadata(data, image)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"created": time.Now().Unix(),
-		"data": []map[string]any{{
-			"b64_json":          image.Base64,
-			"style":             image.Style,
-			"width":             image.Width,
-			"height":            image.Height,
-			"sha256":            image.SHA256,
-			"native_width":      image.NativeWidth,
-			"native_height":     image.NativeHeight,
-			"output_processing": image.OutputProcessing,
-		}},
+		"data":    []map[string]any{data},
 	})
 }
 
@@ -113,7 +127,7 @@ func (s *Server) handleChatImageGeneration(w http.ResponseWriter, r *http.Reques
 		writeRequestValidationError(w, err)
 		return
 	}
-	messages, err := parseGenerationChatMessages(request.Messages)
+	messages, reference, err := parseGenerationChatMessages(request.Messages)
 	if err != nil {
 		writeRequestValidationError(w, err)
 		return
@@ -122,15 +136,21 @@ func (s *Server) handleChatImageGeneration(w http.ResponseWriter, r *http.Reques
 	if !validatePrompt(w, unfiltered) {
 		return
 	}
-	prompt := renderImageGenerationConversation(messages)
+	prompt := renderImageGenerationConversation(messages, reference != nil)
 	if !validatePrompt(w, prompt) {
 		return
 	}
-	image, ok := s.generateImage(r.Context(), w, prompt, options)
+	image, ok := s.generateImage(r.Context(), w, prompt, options, reference)
 	if !ok {
 		return
 	}
-	marker := generationMarker(image, messages[len(messages)-1].Content)
+	marker := generationMarkerWithReference(image, messages[len(messages)-1].Content, reference != nil)
+	imagePart := map[string]any{
+		"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64," + image.Base64},
+		"style": image.Style, "width": image.Width, "height": image.Height, "sha256": image.SHA256,
+		"native_width": image.NativeWidth, "native_height": image.NativeHeight, "output_processing": image.OutputProcessing,
+	}
+	addReferenceMetadata(imagePart, image)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id": "chatcmpl-" + randomID(), "object": "chat.completion", "created": time.Now().Unix(), "model": "hollis-image",
 		"choices": []map[string]any{{
@@ -139,11 +159,7 @@ func (s *Server) handleChatImageGeneration(w http.ResponseWriter, r *http.Reques
 				"role": "assistant",
 				"content": []map[string]any{
 					{"type": "text", "text": marker},
-					{
-						"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64," + image.Base64},
-						"style": image.Style, "width": image.Width, "height": image.Height, "sha256": image.SHA256,
-						"native_width": image.NativeWidth, "native_height": image.NativeHeight, "output_processing": image.OutputProcessing,
-					},
+					imagePart,
 				},
 			},
 			"finish_reason": "stop",
@@ -161,7 +177,7 @@ func (s *Server) handleResponsesImageGeneration(w http.ResponseWriter, r *http.R
 		writeRequestValidationError(w, err)
 		return
 	}
-	messages, err := parseGenerationResponsesInput(request.Input)
+	messages, reference, err := parseGenerationResponsesInput(request.Input)
 	if err != nil {
 		writeRequestValidationError(w, err)
 		return
@@ -173,22 +189,28 @@ func (s *Server) handleResponsesImageGeneration(w http.ResponseWriter, r *http.R
 	if !validatePrompt(w, unfiltered) {
 		return
 	}
-	prompt := renderImageGenerationConversation(messages)
+	prompt := renderImageGenerationConversation(messages, reference != nil)
 	if !validatePrompt(w, prompt) {
 		return
 	}
-	image, ok := s.generateImage(r.Context(), w, prompt, options)
+	image, ok := s.generateImage(r.Context(), w, prompt, options, reference)
 	if !ok {
 		return
 	}
-	marker := generationMarker(image, messages[len(messages)-1].Content)
+	marker := generationMarkerWithReference(image, messages[len(messages)-1].Content, reference != nil)
+	imagePart := map[string]any{
+		"type": "output_image", "b64_json": image.Base64, "mime_type": "image/png", "style": image.Style,
+		"width": image.Width, "height": image.Height, "sha256": image.SHA256, "native_width": image.NativeWidth,
+		"native_height": image.NativeHeight, "output_processing": image.OutputProcessing,
+	}
+	addReferenceMetadata(imagePart, image)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id": "resp_" + randomID(), "object": "response", "created_at": time.Now().Unix(), "status": "completed", "model": "hollis-image",
 		"output": []map[string]any{{
 			"type": "message", "id": "msg_" + randomID(), "role": "assistant", "status": "completed",
 			"content": []map[string]any{
 				{"type": "output_text", "text": marker, "annotations": []any{}},
-				{"type": "output_image", "b64_json": image.Base64, "mime_type": "image/png", "style": image.Style, "width": image.Width, "height": image.Height, "sha256": image.SHA256, "native_width": image.NativeWidth, "native_height": image.NativeHeight, "output_processing": image.OutputProcessing},
+				imagePart,
 			},
 		}},
 	})
@@ -209,7 +231,7 @@ func parseImageGenerationOptions(raw json.RawMessage) (imageGenerationOptions, e
 	return options, nil
 }
 
-func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, prompt string, options imageGenerationOptions) (generatedImage, bool) {
+func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, prompt string, options imageGenerationOptions, reference *imagegen.ReferenceImage) (generatedImage, bool) {
 	outputOptions := imagegen.OutputOptions{
 		AspectRatio: strings.TrimSpace(options.AspectRatio),
 		Size:        strings.TrimSpace(options.Size),
@@ -233,6 +255,10 @@ func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, promp
 		bridge = strings.TrimSpace(s.ImageBridge)
 		requestStyle = style
 	}
+	if reference != nil && requestStyle == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "reference_requires_parameterized_bridge", "image references require a parameterized image bridge")
+		return generatedImage{}, false
+	}
 	if bridge == "" || s.ImageGenerator == nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "style_unavailable", "the selected image style is unavailable")
 		return generatedImage{}, false
@@ -246,7 +272,7 @@ func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, promp
 	runCtx, cancel := context.WithTimeout(ctx, imagegen.MaxTimeout)
 	defer cancel()
 	result, err := s.ImageGenerator.Generate(runCtx, imagegen.Request{
-		Prompt: prompt, BridgeRef: bridge, Style: requestStyle, Timeout: imagegen.MaxTimeout,
+		Prompt: prompt, BridgeRef: bridge, Style: requestStyle, Reference: reference, Timeout: imagegen.MaxTimeout,
 	})
 	cleanup := s.cleanupImage
 	if cleanup == nil {
@@ -282,6 +308,10 @@ func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, promp
 	image.NativeWidth = nativeWidth
 	image.NativeHeight = nativeHeight
 	image.OutputProcessing = outputOptions
+	image.ReferenceImageSent = reference != nil
+	if reference != nil {
+		image.ReferenceImageSHA256 = reference.SHA256
+	}
 	if err := cleanupResult(); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "server_error", "image_cleanup_failed", "generated image staging could not be cleaned")
 		return generatedImage{}, false
@@ -349,51 +379,116 @@ func writeImageGenerationError(w http.ResponseWriter, err error) {
 }
 
 func generationMarker(image generatedImage, request string) string {
+	return generationMarkerWithReference(image, request, false)
+}
+
+func generationMarkerWithReference(image generatedImage, request string, referenceSent bool) string {
 	processing := "no output transform"
 	if image.OutputProcessing.AspectRatio != "" {
 		processing = fmt.Sprintf("local %s fit to aspect ratio %s", image.OutputProcessing.Fit, image.OutputProcessing.AspectRatio)
 	} else if image.OutputProcessing.Size != "" {
 		processing = fmt.Sprintf("local %s fit to size %s", image.OutputProcessing.Fit, image.OutputProcessing.Size)
 	}
-	return fmt.Sprintf("[Hollis generated an image for %q with style %s (native %dx%d, final %dx%d, %s, SHA-256 %s). The image pixels are included in this response but are not retained or reused; replay this text to preserve the generation record. A later request uses text context to generate a new image, not pixel editing.]", request, image.Style, image.NativeWidth, image.NativeHeight, image.Width, image.Height, processing, image.SHA256)
+	if referenceSent {
+		return fmt.Sprintf("[Hollis generated an image for %q with style %s (native %dx%d, final %dx%d, %s, SHA-256 %s). A supplied reference image was sent to the configured Shortcut; Hollis does not guarantee that a backend reused or edited its pixels.]", request, image.Style, image.NativeWidth, image.NativeHeight, image.Width, image.Height, processing, image.SHA256)
+	}
+	return fmt.Sprintf("[Hollis generated an image for %q with style %s (native %dx%d, final %dx%d, %s, SHA-256 %s). The server does not retain image pixels; replay the complete assistant image message to supply a later reference. Pixel editing is not guaranteed.]", request, image.Style, image.NativeWidth, image.NativeHeight, image.Width, image.Height, processing, image.SHA256)
 }
 
-func renderImageGenerationConversation(messages []reqMessage) string {
+func addReferenceMetadata(target map[string]any, image generatedImage) {
+	if !image.ReferenceImageSent {
+		return
+	}
+	target["reference_image_sent"] = true
+	if image.ReferenceImageSHA256 != "" {
+		target["reference_image_sha256"] = image.ReferenceImageSHA256
+	}
+}
+
+func renderImageGenerationConversation(messages []reqMessage, hasReference bool) string {
 	conversation := make([]imagegen.ConversationMessage, 0, len(messages))
 	for _, message := range messages {
 		conversation = append(conversation, imagegen.ConversationMessage{
 			Role: message.Role, Content: message.Content,
 		})
 	}
-	return imagegen.RenderConversationPrompt(conversation)
+	return imagegen.RenderConversationPromptWithReference(conversation, hasReference)
 }
 
-func parseGenerationChatMessages(raw json.RawMessage) ([]reqMessage, error) {
+// parseReferenceDataURL accepts only the inline image representation exposed
+// by the two public conversation APIs. In particular, it never treats a URL
+// as a fetch target: image-generation references are client-supplied bytes.
+func parseReferenceDataURL(dataURL string) (*imagegen.ReferenceImage, error) {
+	payload, format, _, err := splitImageDataURL(dataURL)
+	if err != nil {
+		return nil, invalidImage("reference image must be an inline PNG or JPEG data URL")
+	}
+	return parseReferenceBase64(payload, "image/"+format)
+}
+
+// parseReferenceBase64 decodes one bounded inline reference and delegates
+// format, dimensions, complete pixel decoding, and checksum validation to the
+// imagegen package. The MIME argument is checked against the decoded bytes so
+// replayed Responses output cannot relabel one image as another format.
+func parseReferenceBase64(payload, mimeType string) (*imagegen.ReferenceImage, error) {
+	decodedLen, err := exactBase64DecodedLen(payload)
+	if err != nil {
+		return nil, invalidImage("reference image contains invalid base64 data")
+	}
+	if int64(decodedLen) > imagegen.MaxReferenceBytes {
+		return nil, imageLimitExceeded("reference image exceeds the 4 MiB limit")
+	}
+	decoded := make([]byte, decodedLen)
+	count, err := base64.StdEncoding.Strict().Decode(decoded, []byte(payload))
+	if err != nil || count != decodedLen {
+		return nil, invalidImage("reference image contains invalid base64 data")
+	}
+	reference, err := imagegen.NewReferenceImage(decoded)
+	if err != nil {
+		if errors.Is(err, imagegen.ErrReferenceTooLarge) {
+			return nil, imageLimitExceeded("reference image exceeds the 4 MiB or 16 megapixel limit")
+		}
+		return nil, invalidImage("reference image is not a valid PNG or JPEG")
+	}
+	if reference.MIMEType != mimeType {
+		return nil, invalidImage("reference image MIME type does not match its data")
+	}
+	return reference, nil
+}
+
+func parseGenerationChatMessages(raw json.RawMessage) ([]reqMessage, *imagegen.ReferenceImage, error) {
 	return parseGenerationMessages(raw, "messages", false)
 }
 
-func parseGenerationResponsesInput(raw json.RawMessage) ([]reqMessage, error) {
+func parseGenerationResponsesInput(raw json.RawMessage) ([]reqMessage, *imagegen.ReferenceImage, error) {
 	trimmed := bytes.TrimSpace(raw)
 	var text string
 	if err := json.Unmarshal(trimmed, &text); err == nil {
 		if strings.TrimSpace(text) == "" {
-			return nil, errors.New("input must not be empty")
+			return nil, nil, errors.New("input must not be empty")
 		}
-		return []reqMessage{{Role: "user", Content: text}}, nil
+		return []reqMessage{{Role: "user", Content: text}}, nil, nil
 	}
 	return parseGenerationMessages(raw, "input", true)
 }
 
-func parseGenerationMessages(raw json.RawMessage, field string, responses bool) ([]reqMessage, error) {
+func parseGenerationMessages(raw json.RawMessage, field string, responses bool) ([]reqMessage, *imagegen.ReferenceImage, error) {
+	// decodeRequest has already applied the 8 MiB request bound. We still
+	// validate every inline image in the bounded history, while selecting only
+	// one image for the provider below; clients may need to trim very long
+	// histories containing older image bytes before reaching that body limit.
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return nil, fmt.Errorf("%s must not be empty", field)
+		return nil, nil, fmt.Errorf("%s must not be empty", field)
 	}
 	var incoming []json.RawMessage
 	if err := strictUnmarshal(trimmed, &incoming); err != nil || len(incoming) == 0 {
-		return nil, fmt.Errorf("%s must be a nonempty array of messages", field)
+		return nil, nil, fmt.Errorf("%s must be a nonempty array of messages", field)
 	}
 	out := make([]reqMessage, 0, len(incoming))
+	var latestAssistantReference *imagegen.ReferenceImage
+	var finalUserReference *imagegen.ReferenceImage
+	var totalReferencePixels int64
 	for i, rawMessage := range incoming {
 		var message struct {
 			Role    string     `json:"role"`
@@ -404,54 +499,86 @@ func parseGenerationMessages(raw json.RawMessage, field string, responses bool) 
 		}
 		if err := strictUnmarshal(rawMessage, &message); err != nil {
 			if strings.Contains(err.Error(), "unknown field") {
-				return nil, unsupportedParameter(fmt.Sprintf("%s contains an unsupported parameter", field))
+				return nil, nil, unsupportedParameter(fmt.Sprintf("%s contains an unsupported parameter", field))
 			}
-			return nil, fmt.Errorf("%s[%d] is not a valid message", field, i)
+			return nil, nil, fmt.Errorf("%s[%d] is not a valid message", field, i)
 		}
 		role := message.Role
 		if role == "developer" {
 			role = "system"
 		}
 		if role != "system" && role != "user" && role != "assistant" {
-			return nil, fmt.Errorf("%s[%d]: unsupported role %q", field, i, message.Role)
+			return nil, nil, fmt.Errorf("%s[%d]: unsupported role %q", field, i, message.Role)
 		}
 		if message.Type != "" && (message.Type != "message" || role != "assistant") {
-			return nil, fmt.Errorf("%s[%d]: unsupported item type %q", field, i, message.Type)
+			return nil, nil, fmt.Errorf("%s[%d]: unsupported item type %q", field, i, message.Type)
 		}
 		if message.Status != "" && message.Status != "completed" {
-			return nil, fmt.Errorf("%s[%d]: unsupported status %q", field, i, message.Status)
+			return nil, nil, fmt.Errorf("%s[%d]: unsupported status %q", field, i, message.Status)
 		}
-		content, err := parseGenerationContent(message.Content, role, responses)
+		content, contentReference, err := parseGenerationContent(message.Content, role, responses)
 		if err != nil {
-			return nil, fmt.Errorf("%s[%d]: %w", field, i, err)
+			return nil, nil, fmt.Errorf("%s[%d]: %w", field, i, err)
+		}
+		if contentReference != nil {
+			// Every inline image is decoded and checked, including historical
+			// references that will not be sent to the provider. Bound their
+			// combined decoded dimensions just like the general image-input
+			// path; the request body limit alone does not bound decompressed
+			// pixel memory.
+			referencePixels := int64(contentReference.Width) * int64(contentReference.Height)
+			if referencePixels > MaxAggregateImagePixels-totalReferencePixels {
+				return nil, nil, imageLimitExceeded("image references exceed the 24 megapixel total limit")
+			}
+			totalReferencePixels += referencePixels
+
+			// Every image is decoded and validated above, including historical
+			// user images. Only the final user image or the latest prior
+			// assistant image is attached to this generation request. This
+			// preserves full text context while keeping one provider reference.
+			if role == "system" {
+				return nil, nil, invalidImage("reference image is not supported in system content")
+			}
+			if i == len(incoming)-1 {
+				if role != "user" {
+					return nil, nil, invalidImage("reference image must be in the final user message or a prior assistant image replay")
+				}
+				finalUserReference = contentReference
+			} else if role == "assistant" {
+				latestAssistantReference = contentReference
+			}
 		}
 		out = append(out, reqMessage{Role: role, Content: content})
 	}
 	if out[len(out)-1].Role != "user" {
-		return nil, errors.New("the final message must have role \"user\"")
+		return nil, nil, errors.New("the final message must have role \"user\"")
 	}
-	return out, nil
+	if finalUserReference != nil {
+		return out, finalUserReference, nil
+	}
+	return out, latestAssistantReference, nil
 }
 
-func parseGenerationContent(raw rawContent, role string, responses bool) (string, error) {
+func parseGenerationContent(raw rawContent, role string, responses bool) (string, *imagegen.ReferenceImage, error) {
 	var text string
 	if err := json.Unmarshal(raw, &text); err == nil {
 		if strings.TrimSpace(text) == "" {
-			return "", errors.New("content must not be empty")
+			return "", nil, errors.New("content must not be empty")
 		}
-		return text, nil
+		return text, nil, nil
 	}
 	var parts []json.RawMessage
 	if err := strictUnmarshal(raw, &parts); err != nil || len(parts) == 0 {
-		return "", errors.New("content must be text or a nonempty array")
+		return "", nil, errors.New("content must be text or a nonempty array")
 	}
 	var output strings.Builder
+	var reference *imagegen.ReferenceImage
 	for _, rawPart := range parts {
 		var header struct {
 			Type string `json:"type"`
 		}
 		if err := json.Unmarshal(rawPart, &header); err != nil {
-			return "", errors.New("content parts must be objects")
+			return "", nil, errors.New("content parts must be objects")
 		}
 		switch header.Type {
 		case "text", "input_text", "output_text":
@@ -461,54 +588,93 @@ func parseGenerationContent(raw rawContent, role string, responses bool) (string
 				Annotations []json.RawMessage `json:"annotations,omitempty"`
 			}
 			if err := strictUnmarshal(rawPart, &part); err != nil || strings.TrimSpace(part.Text) == "" {
-				return "", errors.New("text content part is invalid")
+				return "", nil, errors.New("text content part is invalid")
 			}
 			output.WriteString(part.Text)
 		case "image_url":
-			if responses || role != "assistant" {
-				return "", unsupportedParameter("image generation accepts text history, not image input")
+			if responses || (role != "assistant" && role != "user") {
+				return "", nil, unsupportedParameter("image generation accepts image input only in user content or assistant image replay")
 			}
 			var part struct {
 				Type     string `json:"type"`
 				ImageURL struct {
 					URL string `json:"url"`
 				} `json:"image_url"`
-				Style            string                 `json:"style"`
-				Width            int                    `json:"width"`
-				Height           int                    `json:"height"`
-				SHA256           string                 `json:"sha256"`
-				NativeWidth      int                    `json:"native_width"`
-				NativeHeight     int                    `json:"native_height"`
-				OutputProcessing imagegen.OutputOptions `json:"output_processing"`
+				Style                string                 `json:"style"`
+				Width                int                    `json:"width"`
+				Height               int                    `json:"height"`
+				SHA256               string                 `json:"sha256"`
+				NativeWidth          int                    `json:"native_width"`
+				NativeHeight         int                    `json:"native_height"`
+				OutputProcessing     imagegen.OutputOptions `json:"output_processing"`
+				ReferenceImageSent   bool                   `json:"reference_image_sent"`
+				ReferenceImageSHA256 string                 `json:"reference_image_sha256"`
 			}
-			if err := strictUnmarshal(rawPart, &part); err != nil || !strings.HasPrefix(part.ImageURL.URL, "data:image/png;base64,") {
-				return "", errors.New("replayed generated image part is invalid")
+			if err := strictUnmarshal(rawPart, &part); err != nil {
+				return "", nil, errors.New("replayed generated image part is invalid")
 			}
+			parsed, err := parseReferenceDataURL(part.ImageURL.URL)
+			if err != nil {
+				return "", nil, err
+			}
+			if reference != nil {
+				return "", nil, invalidImage("image generation accepts at most one reference image")
+			}
+			reference = parsed
 		case "output_image":
 			if !responses || role != "assistant" {
-				return "", unsupportedParameter("image generation accepts text history, not image input")
+				return "", nil, unsupportedParameter("image generation accepts output image replay only in assistant content")
 			}
 			var part struct {
-				Type             string                 `json:"type"`
-				Base64           string                 `json:"b64_json"`
-				MIMEType         string                 `json:"mime_type"`
-				Style            string                 `json:"style"`
-				Width            int                    `json:"width"`
-				Height           int                    `json:"height"`
-				SHA256           string                 `json:"sha256"`
-				NativeWidth      int                    `json:"native_width"`
-				NativeHeight     int                    `json:"native_height"`
-				OutputProcessing imagegen.OutputOptions `json:"output_processing"`
+				Type                 string                 `json:"type"`
+				Base64               string                 `json:"b64_json"`
+				MIMEType             string                 `json:"mime_type"`
+				Style                string                 `json:"style"`
+				Width                int                    `json:"width"`
+				Height               int                    `json:"height"`
+				SHA256               string                 `json:"sha256"`
+				NativeWidth          int                    `json:"native_width"`
+				NativeHeight         int                    `json:"native_height"`
+				OutputProcessing     imagegen.OutputOptions `json:"output_processing"`
+				ReferenceImageSent   bool                   `json:"reference_image_sent"`
+				ReferenceImageSHA256 string                 `json:"reference_image_sha256"`
 			}
-			if err := strictUnmarshal(rawPart, &part); err != nil || part.MIMEType != "image/png" || part.Base64 == "" {
-				return "", errors.New("replayed generated image part is invalid")
+			if err := strictUnmarshal(rawPart, &part); err != nil || part.Base64 == "" {
+				return "", nil, errors.New("replayed generated image part is invalid")
 			}
+			parsed, err := parseReferenceBase64(part.Base64, part.MIMEType)
+			if err != nil {
+				return "", nil, err
+			}
+			if reference != nil {
+				return "", nil, invalidImage("image generation accepts at most one reference image")
+			}
+			reference = parsed
+		case "input_image":
+			if !responses || role != "user" {
+				return "", nil, unsupportedParameter("image generation accepts input image only in the final user content")
+			}
+			var part struct {
+				Type     string `json:"type"`
+				ImageURL string `json:"image_url"`
+			}
+			if err := strictUnmarshal(rawPart, &part); err != nil {
+				return "", nil, errors.New("input image part is invalid")
+			}
+			parsed, err := parseReferenceDataURL(part.ImageURL)
+			if err != nil {
+				return "", nil, err
+			}
+			if reference != nil {
+				return "", nil, invalidImage("image generation accepts at most one reference image")
+			}
+			reference = parsed
 		default:
-			return "", fmt.Errorf("unsupported content part type %q", header.Type)
+			return "", nil, fmt.Errorf("unsupported content part type %q", header.Type)
 		}
 	}
 	if strings.TrimSpace(output.String()) == "" {
-		return "", errors.New("content requires text; generated pixels alone have no conversation memory")
+		return "", nil, errors.New("content requires text; generated pixels alone have no conversation memory")
 	}
-	return output.String(), nil
+	return output.String(), reference, nil
 }

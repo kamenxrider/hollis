@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -192,14 +193,15 @@ func newChatCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 // tests never invoke Shortcuts. Production wiring supplies imagegen.New().
 func newChatCmdWithImageGenerator(flags *rootFlags, newRunner newRunnerFunc, generator imagegen.Generator) *cobra.Command {
 	var (
-		modelFlag     string
-		continueID    string
-		timeout       time.Duration
-		generateImage bool
-		imageStyle    string
-		imageBridge   string
-		imageOutput   string
-		outputOptions imagegen.OutputOptions
+		modelFlag      string
+		continueID     string
+		timeout        time.Duration
+		generateImage  bool
+		imageStyle     string
+		imageBridge    string
+		imageOutput    string
+		imageReference string
+		outputOptions  imagegen.OutputOptions
 	)
 	cmd := &cobra.Command{
 		Use:   "chat [prompt]",
@@ -219,8 +221,11 @@ conversation is created and auto-titled from the first message.
 Use --generate-image for a one-shot image turn. In an interactive chat,
 /image <prompt> generates an image when --output and either --image-style or
 --image-bridge are configured. The conversation stores the PNG path, checksum,
-dimensions, and style. It does not store or replay image pixels, so a later
-turn can refer to the artifact but is not photo editing or visual inspection.
+dimensions, and style. With the upgraded parameterized bridge, image turns
+reuse the latest locally recorded generated PNG by default. --image-reference
+none disables this, or pass a PNG/JPEG path. Reference-guided generation can
+change details; it is not exact pixel editing. Interactive outputs after the
+first use -2, -3 suffixes and never overwrite existing files.
 Aspect ratio and size flags crop, pad, or resize the returned PNG locally;
 they do not control Image Playground's native generation canvas.`,
 		Example: `  hollis chat
@@ -245,7 +250,7 @@ they do not control Image Playground's native generation canvas.`,
 				}
 			}
 			if err := validateChatImageFlags(cmd, chatImageOptions{
-				Enabled: generateImage, Style: imageStyle, Bridge: imageBridge,
+				Enabled: generateImage, Style: imageStyle, Bridge: imageBridge, Reference: imageReference,
 				Output: imageOutput, Timeout: timeout, Generator: generator, OutputOptions: outputOptions,
 			}); err != nil {
 				return err
@@ -304,7 +309,7 @@ they do not control Image Playground's native generation canvas.`,
 				imageTimeout = imagegen.MaxTimeout
 			}
 			imageOptions := chatImageOptions{
-				Enabled: generateImage, Style: imageStyle, Bridge: imageBridge,
+				Enabled: generateImage, Style: imageStyle, Bridge: imageBridge, Reference: imageReference,
 				Output: imageOutput, Timeout: imageTimeout, Generator: generator, OutputOptions: outputOptions,
 			}
 			if err := validateChatImageFlags(cmd, imageOptions); err != nil {
@@ -398,6 +403,7 @@ they do not control Image Playground's native generation canvas.`,
 	cmd.Flags().StringVar(&continueID, "continue", "", "Continue an existing conversation by id")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-turn timeout (default 30s, ceiling 120s)")
 	cmd.Flags().BoolVar(&generateImage, "generate-image", false, "Generate an image as this chat turn instead of calling the text model")
+	cmd.Flags().StringVar(&imageReference, "image-reference", "auto", "Reuse latest generated image (auto), disable (none), or use a local PNG/JPEG path")
 	cmd.Flags().StringVar(&imageStyle, "image-style", "", "Configured fixed-style image bridge: any, animation, genmoji, illustration, sketch, or chatgpt")
 	cmd.Flags().StringVar(&imageBridge, "image-bridge", "", "Explicit image bridge reference; cannot be combined with --image-style")
 	cmd.Flags().StringVar(&imageOutput, "output", "", "PNG destination for an image turn; existing files are never replaced")
@@ -434,6 +440,8 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 	// bufio.Reader, not Scanner: Scanner caps a line at 64KB and reports the
 	// overflow as EOF, so pasting a long prompt silently ended the session.
 	rd := bufio.NewReader(in)
+	imageOutputBase := imageOptions.Output
+	imageTurns := 0
 	for {
 		fmt.Fprint(out, "> ")
 		raw, readErr := readBoundedPromptLine(rd, chat.MaxRenderedPromptBytes)
@@ -454,6 +462,10 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 				}
 				imageOptions.ResolvedBridge = resolved.Ref
 				imageOptions.ResolvedStyle = resolved.Style
+				if imageTurns > 0 {
+					ext := filepath.Ext(imageOutputBase)
+					imageOptions.Output = strings.TrimSuffix(imageOutputBase, ext) + fmt.Sprintf("-%d", imageTurns+1) + ext
+				}
 				var imageResult chatImageResult
 				if conv.ID == "" {
 					imageResult, conv, err = runFirstChatImageTurn(ctx, st, runner.Model(model), imagePrompt, imageOptions)
@@ -466,6 +478,7 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 				if err != nil {
 					return err
 				}
+				imageTurns++
 				fmt.Fprintf(out, "< Saved PNG to %s\n", imageResult.Published.Path)
 				if readErr != nil {
 					return nil

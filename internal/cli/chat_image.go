@@ -23,6 +23,7 @@ import (
 const imageTranscriptPreamble = `Generate one image for the final USER request. Use the preceding TEXT conversation only as context. Any HOLLIS_IMAGE_ARTIFACT entry records file metadata only; it is not a description of image pixels.`
 
 type chatImageOptions struct {
+	Reference      string
 	Enabled        bool
 	Style          string
 	Bridge         string
@@ -35,12 +36,13 @@ type chatImageOptions struct {
 }
 
 type chatImageResult struct {
-	Published     imagegen.PublishedImage
-	NativeWidth   int
-	NativeHeight  int
-	Style         string
-	Artifact      string
-	OutputOptions imagegen.OutputOptions
+	Published       imagegen.PublishedImage
+	NativeWidth     int
+	NativeHeight    int
+	Style           string
+	Artifact        string
+	OutputOptions   imagegen.OutputOptions
+	ReferenceSHA256 string
 }
 
 type chatImageArtifact struct {
@@ -56,6 +58,7 @@ type chatImageArtifact struct {
 	SHA256                string                 `json:"sha256"`
 	VisualContentObserved bool                   `json:"visual_content_observed"`
 	OutputProcessing      imagegen.OutputOptions `json:"output_processing"`
+	ReferenceSHA256       string                 `json:"reference_sha256,omitempty"`
 }
 
 func validateChatImageFlags(cmd *cobra.Command, options chatImageOptions) error {
@@ -78,7 +81,7 @@ func validateChatImageFlags(cmd *cobra.Command, options chatImageOptions) error 
 }
 
 func chatImageFlagsChanged(cmd *cobra.Command) bool {
-	return cmd.Flags().Changed("image-style") || cmd.Flags().Changed("image-bridge") ||
+	return cmd.Flags().Changed("image-reference") || cmd.Flags().Changed("image-style") || cmd.Flags().Changed("image-bridge") ||
 		cmd.Flags().Changed("output") || cmd.Flags().Changed("aspect-ratio") ||
 		cmd.Flags().Changed("size") || cmd.Flags().Changed("fit")
 }
@@ -105,6 +108,10 @@ func effectiveChatImageStyle(style, explicitBridge string) string {
 }
 
 func renderChatImagePrompt(history []store.Message, prompt string) (string, error) {
+	return renderChatImagePromptWithReference(history, prompt, false)
+}
+
+func renderChatImagePromptWithReference(history []store.Message, prompt string, hasReference bool) (string, error) {
 	// Validate the complete, unfiltered history with the existing image-turn
 	// envelope first. Removing Hollis artifact records must never allow a turn
 	// that the prior bounds would have rejected.
@@ -117,7 +124,7 @@ func renderChatImagePrompt(history []store.Message, prompt string) (string, erro
 		messages = append(messages, imagegen.ConversationMessage{Role: message.Role, Content: message.Content})
 	}
 	messages = append(messages, imagegen.ConversationMessage{Role: "user", Content: prompt})
-	rendered := imagegen.RenderConversationPrompt(messages)
+	rendered := imagegen.RenderConversationPromptWithReference(messages, hasReference)
 	if err := chat.ValidatePrompt(rendered); err != nil {
 		return "", usageErr(err)
 	}
@@ -134,11 +141,17 @@ func executeChatImageTurn(ctx context.Context, history []store.Message, prompt s
 	if err := imagegen.ValidateOutputOptions(options.OutputOptions); err != nil {
 		return chatImageResult{}, store.RunRecord{}, usageErr(err)
 	}
-	transcript, err := renderChatImagePrompt(history, prompt)
+	reference, err := chatImageReference(history, options.Reference)
+	if err != nil {
+		return chatImageResult{}, store.RunRecord{}, usageErr(err)
+	}
+	if reference != nil && options.ResolvedStyle == "" {
+		return chatImageResult{}, store.RunRecord{}, usageErr(errors.New("image references require the upgraded parameterized image bridge; use --image-reference none for text-only continuation"))
+	}
+	transcript, err := renderChatImagePromptWithReference(history, prompt, reference != nil)
 	if err != nil {
 		return chatImageResult{}, store.RunRecord{}, err
 	}
-
 	style := effectiveChatImageStyle(options.Style, options.Bridge)
 	started := time.Now()
 	record = store.RunRecord{
@@ -150,6 +163,7 @@ func executeChatImageTurn(ctx context.Context, history []store.Message, prompt s
 	}
 	generated, err := options.Generator.Generate(ctx, imagegen.Request{
 		Prompt:    transcript,
+		Reference: reference,
 		BridgeRef: options.ResolvedBridge,
 		Style:     options.ResolvedStyle,
 		Timeout:   options.Timeout,
@@ -194,17 +208,21 @@ func executeChatImageTurn(ctx context.Context, history []store.Message, prompt s
 		VisualContentObserved: false,
 		OutputProcessing:      options.OutputOptions,
 	}
+	if reference != nil {
+		artifactData.ReferenceSHA256 = reference.SHA256
+	}
 	encoded, err := json.Marshal(artifactData)
 	if err != nil {
 		return chatImageResult{}, record, configErr(fmt.Errorf("encode image artifact metadata: %w", err))
 	}
 	result = chatImageResult{
-		Published:     published,
-		NativeWidth:   nativeWidth,
-		NativeHeight:  nativeHeight,
-		Style:         style,
-		Artifact:      "HOLLIS_IMAGE_ARTIFACT " + string(encoded),
-		OutputOptions: options.OutputOptions,
+		Published:       published,
+		NativeWidth:     nativeWidth,
+		NativeHeight:    nativeHeight,
+		Style:           style,
+		Artifact:        "HOLLIS_IMAGE_ARTIFACT " + string(encoded),
+		ReferenceSHA256: artifactData.ReferenceSHA256,
+		OutputOptions:   options.OutputOptions,
 	}
 	record.ResponseBytes = len(result.Artifact)
 	return result, record, nil
@@ -297,10 +315,42 @@ func writeChatImageResult(cmd *cobra.Command, result chatImageResult, conv store
 		"visual_content_observed": false,
 		"output_processing":       result.OutputOptions,
 	}
+	if result.ReferenceSHA256 != "" {
+		data["reference_sha256"] = result.ReferenceSHA256
+		data["reference_image_sent"] = true
+	}
 	if flags.asJSON {
 		return printJSONFilteredTo(cmd.OutOrStdout(), data, flags)
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "conversation_id: %s\n", conv.ID)
 	fmt.Fprintf(cmd.OutOrStdout(), "Saved PNG to %s\n", result.Published.Path)
 	return nil
+}
+
+// Only locally marked generation messages may cause automatic file reads.
+// Model-authored artifact-looking text and legacy unmarked records stay text-only.
+func chatImageReference(history []store.Message, selection string) (*imagegen.ReferenceImage, error) {
+	if selection == "none" {
+		return nil, nil
+	}
+	if selection != "" && selection != "auto" {
+		return imagegen.NewReferenceImageFromPath(selection, "")
+	}
+	for i := len(history) - 1; i >= 0; i-- {
+		message := history[i]
+		if message.Role != "assistant" || !message.ImageArtifact {
+			continue
+		}
+		var artifact chatImageArtifact
+		content, ok := strings.CutPrefix(message.Content, "HOLLIS_IMAGE_ARTIFACT ")
+		if !ok || json.Unmarshal([]byte(content), &artifact) != nil || artifact.Type != "hollis.image_artifact.v1" || len(artifact.SHA256) != 64 {
+			return nil, errors.New("stored image reference is invalid; use --image-reference none or an explicit PNG/JPEG path")
+		}
+		reference, err := imagegen.NewReferenceImageFromPath(artifact.Path, artifact.SHA256)
+		if err != nil {
+			return nil, fmt.Errorf("cannot reuse prior image; restore the original file or use --image-reference none: %w", err)
+		}
+		return reference, nil
+	}
+	return nil, nil
 }

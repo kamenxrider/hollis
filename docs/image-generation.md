@@ -4,69 +4,83 @@ Hollis can save one generated PNG using an explicit Image Playground Shortcut.
 This is an experimental, optional CLI and HTTP feature. It is separate from the four
 text/image-understanding model tiers and requires its own Shortcut.
 
-## Setup: one parameterized Shortcut
+## Setup: generated parameterized Shortcut
 
-The preferred setup uses one Shortcut for every style. Create **Hollis Image -
-Unified Probe** with the following actions, in this order:
-
-1. Receive **Text and Rich Text**, with no-input behavior **Continue**.
-2. **Get Dictionary Value**: get `prompt` from **Shortcut Input**.
-3. **Set Variable**: set **Prompt** to that Dictionary Value.
-4. **Get Dictionary Value**: get `style` from **Shortcut Input** again.
-5. **Create Image**: Description = **Prompt**, Style = the second **Dictionary
-   Value**, Photo empty, Save to Playground = **Never**.
-6. **Stop and Output**: output **Image**, fallback **Do Nothing**.
-
-Configure this once:
+The reference-capable setup uses one parameterized Shortcut for every style.
+From a Hollis source checkout, generate and sign the source with the repository
+script:
 
 ```sh
-hollis config set image-bridge "Hollis Image - Unified Probe"
+BRIDGE_DIR="$(mktemp -d)"
+python3 scripts/make-image-bridge.py "$BRIDGE_DIR"
+shortcuts sign --mode anyone \
+  --input "$BRIDGE_DIR/Hollis Image - Reference Input v2.shortcut" \
+  --output "$BRIDGE_DIR/Hollis Image - Reference Input v2.signed.shortcut"
+open "$BRIDGE_DIR/Hollis Image - Reference Input v2.signed.shortcut"
+```
+
+In Shortcuts, choose **Add Shortcut** when prompted. The imported Shortcut is
+named **Hollis Image - Reference Input v2**. Configure that exact name:
+
+```sh
+hollis config set image-bridge "Hollis Image - Reference Input v2"
 hollis image generate "A blue square on white" --style sketch --output square.png
 ```
 
-Hollis sends a JSON object containing `prompt` and `style`. It maps its style
-IDs to the native display values (for example `sketch` becomes `Sketch`). The
-first live feasibility checks passed Animation and Sketch through the same
-unchanged Shortcut, and visual inspection found the expected distinct styles.
-The repeated suite is the source of broader runtime evidence.
+The Receive section configures Text and Rich Text input with no-input behavior
+Continue; it is not a separate action. The generated actions are:
 
-The current Mac rejected ChatGPT-style generation with the same immediate
-Apple error through both the JSON bridge and a fixed-style comparison. This
-style is configurable but is not live-qualified here. An Any Style repeat
-also received an Apple prompt rejection after the same prompt had succeeded.
-Later realistic scenes passed Any Style twice as well as Animation, Genmoji,
-Illustration and Sketch twice each; ChatGPT still rejected a realistic scene.
-Hollis preserves such failures and does not retry automatically.
+1. **Get Dictionary Value** for `prompt` from **Shortcut Input**.
+2. **Set Variable** to **Prompt**.
+3. **Get Dictionary Value** for `style` from **Shortcut Input**.
+4. **Get Dictionary Value** for `reference_base64` from **Shortcut Input**.
+5. **Base64 Encode** set to **Decode**, using that reference value.
+6. **Get Images from Input**, consuming the decoded bytes.
+7. **Create Image**: Description = **Prompt**, Style = the style value,
+   Photo = **Images**, Save to Playground = **Never**.
+8. **Stop and Output**: output **Image**, fallback **Do Nothing**.
 
-A later photographic probe generated a landscape and portrait through Any
-Style, but both remained visibly animated 3D. The exact landscape prompt
-succeeded photorealistically after selecting ChatGPT in the native Image
-Playground app, while Shortcuts ChatGPT rejected it. This narrows the observed
-failure to the tested Shortcuts path; it does not prove the cause or a CLI
-workaround. Adding a Photo reference did not repair ChatGPT through Shortcuts.
+Hollis sends `prompt`, the native style label, and an optional raw
+`reference_base64` value. It maps IDs such as `sketch` to labels such as
+`Sketch`. When no reference is supplied, the optional field is omitted. The
+source generator also writes a separate ChatGPT diagnostic Shortcut; it is for
+the scoped investigation below, not the production bridge.
 
-A separate copy of the unified probe, with Photo fixed to a previously
-generated turtle PNG, passed two revision-only requests. Both preserved the
-turtle, gears and miniature greenhouse while changing the background. This
-proves reference-image feasibility in the action; Hollis does not yet accept
-dynamic reference-image input through the CLI or API. The production setup
-above still leaves Photo empty.
+The signed reference bridge was imported and exercised on the already
+authorized macOS 27.0 build `26A5425a`. The complete qualification produced 52
+valid images across diagnostic and acceptance runs, with at least three
+seconds from completion to the next generation. All five working styles
+(Any Style, Animation, Genmoji, Illustration, Sketch) were exercised with and
+without references, including PNG/JPEG and local crop/pad processing.
 
-Live API attempts also encountered Apple's “This shortcut requires your Mac to
-be unlocked” error. A later realistic-prompt run completed two standalone API requests and an
-initial CLI conversation image successfully; the session error did not recur
-in those requests. The initially rejected CLI follow-up subsequently passed
-after Hollis removed its artifact metadata and general chat instructions from
-the image prompt. One two-turn conversation also passed through each HTTP
-endpoint with the revised renderer. These are bounded live checks: a Responses
-follow-up changed the setting but omitted the miniature greenhouse from the
-turtle shell. Text replay does not guarantee visual continuity. Interactive
-image turns and broader conversation coverage remain unqualified. The
-console-lock flag alone is not sufficient proof that the action can execute.
-The exact observed native diagnostic now produces API HTTP 409 with code
-`image_session_locked`, and actionable CLI guidance. Unknown/localized native
-diagnostics retain the generic failure path; no session manipulation or
-automatic retry is performed.
+Earlier conversation prompt formats sometimes ignored a new scene or lost a
+subject. The final renderer puts the newest revision first while retaining
+earlier subject and text context. All nine final images passed visual review:
+three-turn interactive chat, Chat Completions, and Responses each retained
+the intended subjects and applied the requested scene changes. Reference
+metadata and checksums also matched. This is bounded visual and transport
+evidence, not proof of exact identity retention or backend pixel conditioning.
+Any Style has not reliably honored photographic prompts. Hollis preserves
+provider failures and does not retry or silently substitute a style.
+
+The current ChatGPT result has a narrower, definite scope. A dated investigation
+on macOS 27.0 build `26A5425a` reproduced the failure through a fixed bridge, the
+parameterized bridge, native Shortcuts, and a fresh extension process. Apple's
+`GenerativePlaygroundAppIntents` extension selected ChatGPT but hit a sandbox
+denial reading its Shortcuts ToolKit database (`SQLite error 23`) before
+inference. Native Image Playground generated the same kind of request
+successfully. Do not advertise ChatGPT through this installed Shortcuts route
+on this host, retry prompts, or silently substitute another provider. This does
+not prove that every future macOS or Shortcuts build is impossible; requalify
+after a supported Apple route or OS fix.
+
+Earlier API attempts also exposed Apple's “This shortcut requires your Mac to
+be unlocked” diagnostic. The later paced acceptance pass completed all listed
+API generations through the imported reference bridge. The API and CLI still
+return actionable `image_session_locked` errors for that exact native
+diagnostic, without session manipulation or automatic retry. The final
+conversation rerun passed transport, checksum, and bounded visual checks as
+described above.
 
 ## Legacy fixed-style setup
 
@@ -93,8 +107,8 @@ remove its stale Response variable and select the Image output instead.
 First-run permissions may require your attention. Hollis does not grant
 permissions, sign into an account, or answer dialogs. `--no-input` prevents
 Hollis terminal prompts; it cannot prevent a chosen Shortcut or macOS from
-showing UI. Review and complete required setup in Shortcuts before relying on
-unattended invocation. Fresh imports and other macOS builds remain unverified.
+showing UI. The generated reference bridge was imported on the already
+authorized test Mac; first-ever permissions and a new Mac remain untested.
 The standard release bridge bundle and `doctor` cover the four model bridges;
 they do not install or validate this optional image Shortcut.
 
@@ -142,10 +156,13 @@ process group, not the shared Shortcuts application or a remote inference job.
 `--agent` wraps these in the normal agent envelope; `--select` works as on
 other data commands. The CLI prints metadata, never binary image bytes.
 
-Only PNG is currently accepted (16 MiB, 16 million pixels maximum). These are
-Hollis validation limits. No native resolution/aspect-ratio/seed parameter or
-exact Apple model identifier is exposed by the tested Shortcut. Photo input
-and pixel editing are not implemented yet.
+Generated output is currently accepted as PNG up to 16 MiB and 16 million
+pixels. These are Hollis validation limits. Reference inputs are separate:
+they may be PNG or JPEG up to 4 MiB and 16 megapixels; see
+[image references](image-references.md) for the CLI, chat, and API contracts.
+No native resolution/aspect-ratio/seed parameter or exact Apple model
+identifier is exposed by the tested Shortcut. A reference can guide a new
+generation, but Hollis does not promise pixel-perfect editing.
 
 ## Output dimensions and aspect ratio
 
@@ -180,7 +197,8 @@ these native options are not controls supported by its Shortcuts transport.
 
 ## Images during CLI chat
 
-An explicit image request can use a chat's accumulated text context:
+An explicit image request can use a chat's accumulated text context and, by
+default, the latest trusted generated image as a reference:
 
 ```sh
 hollis chat "We are designing a lighthouse poster with a blue sky"
@@ -188,24 +206,30 @@ hollis chat --continue <id> --generate-image --image-style animation \
   --output poster.png "Generate the poster we discussed"
 hollis chat --continue <id> --generate-image --image-style animation \
   --output sunset.png "Now use a sunset sky"
+hollis chat --continue <id> --generate-image --image-style animation \
+  --image-reference none --output text-only.png "Start a fresh scene"
 ```
 
 In an interactive chat, configure `--image-style` (or `--image-bridge`) and
 `--output` when starting, then enter `/image Draw the scene we discussed`.
-The output is one fixed new path for that invocation; use a new invocation and
-path for another image. Output dimension options also work on chat image turns.
+With the default `--image-reference auto`, later `/image` turns use the latest
+trusted artifact. `--image-reference none` disables that reuse, and an explicit
+PNG/JPEG path selects a different reference. The output is one fixed new path
+for that invocation; Hollis appends `-2`, `-3`, and so on for later images and
+never overwrites an earlier one. Output dimension options also work on chat
+image turns.
 
 The conversation stores the generation request and a typed artifact record
-with path, style, dimensions and checksum. It does not store or re-read image
-pixels as context. Follow-up generation uses image-specific text context:
-recognized Hollis artifact metadata is excluded, while descriptions and revisions
-remain in order. A single prompt passes through verbatim. API replay recovers
-the original request from its generation record when the prior user message is
-absent. Other system/user/assistant text is preserved, and the original
-unfiltered limits still apply. This is not a pixel edit of the previous PNG.
-Normal text turns can continue in the same
-conversation. Every image needs a new destination, so a repeated command cannot
-silently overwrite an earlier image.
+with path, style, dimensions, and checksum. With a reference attached, Hollis
+puts the newest revision first, then includes earlier subject descriptions and
+text context with its own artifact metadata removed. Both the original history
+and the rendered prompt are checked against the input limits. This ordering
+avoids burying the newest change while retaining context for requests such as
+“keep the same subjects”. Without a reference, chronological text replay remains
+available. Reference input does not guarantee that the backend preserves every
+object or edits existing pixels. Normal text turns can continue in the same
+conversation. See [image references](image-references.md) for integrity and
+precedence rules.
 
 ## HTTP and API conversations
 
@@ -255,10 +279,16 @@ The response includes an image and a textual generation record. Include the
 conversation text and that record in a follow-up request to retain context.
 The server does not retain a conversation or previous image behind response
 IDs. Native pixel editing and `previous_response_id` are unsupported. Request
-bodies remain bounded to 8 MiB; retain the text record instead of accumulating
-base64 images in history. The complete generated assistant message is also accepted on an image-generation
-follow-up, although its pixels are ignored. For normal text turns, carry forward
-the text generation record without the image block. Streaming remains unsupported.
+bodies remain bounded to 8 MiB. A final-user image input wins; otherwise the
+latest replayed assistant image can be used as the one reference. On a
+reference turn, the full text history is validated and the newest revision is
+placed before earlier subject and text context. The stateless server does not
+store that conversation. With no reference, chronological text replay remains
+available. The complete generated assistant message is
+accepted for image follow-up when its image bytes pass validation. For normal
+text turns, carry forward the text generation record without the image block.
+See [image references](image-references.md) for exact inline and replay
+schemas. Streaming remains unsupported.
 
 ## Capabilities and evidence
 
@@ -267,8 +297,8 @@ the text generation record without the image block. Streaming remains unsupporte
 | Text to image | Two distinct prompts returned valid, visually matched PNGs without interaction on the tested Mac | Implemented |
 | Animation | Repeated direct generations and two fixed-photo reference probes succeeded | Tested configuration |
 | Any Style, Genmoji, Illustration, Sketch | Two realistic-scene generations per style succeeded | Tested configurations; Any Style did not honor photographic prompts in two later samples |
-| ChatGPT | Native app generated a realistic landscape; Shortcuts rejected the same prompt, and also failed with Photo | Configurable but not qualified through Hollis |
-| Photo reference | Two revision-only prompts succeeded with a fixed generated PNG in Photo | Feasibility proven; dynamic CLI/API file-input contract not implemented |
+| ChatGPT | Native app generated a realistic landscape; the fixed, parameterized, native-Shortcuts, and fresh-extension routes all hit Apple's pre-inference ToolKit database sandbox failure on the tested macOS 27 build | Scoped blocked on the tested host/build; not a universal impossibility claim |
+| Photo reference | Fixed-photo probes and the imported parameterized bridge delivered validated references through CLI, interactive, Chat Completions, Responses, and standalone API calls | Transport and bounded three-turn visual checks passed; exact pixel editing unproven |
 | Image editing, photorealism, varying aspect ratios/resolutions | Apple describes these capabilities for ADM 3 Cloud | Not proof they are controllable through this Shortcut |
 | Native Image Playground size options | Public native API documents them; ImageCreator initialization is unsupported on macOS 27+ | Not exposed through this transport |
 | Exact backend, model version, quota | Not reported by the tested path | Unknown; no invented selector or usage count |
@@ -288,4 +318,10 @@ describes ADM 3 Cloud's image capabilities. Hollis does not infer that a
 particular style uses ADM 3, that every model feature has a Shortcut parameter,
 or that ChatGPT in the style menu behaves like the text model tier.
 
-Remaining work includes the ChatGPT Shortcuts failure, fresh setup, full conversation/interactive qualification, and a dynamic reference-image bridge contract. Fixed-photo feasibility does not prove automatic attachment handling. Configuration and provider-free tests do not replace those runtime checks.
+Current-build qualification is complete for the working styles and the tested
+conversation paths. First-ever permission/new-Mac setup remains untested.
+The ChatGPT Image Playground Shortcut route is a confirmed platform blocker
+before inference on the tested macOS 27 build; do not silently substitute it.
+Reference attachment and bounded visual continuity checks passed, but exact
+identity, pixel editing, photorealism, and unseen prompts remain model-dependent.
+This remains an experimental, unreleased feature.

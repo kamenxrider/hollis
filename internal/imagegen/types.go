@@ -27,6 +27,14 @@ const (
 	// MaxPromptBytes bounds the UTF-8 prompt sent to a bridge.
 	MaxPromptBytes = 128 << 10
 
+	// MaxReferenceBase64Bytes bounds the raw base64 representation of one
+	// reference image in a parameterized bridge payload.
+	MaxReferenceBase64Bytes = ((MaxReferenceBytes + 2) / 3) * 4
+
+	// MaxBridgeInputBytes leaves room for the prompt and JSON framing while
+	// allowing one bounded reference image.
+	MaxBridgeInputBytes = MaxPromptBytes + MaxReferenceBase64Bytes + 256
+
 	// MaxOutputBytes bounds a generated PNG before it is decoded or returned.
 	MaxOutputBytes int64 = 16 << 20
 
@@ -49,8 +57,9 @@ type Request struct {
 	BridgeRef string
 	// Style selects the style in a parameterized JSON bridge. An empty Style
 	// preserves the legacy plain-text protocol used by fixed-style bridges.
-	Style   string
-	Timeout time.Duration
+	Style     string
+	Reference *ReferenceImage
+	Timeout   time.Duration
 }
 
 // StyleLabel validates a Hollis style ID and returns the exact label accepted
@@ -143,6 +152,7 @@ const (
 	KindUsage            ErrorKind = "usage"
 	KindEmptyPrompt      ErrorKind = "empty_prompt"
 	KindInvalidPrompt    ErrorKind = "invalid_prompt"
+	KindInvalidReference ErrorKind = "invalid_reference"
 	KindMissingBridge    ErrorKind = "missing_bridge"
 	KindTimeout          ErrorKind = "timeout"
 	KindCanceled         ErrorKind = "canceled"
@@ -161,6 +171,9 @@ var (
 	ErrEmptyPrompt = errors.New("image prompt is empty")
 	// ErrInvalidPrompt is returned for a prompt that is not valid UTF-8.
 	ErrInvalidPrompt = errors.New("image prompt is not valid UTF-8")
+	// ErrReferenceRequiresStyle is returned when a reference is supplied to
+	// the legacy plain-text bridge, which has no Photo input field.
+	ErrReferenceRequiresStyle = errors.New("image reference requires a parameterized style bridge")
 	// ErrMissingBridge is returned when no explicit bridge reference is given.
 	ErrMissingBridge = errors.New("image bridge reference is required")
 	// ErrTimeout marks a bounded deadline failure.
@@ -169,7 +182,7 @@ var (
 	ErrCanceled = errors.New("image generation canceled")
 	// ErrNonZeroExit marks a bridge process that did not complete successfully.
 	ErrNonZeroExit = errors.New("image bridge exited unsuccessfully")
-	// ErrSessionLocked marks the observed Shortcuts refusal while macOS is locked.
+	// ErrSessionLocked marks the observed Shortcuts unlocked-session requirement.
 	ErrSessionLocked = errors.New("Shortcuts requires an unlocked Mac session")
 	// ErrInvalidTimeout marks a non-positive configured timeout.
 	ErrInvalidTimeout = errors.New("image generation timeout must be positive")

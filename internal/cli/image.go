@@ -42,6 +42,7 @@ See docs/image-generation.md for the tested setup.`,
 
 func newImageGenerateCmd(flags *rootFlags, generator imagegen.Generator) *cobra.Command {
 	var (
+		referencePath string
 		bridge        string
 		style         string
 		output        string
@@ -101,10 +102,21 @@ answers a macOS permission dialog; --no-input does not suppress those dialogs.`,
 			if err != nil {
 				return err
 			}
+			var reference *imagegen.ReferenceImage
+			if referencePath != "" {
+				if resolved.Style == "" {
+					return usageErr(errors.New("reference images require the upgraded parameterized image bridge; configure image-bridge and use --style"))
+				}
+				reference, err = imagegen.NewReferenceImageFromPath(referencePath, "")
+				if err != nil {
+					return usageErr(err)
+				}
+			}
 			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			result, err := generator.Generate(runCtx, imagegen.Request{
 				Prompt:    args[0],
+				Reference: reference,
 				BridgeRef: resolved.Ref,
 				Style:     resolved.Style,
 				Timeout:   timeout,
@@ -134,7 +146,7 @@ answers a macOS permission dialog; --no-input does not suppress those dialogs.`,
 			}
 
 			if flags.asJSON {
-				return printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
+				data := map[string]any{
 					"path":         published.Path,
 					"format":       published.Format,
 					"bytes":        published.Bytes,
@@ -143,7 +155,12 @@ answers a macOS permission dialog; --no-input does not suppress those dialogs.`,
 					"checksum":     published.SHA256,
 					"native_width": nativeWidth, "native_height": nativeHeight,
 					"output_processing": outputOptions,
-				}, flags)
+				}
+				if reference != nil {
+					data["reference_image_sent"] = true
+					data["reference_sha256"] = reference.SHA256
+				}
+				return printJSONFilteredTo(cmd.OutOrStdout(), data, flags)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Saved PNG to %s\n", published.Path)
 			return nil
@@ -154,6 +171,7 @@ answers a macOS permission dialog; --no-input does not suppress those dialogs.`,
 	})
 	cmd.Flags().StringVar(&bridge, "bridge", "", "Explicit image bridge reference; mutually exclusive with --style")
 	cmd.Flags().StringVar(&style, "style", "", "Configured image style: any, animation (default), genmoji, illustration, sketch, chatgpt")
+	cmd.Flags().StringVar(&referencePath, "reference-image", "", "Local PNG/JPEG reference; requires the upgraded parameterized image bridge")
 	cmd.Flags().StringVar(&output, "output", "", "PNG destination; an existing file or symlink is never replaced")
 	cmd.Flags().StringVar(&outputOptions.AspectRatio, "aspect-ratio", "", "Output ratio W:H; requires --fit crop|pad (post-processing, not a model setting)")
 	cmd.Flags().StringVar(&outputOptions.Size, "size", "", "Output size WIDTHxHEIGHT; requires --fit crop|pad, mutually exclusive with --aspect-ratio")

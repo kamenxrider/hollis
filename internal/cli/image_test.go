@@ -250,3 +250,26 @@ func TestImageGenerateAcceptsMaximumTimeout(t *testing.T) {
 		t.Fatalf("timeout=%s, want %s", generator.request.Timeout, imagegen.MaxTimeout)
 	}
 }
+
+func TestImageGenerateReferenceMetadata(t *testing.T) {
+	stubConfigPath(t)
+	if err := saveConfig(config{ImageBridge: "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	reference, checksum := writeReferenceFlagPNG(t)
+	generator := newFakeImageGenerator(t)
+	cmd := newImageCmd(&rootFlags{asJSON: true}, generator)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"generate", "make it blue", "--style", "animation", "--reference-image", reference, "--output", filepath.Join(t.TempDir(), "blue.png")})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var data map[string]any
+	if err := json.Unmarshal(out.Bytes(), &data); err != nil {
+		t.Fatal(err)
+	}
+	if generator.request.Reference == nil || generator.request.Reference.SHA256 != checksum || data["reference_image_sent"] != true || data["reference_sha256"] != checksum {
+		t.Fatal("reference delivery metadata mismatch")
+	}
+}
