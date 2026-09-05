@@ -38,11 +38,30 @@ Later realistic scenes passed Any Style twice as well as Animation, Genmoji,
 Illustration and Sketch twice each; ChatGPT still rejected a realistic scene.
 Hollis preserves such failures and does not retry automatically.
 
+A later photographic probe generated a landscape and portrait through Any
+Style, but both remained visibly animated 3D. The exact landscape prompt
+succeeded photorealistically after selecting ChatGPT in the native Image
+Playground app, while Shortcuts ChatGPT rejected it. This narrows the observed
+failure to the tested Shortcuts path; it does not prove the cause or a CLI
+workaround. Adding a Photo reference did not repair ChatGPT through Shortcuts.
+
+A separate copy of the unified probe, with Photo fixed to a previously
+generated turtle PNG, passed two revision-only requests. Both preserved the
+turtle, gears and miniature greenhouse while changing the background. This
+proves reference-image feasibility in the action; Hollis does not yet accept
+dynamic reference-image input through the CLI or API. The production setup
+above still leaves Photo empty.
+
 Live API attempts also encountered Apple's “This shortcut requires your Mac to
 be unlocked” error. A later realistic-prompt run completed two standalone API requests and an
 initial CLI conversation image successfully; the session error did not recur
-in those requests. A CLI follow-up was still rejected. Successful follow-ups,
-API conversation generation and interactive image turns remain unqualified. The
+in those requests. The initially rejected CLI follow-up subsequently passed
+after Hollis removed its artifact metadata and general chat instructions from
+the image prompt. One two-turn conversation also passed through each HTTP
+endpoint with the revised renderer. These are bounded live checks: a Responses
+follow-up changed the setting but omitted the miniature greenhouse from the
+turtle shell. Text replay does not guarantee visual continuity. Interactive
+image turns and broader conversation coverage remain unqualified. The
 console-lock flag alone is not sufficient proof that the action can execute.
 The exact observed native diagnostic now produces API HTTP 409 with code
 `image_session_locked`, and actionable CLI guidance. Unknown/localized native
@@ -178,8 +197,13 @@ path for another image. Output dimension options also work on chat image turns.
 
 The conversation stores the generation request and a typed artifact record
 with path, style, dimensions and checksum. It does not store or re-read image
-pixels as context. Follow-up generation uses textual history; it is not a
-pixel edit of the previous PNG. Normal text turns can continue in the same
+pixels as context. Follow-up generation uses image-specific text context:
+recognized Hollis artifact metadata is excluded, while descriptions and revisions
+remain in order. A single prompt passes through verbatim. API replay recovers
+the original request from its generation record when the prior user message is
+absent. Other system/user/assistant text is preserved, and the original
+unfiltered limits still apply. This is not a pixel edit of the previous PNG.
+Normal text turns can continue in the same
 conversation. Every image needs a new destination, so a repeated command cannot
 silently overwrite an earlier image.
 
@@ -241,9 +265,10 @@ the text generation record without the image block. Streaming remains unsupporte
 | Capability | Evidence | Hollis status |
 | --- | --- | --- |
 | Text to image | Two distinct prompts returned valid, visually matched PNGs without interaction on the tested Mac | Implemented |
-| Animation | Used for both real tests | Tested configuration |
-| Any Style, Genmoji, Illustration, Sketch, ChatGPT | Visible in this Mac's Create Image Style menu on 2026-09-05 | Configurable routes implemented; live style behavior not yet exercised |
-| Photo reference | A Photo template field is visible in the action | No file-input contract implemented or tested |
+| Animation | Repeated direct generations and two fixed-photo reference probes succeeded | Tested configuration |
+| Any Style, Genmoji, Illustration, Sketch | Two realistic-scene generations per style succeeded | Tested configurations; Any Style did not honor photographic prompts in two later samples |
+| ChatGPT | Native app generated a realistic landscape; Shortcuts rejected the same prompt, and also failed with Photo | Configurable but not qualified through Hollis |
+| Photo reference | Two revision-only prompts succeeded with a fixed generated PNG in Photo | Feasibility proven; dynamic CLI/API file-input contract not implemented |
 | Image editing, photorealism, varying aspect ratios/resolutions | Apple describes these capabilities for ADM 3 Cloud | Not proof they are controllable through this Shortcut |
 | Native Image Playground size options | Public native API documents them; ImageCreator initialization is unsupported on macOS 27+ | Not exposed through this transport |
 | Exact backend, model version, quota | Not reported by the tested path | Unknown; no invented selector or usage count |
@@ -263,4 +288,4 @@ describes ADM 3 Cloud's image capabilities. Hollis does not infer that a
 particular style uses ADM 3, that every model feature has a Shortcut parameter,
 or that ChatGPT in the style menu behaves like the text model tier.
 
-The remaining live checks are all style variants, fresh setup, API/chat invocation, and a synthetic photo-reference bridge. Configuration and provider-free tests do not replace those runtime checks.
+Remaining work includes the ChatGPT Shortcuts failure, fresh setup, full conversation/interactive qualification, and a dynamic reference-image bridge contract. Fixed-photo feasibility does not prove automatic attachment handling. Configuration and provider-free tests do not replace those runtime checks.

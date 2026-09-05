@@ -52,6 +52,37 @@ for attachment to the `v0.2.0` release.
 
 ## Unreleased local implementation evidence (2026-09-05)
 
+Latest image diagnostics add nine serial CLI attempts: six validated PNGs and
+three Apple rejections. Two photographic Any Style requests generated animated
+3D results, so they failed the visual photorealism objective. A native Image
+Playground ChatGPT submission produced a realistic landscape from the same
+prompt rejected through Shortcuts. That native app result was visually checked;
+it is not proof of a working Hollis ChatGPT route.
+
+A clean description-plus-revision prompt successfully reproduced the requested
+turtle scene change after the full CLI chat transcript had failed. Separately,
+a diagnostic copy of the unified Shortcut with the generated turtle PNG fixed
+in Photo passed two revision-only requests (greenhouse sunset and snowy forest).
+Those tests prove reference-image feasibility; dynamic CLI/API attachments are
+not yet implemented. ChatGPT with the Photo attachment still failed through
+Shortcuts. Calls were serial with at least 30 seconds between them. Earlier
+checkpoints and failures follow below; they are retained as historical evidence.
+
+The resulting shared image-context renderer omits Hollis artifact records and
+general chat boilerplate while preserving user revisions, other text and input
+limits. Five additional serial live requests passed: the exact previously failed
+CLI continuation, and an initial image plus follow-up through each HTTP endpoint.
+All PNGs were inspected. A Responses follow-up changed the setting but lost the
+miniature greenhouse on the turtle shell; successful generation is not proof of
+exact visual continuity. Total this diagnostic phase: 14 Shortcut attempts, 11
+PNGs and three rejections, plus one successful native app submission. Dynamic
+photo attachment and the Shortcuts ChatGPT route remain unresolved.
+
+Validation after the renderer change: `go test ./...`, focused race tests and
+`go vet` for imagegen/cli/server passed. Both Darwin architectures built; the
+ARM binary ran the five live requests. The Intel binary was built but not run.
+
+
 An isolated candidate adds UTF-8 instruction/document files and inline PNG/JPEG
 input for both HTTP model endpoints. The full Go race suite and `go vet ./...`
 passed after integration. Tests use injected runners and synthetic images;
