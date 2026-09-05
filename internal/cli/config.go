@@ -32,6 +32,8 @@ type config struct {
 	Bridges map[string]string `json:"bridges,omitempty"`
 	// ImageBridges maps explicit style choices to separately configured image Shortcuts.
 	ImageBridges map[string]string `json:"image_bridges,omitempty"`
+	// ImageBridge is one parameterized Shortcut accepting prompt and style as JSON.
+	ImageBridge string `json:"image_bridge,omitempty"`
 }
 
 // configPath is a package var so tests can point it at a temp dir.
@@ -97,6 +99,12 @@ func loadConfigAt(path string) (config, error) {
 }
 
 func validateConfig(c config) error {
+	if c.ImageBridge != "" {
+		ref := strings.TrimSpace(c.ImageBridge)
+		if ref == "" || strings.HasPrefix(ref, "-") || strings.ContainsRune(c.ImageBridge, '\x00') {
+			return errors.New("invalid parameterized image bridge reference")
+		}
+	}
 	if err := validateImageBridges(c.ImageBridges); err != nil {
 		return err
 	}
@@ -335,6 +343,7 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 					"default_model": c.DefaultModel,
 					"bridges":       bridgesForShow(c),
 					"image_bridges": c.ImageBridges,
+					"image_bridge":  c.ImageBridge,
 				}, flags)
 			}
 			w := cmd.OutOrStdout()
@@ -344,6 +353,9 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 				defaultModel = string(runner.ModelAuto) + " (built-in default)"
 			}
 			fmt.Fprintf(w, "default model: %s\n", defaultModel)
+			if c.ImageBridge != "" {
+				fmt.Fprintf(w, "image bridge (JSON): %s\n", c.ImageBridge)
+			}
 			for _, style := range imageStyles {
 				if ref, ok := c.ImageBridges[style]; ok {
 					fmt.Fprintf(w, "image style %-12s %s\n", style, ref)

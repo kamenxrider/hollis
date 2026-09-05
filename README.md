@@ -149,10 +149,11 @@ end in `.png`; existing files and symlinks are never overwritten. The parent
 folder must already exist. Output is private by default. JSON/agent output
 returns the saved path, format, bytes, dimensions and SHA-256 checksum.
 
-All six observed styles can be mapped to separate Shortcuts: `any`, `animation`,
-`genmoji`, `illustration`, `sketch`, and `chatgpt`. Use `hollis config set
-image-bridge <style> <shortcut-name>`, then `--style <style>`; `hollis image
-styles` shows the mappings. Only Animation has live generation evidence so far.
+One parameterized Shortcut can serve all six style IDs: `any`, `animation`,
+`genmoji`, `illustration`, `sketch`, and `chatgpt`. Configure it with
+`hollis config set image-bridge <shortcut-name>`, then use `--style <style>`.
+`hollis image styles` shows the routes. Existing per-style fixed Shortcut
+mappings remain supported. See the image-generation guide for live evidence.
 
 Explicit `--aspect-ratio W:H --fit crop|pad` or `--size WIDTHxHEIGHT --fit
 crop|pad` processes the output locally. These are not native model controls.

@@ -97,7 +97,7 @@ answers a macOS permission dialog; --no-input does not suppress those dialogs.`,
 				return toImageCLIError(err)
 			}
 
-			bridgeRef, err := resolveImageBridge(style, bridge)
+			resolved, err := resolveImageBridgeRequest(style, bridge)
 			if err != nil {
 				return err
 			}
@@ -105,7 +105,8 @@ answers a macOS permission dialog; --no-input does not suppress those dialogs.`,
 			defer stop()
 			result, err := generator.Generate(runCtx, imagegen.Request{
 				Prompt:    args[0],
-				BridgeRef: bridgeRef,
+				BridgeRef: resolved.Ref,
+				Style:     resolved.Style,
 				Timeout:   timeout,
 			})
 			if err != nil {

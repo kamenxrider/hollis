@@ -119,6 +119,25 @@ func TestImageGeneratePublishesVerifiedPNGWithJSONMetadata(t *testing.T) {
 	}
 }
 
+func TestImageGenerateUsesUnifiedJSONBridgeStyle(t *testing.T) {
+	stubConfigPath(t)
+	if err := saveConfig(config{ImageBridge: "Hollis Image Unified"}); err != nil {
+		t.Fatal(err)
+	}
+	generator := newFakeImageGenerator(t)
+	destination := filepath.Join(t.TempDir(), "sketch.png")
+	cmd := newImageCmd(&rootFlags{}, generator)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"generate", "A blue square", "--style", "sketch", "--output", destination})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if generator.calls != 1 || generator.request.BridgeRef != "Hollis Image Unified" || generator.request.Style != "sketch" {
+		t.Fatalf("request = %+v", generator.request)
+	}
+}
+
 func TestImageGeneratePreflightRejectsDestinationBeforeGeneratorCall(t *testing.T) {
 	generator := newFakeImageGenerator(t)
 	dir := t.TempDir()
