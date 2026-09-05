@@ -64,6 +64,16 @@ synthetic subprocess tests. The subprocess checks need host `ps` access; they
 passed with that access after the sandbox denied process inspection. No live
 mode was used for these checks.
 
+The same candidate also includes finite folder batches with private JSON
+manifests and response envelopes. The combined race suite and vet passed after
+integration. A public-command test uses the real local store and a fake model
+to verify plan/run/resume, call budgets, lifetime counts, no repeat of verified
+successes and refusal of corrupted results. Store tests cover collision
+preservation, source/result validation, process-backed lock exclusion and
+release after process death. Fault injection verifies recovery when a result
+was saved before the success manifest. Pacing is tested with fake clocks.
+No live batch model calls were made.
+
 Image generation remains separate research. Installed action metadata and fake
 PNG subprocess tests do not prove an exported image-generation Shortcut works
 unattended. It is not registered as a public command in this candidate.

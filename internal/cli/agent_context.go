@@ -173,7 +173,7 @@ func commandOutputModes(command *cobra.Command) []string {
 	switch command.CommandPath() {
 	case "hollis agent-context":
 		return []string{"json"}
-	case "hollis chats", "hollis completion", "hollis config", "hollis serve":
+	case "hollis batch", "hollis chats", "hollis completion", "hollis config", "hollis serve":
 		return []string{"human"}
 	default:
 		if command.Parent() != nil && command.Parent().CommandPath() == "hollis completion" {
@@ -187,6 +187,10 @@ func commandSideEffects(command *cobra.Command) []string {
 	switch command.CommandPath() {
 	case "hollis respond":
 		return []string{"invokes one Shortcut model run", "with --prompt-file or --file, reads local UTF-8 text files", "with --image, reads local image files and creates then removes a private temporary prompt file"}
+	case "hollis batch plan":
+		return []string{"reads local instruction and input files", "creates a private batch manifest and result directory without invoking a model"}
+	case "hollis batch run", "hollis batch resume":
+		return []string{"locks and updates the local batch manifest", "invokes bounded serial Shortcut model runs with the planned concrete model", "writes private result files", "creates and removes private temporary image copies"}
 	case "hollis chat":
 		return []string{"invokes Shortcut model runs", "writes local conversation state after successful turns"}
 	case "hollis chats rename":
