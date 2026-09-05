@@ -72,11 +72,27 @@ successes and refusal of corrupted results. Store tests cover collision
 preservation, source/result validation, process-backed lock exclusion and
 release after process death. Fault injection verifies recovery when a result
 was saved before the success manifest. Pacing is tested with fake clocks.
-No live batch model calls were made.
+No live batch model calls were made during that implementation checkpoint;
+the subsequent authorized smoke run is recorded below.
 
-Image generation remains separate research. Installed action metadata and fake
-PNG subprocess tests do not prove an exported image-generation Shortcut works
-unattended. It is not registered as a public command in this candidate.
+Image generation is now registered as the optional experimental `image generate`
+command in the combined candidate. Its actual Shortcuts transport completed two
+unattended Animation-style generations on macOS 27.0 build `26A5425a`: red circle
+and blue square, both visually matched 1024×1024 PNGs, in 7.3s and 5.5s. Those
+live calls exercised the command before root registration. Full-root command,
+agent output and no-call validation are separately checked with fake generators.
+The combined candidate also implements six explicit style mappings, local
+crop/pad/resize, CLI conversation image turns, `/v1/images/generations`, and
+explicit generation on both conversation endpoints. Full `go test -race ./...`
+and `go vet ./...` passed with fake providers. Darwin arm64 and amd64 builds
+passed. The live test is opt-in and skipped without authorization/environment.
+API/chat invocation and the remaining five styles have not been live-tested.
+See [setup and capability boundaries](docs/image-generation.md).
+
+The prior document, HTTP-image and batch candidate also passed 21 real requests
+across On-Device, Cloud, Cloud Pro and ChatGPT on this build. Completed batches
+resumed without additional attempts. These earlier smoke tests are not repeated
+by the provider-free suite and do not imply a measured failure rate or quota.
 
 ## Evidence matrix
 

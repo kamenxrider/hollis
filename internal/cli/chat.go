@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kamenxrider/hollis/internal/chat"
+	"github.com/kamenxrider/hollis/internal/imagegen"
 	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/kamenxrider/hollis/internal/store"
 	"github.com/spf13/cobra"
@@ -184,10 +185,21 @@ func fallbackReason(requested, used runner.Model, fallback runner.Fallback) stri
 }
 
 func newChatCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
+	return newChatCmdWithImageGenerator(flags, newRunner, nil)
+}
+
+// newChatCmdWithImageGenerator keeps the image transport injectable so package
+// tests never invoke Shortcuts. Production wiring supplies imagegen.New().
+func newChatCmdWithImageGenerator(flags *rootFlags, newRunner newRunnerFunc, generator imagegen.Generator) *cobra.Command {
 	var (
-		modelFlag  string
-		continueID string
-		timeout    time.Duration
+		modelFlag     string
+		continueID    string
+		timeout       time.Duration
+		generateImage bool
+		imageStyle    string
+		imageBridge   string
+		imageOutput   string
+		outputOptions imagegen.OutputOptions
 	)
 	cmd := &cobra.Command{
 		Use:   "chat [prompt]",
@@ -202,11 +214,20 @@ argument and a terminal stdin, starts an interactive session; blank lines are
 skipped and Ctrl-D ends it. --continue works in the interactive session too.
 
 Use --continue <id> to extend an existing conversation; otherwise a new
-conversation is created and auto-titled from the first message.`,
+conversation is created and auto-titled from the first message.
+
+Use --generate-image for a one-shot image turn. In an interactive chat,
+/image <prompt> generates an image when --output and either --image-style or
+--image-bridge are configured. The conversation stores the PNG path, checksum,
+dimensions, and style. It does not store or replay image pixels, so a later
+turn can refer to the artifact but is not photo editing or visual inspection.
+Aspect ratio and size flags crop, pad, or resize the returned PNG locally;
+they do not control Image Playground's native generation canvas.`,
 		Example: `  hollis chat
   hollis chat model cloud-pro "Two ideas for naming a CLI"
   hollis chat --continue <id> "And the downside?"
-  printf 'question' | hollis chat --continue <id>`,
+  printf 'question' | hollis chat --continue <id>
+  hollis chat --continue <id> --generate-image --image-style illustration --output scene.png "Draw that scene"`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := validateTimeout(cmd, timeout); err != nil {
 				return err
@@ -222,6 +243,12 @@ conversation is created and auto-titled from the first message.`,
 				if err := chat.ValidatePrompt(strings.Join(promptArgs, " ")); err != nil {
 					return usageErr(err)
 				}
+			}
+			if err := validateChatImageFlags(cmd, chatImageOptions{
+				Enabled: generateImage, Style: imageStyle, Bridge: imageBridge,
+				Output: imageOutput, Timeout: timeout, Generator: generator, OutputOptions: outputOptions,
+			}); err != nil {
+				return err
 			}
 			return nil
 		},
@@ -269,6 +296,23 @@ conversation is created and auto-titled from the first message.`,
 			if !interactive && strings.TrimSpace(prompt) == "" {
 				return usageErr(errors.New("empty prompt: give a prompt as an argument or pipe it via stdin"))
 			}
+			imageTimeout := timeout
+			if !cmd.Flags().Changed("timeout") {
+				imageTimeout = imagegen.MaxTimeout
+			}
+			imageOptions := chatImageOptions{
+				Enabled: generateImage, Style: imageStyle, Bridge: imageBridge,
+				Output: imageOutput, Timeout: imageTimeout, Generator: generator, OutputOptions: outputOptions,
+			}
+			if err := validateChatImageFlags(cmd, imageOptions); err != nil {
+				return err
+			}
+			if interactive && generateImage {
+				return usageErr(errors.New("--generate-image requires a prompt argument or piped stdin; in an interactive chat use /image <prompt>"))
+			}
+			if !interactive && !generateImage && chatImageFlagsChanged(cmd) {
+				return usageErr(errors.New("image flags on a one-shot chat require --generate-image"))
+			}
 
 			st, err := openStore()
 			if err != nil {
@@ -289,6 +333,26 @@ conversation is created and auto-titled from the first message.`,
 				}
 			}
 
+			if generateImage {
+				bridge, err := resolveImageBridge(imageStyle, imageBridge)
+				if err != nil {
+					return err
+				}
+				imageOptions.ResolvedBridge = bridge
+				if continueID != "" {
+					result, err := runChatImageTurn(cmd.Context(), st, conv, prompt, imageOptions)
+					if err != nil {
+						return err
+					}
+					return writeChatImageResult(cmd, result, conv, flags)
+				}
+				result, conv, err := runFirstChatImageTurn(cmd.Context(), st, m, prompt, imageOptions)
+				if err != nil {
+					return err
+				}
+				return writeChatImageResult(cmd, result, conv, flags)
+			}
+
 			// Runtime bridge resolution:
 			// explicit tiers refuse to run when their bridge did not resolve,
 			// and every turn's transport is retargeted at the resolved refs.
@@ -302,7 +366,7 @@ conversation is created and auto-titled from the first message.`,
 			useRunner := resolvedNewRunnerFunc(newRunner, resolved)
 
 			if interactive {
-				return runInteractiveChat(cmd.Context(), st, string(selectedModel), continueID, useRunner, timeout, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+				return runInteractiveChatWithImages(cmd.Context(), st, string(selectedModel), continueID, useRunner, timeout, imageOptions, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 			}
 			if continueID != "" {
 				result, err := runTurnResult(cmd.Context(), st, conv, prompt, useRunner, timeout)
@@ -329,6 +393,13 @@ conversation is created and auto-titled from the first message.`,
 	cmd.Flags().StringVar(&modelFlag, "model", string(runner.ModelAuto), "Model for a new conversation: auto (default: cloud first, on-device fallback), cloud, cloud-pro, on-device, or chatgpt (see hollis models)")
 	cmd.Flags().StringVar(&continueID, "continue", "", "Continue an existing conversation by id")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-turn timeout (default 30s, ceiling 120s)")
+	cmd.Flags().BoolVar(&generateImage, "generate-image", false, "Generate an image as this chat turn instead of calling the text model")
+	cmd.Flags().StringVar(&imageStyle, "image-style", "", "Configured fixed-style image bridge: any, animation, genmoji, illustration, sketch, or chatgpt")
+	cmd.Flags().StringVar(&imageBridge, "image-bridge", "", "Explicit image bridge reference; cannot be combined with --image-style")
+	cmd.Flags().StringVar(&imageOutput, "output", "", "PNG destination for an image turn; existing files are never replaced")
+	cmd.Flags().StringVar(&outputOptions.AspectRatio, "aspect-ratio", "", "Output ratio W:H; requires --fit crop|pad (local processing, not a model setting)")
+	cmd.Flags().StringVar(&outputOptions.Size, "size", "", "Output size WIDTHxHEIGHT; requires --fit crop|pad, mutually exclusive with --aspect-ratio")
+	cmd.Flags().StringVar(&outputOptions.Fit, "fit", "", "Explicit output processing: crop or pad; requires --aspect-ratio or --size")
 	return cmd
 }
 
@@ -341,6 +412,10 @@ conversation is created and auto-titled from the first message.`,
 // terminal silently opened a fresh conversation, so the flag looked like it
 // worked and quietly lost the thread the user asked for.
 func runInteractiveChat(ctx context.Context, st *store.Store, model, continueID string, newRunner newRunnerFunc, timeout time.Duration, in io.Reader, out, errOut io.Writer) error {
+	return runInteractiveChatWithImages(ctx, st, model, continueID, newRunner, timeout, chatImageOptions{}, in, out, errOut)
+}
+
+func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, continueID string, newRunner newRunnerFunc, timeout time.Duration, imageOptions chatImageOptions, in io.Reader, out, errOut io.Writer) error {
 	var conv store.Conversation
 	var err error
 	if continueID != "" {
@@ -362,6 +437,36 @@ func runInteractiveChat(ctx context.Context, st *store.Store, model, continueID 
 			return usageErr(readErr)
 		}
 		if line := strings.TrimSpace(raw); line != "" {
+			if imagePrompt, isImage := parseInteractiveImagePrompt(line); isImage {
+				if imagePrompt == "" {
+					return usageErr(errors.New("interactive /image requires a prompt"))
+				}
+				if strings.TrimSpace(imageOptions.Output) == "" {
+					return usageErr(errors.New("interactive /image requires chat --output and an image bridge or configured image style"))
+				}
+				bridge, resolveErr := resolveImageBridge(imageOptions.Style, imageOptions.Bridge)
+				if resolveErr != nil {
+					return resolveErr
+				}
+				imageOptions.ResolvedBridge = bridge
+				var imageResult chatImageResult
+				if conv.ID == "" {
+					imageResult, conv, err = runFirstChatImageTurn(ctx, st, runner.Model(model), imagePrompt, imageOptions)
+					if err == nil {
+						fmt.Fprintf(errOut, "conversation_id: %s\n", conv.ID)
+					}
+				} else {
+					imageResult, err = runChatImageTurn(ctx, st, conv, imagePrompt, imageOptions)
+				}
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "< Saved PNG to %s\n", imageResult.Published.Path)
+				if readErr != nil {
+					return nil
+				}
+				continue
+			}
 			var result turnResult
 			if conv.ID == "" {
 				result, conv, err = runFirstTurn(ctx, st, runner.Model(model), line, newRunner, timeout)

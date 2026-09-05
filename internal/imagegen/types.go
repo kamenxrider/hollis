@@ -1,11 +1,11 @@
 // Copyright 2026 kamenxrider and contributors. Licensed under Apache-2.0. See LICENSE.
 
-// Package imagegen contains the provider-free file-output transport for a
-// Shortcut that generates one PNG image.
+// Package imagegen contains the injectable file-output transport for a
+// Shortcut that generates one PNG image. Tests use synthetic subprocesses.
 //
-// The package intentionally stops at a verified, private staging file. It
-// does not publish to a user-selected destination, discover or install a
-// Shortcut, or claim that an image-generation bridge is available.
+// Generation returns a verified, private staging file. Separate helpers
+// process and publish it. The package does not discover or install a Shortcut,
+// or claim that an image-generation bridge is available.
 package imagegen
 
 import (
@@ -23,6 +23,9 @@ const (
 
 	// MaxTimeout is the hard per-request ceiling for image generation.
 	MaxTimeout = 120 * time.Second
+
+	// MaxPromptBytes bounds the UTF-8 prompt sent to a bridge.
+	MaxPromptBytes = 128 << 10
 
 	// MaxOutputBytes bounds a generated PNG before it is decoded or returned.
 	MaxOutputBytes int64 = 16 << 20

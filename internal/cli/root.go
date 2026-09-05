@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kamenxrider/hollis/internal/imagegen"
 	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -64,6 +65,11 @@ func NewRootCmd(newRunner newRunnerFunc) *cobra.Command {
 }
 
 func newRootCmdWithFlags(newRunner newRunnerFunc) (*cobra.Command, *rootFlags) {
+	return newRootCmdWithImageGenerator(newRunner, imagegen.New())
+}
+
+// newRootCmdWithImageGenerator keeps full-command tests independent of Shortcuts.
+func newRootCmdWithImageGenerator(newRunner newRunnerFunc, generator imagegen.Generator) (*cobra.Command, *rootFlags) {
 	var flags rootFlags
 	var showVersion bool
 	var helpRequested bool
@@ -76,7 +82,8 @@ hollis sends a prompt to Apple Intelligence (cloud, cloud-pro, on-device, or
 chatgpt) through a bridge shortcut invoked with /usr/bin/shortcuts, and
 returns plain text. Prompts come from arguments or stdin, so shell pipelines
 and agents drive it. Persistent chats are stored in local SQLite and replayed
-each turn.
+each turn. Image generation uses a separate explicit Shortcut and saves a PNG:
+run 'hollis image generate --help' for setup and limits.
 
 Model tiers: run 'hollis models' to see what resolves on this machine
 (cloud-pro is macOS 27+). Bridge shortcuts are resolved at runtime:
@@ -175,11 +182,12 @@ See README.md for recipes.`,
 
 	rootCmd.AddCommand(newRespondCmd(&flags, newRunner))
 	rootCmd.AddCommand(newBatchCmd(&flags, newRunner))
-	rootCmd.AddCommand(newChatCmd(&flags, newRunner))
+	rootCmd.AddCommand(newImageCmd(&flags, generator))
+	rootCmd.AddCommand(newChatCmdWithImageGenerator(&flags, newRunner, generator))
 	rootCmd.AddCommand(newChatsCmd(&flags, newRunner))
 	rootCmd.AddCommand(newModelsCmd(&flags, newRunner))
 	rootCmd.AddCommand(newConfigCmd(&flags, newRunner))
-	rootCmd.AddCommand(newServeCmd(&flags, newRunner))
+	rootCmd.AddCommand(newServeCmdWithImages(&flags, newRunner, generator))
 	rootCmd.AddCommand(newDoctorCmd(&flags, newRunner))
 	rootCmd.AddCommand(newAgentContextCmd(rootCmd))
 	rootCmd.AddCommand(newVersionCmd(&flags))
