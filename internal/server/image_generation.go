@@ -118,7 +118,11 @@ func (s *Server) handleChatImageGeneration(w http.ResponseWriter, r *http.Reques
 		writeRequestValidationError(w, err)
 		return
 	}
-	prompt := transcriptFrom(messages)
+	unfiltered := transcriptFrom(messages)
+	if !validatePrompt(w, unfiltered) {
+		return
+	}
+	prompt := renderImageGenerationConversation(messages)
 	if !validatePrompt(w, prompt) {
 		return
 	}
@@ -165,7 +169,11 @@ func (s *Server) handleResponsesImageGeneration(w http.ResponseWriter, r *http.R
 	if strings.TrimSpace(request.Instructions) != "" {
 		messages = append([]reqMessage{{Role: "system", Content: request.Instructions}}, messages...)
 	}
-	prompt := transcriptFrom(messages)
+	unfiltered := transcriptFrom(messages)
+	if !validatePrompt(w, unfiltered) {
+		return
+	}
+	prompt := renderImageGenerationConversation(messages)
 	if !validatePrompt(w, prompt) {
 		return
 	}
@@ -348,6 +356,16 @@ func generationMarker(image generatedImage, request string) string {
 		processing = fmt.Sprintf("local %s fit to size %s", image.OutputProcessing.Fit, image.OutputProcessing.Size)
 	}
 	return fmt.Sprintf("[Hollis generated an image for %q with style %s (native %dx%d, final %dx%d, %s, SHA-256 %s). The image pixels are included in this response but are not retained or reused; replay this text to preserve the generation record. A later request uses text context to generate a new image, not pixel editing.]", request, image.Style, image.NativeWidth, image.NativeHeight, image.Width, image.Height, processing, image.SHA256)
+}
+
+func renderImageGenerationConversation(messages []reqMessage) string {
+	conversation := make([]imagegen.ConversationMessage, 0, len(messages))
+	for _, message := range messages {
+		conversation = append(conversation, imagegen.ConversationMessage{
+			Role: message.Role, Content: message.Content,
+		})
+	}
+	return imagegen.RenderConversationPrompt(conversation)
 }
 
 func parseGenerationChatMessages(raw json.RawMessage) ([]reqMessage, error) {

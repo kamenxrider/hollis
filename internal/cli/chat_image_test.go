@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kamenxrider/hollis/internal/chat"
 	"github.com/kamenxrider/hollis/internal/imagegen"
 	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/kamenxrider/hollis/internal/store"
@@ -121,9 +122,13 @@ func TestChatImageTurnUsesTextHistoryAndPersistsHonestArtifact(t *testing.T) {
 	if calls != 1 || len(requests) != 1 {
 		t.Fatalf("generator calls=%d requests=%d, want 1", calls, len(requests))
 	}
-	for _, want := range []string{"The bicycle is red.", "Draw it beside a blue wall.", "TEXT conversation only", "not a description of image pixels"} {
-		if !strings.Contains(requests[0].Prompt, want) {
-			t.Fatalf("image prompt missing %q: %q", want, requests[0].Prompt)
+	wantPrompt := "USER:\nThe bicycle is red.\n\nASSISTANT:\nI will remember that text.\n\nUSER:\nDraw it beside a blue wall."
+	if requests[0].Prompt != wantPrompt {
+		t.Fatalf("image prompt = %q, want %q", requests[0].Prompt, wantPrompt)
+	}
+	for _, unwanted := range []string{"TEXT conversation only", "You are continuing an existing conversation", "Respond to the final USER message"} {
+		if strings.Contains(requests[0].Prompt, unwanted) {
+			t.Fatalf("image prompt contains text-chat instruction %q: %q", unwanted, requests[0].Prompt)
 		}
 	}
 
@@ -154,6 +159,53 @@ func TestChatImageTurnUsesTextHistoryAndPersistsHonestArtifact(t *testing.T) {
 		if !strings.Contains(echo.lastPrompt, want) {
 			t.Fatalf("follow-up transcript missing %q: %q", want, echo.lastPrompt)
 		}
+	}
+}
+
+func TestChatImageContinuationUsesCleanProvenRevisionPrompt(t *testing.T) {
+	st := openTempStore(t)
+	defer st.Close()
+	conv, err := st.CreateConversation("cloud", "clean image continuation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := "A small turtle beside a glass greenhouse."
+	revision := "Move the turtle inside the greenhouse."
+	artifact := `HOLLIS_IMAGE_ARTIFACT {"type":"hollis.image_artifact.v1","path":"/private/secret/turtle.png","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`
+	for _, message := range []struct{ role, content string }{
+		{"user", original}, {"assistant", artifact},
+	} {
+		if _, err := st.AppendMessage(conv.ID, message.role, message.content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	generator := &recordingImageGenerator{dir: t.TempDir()}
+	output := filepath.Join(t.TempDir(), "revision.png")
+	if _, err := runChatImageTurn(context.Background(), st, conv, revision, explicitChatImageOptions(generator, output)); err != nil {
+		t.Fatal(err)
+	}
+	_, _, requests := generator.snapshot()
+	want := "Original image description:\n" + original + "\n\nRequested revision:\n" + revision
+	if len(requests) != 1 || requests[0].Prompt != want {
+		t.Fatalf("requests = %+v, want prompt %q", requests, want)
+	}
+	if strings.Contains(requests[0].Prompt, "/private/secret") || strings.Contains(requests[0].Prompt, "aaaaaaaa") {
+		t.Fatalf("artifact metadata leaked: %q", requests[0].Prompt)
+	}
+}
+
+func TestRenderChatImagePromptKeepsUnfilteredLimits(t *testing.T) {
+	history := make([]store.Message, chat.MaxHistoryMessages-1)
+	for i := range history {
+		history[i] = store.Message{Role: "assistant", Content: `HOLLIS_IMAGE_ARTIFACT {"type":"hollis.image_artifact.v1"}`}
+	}
+	if _, err := renderChatImagePrompt(history, "draw"); err == nil {
+		t.Fatal("history made smaller by artifact filtering bypassed message limit")
+	}
+
+	hugeArtifact := `HOLLIS_IMAGE_ARTIFACT {"type":"hollis.image_artifact.v1","path":"` + strings.Repeat("x", chat.MaxRenderedPromptBytes) + `"}`
+	if _, err := renderChatImagePrompt([]store.Message{{Role: "assistant", Content: hugeArtifact}}, "draw"); err == nil {
+		t.Fatal("artifact filtering bypassed rendered byte limit")
 	}
 }
 

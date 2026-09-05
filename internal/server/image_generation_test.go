@@ -332,9 +332,13 @@ func TestChatImageGenerationIncludesConversationAndReplaysOwnOutput(t *testing.T
 		t.Fatalf("first status=%d body=%s", first.Code, first.Body.String())
 	}
 	prompt := generator.lastCall().Prompt
-	for _, want := range []string{"SYSTEM:\nUse a plain background", "USER:\nDraw a red boat", "ASSISTANT:\nI will keep it simple", "USER:\nAdd one white sail"} {
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("generation prompt missing %q: %q", want, prompt)
+	wantPrompt := "SYSTEM:\nUse a plain background\n\nUSER:\nDraw a red boat\n\nASSISTANT:\nI will keep it simple\n\nUSER:\nAdd one white sail"
+	if prompt != wantPrompt {
+		t.Fatalf("generation prompt = %q, want %q", prompt, wantPrompt)
+	}
+	for _, unwanted := range []string{"You are continuing an existing conversation", "Respond to the final USER message"} {
+		if strings.Contains(prompt, unwanted) {
+			t.Fatalf("generation prompt contains text-chat instruction %q: %q", unwanted, prompt)
 		}
 	}
 	var body struct {
@@ -365,8 +369,12 @@ func TestChatImageGenerationIncludesConversationAndReplaysOwnOutput(t *testing.T
 		t.Fatalf("replay status=%d body=%s", second.Code, second.Body.String())
 	}
 	secondPrompt := generator.lastCall().Prompt
-	if !strings.Contains(secondPrompt, "not retained or reused") || !strings.Contains(secondPrompt, "USER:\nMake the sail blue") {
-		t.Fatalf("replay prompt lost marker or follow-up: %q", secondPrompt)
+	wantSecondPrompt := "Original image description:\nDraw a red boat\n\nRequested revision 1:\nAdd one white sail\n\nRequested revision 2:\nMake the sail blue"
+	if secondPrompt != wantSecondPrompt {
+		t.Fatalf("replay prompt = %q, want %q", secondPrompt, wantSecondPrompt)
+	}
+	if strings.Contains(secondPrompt, "not retained or reused") || strings.Contains(secondPrompt, "SHA-256") {
+		t.Fatalf("replay prompt retained generated artifact metadata: %q", secondPrompt)
 	}
 }
 
@@ -410,8 +418,36 @@ func TestResponsesImageGenerationIncludesConversationAndReplaysOwnOutput(t *test
 	if second.Code != http.StatusOK {
 		t.Fatalf("replay status=%d body=%s", second.Code, second.Body.String())
 	}
-	if prompt := generator.lastCall().Prompt; !strings.Contains(prompt, "not retained or reused") || !strings.Contains(prompt, "USER:\nMake it autumn") {
-		t.Fatalf("replay prompt lost marker or follow-up: %q", prompt)
+	if prompt := generator.lastCall().Prompt; prompt != "Original image description:\nDraw a green tree\n\nRequested revision:\nMake it autumn" {
+		t.Fatalf("replay prompt retained marker or lost context: %q", prompt)
+	}
+}
+
+func TestImageGenerationReplayFilteringDoesNotWeakenPromptLimit(t *testing.T) {
+	generator := &recordingGenerator{}
+	server := testGenerationServer(generator, "")
+	marker := generationMarker(generatedImage{
+		Style: "animation", NativeWidth: 1024, NativeHeight: 1024,
+		Width: 1024, Height: 1024,
+		SHA256: strings.Repeat("a", 64),
+	}, strings.Repeat("x", MaxPromptBytes))
+	request, err := json.Marshal(map[string]any{
+		"messages": []map[string]any{
+			{"role": "user", "content": "Draw a tree"},
+			{"role": "assistant", "content": marker},
+			{"role": "user", "content": "Make it autumn"},
+		},
+		"image_generation": map[string]any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := post(t, server.Handler(), "/v1/chat/completions", string(request))
+	if res.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	if generator.callCount() != 0 {
+		t.Fatalf("generator called %d times", generator.callCount())
 	}
 }
 
