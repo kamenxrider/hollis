@@ -23,6 +23,17 @@ Chats and configuration stay on your Mac. Model requests go to whichever provide
 
 Measured on **macOS 27.0 (26A5421a and 26A5425a)**. macOS 26 is untested — see [Compatibility](#compatibility).
 
+## Contents
+
+- [Quickstart](#quickstart)
+- [Models](#models) and [everyday use](#everyday-use)
+- [Persistent chats](#persistent-chats) and [scripts and agents](#scripts-and-agents)
+- [Local OpenAI-shaped API](#local-openai-shaped-api)
+- [Limits](#what-it-deliberately-does-not-do), [data](#your-data), and [transport](#how-it-works)
+- [Why not `fm`?](#why-not-fm)
+- [Doctor](#doctor) and [compatibility](#compatibility)
+- [Testing](#testing), [evidence](#evidence-and-references), and [quick reference](#quick-reference)
+
 ## Quickstart
 
 **1. Install the binary.**
@@ -38,7 +49,7 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 chmod +x "$HOLLIS_ASSET" && sudo mv "$HOLLIS_ASSET" /usr/local/bin/hollis
 ```
 
-**2. Install the bridge shortcuts.** Hollis reaches Apple Intelligence through four small Shortcuts, one per model tier. They ship unsigned, because a signed shortcut is an artifact of the Mac that signed it:
+**2. Install the bridge shortcuts.** Hollis reaches Apple Intelligence through four small Shortcuts, one per model tier. They ship unsigned, because a signed shortcut is an artifact of the Mac that signed it. This step is **blocking for model calls**: `doctor` still runs without the bridges, but reports `MISSING` and exits 3.
 
 ```bash
 curl -fsSL -o hollis-bridges.zip https://github.com/kamenxrider/hollis/releases/latest/download/hollis-bridges.zip
@@ -75,6 +86,12 @@ Release binaries and Shortcut files are **unsigned by a Developer ID and not not
 ### What you need
 
 A Mac with **Apple Intelligence** enabled, macOS 27 for the measured setup, and `/usr/bin/shortcuts` (included with macOS). Cloud, Cloud Pro and ChatGPT need network access; On-Device works offline. For the ChatGPT bridge, enable the extension in *System Settings → Apple Intelligence & Siri*.
+
+### If something breaks
+
+- `doctor` says `MISSING`: install the bridges from Quickstart step 2. If you renamed one in Shortcuts.app, run `hollis config set bridge <tier> "new name"`.
+- A command seems missing after `git pull`: rebuild it with `go build -o "$(go env GOPATH)/bin/hollis" ./cmd/hollis`; an older binary may still be first on `PATH`.
+- An OpenAI client fails with `stream: true`: set `stream: false` in the JSON body. Hollis does not read a streaming preference from custom headers.
 
 ## Models
 
@@ -380,6 +397,23 @@ It uses a temporary absolute `HOLLIS_STATE_DIR`, quiet prompts, an ephemeral loo
 * [Hollis evidence and prior-art scope](EVIDENCE.md)
 * [Apple: Prompting an on-device foundation model](https://developer.apple.com/documentation/foundationmodels/prompting-an-on-device-foundation-model)
 * [Apple: Adding server-side intelligence with Private Cloud Compute](https://developer.apple.com/documentation/foundationmodels/adding-server-side-intelligence-with-private-cloud-compute)
+
+## Quick reference
+
+```bash
+hollis respond "prompt"                    # one-shot response
+hollis respond --model cloud-pro "prompt"  # explicit Cloud Pro
+hollis respond --image photo.jpg "describe" # image input; defaults to Cloud
+hollis chat "remember this"                # start a persistent chat
+hollis chat --continue <id> "follow up"     # continue a chat
+hollis chats list                           # list stored chats
+hollis chats show <id>                      # show one chat
+hollis chats search "query"                 # search stored chats
+hollis serve                                # local API on 127.0.0.1:1978
+hollis doctor                               # check transport and bridges
+hollis models                               # show available tiers
+hollis config set model cloud-pro           # save a default tier
+```
 
 ## License
 
