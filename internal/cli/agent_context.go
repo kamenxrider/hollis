@@ -186,7 +186,7 @@ func commandOutputModes(command *cobra.Command) []string {
 func commandSideEffects(command *cobra.Command) []string {
 	switch command.CommandPath() {
 	case "hollis respond":
-		return []string{"invokes one Shortcut model run", "with --image, reads local image files and creates then removes a private temporary prompt file"}
+		return []string{"invokes one Shortcut model run", "with --prompt-file or --file, reads local UTF-8 text files", "with --image, reads local image files and creates then removes a private temporary prompt file"}
 	case "hollis chat":
 		return []string{"invokes Shortcut model runs", "writes local conversation state after successful turns"}
 	case "hollis chats rename":

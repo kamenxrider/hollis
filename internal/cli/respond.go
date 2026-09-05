@@ -7,29 +7,35 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/kamenxrider/hollis/internal/chat"
+	"github.com/kamenxrider/hollis/internal/docinput"
 	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/spf13/cobra"
 )
 
 func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 	var (
-		model   string
-		timeout time.Duration
-		images  []string
+		model      string
+		timeout    time.Duration
+		promptFile string
+		documents  []string
+		images     []string
 	)
 	cmd := &cobra.Command{
 		Use:   "respond [prompt]",
 		Short: "Send one prompt to Apple Intelligence and print the plain-text response",
 		Long: `Send one prompt to Apple Intelligence and print the plain-text response.
 
-The prompt comes from the positional argument, or from stdin when no argument
-is given (multi-line safe). With --image, the prompt must be an argument;
-Hollis passes the prompt and image files together through Shortcuts. Each call
-is stateless; use "hollis chat" for persistent, SQLite-backed conversations.
+The instruction comes from the positional argument, --prompt-file, or stdin
+when neither is provided (multi-line safe). Add local UTF-8 .txt or .md source
+material with repeatable --file flags. Documents cannot be mixed with images.
+File and image requests require an argument or --prompt-file instruction and
+reject nonempty piped stdin. Each call is stateless; use "hollis chat" for
+persistent, SQLite-backed conversations.
 
 The default model is auto: cloud first, with automatic fallback to the
 on-device model if the cloud run fails. Explicit choices: cloud (AFM 3
@@ -42,6 +48,9 @@ hollis models.`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
   hollis respond model cloud-pro "Draft a reply"
   printf 'long prompt from a pipeline' | hollis respond
+  hollis respond --prompt-file instructions.txt
+  hollis respond "Summarize the differences" --file first.md --file second.txt
+  hollis respond --prompt-file instructions.txt --image photo.png --model cloud
   hollis respond --image photo.jpg "What is this?"
   hollis respond --model cloud-pro --image a.png --image b.png "Compare them"
   hollis respond --model cloud-pro "Flag form also works"
@@ -54,8 +63,19 @@ hollis models.`,
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", model))
 			}
 			_, promptArgs, _ := splitModelArgs(args)
-			if len(images) > 0 && len(promptArgs) == 0 {
-				return usageErr(errors.New("--image requires the prompt as an argument; piped stdin cannot be combined with image input"))
+			hasPromptFile := cmd.Flags().Changed("prompt-file")
+			if hasPromptFile && len(promptArgs) > 0 {
+				return usageErr(errors.New("choose exactly one instruction source: positional text or --prompt-file"))
+			}
+			if len(documents) > 0 && len(images) > 0 {
+				return usageErr(errors.New("--file cannot be combined with --image"))
+			}
+			if (len(documents) > 0 || len(images) > 0) && len(promptArgs) == 0 && !hasPromptFile {
+				inputFlag := "--file"
+				if len(images) > 0 {
+					inputFlag = "--image"
+				}
+				return usageErr(fmt.Errorf("%s requires an explicit instruction: pass positional text or --prompt-file", inputFlag))
 			}
 			if len(promptArgs) > 0 {
 				if err := chat.ValidatePrompt(strings.Join(promptArgs, " ")); err != nil {
@@ -69,10 +89,23 @@ hollis models.`,
 				return err
 			}
 			posModel, promptArgs, hasPosModel := splitModelArgs(args)
+			hasPromptFile := cmd.Flags().Changed("prompt-file")
+			if hasPromptFile || len(documents) > 0 || len(images) > 0 {
+				if err := rejectFileInputStdin(cmd); err != nil {
+					return err
+				}
+			}
 			var prompt string
-			if len(promptArgs) > 0 {
+			switch {
+			case len(promptArgs) > 0:
 				prompt = strings.Join(promptArgs, " ")
-			} else {
+			case hasPromptFile:
+				var err error
+				prompt, err = docinput.ReadPromptFile(promptFile, int64(chat.MaxRenderedPromptBytes))
+				if err != nil {
+					return usageErr(err)
+				}
+			default:
 				// --no-input never waits on a terminal (measured: it would
 				// otherwise block on stdin forever).
 				if flags.noInput && interactiveStdin() {
@@ -92,6 +125,29 @@ hollis models.`,
 			if err := chat.ValidatePrompt(prompt); err != nil {
 				return usageErr(err)
 			}
+			if len(documents) > 0 {
+				prepared := make([]docinput.Document, 0, len(documents))
+				rawBytes := len(prompt)
+				for i, path := range documents {
+					document, err := docinput.ReadDocument(path, int64(chat.MaxRenderedPromptBytes))
+					if err != nil {
+						return usageErr(fmt.Errorf("read document %d: %w", i+1, err))
+					}
+					if len(document.Text) > chat.MaxRenderedPromptBytes-rawBytes {
+						return usageErr(fmt.Errorf("instruction and document text exceed the %d-byte prompt limit", chat.MaxRenderedPromptBytes))
+					}
+					rawBytes += len(document.Text)
+					prepared = append(prepared, document)
+				}
+				var err error
+				prompt, err = docinput.Prepare(prompt, prepared, chat.MaxRenderedPromptBytes)
+				if err != nil {
+					return usageErr(err)
+				}
+				if err := chat.ValidatePrompt(prompt); err != nil {
+					return usageErr(err)
+				}
+			}
 
 			builtInModel := runner.ModelAuto
 			if len(images) > 0 {
@@ -108,9 +164,6 @@ hollis models.`,
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", m))
 			}
 			if len(images) > 0 {
-				if err := rejectImageStdin(cmd); err != nil {
-					return err
-				}
 				if err := runner.ValidateImageRequest(m, prompt, images); err != nil {
 					return toCLIError(err)
 				}
@@ -189,24 +242,28 @@ hollis models.`,
 		},
 	}
 	cmd.Flags().StringVar(&model, "model", string(runner.ModelAuto), "Model tier: auto (default: cloud first, on-device fallback), cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro; macOS 27+), on-device (AFM 3 Core / Core Advanced by hardware), or chatgpt (ChatGPT extension); see hollis models")
+	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "UTF-8 file containing the instruction (instead of positional text or stdin)")
+	cmd.Flags().StringArrayVar(&documents, "file", nil, "UTF-8 .txt or .md document to include; repeat to preserve source order")
 	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (ChatGPT accepts one; unavailable with auto/on-device)")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	return cmd
 }
 
-// rejectImageStdin refuses the measured-broken mix of a positional prompt and
-// piped stdin. A closed or empty non-terminal stdin is harmless, which keeps
-// image calls usable from agents and CI processes that do not own a TTY.
-func rejectImageStdin(cmd *cobra.Command) error {
-	if interactiveStdin() {
+// rejectFileInputStdin prevents a second instruction source from being hidden
+// in a pipe. A closed or empty non-terminal stdin is harmless, which keeps
+// file and image calls usable from agents and CI processes that do not own a
+// TTY. Positional-only requests do not call this helper, preserving their
+// established behavior.
+func rejectFileInputStdin(cmd *cobra.Command) error {
+	if cmd.InOrStdin() == os.Stdin && interactiveStdin() {
 		return nil
 	}
 	b, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 1))
 	if err != nil {
-		return usageErr(fmt.Errorf("check stdin for image request: %w", err))
+		return usageErr(fmt.Errorf("check stdin for file input: %w", err))
 	}
 	if len(b) > 0 {
-		return usageErr(errors.New("--image cannot be combined with piped stdin; pass the prompt as an argument"))
+		return usageErr(errors.New("file input cannot be combined with nonempty piped stdin; pass exactly one instruction using positional text or --prompt-file"))
 	}
 	return nil
 }
