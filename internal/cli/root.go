@@ -174,6 +174,7 @@ See README.md for recipes.`,
 	}
 
 	rootCmd.AddCommand(newRespondCmd(&flags, newRunner))
+	rootCmd.AddCommand(newBatchCmd(&flags, newRunner))
 	rootCmd.AddCommand(newChatCmd(&flags, newRunner))
 	rootCmd.AddCommand(newChatsCmd(&flags, newRunner))
 	rootCmd.AddCommand(newModelsCmd(&flags, newRunner))
