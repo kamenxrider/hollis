@@ -105,11 +105,23 @@ func effectiveChatImageStyle(style, explicitBridge string) string {
 }
 
 func renderChatImagePrompt(history []store.Message, prompt string) (string, error) {
-	transcript := imageTranscriptPreamble + "\n\n" + chat.RenderTranscript(history, prompt)
-	if err := chat.ValidateTranscript(history, transcript); err != nil {
+	// Validate the complete, unfiltered history with the existing image-turn
+	// envelope first. Removing Hollis artifact records must never allow a turn
+	// that the prior bounds would have rejected.
+	unfiltered := imageTranscriptPreamble + "\n\n" + chat.RenderTranscript(history, prompt)
+	if err := chat.ValidateTranscript(history, unfiltered); err != nil {
 		return "", usageErr(err)
 	}
-	return transcript, nil
+	messages := make([]imagegen.ConversationMessage, 0, len(history)+1)
+	for _, message := range history {
+		messages = append(messages, imagegen.ConversationMessage{Role: message.Role, Content: message.Content})
+	}
+	messages = append(messages, imagegen.ConversationMessage{Role: "user", Content: prompt})
+	rendered := imagegen.RenderConversationPrompt(messages)
+	if err := chat.ValidatePrompt(rendered); err != nil {
+		return "", usageErr(err)
+	}
+	return rendered, nil
 }
 
 func executeChatImageTurn(ctx context.Context, history []store.Message, prompt string, options chatImageOptions) (result chatImageResult, record store.RunRecord, runErr error) {
