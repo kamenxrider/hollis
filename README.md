@@ -120,7 +120,18 @@ hollis respond model cloud-pro "same thing, model before the prompt"
 hollis respond --timeout 90s "A question worth waiting for"
 ```
 
-The prompt comes from the argument or from stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple.
+The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple.
+
+### Text documents (unreleased)
+
+```bash
+hollis respond --prompt-file instructions.txt
+hollis respond "Summarize the differences" --file first.md --file second.txt
+```
+
+`--prompt-file` reads the instruction exactly as UTF-8 text. Repeat `--file` to append local `.txt` and `.md` documents in order, with their basenames and explicit boundaries. The instruction, boundaries and document contents together must fit the 128 KiB prompt limit; Hollis rejects oversized input without truncation. Empty, invalid UTF-8 and nonregular files are rejected. PDF is not supported.
+
+Choose one instruction source. File requests require positional text or `--prompt-file` and reject nonempty piped stdin. Documents cannot be mixed with `--image` in one request. Documents are prompt content; their boundaries do not isolate untrusted instructions.
 
 ### Images
 
@@ -133,7 +144,7 @@ hollis respond --model cloud-pro --image a.png --image b.png "Compare them"
 
 An image request with no selected or configured model defaults directly to Cloud. Cloud and Cloud Pro accept repeated `--image`; ChatGPT accepts one image. `auto` and On-Device are rejected for images because the tested On-Device Shortcut ignored the pixels, making automatic fallback unsafe.
 
-When images are present, give the prompt as an argument. Hollis writes it to a private temporary UTF-8 text file and passes that file plus the images as repeated Shortcuts inputs; the temporary prompt is deleted after the run. Do not pipe a second prompt through stdin with `--image`. Image chat history and HTTP image uploads are not part of `v0.2.0`.
+When images are present, give the prompt as an argument or with `--prompt-file`. Hollis writes it to a private temporary UTF-8 text file and passes that file plus the images as repeated Shortcuts inputs; the temporary prompt is deleted after the run. Do not pipe a second prompt through stdin with `--image`. Image chat history remains unsupported. The unreleased HTTP image-input contract is described below; released `v0.2.0` supports images through the CLI only.
 
 ## Persistent chats
 
@@ -215,6 +226,26 @@ curl -s localhost:1978/v1/responses \
 ```
 
 The Responses reply text is at `output[0].content[0].text`. Its `input` may be a string or a message array, with optional `instructions`. `/v1/models` lists `auto` plus only the tiers whose bridges resolve here, so `cloud-pro` disappears when its bridge is not installed.
+
+### Inline image input (unreleased)
+
+Both endpoints accept PNG/JPEG images as base64 data URLs in the final user message, alongside nonempty text. Earlier messages must remain text-only. Remote URLs and server file paths are rejected.
+
+Chat Completions uses this message content shape:
+
+```json
+[{"type":"text","text":"Describe this image"},{"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}]
+```
+
+Responses uses this input message content shape:
+
+```json
+[{"type":"input_text","text":"Describe this image"},{"type":"input_image","image_url":"data:image/png;base64,..."}]
+```
+
+Omitting `model` on an image request selects `cloud`. Explicit `auto` and `on-device` are rejected. Cloud and Cloud Pro accept up to three images; ChatGPT accepts one. The HTTP request body remains limited to 8 MiB. Decoded images together may occupy at most 4 MiB, with at most 16 million pixels per image and 24 million pixels combined. These are Hollis limits, not reported Apple quotas. Invalid formats return 400 and oversized input returns 413 before a model runs.
+
+Hollis validates and stages image bytes privately, holds a concurrency slot through staging and execution, then removes staged files. Responses remain complete text, without streaming or invented usage counts.
 
 Port **1978**, not 1976 — `fm serve` uses 1976 throughout Apple's own examples, and two servers cannot share a port.
 
