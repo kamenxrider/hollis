@@ -544,7 +544,9 @@ go test ./...
 go test -race ./...
 go build ./cmd/hollis
 python3 -m unittest discover -s scripts/image-install-check -p 'test_*.py'
-python3 -m unittest discover -s scripts/image-suite -p 'test_*.py'
+python3 -m venv .venv
+.venv/bin/python -m pip install --only-binary=:all: -r scripts/image-suite/requirements.txt
+.venv/bin/python -m unittest discover -s scripts/image-suite -p 'test_*.py'
 ```
 
 The default suite is provider-free: subprocess tests inject deterministic runners without a production backdoor, HTTP uses `httptest`, and bridge generation is checked for both macOS profiles. CI runs the race suite on an official macOS Go 1.27 runner before packaging.

@@ -4,14 +4,17 @@ A repeatable, bounded image suite for Hollis. All images and prompts are synthet
 no personal documents or photos are used. The default only creates the plan and
 fixtures. It does not invoke Hollis, Shortcuts, or a model.
 
-Requires Python 3.11+ and Pillow (tested with Pillow 12.3.0; no dependency
-installation is performed) for the original pixel-semantic suite. The
+Requires Python 3.11+ and Pillow (pinned in `requirements.txt`) for the original
+pixel-semantic suite. The runner does not install dependencies itself. The
 conversation acceptance runner uses only the Python standard library. Live
 execution and process-cleanup tests require
 permission to inspect numeric process IDs and sessions with `ps`.
 Run from the repository root:
 
 ```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python3 -m pip install --only-binary=:all: -r scripts/image-suite/requirements.txt
 python3 -m unittest discover -s scripts/image-suite -p 'test_*.py'
 python3 scripts/image-suite/image_suite.py
 ```
