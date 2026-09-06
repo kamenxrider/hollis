@@ -59,12 +59,14 @@ explicit or selected through the configured --style. The prompt is one positiona
 argument, and the output path must have a .png extension. Model flags and automatic fallback are intentionally
 unsupported. One invocation makes one generation attempt with no retry.
 
-Requires an installed image Shortcut: Description = Shortcut Input, then
-Stop and Output = Image. The tested setup uses Animation, no Photo, Save to
-Playground Never, and Do Nothing when there is nowhere to output. Other styles
-and first-run permission behavior require validation on your Mac. Hollis never
-answers a macOS permission dialog; --no-input does not suppress those dialogs.`,
-		Example: `  hollis image generate "A red bicycle beside a blue wall" --bridge "Hollis Image Generation Probe" --output bicycle.png`,
+Install the bundled image bridge and set it with config set image-bridge.
+It accepts the prompt, style and optional reference; Save to Playground is Never.
+Animation, Illustration, Sketch, Genmoji and Any Style returned images in tests.
+Any Style does not guarantee photographs. ChatGPT generation is blocked on the
+tested macOS build. See docs/image-generation.md for setup and current limits.
+First-run permissions may need attention. Hollis never answers a macOS
+permission dialog; --no-input does not suppress those dialogs.`,
+		Example: `  hollis image generate "A red bicycle beside a blue wall" --style illustration --output bicycle.png`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			// Deferred help is rendered after argument validation. Permit a
 			// bare help request while preserving validation for supplied args.
