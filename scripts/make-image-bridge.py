@@ -103,6 +103,7 @@ def build_dynamic_reference() -> dict:
         "WFWorkflowActionIdentifier": "is.workflow.actions.detect.images",
         "WFWorkflowActionParameters": {
             "UUID": image_uuid,
+            "WFInput": action_output(decode_uuid, "Base64 Encoded"),
         },
     }
     create_uuid = str(uuid.uuid4()).upper()

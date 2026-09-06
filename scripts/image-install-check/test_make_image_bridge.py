@@ -1,7 +1,10 @@
 import importlib.util
 import plistlib
 import sys
+import subprocess
+import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -36,7 +39,14 @@ class ImageBridgeGeneratorTests(unittest.TestCase):
         create = actions[6]["WFWorkflowActionParameters"]
         self.assertEqual(create["saveToLibrary"], "never")
         self.assertEqual(create["AppIntentDescriptor"]["AppIntentIdentifier"], "GenerateImageIntent")
-        self.assertNotIn("WFInput", actions[5]["WFWorkflowActionParameters"])
+        # The Photo path must start at the decoded bytes, not an implicit input.
+        # Missing this connection returned no image in the real echo diagnostic.
+        images = actions[5]["WFWorkflowActionParameters"]
+        decode = actions[4]["WFWorkflowActionParameters"]
+        self.assertEqual(images["WFInput"]["WFSerializationType"], "WFTextTokenAttachment")
+        self.assertEqual(images["WFInput"]["Value"]["Type"], "ActionOutput")
+        self.assertEqual(images["WFInput"]["Value"]["OutputUUID"], decode["UUID"])
+        self.assertEqual(create["image"]["Value"]["OutputUUID"], images["UUID"])
         output = actions[7]["WFWorkflowActionParameters"]
         self.assertEqual(output["WFOutput"]["WFSerializationType"], "WFTextTokenString")
         self.assertEqual(output["WFResponse"]["WFSerializationType"], "WFTextTokenAttachment")
@@ -53,6 +63,25 @@ class ImageBridgeGeneratorTests(unittest.TestCase):
         self.assertIn("GenerativePartnerPrototypeIntentChatGPT", create["style"]["identifier"])
         self.assertNotIn("image", create)
         self.assertEqual(create["saveToLibrary"], "never")
+
+    def test_release_bundles_contain_only_installable_bridges(self):
+        package = SCRIPT.with_name("package-bridges.py")
+        with tempfile.TemporaryDirectory() as directory:
+            subprocess.run([sys.executable, str(package), directory], check=True, capture_output=True)
+            with zipfile.ZipFile(Path(directory) / "hollis-bridges.zip") as archive:
+                self.assertEqual(set(archive.namelist()), {
+                    f"AFM Bridge - {model}.shortcut"
+                    for model in ("Cloud", "Cloud Pro", "On-Device", "ChatGPT")
+                } | {"Hollis Image - Reference Input v2.shortcut"})
+                workflow = plistlib.loads(archive.read("Hollis Image - Reference Input v2.shortcut"))
+                actions = workflow["WFWorkflowActions"]
+                self.assertEqual(
+                    actions[5]["WFWorkflowActionParameters"]["WFInput"]["Value"]["OutputUUID"],
+                    actions[4]["WFWorkflowActionParameters"]["UUID"],
+                )
+            # Packaging must refuse to replace an already assembled asset.
+            result = subprocess.run([sys.executable, str(package), directory], capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":

@@ -1,14 +1,18 @@
 # hollis
 
-**Apple Intelligence from your terminal — including both cloud tiers.**
+**Apple Cloud and Cloud Pro in your terminal, scripts and agent conversations.**
 
-Apple's own `fm` CLI, on the macOS 27 builds tested here, offers exactly one model: the on-device one. Its Private Cloud Compute option is gone.
+Hollis makes the Apple Intelligence access on your Mac available to the tools
+you already use. Choose Cloud, Cloud Pro, On-Device or ChatGPT; work with text
+and images; keep a conversation; or call it from a local API.
 
-The Shortcuts **Use Model** action, on the same machine at the same moment, offers four choices — and two of them are separate cloud tiers:
+On the tested macOS 27 builds, Shortcuts exposes all four choices:
 
 ![The Use Model action on macOS 27.0 (26A5421a): Cloud, Cloud Pro, On-Device, ChatGPT](results/img/use-model-picker-26A5421a.png)
 
-`fm --model pcc`, back when it worked, was one generic Private Cloud Compute target with no way to choose between cloud models. Shortcuts draws the distinction, and `/usr/bin/shortcuts` makes it scriptable. Hollis is the CLI and local API over that surface.
+Cloud and Cloud Pro are distinct selections. Hollis reaches them through Apple’s
+Shortcuts command-line interface, using small, inspectable bridges you install.
+[How this differs from Apple’s `fm` CLI](#why-not-fm).
 
 ```bash
 hollis respond "Summarize this repo in one sentence"
@@ -19,14 +23,29 @@ hollis chat                       # interactive, remembers the conversation
 hollis serve --token-file /private/path/hollis.token  # local OpenAI-shaped API
 ```
 
-Chats and configuration stay on your Mac. Model requests go to whichever provider you select through Shortcuts.
+Chats and configuration stay on your Mac. Model requests go to the provider you
+select through Shortcuts: Cloud and Cloud Pro use Private Cloud Compute; ChatGPT
+uses Apple’s ChatGPT extension. An agent that calls Hollis can see the returned
+answer. Apple’s processing privacy does not make that agent’s own service local.
 
 Measured on **macOS 27.0 (26A5421a and 26A5425a)**. macOS 26 is untested — see [Compatibility](#compatibility).
+
+## What’s in 0.3.0
+
+- Read instruction files and compare text documents.
+- Send images through Chat Completions and Responses.
+- Process folders with call budgets, pacing and resumable progress.
+- Generate images from the CLI, a chat or the API with the bundled image bridge.
+- Require API authentication by default and harden local files and review automation.
+
+[Release notes and upgrade instructions](docs/releases/v0.3.0.md) ·
+[What was tested](EVIDENCE.md).
 
 ## Contents
 
 - [Quickstart](#quickstart)
 - [Models](#models) and [everyday use](#everyday-use)
+- [Image generation](#image-generation) and [folder processing](#paced-folder-processing)
 - [Persistent chats](#persistent-chats) and [scripts and agents](#scripts-and-agents)
 - [Local OpenAI-shaped API](#local-openai-shaped-api)
 - [Limits](#what-it-deliberately-does-not-do), [data](#your-data), and [transport](#how-it-works)
@@ -36,7 +55,7 @@ Measured on **macOS 27.0 (26A5421a and 26A5425a)**. macOS 26 is untested — see
 
 ## Quickstart
 
-**1. Download, verify, and install every release artifact.** This secure path
+**1. Download and verify the CLI and all five bridges.** This secure path
 requires the [GitHub CLI](https://cli.github.com/) for build-provenance
 verification. It uses a fresh private directory so older files cannot satisfy a
 checksum accidentally. The commands run in a fail-fast subshell: a missing or
@@ -72,17 +91,20 @@ gh attestation verify hollis-bridges.zip --repo kamenxrider/hollis
 chmod +x "$HOLLIS_ASSET" && sudo mv "$HOLLIS_ASSET" /usr/local/bin/hollis
 unzip hollis-bridges.zip -d bridges
 
+mkdir signed-bridges
 for f in bridges/*.shortcut; do
-  shortcuts sign --mode anyone --input "$f" --output "${f%.shortcut}.signed.shortcut"
-  open "${f%.shortcut}.signed.shortcut"
+  HOLLIS_SIGNED="signed-bridges/${f##*/}"
+  shortcuts sign --mode anyone --input "$f" --output "$HOLLIS_SIGNED"
+  open "$HOLLIS_SIGNED"
 done
 )
 ```
 
-**2. Add the bridge shortcuts.** Hollis reaches Apple Intelligence through four
-small Shortcuts, one per model tier. They ship unsigned, because a signed
-shortcut is an artifact of the Mac that signed it. Shortcuts.app asks you to
-**Add Shortcut** for each one. This step is **blocking for model calls**:
+**2. Add the five shortcuts.** The bundle contains four model bridges and
+**Hollis Image - Reference Input v2** for image generation. The commands above
+sign them on your Mac and open them in Shortcuts. Choose **Add Shortcut** for
+each. If updating an earlier image bridge, replace that copy with this one so
+the corrected reference connection takes effect. This step is **blocking for model calls**:
 `doctor` still runs without the bridges, but reports `MISSING` and exits 3.
 
 The first time a bridge runs, macOS may also ask you to **Allow** model access.
@@ -90,11 +112,23 @@ The first time a bridge runs, macOS may also ask you to **Allow** model access.
 **3. Check it.**
 
 ```bash
+hollis config set image-bridge "Hollis Image - Reference Input v2"
 hollis doctor
 hollis respond "Reply with OK"
 ```
 
-`doctor` tells you which tiers actually resolve on your machine. If a bridge is missing it says so rather than failing later.
+`doctor` checks the four model bridges. To test the newly configured image
+bridge, use a new filename in an existing directory:
+
+```bash
+hollis image generate "A small red sailboat on a calm blue lake" \
+  --style illustration --output sailboat.png
+```
+
+Once the shortcuts and first-use permissions are in place, Hollis returns the
+text or image directly. Image generation needs an unlocked Mac; it does not use
+the visible Image Playground editor. No source checkout or extra image download
+is needed.
 
 ### Other install routes
 
@@ -103,7 +137,7 @@ go install github.com/kamenxrider/hollis/cmd/hollis@latest   # needs Go 1.27+
 go build -o "$(go env GOPATH)/bin/hollis" ./cmd/hollis        # from a clone
 ```
 
-From a clone you can generate the bridges yourself instead of downloading them: `python3 scripts/make-bridge.py bridges/`.
+From a clone, `python3 scripts/package-bridges.py dist` creates the complete five-bridge archive. `python3 scripts/make-bridge.py bridges/` generates just the four model bridges.
 
 Release binaries and Shortcut files are **unsigned by a Developer ID and not notarized**. Verify the downloaded checksum as shown above; releases also carry a GitHub build-provenance attestation and an SPDX SBOM. For the smallest trust chain, inspect the source and build it yourself with the second command above. Hollis does not claim Gatekeeper approval. If a command seems to be missing after a `git pull`, rebuild: an older binary on `PATH` is usually the cause.
 
@@ -146,7 +180,7 @@ hollis respond --timeout 90s "A question worth waiting for"
 
 The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple.
 
-### Text documents (unreleased)
+### Text documents
 
 ```bash
 hollis respond --prompt-file instructions.txt
@@ -157,46 +191,35 @@ hollis respond "Summarize the differences" --file first.md --file second.txt
 
 Choose one instruction source. File requests require positional text or `--prompt-file` and reject nonempty piped stdin. Documents cannot be mixed with `--image` in one request. Documents are prompt content; their boundaries do not isolate untrusted instructions.
 
-### Image generation (unreleased, experimental)
+### Image generation
 
-Generate one PNG through a separately installed Image Playground Shortcut:
+Create and save a PNG without leaving your terminal or agent conversation.
+The standard release bundle includes the image Shortcut. Complete its setup first:
+[image setup](docs/image-generation.md#setup).
 
-```sh
-hollis config set image-bridge "Hollis Image - Reference Input v2"
-hollis image generate "A red circle on a white background" \
-  --style animation --output circle.png
-hollis image generate "A blue square on a white background" \
-  --style animation --output square.png --agent
+```bash
+hollis image generate "A brass turtle carrying a tiny greenhouse" \
+  --style illustration --output turtle.png
+hollis image generate "A lighthouse on a cliff at sunset" \
+  --style sketch --aspect-ratio 16:9 --fit crop --output banner.png
 ```
 
-This makes one attempt, with no retries or model fallback. The destination must
-end in `.png`; existing files and symlinks are never overwritten. The parent
-folder must already exist. Output is private by default. JSON/agent output
-returns the saved path, format, bytes, dimensions and SHA-256 checksum.
+The tested Shortcut returns images without a per-image click on an already
+set-up, unlocked Mac. Hollis does not launch an Image Playground window or
+click its interface. Apple may ask for permissions during setup.
 
-The source-generated, signed **Hollis Image - Reference Input v2** Shortcut can
-serve all six style IDs: `any`, `animation`, `genmoji`, `illustration`, `sketch`,
-and `chatgpt`. Generate and import it using the setup in the
-[image-generation guide](docs/image-generation.md#setup-generated-parameterized-shortcut),
-then configure it with `hollis config set image-bridge <shortcut-name>` and use
-`--style <style>`. `hollis image styles` shows the routes. Existing per-style
-fixed Shortcut mappings remain supported. The guide records the paced runtime
-acceptance and its visual-continuity boundary.
+Animation, Illustration, Sketch, Genmoji and Any Style returned images in our
+tests. **Any Style does not guarantee photographs. ChatGPT image generation
+is blocked through Shortcuts on the tested macOS build.** The separate ChatGPT
+text/image-understanding bridge works.
 
-Explicit `--aspect-ratio W:H --fit crop|pad` or `--size WIDTHxHEIGHT --fit
-crop|pad` processes the output locally. These are not native model controls.
-Image generation is also available explicitly during chats and through the
-API. Local/API reference inputs and automatic reuse of a trusted prior image
-are implemented; they guide a new generation and do not promise pixel-perfect
-editing. See the [image reference contract](docs/image-references.md).
-The default and maximum timeout is 120 seconds. Hollis limits each generated
-PNG to 16 MiB and 16 million pixels; these are application limits, not Apple
-quotas or selectable resolution settings.
+Use `/image` in a Hollis chat, or request generation through the API. A follow-up
+can attach the previous image and ask for a new scene. References guide a new
+image; exact identity and pixel editing are not promised. Ratios and sizes use
+local crop/pad/resize after generation, rather than native model controls.
 
-See [image-generation setup and capability evidence](docs/image-generation.md).
-The four standard text bridges do not provide image generation; this optional
-Shortcut is configured separately. `hollis doctor` checks the standard bridges,
-not the image Shortcut passed with `--bridge`.
+[Generation and styles](docs/image-generation.md) ·
+[Image references and conversation examples](docs/image-references.md).
 
 ### Images
 
@@ -211,9 +234,11 @@ An image request with no selected or configured model defaults directly to Cloud
 
 Images must be direct regular PNG/JPEG files, at most 64 MiB and 64 million pixels each. Hollis rejects symlinks in the file or its parent directories, apart from macOS's standard root-owned `/var`, `/tmp` and `/etc` aliases. Use the real path for an image reached through a custom directory link. The runner validates a private byte snapshot and passes only that snapshot to Shortcuts; staged images are removed after success, failure or cancellation.
 
-When images are present, give the prompt as an argument or with `--prompt-file`. Hollis writes it to a private temporary UTF-8 text file and passes that file plus the images as repeated Shortcuts inputs; the temporary prompt is deleted after the run. Do not pipe a second prompt through stdin with `--image`. Image chat history remains unsupported. The unreleased HTTP image-input contract is described below; released `v0.2.0` supports images through the CLI only.
+When images are present, give the prompt as an argument or with `--prompt-file`. Hollis writes it to a private temporary UTF-8 text file and passes that file plus the images as repeated Shortcuts inputs; the temporary prompt is deleted after the run. Do not pipe a second prompt through stdin with `--image`. Image chat history remains unsupported. The same model tiers accept inline images through the API, described below.
 
-## Paced folder processing (unreleased)
+## Paced folder processing
+
+Process a folder of documents or images, save each result, and resume later:
 
 ```bash
 hollis batch plan --input-dir ./inbox --prompt-file instructions.txt \
@@ -222,24 +247,12 @@ hollis batch run --job ./job.json --max-calls 12
 hollis batch resume --job ./job.json --max-calls 12
 ```
 
-`plan` reads a sorted, nonrecursive inventory of `.txt`, `.md`, `.png`, `.jpg` and `.jpeg` files and records skipped entries. It makes no model calls. Instructions must be outside the input inventory; job and output destinations must be outside the input folder. Symlinks, existing reserved outputs, invalid text and oversized prepared prompts are rejected. The instruction and each text document together must fit 128 KiB. Image files have a 64 MiB per-file Hollis limit; planning checks readable bytes. Execution also validates PNG/JPEG content and a 64-million-pixel limit before calling a model.
+Planning makes no model calls. Runs have an explicit call budget, wait between
+requests, and skip completed results after verifying them. Text works on all
+four tiers; images use Cloud, Cloud Pro or ChatGPT. A failure stops the run.
+This processes an existing folder once; it does not watch for new files.
 
-Choose a concrete model explicitly. On-Device supports text-only jobs; image jobs use Cloud, Cloud Pro or ChatGPT. Every run or resume requires a new `--max-calls` budget from 1 to 100. A budget-limited run pauses cleanly. Output distinguishes attempts in this invocation from lifetime attempts. There is one call per file, no automatic model switching, and no automatic retry.
-
-Cloud and ChatGPT calls wait at least 15 seconds after completion before the next call; Cloud Pro waits 45 seconds. The pacing checkpoint survives a restart. These are conservative Hollis defaults, not an Apple quota guarantee. Cancellation, a provider failure or a persistence failure stops further calls.
-
-Resume verifies completed results and checks source hashes before continuing. If an interrupted call has no verifiable saved result, its status is **uncertain**. Choose `--retry-uncertain` to risk repeating that call, or `--skip-uncertain` to leave it unresolved and process pending items. Failed items require `--retry-failed` before more work proceeds. Exactly-once provider execution across a crash cannot be guaranteed. Changed inputs require a new plan.
-
-Job manifests contain local paths, hashes and status, but no prompt or response content. Private `.response.json` files intentionally contain the model response and recovery metadata. Existing result files are never overwritten; the job manifest is updated atomically. An existing result directory must already be private (0700 or stricter); Hollis does not change its permissions. Inspect the manifest and results before sharing them. This is a finite command, not a background folder watcher.
-
-Run and resume keep a stable `.lock` beside the manifest. Hollis rejects a job
-location when that directory or one of its resolved ancestors is owned by an
-untrusted local account, or is writable by other accounts without sticky-bit
-protection. Put job manifests in a private directory you own; user-owned
-directories beneath a standard sticky temporary directory remain supported.
-On macOS, Hollis also checks extended ACLs on the lock and its directory chain.
-Allow entries that grant mutation rights are rejected; read-only and deny
-entries remain supported. An unreadable or unrecognized ACL fails closed.
+[File types, pacing, recovery and private storage](docs/batch.md).
 
 ## Persistent chats
 
@@ -332,7 +345,7 @@ curl -s localhost:1978/v1/responses \
 
 The Responses reply text is at `output[0].content[0].text`. Its `input` may be a string or a message array, with optional `instructions`. `/v1/models` lists `auto` plus only the tiers whose bridges resolve here, so `cloud-pro` disappears when its bridge is not installed.
 
-### Inline image input (unreleased)
+### Inline image input
 
 Both endpoints accept PNG/JPEG images as base64 data URLs in the final user message, alongside nonempty text. Earlier messages must remain text-only. Remote URLs and server file paths are rejected.
 
@@ -362,16 +375,24 @@ Point an OpenAI-compatible client at `http://127.0.0.1:1978/v1` and it will usua
 
 Set `stream: false` in the **JSON body**. A custom HTTP header does not count; Hollis never reads streaming from headers. `stream: true` returns **400** (`use stream=false`). Clients that always stream — Osaurus Chat is one — will populate the model picker from `/v1/models` and then fail every completion. Clients that can turn streaming off (Aider: `stream: false` plus per-model `streaming: false`) do work.
 
-The v0.2 API does not accept `tools` or return native function calls. The
+The API does not accept `tools` or return native function calls. The
 underlying Shortcut returns one block of text. Separate live probes show that
 the models can sometimes follow a prompt-defined, client-executed tool protocol,
 including consuming a supplied tool result, but emitting the call was not
 reliable enough to ship. That path remains explicitly experimental work for a
 later release; Hollis never executes tools server-side.
 
+### Generate an image through the API
+
+After [image setup](docs/image-generation.md#setup), restart the server and call
+`POST /v1/images/generations` with a prompt and style. It returns PNG bytes as
+base64. Chat Completions and Responses also support explicit image generation
+and replaying a generated image in a follow-up. See the complete
+[API image examples](docs/image-references.md#api-image-generation).
+
 ### What it deliberately does not do
 
-Shortcuts returns a complete response rather than a token stream, so `stream: true` returns **400** instead of a faked stream. Apple exposes no token counts through this path, so no `usage` field is invented. The v0.2 HTTP contract has no `tools` / function calls. `system` and `instructions` are advisory prompt content, not hard isolation boundaries. Both model routes reject malformed or trailing JSON, unknown fields, unsupported parameters/content, empty input, and prompts over 128 KiB before calling a model.
+Shortcuts returns a complete response rather than a token stream, so `stream: true` returns **400** instead of a faked stream. Apple exposes no token counts through this path, so no `usage` field is invented. The HTTP contract has no `tools` / function calls. `system` and `instructions` are advisory prompt content, not hard isolation boundaries. Both model routes reject malformed or trailing JSON, unknown fields, unsupported parameters/content, empty input, and prompts over 128 KiB before calling a model.
 
 Authentication is required by default and is configured with `--token-file <private-file>` or `HOLLIS_API_TOKEN`; the token must contain at least 32 bytes and is never printed. `/v1/*` expects `Authorization: Bearer <token>`, while `/health` stays unauthenticated. Hollis deliberately has no command-line `--token`, because process arguments can be visible through `ps`. `--no-auth` is an explicit opt-out for a resolved loopback listener only; it lets every local process invoke the configured models and cannot be combined with `--allow-remote`.
 
@@ -379,7 +400,7 @@ Binding outside loopback requires **both** `--allow-remote` and authentication. 
 
 ## Your data
 
-Everything hollis stores lives in one directory:
+Configuration, chat history and run diagnostics live in one directory:
 
 ```
 ~/Library/Application Support/hollis/
@@ -391,6 +412,8 @@ Everything hollis stores lives in one directory:
 
 The state directory is mode `0700`; its database, config, lock, migration backups, and temporary files are mode `0600`. Set `HOLLIS_STATE_DIR` to an **absolute** directory for an isolated test or alternate state location. Existing Hollis-owned modes are tightened without changing broader parent directories.
 
+Generated images and batch results live at the output paths you choose, outside this state directory. They are not deleted when you delete a chat.
+
 Run diagnostics contain only request ID, requested/used tier, timing, exit code, error class, fallback, and byte counts — never prompts, replies, or raw Apple stderr. Conversation deletion removes its messages, run records, and search entries in one transaction. To delete everything Hollis knows, remove that directory. To delete one conversation, `hollis chats delete <id>`.
 
 ## How it works
@@ -399,7 +422,7 @@ Run diagnostics contain only request ID, requested/used tier, timing, exit code,
 hollis → /usr/bin/shortcuts → Use Model → Cloud / Cloud Pro / On-Device / ChatGPT
 ```
 
-Each bridge shortcut is three actions: **Receive** input, **Use Model**, **Stop and Output**. Text-only requests feed the prompt on stdin. Image requests pass a private temporary prompt file and the image files together as repeated inputs. Hollis captures plain text back. It does not patch or modify `fm`, and it holds no credentials — the transport is the local Shortcuts app, running as you.
+Each model bridge configures incoming text, runs **Use Model**, then **Stop and Output**. Receive is input configuration, not a separate action. Text-only requests feed the prompt on stdin. Image requests pass a private temporary prompt file and the image files together as repeated inputs. Hollis captures plain text back. It does not patch or modify `fm`, and needs no Apple model API key: the transport is the local Shortcuts app, running as you. The optional HTTP server has its own local bearer token.
 
 ### Bridge discovery
 
@@ -441,7 +464,7 @@ on macOS 27.0 build `26A5425a`, the fixed, parameterized, native-Shortcuts,
 and fresh-extension routes failed before inference with Apple's Shortcuts
 ToolKit database sandbox denial, while the native Image Playground app worked.
 This does not prove universal impossibility; Hollis does not silently retry or
-substitute that route. See the [image-generation qualification note](docs/image-generation.md#setup-generated-parameterized-shortcut).
+substitute that route. See the [image-generation qualification note](docs/image-generation.md#setup).
 
 ## Why not `fm`?
 
@@ -455,7 +478,7 @@ There is also a reason not to link the framework directly. Apple gates third-par
 
 That surface is one Apple can change in any build, exactly as it changed `fm` in this one, which is why every claim here names the build it was measured on.
 
-Prior art: bridging to Apple Intelligence through a Shortcut was shown by **Joseph Humfrey** in [*The Shortcut to integrating Private Cloud Compute into my app*](https://joethephish.me/blog/the-shortcut-to-integrating-PCC/) (June 2025). Hollis is the hardened version of that idea plus the tier selection. A documented web and GitHub search on 2026-09-03 found many on-device or single-`pcc` CLIs, but no other public CLI exposing the two Shortcuts choices separately. Hollis is therefore, **to our knowledge**, the first public CLI to expose both Cloud and Cloud Pro—not the first Shortcut bridge or Apple-model CLI. Full scope, counterexamples, and falsification conditions: [EVIDENCE.md](EVIDENCE.md).
+Prior art: bridging to Apple Intelligence through a Shortcut was shown by **Joseph Humfrey** in [*The Shortcut to integrating Private Cloud Compute into my app*](https://joethephish.me/blog/the-shortcut-to-integrating-PCC/) (June 2025). Hollis adds explicit tier selection, persistent chats, bounded batch processing and CLI/API access. A documented web and GitHub search on 2026-09-03 found many on-device or single-`pcc` CLIs, but no other public CLI exposing the two Shortcuts choices separately. Hollis is therefore, **to our knowledge**, the first public CLI to expose both Cloud and Cloud Pro—not the first Shortcut bridge or Apple-model CLI. Full scope, counterexamples, and falsification conditions: [EVIDENCE.md](EVIDENCE.md).
 
 ## Doctor
 
@@ -466,7 +489,7 @@ hollis doctor --json
 
 ```text
 $ hollis doctor
-hollis doctor (version 0.2.0)
+hollis doctor (version 0.3.0)
   transport: ok
   macos: 27.0 (26A5421a)
   support: macOS 27 measured; Cloud Pro unsupported on macOS 26
@@ -520,6 +543,8 @@ go vet ./...
 go test ./...
 go test -race ./...
 go build ./cmd/hollis
+python3 -m unittest discover -s scripts/image-install-check -p 'test_*.py'
+python3 -m unittest discover -s scripts/image-suite -p 'test_*.py'
 ```
 
 The default suite is provider-free: subprocess tests inject deterministic runners without a production backdoor, HTTP uses `httptest`, and bridge generation is checked for both macOS profiles. CI runs the race suite on an official macOS Go 1.27 runner before packaging.
@@ -550,6 +575,9 @@ It uses a temporary absolute `HOLLIS_STATE_DIR`, quiet prompts, an ephemeral loo
 hollis respond "prompt"                    # one-shot response
 hollis respond --model cloud-pro "prompt"  # explicit Cloud Pro
 hollis respond --image photo.jpg "describe" # image input; defaults to Cloud
+hollis respond --file notes.md "summarize"   # attach a text document
+hollis image generate "A lighthouse" --style sketch --output lighthouse.png
+hollis batch resume --job ./job.json --max-calls 12
 hollis chat "remember this"                # start a persistent chat
 hollis chat --continue <id> "follow up"     # continue a chat
 hollis chats list                           # list stored chats

@@ -1,130 +1,102 @@
 # Image generation
 
-Hollis can save one generated PNG using an explicit Image Playground Shortcut.
-This is an experimental, optional CLI and HTTP feature. It is separate from the four
-text/image-understanding model tiers and requires its own Shortcut.
+Hollis generates PNG images through a single Image Playground Shortcut. Use it
+from the terminal, within a Hollis chat, or through the local API. The same
+bridge accepts a style and an optional reference image.
 
-## Setup: generated parameterized Shortcut
+## Setup
 
-The reference-capable setup uses one parameterized Shortcut for every style.
-From a Hollis source checkout, generate and sign the source with the repository
-script:
+The normal **hollis-bridges.zip** release download includes all four model
+bridges plus **Hollis Image - Reference Input v2**. Follow the
+[Quickstart](../README.md#quickstart) to verify the package, sign the shortcuts
+on your Mac and add them. No source checkout or separate image download is needed.
 
-```sh
-BRIDGE_DIR="$(mktemp -d)"
-python3 scripts/make-image-bridge.py "$BRIDGE_DIR"
-shortcuts sign --mode anyone \
-  --input "$BRIDGE_DIR/Hollis Image - Reference Input v2.shortcut" \
-  --output "$BRIDGE_DIR/Hollis Image - Reference Input v2.signed.shortcut"
-open "$BRIDGE_DIR/Hollis Image - Reference Input v2.signed.shortcut"
-```
+Then configure the exact image Shortcut name:
 
-In Shortcuts, choose **Add Shortcut** when prompted. The imported Shortcut is
-named **Hollis Image - Reference Input v2**. Configure that exact name:
-
-```sh
+```bash
 hollis config set image-bridge "Hollis Image - Reference Input v2"
-hollis image generate "A blue square on white" --style sketch --output square.png
+hollis image generate "A small red sailboat on a calm blue lake" \
+  --style illustration --output sailboat.png
 ```
 
-The Receive section configures Text and Rich Text input with no-input behavior
-Continue; it is not a separate action. The generated actions are:
+Choose a fresh PNG filename in an existing directory. Restart a running Hollis
+API server after configuring the bridge. `hollis doctor` checks the four model
+bridges; the generation above is the actual image-route check.
 
-1. **Get Dictionary Value** for `prompt` from **Shortcut Input**.
-2. **Set Variable** to **Prompt**.
-3. **Get Dictionary Value** for `style` from **Shortcut Input**.
-4. **Get Dictionary Value** for `reference_base64` from **Shortcut Input**.
-5. **Base64 Encode** set to **Decode**, using that reference value.
-6. **Get Images from Input**, consuming the decoded bytes.
-7. **Create Image**: Description = **Prompt**, Style = the style value,
-   Photo = **Images**, Save to Playground = **Never**.
-8. **Stop and Output**: output **Image**, fallback **Do Nothing**.
+**Upgrading an earlier image bridge:** replace the old Reference Input v2
+Shortcut when importing the release copy. The corrected bridge explicitly
+connects Base64 Decode to Get Images. Rebuilding the binary alone cannot update
+an installed Shortcut. Keep the exact name above, or configure your chosen name.
 
-Hollis sends `prompt`, the native style label, and an optional raw
-`reference_base64` value. It maps IDs such as `sketch` to labels such as
-`Sketch`. When no reference is supplied, the optional field is omitted. The
-source generator also writes a separate ChatGPT diagnostic Shortcut; it is for
-the scoped investigation below, not the production bridge.
+First-use Add/Allow prompts are part of setup. Once authorized, the tested
+Shortcut returns files directly without a per-image click. This works in an
+unlocked macOS 27 session; it is not a logged-out service. Hollis does not open
+the native Image Playground editor or automate its Done button. First-ever
+permissions on another Mac remain untested.
 
-The signed reference bridge was imported and exercised on the already
-authorized macOS 27.0 build `26A5425a`. The complete qualification produced 52
-valid images across diagnostic and acceptance runs, with at least three
-seconds from completion to the next generation. All five working styles
-(Any Style, Animation, Genmoji, Illustration, Sketch) were exercised with and
-without references, including PNG/JPEG and local crop/pad processing.
+### Generate the bridge from source
 
-Earlier conversation prompt formats sometimes ignored a new scene or lost a
-subject. The final renderer puts the newest revision first while retaining
-earlier subject and text context. All nine final images passed visual review:
-three-turn interactive chat, Chat Completions, and Responses each retained
-the intended subjects and applied the requested scene changes. Reference
-metadata and checksums also matched. This is bounded visual and transport
-evidence, not proof of exact identity retention or backend pixel conditioning.
-On 6 September 2026, ten different photographic prompts were tested through
-the parameterized bridge with `--style any`, five with people and five without.
-Seven produced valid 1024×1024 PNGs: six looked animated (including all five
-people scenes), while a fox in snow looked photographic. Three returned the
-generic “Try describing something different” error. There were five seconds
-between completed calls and the next attempt, with no retries. No explicit
-quota error appeared, even though the user had received an approaching-limit
-warning in native Image Playground earlier. This does not establish a quota
-size or whether the two routes share a quota.
+Developers can inspect or regenerate the same bundled source:
 
-Hollis sent `Any Style`, but runtime logs do not establish whether the dynamic
-style value resolved as intended. Apple's public Any style is prompt-inferred;
-neither a guaranteed photographic setting nor an Animation fallback is proven
-for this bridge. Photographic output is observed, but its repeatability remains
-unqualified. Hollis preserves provider failures and does not retry or silently
-substitute a style.
+```bash
+HOLLIS_BRIDGE_DIR="$(mktemp -d)"
+python3 scripts/make-image-bridge.py "$HOLLIS_BRIDGE_DIR"
+mkdir "$HOLLIS_BRIDGE_DIR/signed"
+shortcuts sign --mode anyone \
+  --input "$HOLLIS_BRIDGE_DIR/Hollis Image - Reference Input v2.shortcut" \
+  --output "$HOLLIS_BRIDGE_DIR/signed/Hollis Image - Reference Input v2.shortcut"
+open "$HOLLIS_BRIDGE_DIR/signed/Hollis Image - Reference Input v2.shortcut"
+```
 
-The current ChatGPT result has a narrower, definite scope. A dated investigation
-on macOS 27.0 build `26A5425a` reproduced the failure through a fixed bridge, the
-parameterized bridge, native Shortcuts, and a fresh extension process. Apple's
-`GenerativePlaygroundAppIntents` extension selected ChatGPT but hit a sandbox
-denial reading its Shortcuts ToolKit database (`SQLite error 23`) before
-inference. Native Image Playground generated the same kind of request
-successfully. Do not advertise ChatGPT through this installed Shortcuts route
-on this host, retry prompts, or silently substitute another provider. This does
-not prove that every future macOS or Shortcuts build is impossible; requalify
-after a supported Apple route or OS fix.
+The script also produces a ChatGPT diagnostic; that diagnostic is excluded from
+the release bundle. The production bridge configures incoming Text/Rich Text
+and contains these actions:
 
-Earlier API attempts also exposed Apple's “This shortcut requires your Mac to
-be unlocked” diagnostic. The later paced acceptance pass completed all listed
-API generations through the imported reference bridge. The API and CLI still
-return actionable `image_session_locked` errors for that exact native
-diagnostic, without session manipulation or automatic retry. The final
-conversation rerun passed transport, checksum, and bounded visual checks as
-described above.
+1. Get Dictionary Value `prompt` from Shortcut Input; set variable `Prompt`.
+2. Get Dictionary Value `style` from Shortcut Input.
+3. Get Dictionary Value `reference_base64` from Shortcut Input.
+4. Base64 Decode the reference value.
+5. Get Images from the **explicit Decode output**.
+6. Create Image with Description = Prompt, Style = the style value,
+   Photo = Images, Save to Playground = Never.
+7. Stop and Output the generated Image, with fallback Do Nothing.
 
-## Legacy fixed-style setup
+Receive is input configuration, not an extra action. The optional reference key
+is omitted for a text-only generation. The model bridges are independent of this
+image-generation bridge.
 
-On a Mac with Image Playground and Apple Intelligence available, create a
-Shortcut named **Hollis Image Generation Probe** (or use another explicit name).
-The actual setup tested on macOS 27.0 build `26A5425a` is:
+## Tested behavior and limits
 
-1. Enable **Use as Quick Action** in Shortcut Details to expose the Receive
-   input section. Receive **Text and Rich Text**; if there is no input,
-   **Continue**. Hollis rejects empty prompts before running the Shortcut.
-2. Add Image Playground's **Create Image** action. Set **Description** to the
-   **Shortcut Input** variable. In the tested editor, Control-clicking the
-   Description field offered Shortcut Input directly. Set **Style** to
-   **Animation**, leave **Photo** empty, and set **Save to Playground** to
-   **Never**.
-3. Add **Stop and Output**, using the actual **Image** variable from Create
-   Image. Set “If there's nowhere to output” to **Do Nothing**.
+Animation, Illustration, Sketch, Genmoji and Any Style returned valid PNGs in
+paced tests. API generation and CLI/API conversation follow-ups also returned
+images. Earlier reference tests checked bytes at the Hollis boundary but missed
+a connection inside the Shortcut. The corrected connection passed an echo
+control and a live reference generation. See the [corrected evidence](../EVIDENCE.md#reference-correction).
 
-The Receive section is input configuration, not an action to drag into place.
-No Get Text action is needed for this tested flow. Style and Photo must not
-contain Shortcut Input for the text-only setup. If replacing another action,
-remove its stale Response variable and select the Image output instead.
+**Any Style does not guarantee photographs.** Native Image Playground can
+produce photographs, but we have not found a repeatable unattended photographic
+setting for its Shortcut action. The image bridge remains experimental, with
+provider refusals and build-specific behavior recorded rather than hidden.
 
-First-run permissions may require your attention. Hollis does not grant
-permissions, sign into an account, or answer dialogs. `--no-input` prevents
-Hollis terminal prompts; it cannot prevent a chosen Shortcut or macOS from
-showing UI. The generated reference bridge was imported on the already
-authorized test Mac; first-ever permissions and a new Mac remain untested.
-The standard release bridge bundle and `doctor` cover the four model bridges;
-they do not install or validate this optional image Shortcut.
+**ChatGPT image generation is blocked on the tested build** (`26A5425a`). Fixed
+and parameterized Shortcuts failed before inference with a Shortcuts ToolKit
+database sandbox denial (`SQLite error 23`), while native Image Playground
+worked. This does not affect the separate ChatGPT text/image-understanding
+bridge. No supported repair was established; Hollis does not silently substitute
+a provider. Recheck after a supported Apple update.
+
+A native “This shortcut requires your Mac to be unlocked” error becomes
+`image_session_locked` (HTTP409). Hollis does not manipulate the session or retry.
+The public native image sheet required a visible window and Done in a controlled
+test, so that helper is not part of Hollis.
+
+### Existing fixed-style shortcuts
+
+Existing single-style shortcuts still work. Configure one per style if needed:
+Description = Shortcut Input, a fixed Style, Photo empty, Save to Playground =
+Never, then Stop and Output = Image with fallback Do Nothing. Fixed-style bridges
+accept plain text and cannot accept reference images. Use the bundled bridge
+for new installations and conversation references.
 
 ## Styles
 
@@ -305,38 +277,15 @@ text turns, carry forward the text generation record without the image block.
 See [image references](image-references.md) for exact inline and replay
 schemas. Streaming remains unsupported.
 
-## Capabilities and evidence
+## Evidence
 
-| Capability | Evidence | Hollis status |
-| --- | --- | --- |
-| Text to image | Two distinct prompts returned valid, visually matched PNGs without interaction on the tested Mac | Implemented |
-| Animation | Repeated direct generations and two fixed-photo reference probes succeeded | Tested configuration |
-| Any Style, Genmoji, Illustration, Sketch | Two realistic-scene generations per style succeeded | Tested configurations; Any Style did not honor photographic prompts in two later samples |
-| ChatGPT | Native app generated a realistic landscape; the fixed, parameterized, native-Shortcuts, and fresh-extension routes all hit Apple's pre-inference ToolKit database sandbox failure on the tested macOS 27 build | Scoped blocked on the tested host/build; not a universal impossibility claim |
-| Photo reference | Fixed-photo probes and the imported parameterized bridge delivered validated references through CLI, interactive, Chat Completions, Responses, and standalone API calls | Transport and bounded three-turn visual checks passed; exact pixel editing unproven |
-| Image editing, photorealism, varying aspect ratios/resolutions | Apple describes these capabilities for ADM 3 Cloud | Not proof they are controllable through this Shortcut |
-| Native Image Playground size options | Public native API documents them; ImageCreator initialization is unsupported on macOS 27+ | Not exposed through this transport |
-| Exact backend, model version, quota | Not reported by the tested path | Unknown; no invented selector or usage count |
+The [evidence record](../EVIDENCE.md#v030-validation) separates live model
+results from local contract tests and records the reference-wiring correction.
+The release bridge has a regression test for the exact Decode → Get Images →
+Photo path; the packaging test checks the bridge actually shipped in the ZIP.
 
-The two live tests used a red circle and a blue square on white, with no text.
-Both returned 1024×1024 PNGs in approximately 7.3s and 5.5s respectively. Visual
-review found matching subjects, with the shading expected from Animation.
-No user or agent interaction was supplied during execution. Sampled UI checks
-showed no prompt; this was not a continuous recording. These tests exercised
-the same command implementation and transport before root registration;
-full-root integration is also covered by provider-free tests. This is a
-bounded smoke test, not a quality benchmark or general reliability guarantee.
-
-Apple documents the Create Image action in [Shortcuts release notes](https://support.apple.com/en-us/125148).
-Its [third-generation model research](https://machinelearning.apple.com/research/introducing-third-generation-of-apple-foundation-models)
-describes ADM 3 Cloud's image capabilities. Hollis does not infer that a
-particular style uses ADM 3, that every model feature has a Shortcut parameter,
-or that ChatGPT in the style menu behaves like the text model tier.
-
-Current-build qualification is complete for the working styles and the tested
-conversation paths. First-ever permission/new-Mac setup remains untested.
-The ChatGPT Image Playground Shortcut route is a confirmed platform blocker
-before inference on the tested macOS 27 build; do not silently substitute it.
-Reference attachment and bounded visual continuity checks passed, but exact
-identity, pixel editing, photorealism, and unseen prompts remain model-dependent.
-This remains an experimental, unreleased feature.
+Apple documents the Create Image action in its
+[Shortcuts release notes](https://support.apple.com/en-us/125148). Its
+[model research](https://machinelearning.apple.com/research/introducing-third-generation-of-apple-foundation-models)
+describes wider image capabilities, which are not automatically Shortcut controls.
+The requested style is not proof of a private backend model or recipe.
