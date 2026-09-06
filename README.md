@@ -30,7 +30,15 @@ answer. Apple’s processing privacy does not make that agent’s own service lo
 
 Measured on **macOS 27.0 (26A5421a and 26A5425a)**. macOS 26 is untested — see [Compatibility](#compatibility).
 
-## What’s in 0.3.0
+## What’s in 0.3.1
+
+Image-reference errors now explain missing files, denied access and other read
+failures without repeating local paths. Ordinary source builds identify as
+`dev`; release binaries keep their exact version.
+
+[0.3.1 release notes and upgrade instructions](docs/releases/v0.3.1.md).
+
+### Included from 0.3.0
 
 - Read instruction files and compare text documents.
 - Send images through Chat Completions and Responses.
