@@ -4,14 +4,13 @@ Bring Apple Cloud and Cloud Pro into the agent conversation you already use.
 Ask for a perspective on a plan, compare documents, understand an image or
 generate an illustration, then follow up naturally.
 
-**Status: prepared locally, not published.** This package intentionally pins
-the verified Hollis 0.3.0 runtime. A prepared 0.3.1 target is documented
-separately, but the official lock does not move until its release and provenance
-are separately authorized.
+**Status: prepared locally, not published.** This package pins the released
+Hollis 0.3.1 runtime. Its release assets passed checksum and GitHub build
+provenance verification before the lock was updated.
 
 - Shared `hollis` and `hollis-setup` skills with Claude Code and Codex manifests.
 - Guided Mac setup with individually selected bridges and explained Apple prompts.
-- Bundled ARM64 Hollis 0.3.0 and all five bridges; exact locked downloads for source installs.
+- Bundled ARM64 Hollis 0.3.1 and all five bridges; exact locked downloads for source installs.
 - Verified runtime provenance, private versioned installation, preservation of
   existing configuration and newer runtimes, and explicit rollback.
 - Existing text, document, vision, generation, reference and paced-batch capabilities.
@@ -28,7 +27,7 @@ tested Shortcut route. No visible Image Playground automation is used.
 
 See [setup and limits](../../plugins/hollis/README.md),
 [privacy](../../plugins/hollis/docs/privacy.md) and
-[validation](../plugin-validation.md). See the [prepared runtime 0.3.1 notes](v0.3.1.md)
+[validation](../plugin-validation.md). See the [runtime 0.3.1 release notes](v0.3.1.md)
 for the image-reference privacy correction and source-build identity. Public publication is
 pending separate authorization; this source contains the review package and
 release workflow.
@@ -47,6 +46,7 @@ release workflow.
   `ditto` extraction. The earlier review ZIP is preserved, not overwritten.
 
 [All review dispositions and validation](../plugin-review-closure.md) are
-recorded. The corrected source was tested with a local 0.3.1 build. The existing
-archive still bundles 0.3.0; a new complete bundle follows authorized runtime
-publication, provenance verification and a lock update.
+recorded. The new package contains the released 0.3.1 runtime and its privacy
+correction. Native extraction, installation, real 0.3.0-to-0.3.1 upgrade and
+rollback, corrupt-previous recovery and source downloads passed. Earlier 0.3.0
+archives and receipts are preserved as historical evidence.

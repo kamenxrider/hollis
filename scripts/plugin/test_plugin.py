@@ -30,6 +30,10 @@ class InstallerTests(unittest.TestCase):
         self.assets = self.kit / "assets/runtime"
         self.assets.mkdir(parents=True)
         self.lock = json.loads((self.kit / "runtime.lock.json").read_text())
+        # Keep the synthetic upgrade matrix stable as the production pin moves.
+        # Actual locked assets are exercised by the release package acceptance.
+        self.lock.update(version="0.3.0", source_ref="refs/tags/v0.3.0",
+                         release_url="https://github.com/kamenxrider/hollis/releases/download/v0.3.0")
         self.binary = self.assets / self.lock["binary"]["name"]
         self.binary.write_text('''#!/bin/bash
 if [[ -n ${CALL_LOG:-} ]]; then printf '%s\\n' "$*" >> "$CALL_LOG"; fi
@@ -296,7 +300,7 @@ class PackagingTests(unittest.TestCase):
     def test_source_contracts(self):
         manifest, lock = packaging.validate_source()
         self.assertEqual(manifest["version"], "0.1.0")
-        self.assertEqual(lock["version"], "0.3.0")
+        self.assertEqual(lock["version"], "0.3.1")
 
     def test_failed_provenance_never_returns_a_receipt(self):
         _, lock = packaging.validate_source()

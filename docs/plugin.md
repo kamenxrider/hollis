@@ -8,7 +8,7 @@ for everyday writing, research synthesis and creative work.
 Start with the [plugin guide](../plugins/hollis/README.md), which covers installation,
 first-use Apple approvals, supported capabilities and privacy. The source package
 contains both host manifests and shared skills; the downloadable archive also
-bundles the pinned ARM64 Hollis 0.3.0 runtime and five bridges.
+bundles the pinned ARM64 Hollis 0.3.1 runtime and five bridges.
 
 Plugin 0.1.0 is prepared locally for review. Its validation record distinguishes
 tests completed from remaining release acceptance work; see the

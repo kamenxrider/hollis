@@ -4,14 +4,14 @@ Ask Apple's Cloud or Cloud Pro for a useful second perspective, turn documents
 into clear writing, understand images, or generate an illustration—then continue
 in the same agent conversation.
 
-Plugin **0.1.0** uses the verified Hollis **0.3.0** runtime. It shares two skills
+Plugin **0.1.0** uses the verified Hollis **0.3.1** runtime. It shares two skills
 between Claude Code and Codex. It works alongside gstack and also without it.
 There is no additional server, subscription, model API key or background job to set up.
 Your existing host-agent service is separate.
 
-This package is prepared locally and remains unpublished. Its official runtime
-pin stays at 0.3.0 until a separately authorized 0.3.1 release has verified
-provenance; do not treat a prepared target as a downloadable update.
+This package is prepared locally and remains unpublished. Its runtime is the
+released Hollis 0.3.1, pinned by version, source commit and verified asset hashes.
+The plugin archive needs separate publication and its own GitHub attestation.
 
 **Requires a local Apple-silicon Mac running macOS 27 with Apple Intelligence.**
 See [compatibility](docs/compatibility.md) and [privacy](docs/privacy.md).

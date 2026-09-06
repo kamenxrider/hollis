@@ -38,4 +38,5 @@ With runtime 0.3.1, invalid image-reference diagnostics distinguish `file does
 not exist`, `permission denied` and other `file access failed` errors without
 printing the path. Check the attachment locally and select an accessible regular
 PNG or JPEG; invalid references do not dispatch an Apple request. The preserved
-0.3.0 bundle does not contain this runtime fix yet.
+0.3.0 archive lacks this runtime fix; the current package bundles verified
+0.3.1 assets and includes it.

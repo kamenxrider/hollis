@@ -2,12 +2,14 @@
 
 All three consolidated findings and all five smaller items are addressed in
 source. Claude and Codex still return useful Apple answers and images inside
-the conversation. **Publication is pending:** runtime `0.3.1` is built and tested
-locally; plugin `0.1.0` remains unpublished, with its official lock and earlier
-archive still on runtime `0.3.0`.
+the conversation. **Runtime [0.3.1 is released](https://github.com/kamenxrider/hollis/releases/tag/v0.3.1).**
+Plugin `0.1.0` remains unpublished; its current lock and new package now use
+the verified 0.3.1 release assets. Earlier archives remain unchanged.
 
 Review baseline: `23f0b80`. [Sanitized verification results](../plugins/hollis/docs/review-evidence.json)
-record this run. Original reproductions, worker reports and raw host receipts
+record the pre-release fix verification. [Released package evidence](../plugins/hollis/docs/release-package-evidence.json)
+records the later 0.3.1 repin and installation checks. Original reproductions,
+worker reports and raw host receipts
 are preserved locally under `docs/dev/plugin-review-2026-09-06/` and
 `docs/dev/plugin-fixes-2026-09-07/`; those private folders are not distributed.
 
@@ -58,11 +60,15 @@ that advice authoritative.
 
 ## Remaining release and acceptance boundaries
 
-Publish runtime 0.3.1 only with separate authorization, verify its GitHub
-provenance, update the plugin lock, rebuild into a new output directory and
-repeat package acceptance. The preserved 0.3.0 archive does **not** contain the
-runtime privacy fix. Future plugin publication and its archive attestation are
-also separate steps.
+Runtime 0.3.1 was published with authorization. All five release assets passed
+strict GitHub provenance verification, and the new plugin bundle uses the
+verified version-and-hash lock. Native package installation, source download,
+Rosetta, actual 0.3.0 upgrade/rollback and corrupt-previous recovery passed.
+The repinned package also passed a Claude Cloud answer and a Codex Sketch
+with an explicit reference and absolute preview/file link, using the released
+managed binary. Two Apple calls, no retries or visible editor.
+The preserved 0.3.0 archive does **not** contain the runtime privacy fix.
+Plugin publication and its outer archive attestation remain separate steps.
 
 A genuinely fresh Mac account and fresh Apple consent remain unproven. So do a
 real interrupted first import, fresh Apple permission rejection, a deliberately
