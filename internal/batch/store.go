@@ -12,11 +12,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unicode/utf8"
 )
 
@@ -98,6 +101,9 @@ func (s *LocalStore) Lock(ctx context.Context, jobPath string) (Lock, error) {
 	if err := ensureParentDirectory(jobPath); err != nil {
 		return nil, fmt.Errorf("prepare lock directory: %w", err)
 	}
+	if err := requireStableLockParent(ctx, filepath.Dir(jobPath)); err != nil {
+		return nil, err
+	}
 	lockPath := jobPath + ".lock"
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
@@ -113,11 +119,33 @@ func (s *LocalStore) Lock(ctx context.Context, jobPath string) (Lock, error) {
 	if err := requirePrivateOwnedRegular(info, "lock file"); err != nil {
 		return closeWith(err)
 	}
+	if err := requireSafeLockACL(ctx, lockPath, "lock file"); err != nil {
+		return closeWith(err)
+	}
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
 			return closeWith(errors.New("batch job is already locked by another process"))
 		}
 		return closeWith(fmt.Errorf("acquire batch lock: %w", err))
+	}
+	// Flock protects the open inode, not the pathname. Recheck the full path
+	// after admission so a pathname replacement can never be registered as an
+	// owned lock.
+	if err := requireStableLockParent(ctx, filepath.Dir(jobPath)); err != nil {
+		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		return closeWith(err)
+	}
+	current, err := os.Lstat(lockPath)
+	if err != nil || !os.SameFile(info, current) {
+		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		if err != nil {
+			return closeWith(fmt.Errorf("reinspect lock file: %w", err))
+		}
+		return closeWith(errors.New("batch lock path changed during acquisition"))
+	}
+	if err := requireSafeLockACL(ctx, lockPath, "lock file"); err != nil {
+		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		return closeWith(err)
 	}
 
 	owned := &localLock{store: s, jobPath: jobPath, file: file}
@@ -486,6 +514,212 @@ func ensureParentDirectory(path string) error {
 		return errors.New("parent path is not a directory")
 	}
 	return nil
+}
+
+// requireStableLockParent rejects directory chains in which another local
+// principal can replace the lock file or one of its ancestor directories.
+// Sticky shared directories are safe when the protected child is owned by the
+// current user; the lock file itself is checked after it is opened.
+func requireStableLockParent(ctx context.Context, parent string) error {
+	parent = filepath.Clean(parent)
+	childPath := parent
+	childInfo, err := os.Lstat(childPath)
+	if err != nil {
+		return fmt.Errorf("inspect lock directory: %w", err)
+	}
+	if !childInfo.IsDir() || childInfo.Mode()&os.ModeSymlink != 0 {
+		return errors.New("lock parent is not a direct directory")
+	}
+	if !trustedLockDirectoryOwner(childInfo) {
+		return fmt.Errorf("lock parent %q is owned by an untrusted local principal", childPath)
+	}
+	if childInfo.Mode().Perm()&0o022 != 0 && childInfo.Mode()&os.ModeSticky == 0 {
+		return fmt.Errorf("lock parent %q is writable by another local principal without sticky protection", childPath)
+	}
+	if err := requireSafeLockACL(ctx, childPath, "lock parent"); err != nil {
+		return err
+	}
+
+	for {
+		ancestor := filepath.Dir(childPath)
+		if ancestor == childPath {
+			return nil
+		}
+		ancestorInfo, err := os.Lstat(ancestor)
+		if err != nil {
+			return fmt.Errorf("inspect lock ancestor %q: %w", ancestor, err)
+		}
+		if !ancestorInfo.IsDir() || ancestorInfo.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("lock ancestor %q is not a direct directory", ancestor)
+		}
+		if !trustedLockDirectoryOwner(ancestorInfo) {
+			return fmt.Errorf("lock ancestor %q is owned by an untrusted local principal", ancestor)
+		}
+		if ancestorInfo.Mode().Perm()&0o022 != 0 {
+			if ancestorInfo.Mode()&os.ModeSticky == 0 {
+				return fmt.Errorf("lock ancestor %q can replace %q", ancestor, childPath)
+			}
+			if !ownedByCurrentUser(childInfo) {
+				return fmt.Errorf("sticky lock ancestor %q does not protect unowned child %q", ancestor, childPath)
+			}
+		}
+		if err := requireSafeLockACL(ctx, ancestor, "lock ancestor"); err != nil {
+			return err
+		}
+		childPath = ancestor
+		childInfo = ancestorInfo
+	}
+}
+
+const (
+	aclInspectionTimeout = 2 * time.Second
+	maxACLListingBytes   = 64 << 10
+)
+
+// requireSafeLockACL rejects macOS allow ACL entries that let another local
+// principal replace a protected directory entry, delete the lock, or change
+// its owner or permissions. Read-only allow entries and recognized deny
+// entries do not weaken the mode/owner checks and remain supported.
+func requireSafeLockACL(ctx context.Context, path, label string) error {
+	if runtime.GOOS != "darwin" {
+		return errors.New("batch lock ACL inspection requires macOS")
+	}
+	inspectCtx, cancel := context.WithTimeout(ctx, aclInspectionTimeout)
+	defer cancel()
+
+	command := exec.CommandContext(inspectCtx, "/bin/ls", "-ldbe", path)
+	command.Env = []string{"LC_ALL=C", "LANG=C"}
+	var stdout, stderr cappedCommandOutput
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		if ctxErr := inspectCtx.Err(); ctxErr != nil {
+			return fmt.Errorf("inspect %s ACL: %w", label, ctxErr)
+		}
+		return fmt.Errorf("inspect %s ACL: native ACL query failed", label)
+	}
+	if stdout.overflow || stderr.overflow {
+		return fmt.Errorf("inspect %s ACL: native ACL output exceeded its limit", label)
+	}
+	if stderr.Len() != 0 {
+		return fmt.Errorf("inspect %s ACL: native ACL query returned unexpected diagnostics", label)
+	}
+	if err := validateMacACLListing(stdout.Bytes()); err != nil {
+		return fmt.Errorf("%s ACL is unsafe: %w", label, err)
+	}
+	return nil
+}
+
+type cappedCommandOutput struct {
+	buffer   bytes.Buffer
+	overflow bool
+}
+
+func (output *cappedCommandOutput) Len() int      { return output.buffer.Len() }
+func (output *cappedCommandOutput) Bytes() []byte { return output.buffer.Bytes() }
+
+func (output *cappedCommandOutput) Write(data []byte) (int, error) {
+	written := len(data)
+	remaining := maxACLListingBytes - output.Len()
+	if remaining <= 0 {
+		output.overflow = output.overflow || written != 0
+		return written, nil
+	}
+	if len(data) > remaining {
+		output.overflow = true
+		data = data[:remaining]
+	}
+	_, _ = output.buffer.Write(data)
+	return written, nil
+}
+
+func validateMacACLListing(listing []byte) error {
+	if len(listing) == 0 || !utf8.Valid(listing) || bytes.IndexByte(listing, 0) >= 0 {
+		return errors.New("native ACL query returned invalid output")
+	}
+	lines := strings.Split(strings.TrimSuffix(string(listing), "\n"), "\n")
+	if len(lines) == 0 || len(lines[0]) == 0 || (lines[0][0] != 'd' && lines[0][0] != '-') {
+		return errors.New("native ACL query returned an invalid file header")
+	}
+	for _, line := range lines[1:] {
+		if err := validateMacACLEntry(line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateMacACLEntry(line string) error {
+	if len(line) == 0 || (line[0] != ' ' && line[0] != '\t') {
+		return errors.New("native ACL query returned an unrecognized entry")
+	}
+	entry := strings.TrimSpace(line)
+	colon := strings.IndexByte(entry, ':')
+	if colon <= 0 {
+		return errors.New("native ACL query returned an unrecognized entry")
+	}
+	for _, digit := range entry[:colon] {
+		if digit < '0' || digit > '9' {
+			return errors.New("native ACL query returned an unrecognized entry")
+		}
+	}
+	fields := strings.Fields(entry[colon+1:])
+	decision := -1
+	for index, field := range fields {
+		if field == "allow" || field == "deny" {
+			if decision != -1 {
+				return errors.New("native ACL query returned an ambiguous entry")
+			}
+			decision = index
+		}
+	}
+	if decision <= 0 || decision != len(fields)-2 || fields[decision+1] == "" {
+		return errors.New("native ACL query returned an unrecognized entry")
+	}
+	for _, permission := range strings.Split(fields[decision+1], ",") {
+		if !knownACLPermission(permission) {
+			return fmt.Errorf("entry contains unknown permission %q", permission)
+		}
+		if fields[decision] == "allow" && !safeReadOnlyACLPermission(permission) {
+			return fmt.Errorf("allow entry grants %q", permission)
+		}
+	}
+	return nil
+}
+
+func knownACLPermission(permission string) bool {
+	switch permission {
+	case "read", "write", "append", "execute", "delete", "list", "search", "add_file", "add_subdirectory", "delete_child",
+		"readattr", "writeattr", "readextattr", "writeextattr", "readsecurity", "writesecurity", "chown", "synchronize",
+		"file_inherit", "directory_inherit", "limit_inherit", "only_inherit", "inherited":
+		return true
+	default:
+		return false
+	}
+}
+
+func safeReadOnlyACLPermission(permission string) bool {
+	switch permission {
+	case "read", "list", "search", "execute", "readattr", "readextattr", "readsecurity", "synchronize",
+		"file_inherit", "directory_inherit", "limit_inherit", "only_inherit", "inherited":
+		return true
+	default:
+		return false
+	}
+}
+
+func ownedByCurrentUser(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Uid == uint32(os.Getuid())
+}
+
+func trustedLockDirectoryOwner(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && trustedLockOwnerID(stat.Uid)
+}
+
+func trustedLockOwnerID(uid uint32) bool {
+	return uid == 0 || uid == uint32(os.Getuid())
 }
 
 func createPrivateOutputDirectory(path string) error {

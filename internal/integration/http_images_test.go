@@ -107,7 +107,7 @@ func TestHTTPImageEndpointsProviderFree(t *testing.T) {
 
 func TestHTTPTextRequestsKeepUsingRunnerRun(t *testing.T) {
 	fake := &httpImageRunner{}
-	handler := server.New(fake, "").Handler()
+	handler := server.NewUnauthenticated(fake).Handler()
 	res := integrationPost(handler, "/v1/responses", `{"model":"cloud","input":"plain text"}`, "")
 	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "text:") {
 		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())

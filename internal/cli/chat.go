@@ -479,7 +479,7 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 					return err
 				}
 				imageTurns++
-				fmt.Fprintf(out, "< Saved PNG to %s\n", imageResult.Published.Path)
+				fmt.Fprintf(out, "< Saved PNG to %s\n", humanTerminalText(out, imageResult.Published.Path))
 				if readErr != nil {
 					return nil
 				}
@@ -500,7 +500,7 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 			if result.FallbackReason != "" {
 				fmt.Fprintf(errOut, "hollis: fallback %s: answered with %s\n", result.FallbackReason, result.ModelUsed)
 			}
-			fmt.Fprintln(out, "<", result.Text)
+			fmt.Fprintln(out, "<", humanTerminalText(out, result.Text))
 		}
 		if readErr != nil {
 			// EOF (Ctrl-D). Any trailing line without a newline was just
@@ -549,7 +549,8 @@ func writeChatHuman(cmd *cobra.Command, result turnResult, conv store.Conversati
 		fmt.Fprintf(cmd.ErrOrStderr(), "hollis: fallback %s: answered with %s\n", result.FallbackReason, result.ModelUsed)
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "conversation_id: %s\n", conv.ID)
-	fmt.Fprint(cmd.OutOrStdout(), result.Text)
+	text := humanTerminalText(cmd.OutOrStdout(), result.Text)
+	fmt.Fprint(cmd.OutOrStdout(), text)
 	if !strings.HasSuffix(result.Text, "\n") {
 		fmt.Fprintln(cmd.OutOrStdout())
 	}
@@ -661,7 +662,7 @@ Exit codes: 0 hits, 2 empty query, 3 no matches.`,
 				if len(m.Hits) > 0 {
 					line = strings.ReplaceAll(m.Hits[0].Snippet, "\n", " ")
 				}
-				fmt.Fprintf(w, "%s  %-9s  %-17s  %s\n", m.ID, m.Model, shortTS(m.UpdatedAt), line)
+				fmt.Fprintf(w, "%s  %-9s  %-17s  %s\n", m.ID, m.Model, shortTS(m.UpdatedAt), humanTerminalText(w, line))
 			}
 			return nil
 		},
@@ -716,7 +717,7 @@ func newChatsListCmd(flags *rootFlags) *cobra.Command {
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "%-38s  %-9s  %-9s  %s\n", "ID", "MESSAGES", "MODEL", "TITLE")
 			for _, c := range convs {
-				fmt.Fprintf(w, "%s  %-9d  %-9s  %s\n", c.ID, c.Messages, c.Model, c.Title)
+				fmt.Fprintf(w, "%s  %-9d  %-9s  %s\n", c.ID, c.Messages, c.Model, humanTerminalText(w, c.Title))
 			}
 			return nil
 		},
@@ -756,10 +757,10 @@ func newChatsShowCmd(flags *rootFlags) *cobra.Command {
 				}, flags)
 			}
 			w := cmd.OutOrStdout()
-			fmt.Fprintf(w, "id: %s\nmodel: %s\ntitle: %s\n", conv.ID, conv.Model, conv.Title)
+			fmt.Fprintf(w, "id: %s\nmodel: %s\ntitle: %s\n", conv.ID, conv.Model, humanTerminalText(w, conv.Title))
 			fmt.Fprintf(w, "created: %s  updated: %s\n", conv.CreatedAt, conv.UpdatedAt)
 			for _, m := range msgs {
-				fmt.Fprintf(w, "\n%s:\n%s\n", strings.ToUpper(m.Role), m.Content)
+				fmt.Fprintf(w, "\n%s:\n%s\n", strings.ToUpper(m.Role), humanTerminalText(w, m.Content))
 			}
 			return nil
 		},
@@ -861,6 +862,39 @@ var interactiveStdin = func() bool {
 		return false
 	}
 	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// terminalOutput reports whether human-facing output is attached to a terminal.
+// Structured and redirected output deliberately remains byte-for-byte intact.
+var terminalOutput = func(w io.Writer) bool {
+	file, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+func humanTerminalText(w io.Writer, value string) string {
+	if !terminalOutput(w) {
+		return value
+	}
+	return sanitizeTerminalText(value)
+}
+
+func sanitizeTerminalText(value string) string {
+	var sanitized strings.Builder
+	for _, character := range value {
+		switch {
+		case character == '\n' || character == '\t':
+			sanitized.WriteRune(character)
+		case character < 0x20 || character == 0x7f || character >= 0x80 && character <= 0x9f:
+			fmt.Fprintf(&sanitized, "\\u%04x", character)
+		default:
+			sanitized.WriteRune(character)
+		}
+	}
+	return sanitized.String()
 }
 
 func truncateTitle(prompt string) string {

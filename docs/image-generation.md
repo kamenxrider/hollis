@@ -60,8 +60,22 @@ three-turn interactive chat, Chat Completions, and Responses each retained
 the intended subjects and applied the requested scene changes. Reference
 metadata and checksums also matched. This is bounded visual and transport
 evidence, not proof of exact identity retention or backend pixel conditioning.
-Any Style has not reliably honored photographic prompts. Hollis preserves
-provider failures and does not retry or silently substitute a style.
+On 6 September 2026, ten different photographic prompts were tested through
+the parameterized bridge with `--style any`, five with people and five without.
+Seven produced valid 1024×1024 PNGs: six looked animated (including all five
+people scenes), while a fox in snow looked photographic. Three returned the
+generic “Try describing something different” error. There were five seconds
+between completed calls and the next attempt, with no retries. No explicit
+quota error appeared, even though the user had received an approaching-limit
+warning in native Image Playground earlier. This does not establish a quota
+size or whether the two routes share a quota.
+
+Hollis sent `Any Style`, but runtime logs do not establish whether the dynamic
+style value resolved as intended. Apple's public Any style is prompt-inferred;
+neither a guaranteed photographic setting nor an Animation fallback is proven
+for this bridge. Photographic output is observed, but its repeatability remains
+unqualified. Hollis preserves provider failures and does not retry or silently
+substitute a style.
 
 The current ChatGPT result has a narrower, definite scope. A dated investigation
 on macOS 27.0 build `26A5425a` reproduced the failure through a fixed bridge, the
@@ -233,7 +247,8 @@ precedence rules.
 
 ## HTTP and API conversations
 
-Configure the permitted style bridges locally before starting `hollis serve`.
+Configure the permitted style bridges locally before starting
+`hollis serve --token-file <private-file>`.
 Remote callers choose a style from that allowlist; they cannot provide an
 arbitrary Shortcut name or a local filesystem path. Authentication and shared
 model concurrency apply to generation too.

@@ -258,6 +258,7 @@ func TestLiveRealSystem(t *testing.T) {
 	t.Cleanup(stop)
 	h.mustHTTP(http.MethodGet, baseURL+"/health", "", "", http.StatusOK)
 	h.mustHTTP(http.MethodGet, baseURL+"/v1/models", "", "", http.StatusUnauthorized)
+	h.mustHTTP(http.MethodGet, baseURL+"/v1/models", "", newTestBearerToken(h.t), http.StatusUnauthorized)
 	h.mustHTTP(http.MethodGet, baseURL+"/v1/models", "", token, http.StatusOK)
 	h.mustHTTP(http.MethodPost, baseURL+"/health", `{}`, token, http.StatusMethodNotAllowed)
 	h.mustHTTP(http.MethodPost, baseURL+"/v1/models", `{}`, token, http.StatusMethodNotAllowed)
@@ -336,10 +337,13 @@ func (h *liveHarness) pacePro() {
 
 func (h *liveHarness) startServer() (baseURL, token string, stop func()) {
 	h.t.Helper()
-	token = strings.Repeat("h", 32)
+	token = newTestBearerToken(h.t)
 	tokenFile := filepath.Join(h.state, "live-token")
 	if err := os.WriteFile(tokenFile, []byte(token+"\n"), 0o600); err != nil {
 		h.t.Fatal(err)
+	}
+	if info, err := os.Stat(tokenFile); err != nil || info.Mode().Perm() != 0o600 {
+		h.t.Fatalf("live token file mode is not private: %v", err)
 	}
 	cmd := exec.Command(h.bin, "serve", "--addr", "127.0.0.1:0", "--token-file", tokenFile)
 	cmd.Env = isolatedHollisEnv(h.state)

@@ -55,8 +55,12 @@ func TestServeRejectsUnsafeArguments(t *testing.T) {
 		{"extra argument", []string{"serve", "extra"}, ""},
 		{"bad concurrency low", []string{"serve", "--max-concurrency", "0"}, ""},
 		{"bad concurrency high", []string{"serve", "--max-concurrency", "5"}, ""},
+		{"default without auth", []string{"serve"}, ""},
 		{"remote without opt in", []string{"serve", "--addr", "0.0.0.0:0"}, strings.Repeat("x", 32)},
 		{"remote without auth", []string{"serve", "--allow-remote", "--addr", "0.0.0.0:0"}, ""},
+		{"no auth remote", []string{"serve", "--no-auth", "--addr", "0.0.0.0:0"}, ""},
+		{"no auth allow remote", []string{"serve", "--no-auth", "--allow-remote"}, ""},
+		{"no auth with environment token", []string{"serve", "--no-auth"}, strings.Repeat("x", 32)},
 		{"short token", []string{"serve", "--allow-remote", "--addr", "0.0.0.0:0"}, "short"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -145,7 +149,7 @@ func TestServeGracefulContextShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetContext(ctx)
-	cmd.SetArgs([]string{"serve", "--addr", "127.0.0.1:0"})
+	cmd.SetArgs([]string{"serve", "--no-auth", "--addr", "127.0.0.1:0"})
 	out := &notifyingWriter{ready: make(chan struct{})}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})

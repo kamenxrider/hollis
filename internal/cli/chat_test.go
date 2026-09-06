@@ -65,6 +65,48 @@ func openTempStore(t *testing.T) *store.Store {
 	return st
 }
 
+func TestHumanChatOutputNeutralizesTerminalControlsOnlyOnTerminal(t *testing.T) {
+	original := "safe\x1b]52;c;stolen\a text\rrewritten\nnext\tcolumn\u009b31m"
+	oldTerminalOutput := terminalOutput
+	t.Cleanup(func() { terminalOutput = oldTerminalOutput })
+
+	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	var terminal bytes.Buffer
+	cmd.SetOut(&terminal)
+	terminalOutput = func(io.Writer) bool { return true }
+	writeChatHuman(cmd, turnResult{Text: original, ModelUsed: runner.ModelCloud}, store.Conversation{ID: "conversation"})
+	if strings.ContainsAny(terminal.String(), "\x1b\a\r\u009b") {
+		t.Fatalf("terminal output retained a control character: %q", terminal.String())
+	}
+	for _, escaped := range []string{`\u001b`, `\u0007`, `\u000d`, `\u009b`} {
+		if !strings.Contains(terminal.String(), escaped) {
+			t.Fatalf("terminal output %q missing visible escape %q", terminal.String(), escaped)
+		}
+	}
+
+	var redirected bytes.Buffer
+	cmd.SetOut(&redirected)
+	terminalOutput = func(io.Writer) bool { return false }
+	writeChatHuman(cmd, turnResult{Text: original, ModelUsed: runner.ModelCloud}, store.Conversation{ID: "conversation"})
+	if redirected.String() != original+"\n" {
+		t.Fatalf("redirected output changed: %q", redirected.String())
+	}
+
+	var jsonOutput bytes.Buffer
+	cmd.SetOut(&jsonOutput)
+	terminalOutput = func(io.Writer) bool { return true }
+	if err := printChatJSON(cmd, turnResult{Text: original, ModelUsed: runner.ModelCloud}, store.Conversation{ID: "conversation", Model: "cloud"}, &rootFlags{}); err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(jsonOutput.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["response"] != original {
+		t.Fatalf("JSON response changed: %q", payload["response"])
+	}
+}
+
 func TestRunTurnStoresReplayHistory(t *testing.T) {
 	st := openTempStore(t)
 	defer st.Close()

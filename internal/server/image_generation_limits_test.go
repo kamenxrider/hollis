@@ -76,6 +76,51 @@ func TestImageGenerationReferencePixelBoundaryIsClassifiedBeforeDecode(t *testin
 	}
 }
 
+func TestImageGenerationCapacityPrecedesReferencePixelDecode(t *testing.T) {
+	dataURL := testImageDataURL("image/png", pngConfigOnly(2, 1))
+	tests := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "standalone",
+			path: "/v1/images/generations",
+			body: fmt.Sprintf(`{"model":"hollis-image","prompt":"edit","reference_image":%q}`, dataURL),
+		},
+		{
+			name: "chat completions",
+			path: "/v1/chat/completions",
+			body: fmt.Sprintf(`{"model":"hollis-image","messages":[{"role":"user","content":[{"type":"text","text":"edit"},{"type":"image_url","image_url":{"url":%q}}]}],"image_generation":{"style":"animation"}}`, dataURL),
+		},
+		{
+			name: "responses",
+			path: "/v1/responses",
+			body: fmt.Sprintf(`{"model":"hollis-image","input":[{"role":"user","content":[{"type":"input_text","text":"edit"},{"type":"input_image","image_url":%q}]}],"image_generation":{"style":"animation"}}`, dataURL),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			generator := &recordingGenerator{}
+			server := testUnifiedGenerationServer(generator, "")
+			server.slots() <- struct{}{}
+			busy := post(t, server.Handler(), test.path, test.body)
+			if busy.Code != http.StatusTooManyRequests || !strings.Contains(busy.Body.String(), `"code":"server_busy"`) {
+				t.Fatalf("busy status=%d body=%s", busy.Code, busy.Body.String())
+			}
+			<-server.slots()
+
+			invalid := post(t, server.Handler(), test.path, test.body)
+			if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), `"code":"invalid_image"`) {
+				t.Fatalf("admitted status=%d body=%s, want invalid_image", invalid.Code, invalid.Body.String())
+			}
+			if generator.callCount() != 0 {
+				t.Fatalf("generator called %d times", generator.callCount())
+			}
+		})
+	}
+}
+
 func TestImageGenerationRejectsHistoricalReferencesOverAggregatePixelLimit(t *testing.T) {
 	dataURL := testImageDataURL("image/jpeg", generationLimitJPEG(t, 2000, 1500))
 	const pixelsPerReference = int64(2000 * 1500)

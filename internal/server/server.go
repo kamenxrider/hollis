@@ -36,11 +36,15 @@ const (
 // Server serves the local API. Available is fail-closed when non-nil: only
 // explicitly true tiers are offered. Auto is a strategy and remains selectable.
 type Server struct {
-	Runner         runner.Runner
-	Token          string
-	Available      map[string]bool
-	MaxConcurrency int
-	ImageGenerator imagegen.Generator
+	Runner runner.Runner
+	Token  string
+	// AllowUnauthenticated must be set explicitly for a loopback-only server.
+	// New fails closed when Token is empty so embedders cannot accidentally
+	// expose model execution without authentication.
+	AllowUnauthenticated bool
+	Available            map[string]bool
+	MaxConcurrency       int
+	ImageGenerator       imagegen.Generator
 	// ImageBridge is one parameterized JSON Shortcut supporting every style.
 	ImageBridge string
 	// ImageBridges is an explicit style-to-Shortcut allowlist. HTTP callers
@@ -55,6 +59,14 @@ type Server struct {
 
 func New(r runner.Runner, token string) *Server {
 	return &Server{Runner: r, Token: token, MaxConcurrency: 1}
+}
+
+// NewUnauthenticated returns an explicitly unauthenticated server. Callers are
+// responsible for binding it only to a resolved loopback address.
+func NewUnauthenticated(r runner.Runner) *Server {
+	server := New(r, "")
+	server.AllowUnauthenticated = true
+	return server
 }
 
 func (s *Server) Handler() http.Handler {
@@ -80,6 +92,10 @@ func (s *Server) method(allowed string, next http.HandlerFunc) http.HandlerFunc 
 
 func (s *Server) guard(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if s.Token == "" && !s.AllowUnauthenticated {
+			writeAPIError(w, http.StatusUnauthorized, "authentication_error", "authentication_required", "bearer token authentication is required")
+			return
+		}
 		if s.Token != "" {
 			got := r.Header.Get("Authorization")
 			want := "Bearer " + s.Token

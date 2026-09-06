@@ -16,7 +16,7 @@ hollis respond --model cloud-pro "Analyze this bug"
 hollis respond --image photo.jpg "Describe this image"
 printf 'long prompt' | hollis respond
 hollis chat                       # interactive, remembers the conversation
-hollis serve                      # local OpenAI-shaped API
+hollis serve --token-file /private/path/hollis.token  # local OpenAI-shaped API
 ```
 
 Chats and configuration stay on your Mac. Model requests go to whichever provider you select through Shortcuts.
@@ -36,32 +36,56 @@ Measured on **macOS 27.0 (26A5421a and 26A5425a)**. macOS 26 is untested — see
 
 ## Quickstart
 
-**1. Install the binary.**
+**1. Download, verify, and install every release artifact.** This secure path
+requires the [GitHub CLI](https://cli.github.com/) for build-provenance
+verification. It uses a fresh private directory so older files cannot satisfy a
+checksum accidentally. The commands run in a fail-fast subshell: a missing or
+mismatched checksum or attestation stops before installation, extraction, or
+signing.
 
 ```bash
+(
+set -euo pipefail
+
 # Apple Silicon. On Intel, use: HOLLIS_ASSET=hollis-darwin-amd64
 HOLLIS_ASSET=hollis-darwin-arm64
-curl -fsSL -o "$HOLLIS_ASSET" "https://github.com/kamenxrider/hollis/releases/latest/download/$HOLLIS_ASSET"
+HOLLIS_INSTALL_DIR="$(mktemp -d)"
+chmod 700 "$HOLLIS_INSTALL_DIR"
+cd "$HOLLIS_INSTALL_DIR"
+HOLLIS_VERSION="$(gh release view --repo kamenxrider/hollis --json tagName --jq .tagName)"
+printf '%s\n' "$HOLLIS_VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'
+HOLLIS_RELEASE_URL="https://github.com/kamenxrider/hollis/releases/download/$HOLLIS_VERSION"
 
-curl -fsSL -o SHA256SUMS https://github.com/kamenxrider/hollis/releases/latest/download/SHA256SUMS
-shasum -a 256 -c SHA256SUMS --ignore-missing
+curl -fsSL -o "$HOLLIS_ASSET" "$HOLLIS_RELEASE_URL/$HOLLIS_ASSET"
+curl -fsSL -o hollis-bridges.zip "$HOLLIS_RELEASE_URL/hollis-bridges.zip"
+curl -fsSL -o SHA256SUMS "$HOLLIS_RELEASE_URL/SHA256SUMS"
+awk -v asset="$HOLLIS_ASSET" '
+  $2 == asset { binary++ }
+  $2 == "hollis-bridges.zip" { bridges++ }
+  $2 == asset || $2 == "hollis-bridges.zip" { print }
+  END { if (binary != 1 || bridges != 1) exit 1 }
+' SHA256SUMS > SELECTED_SHA256SUMS
+shasum -a 256 -c SELECTED_SHA256SUMS
+gh attestation verify "$HOLLIS_ASSET" --repo kamenxrider/hollis
+gh attestation verify hollis-bridges.zip --repo kamenxrider/hollis
 
 chmod +x "$HOLLIS_ASSET" && sudo mv "$HOLLIS_ASSET" /usr/local/bin/hollis
-```
-
-**2. Install the bridge shortcuts.** Hollis reaches Apple Intelligence through four small Shortcuts, one per model tier. They ship unsigned, because a signed shortcut is an artifact of the Mac that signed it. This step is **blocking for model calls**: `doctor` still runs without the bridges, but reports `MISSING` and exits 3.
-
-```bash
-curl -fsSL -o hollis-bridges.zip https://github.com/kamenxrider/hollis/releases/latest/download/hollis-bridges.zip
 unzip hollis-bridges.zip -d bridges
 
 for f in bridges/*.shortcut; do
   shortcuts sign --mode anyone --input "$f" --output "${f%.shortcut}.signed.shortcut"
   open "${f%.shortcut}.signed.shortcut"
 done
+)
 ```
 
-Shortcuts.app asks you to **Add Shortcut** for each one. The first time a bridge runs, macOS may also ask you to **Allow** model access.
+**2. Add the bridge shortcuts.** Hollis reaches Apple Intelligence through four
+small Shortcuts, one per model tier. They ship unsigned, because a signed
+shortcut is an artifact of the Mac that signed it. Shortcuts.app asks you to
+**Add Shortcut** for each one. This step is **blocking for model calls**:
+`doctor` still runs without the bridges, but reports `MISSING` and exits 3.
+
+The first time a bridge runs, macOS may also ask you to **Allow** model access.
 
 **3. Check it.**
 
@@ -185,6 +209,8 @@ hollis respond --model cloud-pro --image a.png --image b.png "Compare them"
 
 An image request with no selected or configured model defaults directly to Cloud. Cloud and Cloud Pro accept repeated `--image`; ChatGPT accepts one image. `auto` and On-Device are rejected for images because the tested On-Device Shortcut ignored the pixels, making automatic fallback unsafe.
 
+Images must be direct regular PNG/JPEG files, at most 64 MiB and 64 million pixels each. Hollis rejects symlinks in the file or its parent directories, apart from macOS's standard root-owned `/var`, `/tmp` and `/etc` aliases. Use the real path for an image reached through a custom directory link. The runner validates a private byte snapshot and passes only that snapshot to Shortcuts; staged images are removed after success, failure or cancellation.
+
 When images are present, give the prompt as an argument or with `--prompt-file`. Hollis writes it to a private temporary UTF-8 text file and passes that file plus the images as repeated Shortcuts inputs; the temporary prompt is deleted after the run. Do not pipe a second prompt through stdin with `--image`. Image chat history remains unsupported. The unreleased HTTP image-input contract is described below; released `v0.2.0` supports images through the CLI only.
 
 ## Paced folder processing (unreleased)
@@ -196,7 +222,7 @@ hollis batch run --job ./job.json --max-calls 12
 hollis batch resume --job ./job.json --max-calls 12
 ```
 
-`plan` reads a sorted, nonrecursive inventory of `.txt`, `.md`, `.png`, `.jpg` and `.jpeg` files and records skipped entries. It makes no model calls. Instructions must be outside the input inventory; job and output destinations must be outside the input folder. Symlinks, existing reserved outputs, invalid text and oversized prepared prompts are rejected. The instruction and each text document together must fit 128 KiB. Image files have a 64 MiB per-file Hollis limit; planning checks readable bytes, not whether a model can interpret the pixels.
+`plan` reads a sorted, nonrecursive inventory of `.txt`, `.md`, `.png`, `.jpg` and `.jpeg` files and records skipped entries. It makes no model calls. Instructions must be outside the input inventory; job and output destinations must be outside the input folder. Symlinks, existing reserved outputs, invalid text and oversized prepared prompts are rejected. The instruction and each text document together must fit 128 KiB. Image files have a 64 MiB per-file Hollis limit; planning checks readable bytes. Execution also validates PNG/JPEG content and a 64-million-pixel limit before calling a model.
 
 Choose a concrete model explicitly. On-Device supports text-only jobs; image jobs use Cloud, Cloud Pro or ChatGPT. Every run or resume requires a new `--max-calls` budget from 1 to 100. A budget-limited run pauses cleanly. Output distinguishes attempts in this invocation from lifetime attempts. There is one call per file, no automatic model switching, and no automatic retry.
 
@@ -206,9 +232,23 @@ Resume verifies completed results and checks source hashes before continuing. If
 
 Job manifests contain local paths, hashes and status, but no prompt or response content. Private `.response.json` files intentionally contain the model response and recovery metadata. Existing result files are never overwritten; the job manifest is updated atomically. An existing result directory must already be private (0700 or stricter); Hollis does not change its permissions. Inspect the manifest and results before sharing them. This is a finite command, not a background folder watcher.
 
+Run and resume keep a stable `.lock` beside the manifest. Hollis rejects a job
+location when that directory or one of its resolved ancestors is owned by an
+untrusted local account, or is writable by other accounts without sticky-bit
+protection. Put job manifests in a private directory you own; user-owned
+directories beneath a standard sticky temporary directory remain supported.
+On macOS, Hollis also checks extended ACLs on the lock and its directory chain.
+Allow entries that grant mutation rights are rejected; read-only and deny
+entries remain supported. An unreadable or unrecognized ACL fails closed.
+
 ## Persistent chats
 
 Shortcuts model calls are stateless. Hollis stores conversations locally and replays the transcript each turn:
+
+When human chat output is attached to a terminal, Hollis renders terminal
+control characters visibly so a model response or stored message cannot alter
+terminal state. JSON output and redirected human output preserve the original
+content for deterministic scripts.
 
 ```bash
 hollis chat "Remember the codeword VANTA-ORBIT-7319"
@@ -273,14 +313,19 @@ Exit codes are stable and parseable:
 ## Local OpenAI-shaped API
 
 ```bash
-hollis serve                                    # http://127.0.0.1:1978
+umask 077
+openssl rand -base64 48 > hollis.token
+{ printf 'Authorization: Bearer '; cat hollis.token; } > hollis.headers
+hollis serve --token-file hollis.token          # http://127.0.0.1:1978
 curl -s localhost:1978/health
-curl -s localhost:1978/v1/models
+curl -s localhost:1978/v1/models -H @hollis.headers
 curl -s localhost:1978/v1/chat/completions \
+  -H @hollis.headers \
   -H 'Content-Type: application/json' \
   -d '{"model":"cloud-pro","stream":false,"messages":[{"role":"user","content":"Explain closures in Go."}]}'
 
 curl -s localhost:1978/v1/responses \
+  -H @hollis.headers \
   -H 'Content-Type: application/json' \
   -d '{"model":"cloud-pro","stream":false,"input":"Explain closures in Go."}'
 ```
@@ -328,7 +373,7 @@ later release; Hollis never executes tools server-side.
 
 Shortcuts returns a complete response rather than a token stream, so `stream: true` returns **400** instead of a faked stream. Apple exposes no token counts through this path, so no `usage` field is invented. The v0.2 HTTP contract has no `tools` / function calls. `system` and `instructions` are advisory prompt content, not hard isolation boundaries. Both model routes reject malformed or trailing JSON, unknown fields, unsupported parameters/content, empty input, and prompts over 128 KiB before calling a model.
 
-Authentication is configured with `--token-file <private-file>` or `HOLLIS_API_TOKEN`; the token must contain at least 32 bytes and is never printed. `/v1/*` then expects `Authorization: Bearer <token>`, while `/health` stays unauthenticated. Hollis deliberately has no command-line `--token`, because process arguments can be visible through `ps`.
+Authentication is required by default and is configured with `--token-file <private-file>` or `HOLLIS_API_TOKEN`; the token must contain at least 32 bytes and is never printed. `/v1/*` expects `Authorization: Bearer <token>`, while `/health` stays unauthenticated. Hollis deliberately has no command-line `--token`, because process arguments can be visible through `ps`. `--no-auth` is an explicit opt-out for a resolved loopback listener only; it lets every local process invoke the configured models and cannot be combined with `--allow-remote`.
 
 Binding outside loopback requires **both** `--allow-remote` and authentication. Hollis does not provide TLS: expose it only through an encrypted trusted path such as Tailscale, WireGuard, or an SSH tunnel.
 
@@ -479,7 +524,10 @@ go build ./cmd/hollis
 
 The default suite is provider-free: subprocess tests inject deterministic runners without a production backdoor, HTTP uses `httptest`, and bridge generation is checked for both macOS profiles. CI runs the race suite on an official macOS Go 1.27 runner before packaging.
 
-Pull requests from branches in this repository also receive an automated Poolside review. Fork pull requests are skipped because GitHub does not provide repository secrets to them.
+Non-draft pull requests from branches in this repository to the default branch
+also receive an automated Poolside review of a bounded PR diff. The reviewer
+receives no repository tools and does not execute checks; normal provider-free
+tests run in CI.
 
 The separately gated live suite needs the exact built binary and invokes real Shortcuts models, so run it only when those calls are intended:
 
@@ -507,7 +555,7 @@ hollis chat --continue <id> "follow up"     # continue a chat
 hollis chats list                           # list stored chats
 hollis chats show <id>                      # show one chat
 hollis chats search "query"                 # search stored chats
-hollis serve                                # local API on 127.0.0.1:1978
+hollis serve --token-file hollis.token      # authenticated local API
 hollis doctor                               # check transport and bridges
 hollis models                               # show available tiers
 hollis config set model cloud-pro           # save a default tier

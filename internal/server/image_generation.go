@@ -55,6 +55,13 @@ type generatedImage struct {
 	ReferenceImageSHA256 string
 }
 
+type imageGenerationPlan struct {
+	outputOptions imagegen.OutputOptions
+	style         string
+	bridge        string
+	requestStyle  string
+}
+
 func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) {
 	var request imageGenerationsRequest
 	if !decodeRequest(w, r, &request) {
@@ -83,6 +90,19 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 	if !validatePrompt(w, request.Prompt) {
 		return
 	}
+	options := imageGenerationOptions{
+		Style: request.Style, AspectRatio: request.AspectRatio,
+		Size: request.Size, Fit: request.Fit,
+	}
+	plan, ok := s.prepareImageGeneration(w, options)
+	if !ok {
+		return
+	}
+	release, ok := s.acquireCapacity(w)
+	if !ok {
+		return
+	}
+	defer release()
 	var reference *imagegen.ReferenceImage
 	if strings.TrimSpace(request.ReferenceImage) != "" {
 		var err error
@@ -92,11 +112,7 @@ func (s *Server) handleImageGenerations(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	options := imageGenerationOptions{
-		Style: request.Style, AspectRatio: request.AspectRatio,
-		Size: request.Size, Fit: request.Fit,
-	}
-	image, ok := s.generateImage(r.Context(), w, request.Prompt, options, reference)
+	image, ok := s.generateImageAdmitted(r.Context(), w, request.Prompt, plan, reference)
 	if !ok {
 		return
 	}
@@ -127,6 +143,15 @@ func (s *Server) handleChatImageGeneration(w http.ResponseWriter, r *http.Reques
 		writeRequestValidationError(w, err)
 		return
 	}
+	plan, ok := s.prepareImageGeneration(w, options)
+	if !ok {
+		return
+	}
+	release, ok := s.acquireCapacity(w)
+	if !ok {
+		return
+	}
+	defer release()
 	messages, reference, err := parseGenerationChatMessages(request.Messages)
 	if err != nil {
 		writeRequestValidationError(w, err)
@@ -140,7 +165,7 @@ func (s *Server) handleChatImageGeneration(w http.ResponseWriter, r *http.Reques
 	if !validatePrompt(w, prompt) {
 		return
 	}
-	image, ok := s.generateImage(r.Context(), w, prompt, options, reference)
+	image, ok := s.generateImageAdmitted(r.Context(), w, prompt, plan, reference)
 	if !ok {
 		return
 	}
@@ -177,6 +202,15 @@ func (s *Server) handleResponsesImageGeneration(w http.ResponseWriter, r *http.R
 		writeRequestValidationError(w, err)
 		return
 	}
+	plan, ok := s.prepareImageGeneration(w, options)
+	if !ok {
+		return
+	}
+	release, ok := s.acquireCapacity(w)
+	if !ok {
+		return
+	}
+	defer release()
 	messages, reference, err := parseGenerationResponsesInput(request.Input)
 	if err != nil {
 		writeRequestValidationError(w, err)
@@ -193,7 +227,7 @@ func (s *Server) handleResponsesImageGeneration(w http.ResponseWriter, r *http.R
 	if !validatePrompt(w, prompt) {
 		return
 	}
-	image, ok := s.generateImage(r.Context(), w, prompt, options, reference)
+	image, ok := s.generateImageAdmitted(r.Context(), w, prompt, plan, reference)
 	if !ok {
 		return
 	}
@@ -231,7 +265,7 @@ func parseImageGenerationOptions(raw json.RawMessage) (imageGenerationOptions, e
 	return options, nil
 }
 
-func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, prompt string, options imageGenerationOptions, reference *imagegen.ReferenceImage) (generatedImage, bool) {
+func (s *Server) prepareImageGeneration(w http.ResponseWriter, options imageGenerationOptions) (imageGenerationPlan, bool) {
 	outputOptions := imagegen.OutputOptions{
 		AspectRatio: strings.TrimSpace(options.AspectRatio),
 		Size:        strings.TrimSpace(options.Size),
@@ -239,7 +273,7 @@ func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, promp
 	}
 	if err := imagegen.ValidateOutputOptions(outputOptions); err != nil {
 		writeRequestValidationError(w, unsupportedParameter(err.Error()))
-		return generatedImage{}, false
+		return imageGenerationPlan{}, false
 	}
 	style := strings.TrimSpace(options.Style)
 	if style == "" {
@@ -247,7 +281,7 @@ func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, promp
 	}
 	if !validImageStyle(style) {
 		writeRequestValidationError(w, unsupportedParameter(fmt.Sprintf("unsupported image style %q", style)))
-		return generatedImage{}, false
+		return imageGenerationPlan{}, false
 	}
 	bridge := strings.TrimSpace(s.ImageBridges[style])
 	requestStyle := ""
@@ -255,24 +289,30 @@ func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, promp
 		bridge = strings.TrimSpace(s.ImageBridge)
 		requestStyle = style
 	}
-	if reference != nil && requestStyle == "" {
+	if bridge == "" || s.ImageGenerator == nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "style_unavailable", "the selected image style is unavailable")
+		return imageGenerationPlan{}, false
+	}
+	return imageGenerationPlan{
+		outputOptions: outputOptions,
+		style:         style,
+		bridge:        bridge,
+		requestStyle:  requestStyle,
+	}, true
+}
+
+// generateImageAdmitted runs only after the caller has reserved one model
+// capacity slot. Reference decoding also happens under that reservation.
+func (s *Server) generateImageAdmitted(ctx context.Context, w http.ResponseWriter, prompt string, plan imageGenerationPlan, reference *imagegen.ReferenceImage) (generatedImage, bool) {
+	if reference != nil && plan.requestStyle == "" {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "reference_requires_parameterized_bridge", "image references require a parameterized image bridge")
 		return generatedImage{}, false
 	}
-	if bridge == "" || s.ImageGenerator == nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "style_unavailable", "the selected image style is unavailable")
-		return generatedImage{}, false
-	}
-	release, ok := s.acquireCapacity(w)
-	if !ok {
-		return generatedImage{}, false
-	}
-	defer release()
 
 	runCtx, cancel := context.WithTimeout(ctx, imagegen.MaxTimeout)
 	defer cancel()
 	result, err := s.ImageGenerator.Generate(runCtx, imagegen.Request{
-		Prompt: prompt, BridgeRef: bridge, Style: requestStyle, Reference: reference, Timeout: imagegen.MaxTimeout,
+		Prompt: prompt, BridgeRef: plan.bridge, Style: plan.requestStyle, Reference: reference, Timeout: imagegen.MaxTimeout,
 	})
 	cleanup := s.cleanupImage
 	if cleanup == nil {
@@ -290,7 +330,7 @@ func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, promp
 		return generatedImage{}, false
 	}
 	nativeWidth, nativeHeight := result.Width, result.Height
-	processed, err := imagegen.TransformOutput(runCtx, result, outputOptions)
+	processed, err := imagegen.TransformOutput(runCtx, result, plan.outputOptions)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			writeAPIError(w, http.StatusGatewayTimeout, "server_error", "image_generation_timeout", "image generation did not complete before its deadline")
@@ -300,14 +340,14 @@ func (s *Server) generateImage(ctx context.Context, w http.ResponseWriter, promp
 		return generatedImage{}, false
 	}
 	result = processed
-	image, err := readGeneratedImage(result, style)
+	image, err := readGeneratedImage(result, plan.style)
 	if err != nil {
 		writeAPIError(w, http.StatusBadGateway, "server_error", "image_generation_failed", "image generation returned an invalid result")
 		return generatedImage{}, false
 	}
 	image.NativeWidth = nativeWidth
 	image.NativeHeight = nativeHeight
-	image.OutputProcessing = outputOptions
+	image.OutputProcessing = plan.outputOptions
 	image.ReferenceImageSent = reference != nil
 	if reference != nil {
 		image.ReferenceImageSHA256 = reference.SHA256

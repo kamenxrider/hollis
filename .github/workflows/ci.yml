@@ -30,6 +30,9 @@ jobs:
       - name: Race test
         run: go test -race ./...
 
+      - name: Poolside review boundary tests
+        run: python3 -m unittest discover -s scripts/poolside-review -p 'test_*.py'
+
       # Bridge generation needs no Shortcuts on the runner: this catches
       # profile regressions (file sets, WFLLMModel strings, client
       # versions) before a user ever runs make-bridge.py. Files are
