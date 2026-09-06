@@ -4,6 +4,16 @@ This note separates what Apple documents for its developer framework from what
 Hollis has measured through the user-facing Shortcuts transport. Those are
 different product surfaces and must not be presented as interchangeable.
 
+## Agent plugin evidence
+
+The local plugin 0.1.0 review package pins Hollis 0.3.0. Its
+[recorded gstack/Claude and Codex demonstration](plugins/hollis/examples/recorded-demo.md)
+contains actual Apple answers and generated images. The
+[validation report](docs/plugin-validation.md) records 24 provider-free regression
+tests and 26 successful live Apple invocations, while explicitly leaving fresh
+Mac-account installation and the separate release attestation unproven/pending.
+This evidence does not expand the model or privacy claims below.
+
 ## Product claim
 
 The defensible claim is:

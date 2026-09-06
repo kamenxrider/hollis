@@ -1,0 +1,17 @@
+{
+  "name": "hollis-plugins",
+  "owner": {
+    "name": "Hollis contributors"
+  },
+  "plugins": [
+    {
+      "name": "hollis",
+      "source": "./plugins/hollis",
+      "description": "Apple inside the conversation",
+      "version": "0.1.0"
+    }
+  ],
+  "metadata": {
+    "description": "Apple Intelligence inside your agent conversation, with guided Hollis setup."
+  }
+}

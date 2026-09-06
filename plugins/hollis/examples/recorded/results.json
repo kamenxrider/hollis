@@ -1,0 +1,429 @@
+{
+  "date": "2026-09-06",
+  "plugin": "0.1.0",
+  "runtime": "0.3.0",
+  "platform": "Physical Apple-silicon Mac, macOS 27.0 (26A5425a)",
+  "hosts": {
+    "Claude Code": "2.1.263",
+    "Codex CLI": "0.153.4"
+  },
+  "gstack_commit": "0530392821c277b95e5cd65aa9d9fda4248718b2",
+  "recording": "Selected actual outputs from a scripted fictional host demonstration. Raw transcripts retained privately. No video, simulated response or image retouching. Elapsed times include host work and pacing.",
+  "apple_responses": {
+    "apple-cloud": {
+      "model_requested": "cloud",
+      "model_used": "cloud",
+      "response": "The plan still omits explicit handling of email deliverability beyond a single retry. Because confirmation is best-effort and residents receive no alternative channel, a persistent bounce or spam filter could leave them without proof of booking. This matters: without a way to re-send or verify receipt, volunteers might face disputes over attendance or no-shows, undermining trust in a free service. I would add a dashboard indicator showing whether confirmation succeeded and allow volunteers to resend via the same magic link; this stays within scope by reusing existing access and avoids resident accounts or SMS."
+    },
+    "apple-cloud-pro": {
+      "model_requested": "cloud-pro",
+      "model_used": "cloud-pro",
+      "response": "Cloud's recommendation introduces a false sense of security. A simple send API only confirms that the email left the server, not that it bypassed the resident's spam filter or reached their inbox. Displaying a \"confirmation succeeded\" indicator on the dashboard confuses send success with actual delivery.\n\nInstead of tracking unreliable delivery states, we can close the gap by displaying the booking details and a unique confirmation code directly on the post-submission success page. This provides immediate, verifiable proof of booking without relying on email deliverability or adding new dashboard indicators.\n\n**Proposed Change:**\nUpdate the success page to display the full booking details and a unique confirmation code (e.g., the first 8 characters of the booking ID). Advise residents to screenshot or print this page as their proof of booking.\n\n**Concrete Test:**\n- **Test:** Submit a valid booking and verify that the success page displays the correct slot time, volunteer name, and a matching unique confirmation code, even if the background email service is completely disabled."
+    }
+  },
+  "host_turns": [
+    {
+      "name": "gstack-review",
+      "host": "Claude Code",
+      "model": "sonnet",
+      "elapsed_seconds": 199.71,
+      "started_at": "2026-09-06T20:53:58.853410+00:00",
+      "ended_at": "2026-09-06T20:57:18.564846+00:00",
+      "exit_code": 0
+    },
+    {
+      "name": "apple-cloud",
+      "host": "Claude Code",
+      "model": "sonnet",
+      "elapsed_seconds": 57.907,
+      "started_at": "2026-09-06T20:57:49.714095+00:00",
+      "ended_at": "2026-09-06T20:58:47.622334+00:00",
+      "exit_code": 0
+    },
+    {
+      "name": "apple-cloud-pro",
+      "host": "Claude Code",
+      "model": "sonnet",
+      "elapsed_seconds": 33.307,
+      "started_at": "2026-09-06T20:59:37.584540+00:00",
+      "ended_at": "2026-09-06T21:00:10.892132+00:00",
+      "exit_code": 0
+    },
+    {
+      "name": "claude-image",
+      "host": "Claude Code",
+      "model": "sonnet",
+      "elapsed_seconds": 38.379,
+      "started_at": "2026-09-06T21:01:24.096184+00:00",
+      "ended_at": "2026-09-06T21:02:02.475526+00:00",
+      "exit_code": 0
+    },
+    {
+      "name": "claude-image-followup",
+      "host": "Claude Code",
+      "model": "sonnet",
+      "elapsed_seconds": 33.413,
+      "started_at": "2026-09-06T21:03:28.652328+00:00",
+      "ended_at": "2026-09-06T21:04:02.065841+00:00",
+      "exit_code": 0
+    },
+    {
+      "name": "codex-conversation",
+      "host": "Codex CLI",
+      "model": "gpt-5.6-sol",
+      "elapsed_seconds": 134.041,
+      "started_at": "2026-09-06T21:05:26.742540+00:00",
+      "ended_at": "2026-09-06T21:07:40.784095+00:00",
+      "exit_code": 0
+    },
+    {
+      "name": "codex-readiness",
+      "host": "Codex CLI",
+      "model": "gpt-5.6-sol",
+      "elapsed_seconds": 18.319,
+      "started_at": "2026-09-06T21:10:37.422466+00:00",
+      "ended_at": "2026-09-06T21:10:55.742006+00:00",
+      "exit_code": 0
+    }
+  ],
+  "live_checks": [
+    {
+      "name": "batch-first-budget",
+      "exit_code": 0,
+      "elapsed_seconds": 45.721,
+      "started_at": "2026-09-06T20:52:44.239113+00:00",
+      "ended_at": "2026-09-06T20:53:29.960612+00:00",
+      "live": true,
+      "result": {
+        "attempted": 1,
+        "budget_exhausted": true,
+        "complete": false,
+        "pending": 1,
+        "succeeded": 1,
+        "total_attempts": 1,
+        "uncertain": 0
+      }
+    },
+    {
+      "name": "batch-plan",
+      "exit_code": 0,
+      "elapsed_seconds": 0.186,
+      "started_at": "2026-09-06T20:52:44.052197+00:00",
+      "ended_at": "2026-09-06T20:52:44.238736+00:00",
+      "live": false,
+      "result": {}
+    },
+    {
+      "name": "batch-resume",
+      "exit_code": 0,
+      "elapsed_seconds": 45.827,
+      "started_at": "2026-09-06T20:53:29.961441+00:00",
+      "ended_at": "2026-09-06T20:54:15.788850+00:00",
+      "live": true,
+      "result": {
+        "attempted": 1,
+        "budget_exhausted": false,
+        "complete": true,
+        "pending": 0,
+        "succeeded": 2,
+        "total_attempts": 2,
+        "uncertain": 0
+      }
+    },
+    {
+      "name": "image-animation-1",
+      "exit_code": 2,
+      "elapsed_seconds": 0.201,
+      "started_at": "2026-09-06T20:48:43.245975+00:00",
+      "ended_at": "2026-09-06T20:48:43.447214+00:00",
+      "live": true,
+      "classification": "Usage error before provider dispatch: missing image bridge mapping; configured discovered bridge before a fresh generation."
+    },
+    {
+      "name": "text-chatgpt",
+      "exit_code": 0,
+      "elapsed_seconds": 7.925,
+      "started_at": "2026-09-06T20:46:44.467403+00:00",
+      "ended_at": "2026-09-06T20:46:52.392687+00:00",
+      "live": true,
+      "result": {
+        "model_requested": "chatgpt",
+        "model_used": "chatgpt",
+        "response": "Total available repairer-minutes = 2 repairers × 120 minutes = **240 minutes**.  \nTotal appointment-minutes = 12 appointments × 20 minutes = **240 minutes**."
+      }
+    },
+    {
+      "name": "text-cloud-pro",
+      "exit_code": 0,
+      "elapsed_seconds": 46.843,
+      "started_at": "2026-09-06T20:45:51.095388+00:00",
+      "ended_at": "2026-09-06T20:46:37.939104+00:00",
+      "live": true,
+      "result": {
+        "model_requested": "cloud-pro",
+        "model_used": "cloud-pro",
+        "response": "The total available repairer-minutes are 240, as two repairers work for two hours each. The total appointment-minutes required are 240, calculated from 12 appointments of 20 minutes each."
+      }
+    },
+    {
+      "name": "text-cloud",
+      "exit_code": 0,
+      "elapsed_seconds": 2.093,
+      "started_at": "2026-09-06T20:45:49.001528+00:00",
+      "ended_at": "2026-09-06T20:45:51.094606+00:00",
+      "live": true,
+      "result": {
+        "model_requested": "cloud",
+        "model_used": "cloud",
+        "response": "Two repairers working two hours each provide 240 available repairer-minutes. Twelve 20-minute appointments total 240 appointment-minutes."
+      }
+    },
+    {
+      "name": "text-on-device",
+      "exit_code": 0,
+      "elapsed_seconds": 6.527,
+      "started_at": "2026-09-06T20:46:37.939797+00:00",
+      "ended_at": "2026-09-06T20:46:44.466769+00:00",
+      "live": true,
+      "result": {
+        "model_requested": "on-device",
+        "model_used": "on-device",
+        "response": "Total repairer-minutes: 2 repairers × 2 hours × 60 minutes = 240 minutes.  \nTotal appointment-minutes: 12 appointments × 20 minutes = 240 minutes."
+      }
+    },
+    {
+      "name": "vision-chatgpt",
+      "exit_code": 0,
+      "elapsed_seconds": 8.73,
+      "started_at": "2026-09-06T20:48:15.182708+00:00",
+      "ended_at": "2026-09-06T20:48:23.913119+00:00",
+      "live": true,
+      "result": {
+        "model_requested": "chatgpt",
+        "model_used": "chatgpt",
+        "response": "The solid color on the left is red, and the solid color on the right is blue."
+      }
+    },
+    {
+      "name": "vision-cloud-pro",
+      "exit_code": 0,
+      "elapsed_seconds": 46.896,
+      "started_at": "2026-09-06T20:47:28.286095+00:00",
+      "ended_at": "2026-09-06T20:48:15.181919+00:00",
+      "live": true,
+      "result": {
+        "model_requested": "cloud-pro",
+        "model_used": "cloud-pro",
+        "response": "The color on the left is red, and the color on the right is blue."
+      }
+    },
+    {
+      "name": "vision-cloud",
+      "exit_code": 0,
+      "elapsed_seconds": 1.444,
+      "started_at": "2026-09-06T20:47:26.841360+00:00",
+      "ended_at": "2026-09-06T20:47:28.285699+00:00",
+      "live": true,
+      "result": {
+        "model_requested": "cloud",
+        "model_used": "cloud",
+        "response": "The solid color on the left is red and on the right is blue."
+      }
+    },
+    {
+      "name": "image-animation-1",
+      "exit_code": 0,
+      "elapsed_seconds": 7.41,
+      "started_at": "2026-09-06T20:49:38.151536+00:00",
+      "ended_at": "2026-09-06T20:49:45.561944+00:00",
+      "live": true,
+      "result": {
+        "checksum": "fb2b7154723235404364db495adbe7f4df1d24026601547f6327a1c8c08d660a",
+        "height": 1024,
+        "native_height": 1024,
+        "native_width": 1024,
+        "output_processing": {},
+        "width": 1024
+      }
+    },
+    {
+      "name": "image-animation-2",
+      "exit_code": 0,
+      "elapsed_seconds": 11.38,
+      "started_at": "2026-09-06T20:49:45.562298+00:00",
+      "ended_at": "2026-09-06T20:49:56.942326+00:00",
+      "live": true,
+      "result": {
+        "checksum": "1c76122f59093b27026c64a05af13b21a4068be1e10f6e26f7f3c8bdff1ee525",
+        "height": 1024,
+        "native_height": 1024,
+        "native_width": 1024,
+        "output_processing": {},
+        "width": 1024
+      }
+    },
+    {
+      "name": "image-any-1",
+      "exit_code": 0,
+      "elapsed_seconds": 11.314,
+      "started_at": "2026-09-06T20:51:00.722758+00:00",
+      "ended_at": "2026-09-06T20:51:12.036999+00:00",
+      "live": true,
+      "result": {
+        "checksum": "ba5e88bad4e2d8b60c436c4b7bfdabe827355ccbf9d36aed255817237de272d4",
+        "height": 1024,
+        "native_height": 1024,
+        "native_width": 1024,
+        "output_processing": {},
+        "width": 1024
+      }
+    },
+    {
+      "name": "image-any-2",
+      "exit_code": 0,
+      "elapsed_seconds": 11.334,
+      "started_at": "2026-09-06T20:51:12.037452+00:00",
+      "ended_at": "2026-09-06T20:51:23.371342+00:00",
+      "live": true,
+      "result": {
+        "checksum": "71d992b2db3304f2d34470dc54e235e460dfd8a20e17bf8e67e5fb7a1a0510d0",
+        "height": 1024,
+        "native_height": 1024,
+        "native_width": 1024,
+        "output_processing": {},
+        "width": 1024
+      }
+    },
+    {
+      "name": "image-genmoji-1",
+      "exit_code": 0,
+      "elapsed_seconds": 11.454,
+      "started_at": "2026-09-06T20:50:38.064897+00:00",
+      "ended_at": "2026-09-06T20:50:49.518933+00:00",
+      "live": true,
+      "result": {
+        "checksum": "0c6bb2895e2b2710f2a842c67d72110ed46f21a2083825f2e1e0ea1f601f0c02",
+        "height": 1024,
+        "native_height": 1024,
+        "native_width": 1024,
+        "output_processing": {},
+        "width": 1024
+      }
+    },
+    {
+      "name": "image-genmoji-2",
+      "exit_code": 0,
+      "elapsed_seconds": 11.202,
+      "started_at": "2026-09-06T20:50:49.519540+00:00",
+      "ended_at": "2026-09-06T20:51:00.722131+00:00",
+      "live": true,
+      "result": {
+        "checksum": "442e6489e5a997149ecdf060c1b302173c37bbb5aa7cb86f77da2113287d4c9e",
+        "height": 1024,
+        "native_height": 1024,
+        "native_width": 1024,
+        "output_processing": {},
+        "width": 1024
+      }
+    },
+    {
+      "name": "image-illustration-1",
+      "exit_code": 0,
+      "elapsed_seconds": 10.003,
+      "started_at": "2026-09-06T20:49:56.942914+00:00",
+      "ended_at": "2026-09-06T20:50:06.946455+00:00",
+      "live": true,
+      "result": {
+        "checksum": "22efc7e630caa1d0275dc50250b17b1dbf855acfe6d42b3a05a8638b90299935",
+        "height": 1024,
+        "native_height": 1024,
+        "native_width": 1024,
+        "output_processing": {},
+        "width": 1024
+      }
+    },
+    {
+      "name": "image-illustration-2",
+      "exit_code": 0,
+      "elapsed_seconds": 9.953,
+      "started_at": "2026-09-06T20:50:06.946861+00:00",
+      "ended_at": "2026-09-06T20:50:16.900515+00:00",
+      "live": true,
+      "result": {
+        "checksum": "5666640e94da66687228e75895db35d88284382fcd2611c5953aa0c7bfb4db84",
+        "height": 1024,
+        "native_height": 1024,
+        "native_width": 1024,
+        "output_processing": {},
+        "width": 1024
+      }
+    },
+    {
+      "name": "image-reference-followup",
+      "exit_code": 0,
+      "elapsed_seconds": 6.831,
+      "started_at": "2026-09-06T20:52:37.172418+00:00",
+      "ended_at": "2026-09-06T20:52:44.003371+00:00",
+      "live": true,
+      "result": {
+        "checksum": "4acd89a0b23001e190dfd9e7fe5f7da1b505f1651796e9da9e7ab8c66adf78ec",
+        "height": 800,
+        "native_height": 1024,
+        "native_width": 1024,
+        "output_processing": {
+          "size": "1200x800",
+          "fit": "pad"
+        },
+        "reference_image_sent": true,
+        "reference_sha256": "22efc7e630caa1d0275dc50250b17b1dbf855acfe6d42b3a05a8638b90299935",
+        "width": 1200
+      }
+    },
+    {
+      "name": "image-sketch-1",
+      "exit_code": 0,
+      "elapsed_seconds": 10.138,
+      "started_at": "2026-09-06T20:50:16.900893+00:00",
+      "ended_at": "2026-09-06T20:50:27.039034+00:00",
+      "live": true,
+      "result": {
+        "checksum": "bc865f4fdbfb48bb4046ec947346a929fc0e1c51bb942c795bcd41aef1d2dc01",
+        "height": 1024,
+        "native_height": 1024,
+        "native_width": 1024,
+        "output_processing": {},
+        "width": 1024
+      }
+    },
+    {
+      "name": "image-sketch-2",
+      "exit_code": 0,
+      "elapsed_seconds": 11.025,
+      "started_at": "2026-09-06T20:50:27.039431+00:00",
+      "ended_at": "2026-09-06T20:50:38.064479+00:00",
+      "live": true,
+      "result": {
+        "checksum": "e00269cf94c51acb8d801e42af39b6c6a5a247a8280e88698c5798fcbad0f826",
+        "height": 1024,
+        "native_height": 1024,
+        "native_width": 1024,
+        "output_processing": {},
+        "width": 1024
+      }
+    }
+  ],
+  "images": [
+    {
+      "file": "repair-cafe.png",
+      "sha256": "8de86f3df0c589c02d59885f4a6dea36650c5f29750a3cf1504842dc0278d203"
+    },
+    {
+      "file": "repair-cafe-warm.png",
+      "sha256": "79f21ca714d7bcd40276b9b12ca51f4bb980d9aef19b8f4cb1b1d90d280f3403"
+    },
+    {
+      "file": "codex-repair-cafe.png",
+      "sha256": "cc42f2868a7927d966d5649e51285e3542e5cb1d84b733f72186499614907898"
+    }
+  ]
+}

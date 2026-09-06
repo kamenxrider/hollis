@@ -41,9 +41,21 @@ Measured on **macOS 27.0 (26A5421a and 26A5425a)**. macOS 26 is untested — see
 [Release notes and upgrade instructions](docs/releases/v0.3.0.md) ·
 [What was tested](EVIDENCE.md).
 
+## Use Apple in your agent conversation
+
+The new [Hollis plugin](plugins/hollis/README.md) brings these capabilities into
+Claude Code and Codex, including guided setup and a bundled Mac runtime and
+bridges. Ask Apple to assess your plan, compare documents or create an image,
+then continue in the same conversation. It works alongside gstack without
+requiring an upstream change.
+
+Plugin **0.1.0**, pinned to Hollis **0.3.0**, is a local review build pending its
+separate publication. See [installation and validation](docs/plugin.md).
+
 ## Contents
 
 - [Quickstart](#quickstart)
+- [Agent plugin](#use-apple-in-your-agent-conversation)
 - [Models](#models) and [everyday use](#everyday-use)
 - [Image generation](#image-generation) and [folder processing](#paced-folder-processing)
 - [Persistent chats](#persistent-chats) and [scripts and agents](#scripts-and-agents)

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "hollis",
+  "version": "0.1.0",
+  "description": "Ask Apple's Cloud and Cloud Pro, work with documents and images, and continue in your agent conversation. Includes guided Mac setup.",
+  "author": {"name": "Hollis contributors", "url": "https://github.com/kamenxrider/hollis"},
+  "homepage": "https://github.com/kamenxrider/hollis/blob/main/docs/plugin.md",
+  "repository": "https://github.com/kamenxrider/hollis",
+  "license": "Apache-2.0",
+  "keywords": ["apple-intelligence", "private-cloud-compute", "shortcuts", "gstack"]
+}
