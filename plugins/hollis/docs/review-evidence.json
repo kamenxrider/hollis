@@ -1,0 +1,289 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-07",
+  "timezone": "Europe/Amsterdam",
+  "review_baseline": "23f0b80adbe5e2c4c186ba597f54edd0c0f8e292",
+  "runtime_commit": "eda721687a2d20b60346399b1c5a64d9524fd702",
+  "runtime": {
+    "version": "0.3.1",
+    "origin": "local source build; not published or GitHub-attested",
+    "arm64_sha256": "3b2f8a8274e37ecfcc4f06e44c377e2cc95fc3e091dad6759aa4e47767686d53",
+    "source_matches_full_go_test_snapshot": true,
+    "amd64_version_under_rosetta": "hollis 0.3.1",
+    "asset_checksums_verified": true
+  },
+  "plugin": {
+    "version": "0.1.0",
+    "published": false,
+    "official_runtime_lock_version": "0.3.0",
+    "official_lock_sha256": "15695c0c7fd4642624e83252ce5659c9902c82a7a7e5ba587264feaf16256761",
+    "host_selection": "supported newer external executable; official pin unchanged"
+  },
+  "checks": [
+    {
+      "check": "go test ./...",
+      "exit_code": 0,
+      "test_count": null,
+      "elapsed_seconds": 20.538
+    },
+    {
+      "check": "go test -race ./...",
+      "exit_code": 0,
+      "test_count": null,
+      "elapsed_seconds": 35.645
+    },
+    {
+      "check": "go vet ./...",
+      "exit_code": 0,
+      "test_count": null,
+      "elapsed_seconds": 0.745
+    },
+    {
+      "check": "image harness",
+      "exit_code": 0,
+      "test_count": 30,
+      "elapsed_seconds": 2.81
+    },
+    {
+      "check": "review boundary",
+      "exit_code": 0,
+      "test_count": 22,
+      "elapsed_seconds": 0.082
+    },
+    {
+      "check": "image bridges",
+      "exit_code": 0,
+      "test_count": 3,
+      "elapsed_seconds": 0.24
+    },
+    {
+      "check": "final plugin suite",
+      "exit_code": 0,
+      "test_count": 48,
+      "elapsed_seconds": 15.167
+    }
+  ],
+  "reference_process_checks": [
+    {
+      "condition": "missing",
+      "flow": "direct",
+      "agent": false,
+      "exit_code": 2,
+      "stdout": "",
+      "stderr": "image reference is invalid: inspect reference file: file does not exist\n",
+      "output_created": false
+    },
+    {
+      "condition": "missing",
+      "flow": "direct",
+      "agent": true,
+      "exit_code": 2,
+      "stdout": "{\"error\":{\"code\":\"usage\",\"exit_code\":2,\"message\":\"image reference is invalid: inspect reference file: file does not exist\"},\"meta\":{\"schema_version\":\"2\",\"source\":\"apple-intelligence\"}}\n",
+      "stderr": "",
+      "output_created": false
+    },
+    {
+      "condition": "missing",
+      "flow": "chat",
+      "agent": false,
+      "exit_code": 2,
+      "stdout": "",
+      "stderr": "image reference is invalid: inspect reference file: file does not exist\n",
+      "output_created": false
+    },
+    {
+      "condition": "missing",
+      "flow": "chat",
+      "agent": true,
+      "exit_code": 2,
+      "stdout": "{\"error\":{\"code\":\"usage\",\"exit_code\":2,\"message\":\"image reference is invalid: inspect reference file: file does not exist\"},\"meta\":{\"schema_version\":\"2\",\"source\":\"apple-intelligence\"}}\n",
+      "stderr": "",
+      "output_created": false
+    },
+    {
+      "condition": "denied",
+      "flow": "direct",
+      "agent": false,
+      "exit_code": 2,
+      "stdout": "",
+      "stderr": "image reference is invalid: open reference file: permission denied\n",
+      "output_created": false
+    },
+    {
+      "condition": "denied",
+      "flow": "direct",
+      "agent": true,
+      "exit_code": 2,
+      "stdout": "{\"error\":{\"code\":\"usage\",\"exit_code\":2,\"message\":\"image reference is invalid: open reference file: permission denied\"},\"meta\":{\"schema_version\":\"2\",\"source\":\"apple-intelligence\"}}\n",
+      "stderr": "",
+      "output_created": false
+    },
+    {
+      "condition": "denied",
+      "flow": "chat",
+      "agent": false,
+      "exit_code": 2,
+      "stdout": "",
+      "stderr": "image reference is invalid: open reference file: permission denied\n",
+      "output_created": false
+    },
+    {
+      "condition": "denied",
+      "flow": "chat",
+      "agent": true,
+      "exit_code": 2,
+      "stdout": "{\"error\":{\"code\":\"usage\",\"exit_code\":2,\"message\":\"image reference is invalid: open reference file: permission denied\"},\"meta\":{\"schema_version\":\"2\",\"source\":\"apple-intelligence\"}}\n",
+      "stderr": "",
+      "output_created": false
+    },
+    {
+      "condition": "other",
+      "flow": "direct",
+      "agent": false,
+      "exit_code": 2,
+      "stdout": "",
+      "stderr": "image reference is invalid: inspect reference file: file access failed\n",
+      "output_created": false
+    },
+    {
+      "condition": "other",
+      "flow": "direct",
+      "agent": true,
+      "exit_code": 2,
+      "stdout": "{\"error\":{\"code\":\"usage\",\"exit_code\":2,\"message\":\"image reference is invalid: inspect reference file: file access failed\"},\"meta\":{\"schema_version\":\"2\",\"source\":\"apple-intelligence\"}}\n",
+      "stderr": "",
+      "output_created": false
+    },
+    {
+      "condition": "other",
+      "flow": "chat",
+      "agent": false,
+      "exit_code": 2,
+      "stdout": "",
+      "stderr": "image reference is invalid: inspect reference file: file access failed\n",
+      "output_created": false
+    },
+    {
+      "condition": "other",
+      "flow": "chat",
+      "agent": true,
+      "exit_code": 2,
+      "stdout": "{\"error\":{\"code\":\"usage\",\"exit_code\":2,\"message\":\"image reference is invalid: inspect reference file: file access failed\"},\"meta\":{\"schema_version\":\"2\",\"source\":\"apple-intelligence\"}}\n",
+      "stderr": "",
+      "output_created": false
+    }
+  ],
+  "live": {
+    "calls": 4,
+    "image_generations": 2,
+    "existing_apple_consent": true,
+    "fresh_account": false,
+    "claude_context_resumed": true,
+    "stored_auto_requested_and_used_cloud": true,
+    "serialized": true,
+    "minimum_image_spacing_seconds": 5,
+    "cloud_pro_called": false,
+    "cloud_pro_pacing_seconds_retained": 45,
+    "retries": 0,
+    "visible_editor_required": false,
+    "turns": [
+      {
+        "host": "Claude Code",
+        "name": "claude-text",
+        "started_at": "2026-09-06T22:30:56.343554+00:00",
+        "ended_at": "2026-09-06T22:32:00.747579+00:00",
+        "elapsed_seconds": 64.403,
+        "exit_code": 0,
+        "provider_results": [
+          {
+            "model_requested": "cloud",
+            "model_used": "cloud",
+            "response": "Repair Cafe Plan (10:00–12:00):\n\n1. Volunteer Allocation:\n- 3 tables × 2 volunteers each = 6 total. Assign fixed pairs per table for continuity.\n- Optional rotation: swap one volunteer per table at 11:00 for a 5-minute break if needed; otherwise keep pairs.\n\n2. Appointments & Queueing:\n- Book 20-minute slots per repair (6 per table, 18 total). Use a sign-up sheet with times.\n- Reserve 2 walk-in slots per table (6 total) for quick fixes; use a visible queue board.\n- Stagger starts: 10:00, 10:20, 10:40, 11:00, 11:20, 11:40.\n\n3. Smooth Running:\n- Pre-sort items by complexity; direct simple jobs to walk-ins.\n- Keep a shared toolkit and basic parts at each table.\n- Assign one volunteer per table as lead for notes; have a runner for supplies."
+          }
+        ],
+        "absolute_image_preview_and_file_link": null
+      },
+      {
+        "host": "Claude Code",
+        "name": "claude-image",
+        "started_at": "2026-09-06T22:33:42.890654+00:00",
+        "ended_at": "2026-09-06T22:34:09.984911+00:00",
+        "elapsed_seconds": 27.094,
+        "exit_code": 0,
+        "provider_results": [
+          {
+            "bytes": 1085175,
+            "checksum": "2d5d2e67f30a887612fa9103708cc7cc95d1af3c7822fe778e0653f5484ae267",
+            "format": "PNG",
+            "height": 1024,
+            "native_height": 1024,
+            "native_width": 1024,
+            "output_processing": {},
+            "width": 1024,
+            "file_name": "repair-cafe.png"
+          }
+        ],
+        "absolute_image_preview_and_file_link": true
+      },
+      {
+        "host": "Codex CLI",
+        "name": "codex",
+        "started_at": "2026-09-06T22:34:41.291539+00:00",
+        "ended_at": "2026-09-06T22:36:26.008300+00:00",
+        "elapsed_seconds": 104.716,
+        "exit_code": 0,
+        "provider_results": [
+          {
+            "model_requested": "cloud",
+            "model_used": "cloud",
+            "response": "Join us this Saturday from 10:00 a.m. to noon for a warm, welcoming repair café in our community. Please bring one broken household item so we can fix it together."
+          },
+          {
+            "bytes": 1412093,
+            "checksum": "7fe09aae1506949b05a1f1516ad0f85156a5ba77ddc0af8becf79b75eee51ef5",
+            "format": "PNG",
+            "height": 1024,
+            "native_height": 1024,
+            "native_width": 1024,
+            "output_processing": {},
+            "reference_image_sent": true,
+            "reference_sha256": "2d5d2e67f30a887612fa9103708cc7cc95d1af3c7822fe778e0653f5484ae267",
+            "width": 1024,
+            "file_name": "repair-cafe-sketch.png"
+          }
+        ],
+        "absolute_image_preview_and_file_link": true
+      }
+    ],
+    "timing_note": "Elapsed values include host-agent work, not only Apple inference.",
+    "model_quality_note": "Image subjects retained with changed composition. Cloud capacity/volunteer advice was ambiguous; successful transport is not a quality guarantee.",
+    "source_note": "All four launcher scripts match the live-tested kit. Final skill wording clarifies concrete-only selection and rollback verification; exercised routes are unchanged."
+  },
+  "preserved_archives": [
+    {
+      "path": "dist/plugin-v0.1.0/hollis-plugin-0.1.0.zip",
+      "sha256": "60fda465d04467989809c8fa5400b734d28be853b04e1702766a4742814e54f1",
+      "status": "preserved earlier reviewed archive; runtime 0.3.0; not the corrected bundle"
+    },
+    {
+      "path": "dist/plugin-test/hollis-plugin-0.1.0.zip",
+      "sha256": "95882c397236c8944e00118a55aa9f9265a83420f95e98467143b901d3f42446",
+      "status": "superseded scratch; preserved; do not install or publish"
+    }
+  ],
+  "acceptance_gaps": [
+    "Fresh supported Mac account and fresh Apple consent",
+    "Real interrupted first import",
+    "Fresh Apple permission rejection",
+    "Deliberately locked live image call",
+    "Deliberately provoked rate limit",
+    "Published 0.3.1 provenance, plugin repin/rebuild, package acceptance and archive attestation"
+  ],
+  "validators": {
+    "portable_and_native_manifests": true,
+    "codex_plugin": true,
+    "both_shared_skills": true,
+    "shell_syntax": true,
+    "bridge_profiles_26_27": true
+  }
+}

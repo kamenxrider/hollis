@@ -9,6 +9,10 @@ between Claude Code and Codex. It works alongside gstack and also without it.
 There is no additional server, subscription, model API key or background job to set up.
 Your existing host-agent service is separate.
 
+This package is prepared locally and remains unpublished. Its official runtime
+pin stays at 0.3.0 until a separately authorized 0.3.1 release has verified
+provenance; do not treat a prepared target as a downloadable update.
+
 **Requires a local Apple-silicon Mac running macOS 27 with Apple Intelligence.**
 See [compatibility](docs/compatibility.md) and [privacy](docs/privacy.md).
 

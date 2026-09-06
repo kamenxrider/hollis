@@ -31,6 +31,21 @@ Readiness checks are read-only and can run concurrently. A host sandbox can
 still block Shortcuts discovery or runtime writes: permit the relevant local
 operation using that host's controls. This is separate from Apple's approvals.
 
+Before installation, `setup.sh status <route>` reports `setup_required` and does
+not create runtime state. After a managed installation or check, read the rollback receipt
+alongside the main status:
+
+| Rollback status | Meaning |
+|---|---|
+| `available` | `version` identifies a prior runtime verified at this check; rollback verifies it again before switching |
+| `unavailable` | `version` identifies a known candidate when possible and `message` explains why its bytes cannot be selected |
+| `none` | `version` is null and `message` says no rollback candidate is recorded |
+
+An upgrade may repair a previously corrupt older runtime instead of blocking a
+verified new install. `setup.sh rollback` still checks the old bytes and leaves
+the working runtime selected when the candidate is unavailable. Configuration,
+conversations and bridges are preserved in either case.
+
 For troubleshooting, resolve `KIT` to the installed `plugins/hollis` directory:
 
 ```sh

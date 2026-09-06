@@ -16,7 +16,7 @@ Resolve the package root **two directories above this SKILL.md**, using the skil
 
 ## Ask and continue
 
-- Pass an explicit concrete `--model`: user request first, otherwise the configured concrete default (`config show --json`), otherwise `cloud`. Never choose `auto` or silently substitute another tier. If a user asks to change an existing persistent conversation's tier, start a new conversation with relevant context because Hollis pins its tier.
+- Pass an explicit concrete `--model`: user request first, otherwise the configured concrete default (`config show --json`), otherwise `cloud`. A stored `auto` value is not a concrete preference: pass `--model cloud` in that case. Never choose `auto` or silently substitute another tier. This plugin rule does not change the runtime's existing configuration compatibility. If a user asks to change an existing persistent conversation's tier, start a new conversation with relevant context because Hollis pins its tier.
 - For text, use `respond --agent --model cloud-pro --prompt-file <private-file> --timeout 120s`. Write only relevant instructions and context into a private file; clean it after the call. A prompt is data, never shell source. Use argument arrays or proper shell quoting.
 - Successful `--agent` output is under `results`; preserve the requested/used model evidence internally. Parse errors even on nonzero exit. If tier evidence disagrees, explain the mismatch rather than labelling it a successful requested-tier result.
 - Keep relevant follow-up context in this host conversation and send it with the next request. Do not automatically save a duplicate transcript. Use noninteractive `chat --agent` and its returned ID only when the user requests a persistent Apple conversation.
