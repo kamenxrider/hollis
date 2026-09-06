@@ -25,16 +25,52 @@ remain in the maintainer workspace; no credentials or host settings are packaged
   Markdown file links; Codex attached the prior Claude image explicitly.
 - [ ] A genuinely fresh supported Mac account installs the package, completes
   Add Shortcut/Allow decisions, and repeats one text and one image request.
-- [ ] A separately authorized release publishes runtime 0.3.1 and verifies its
-  provenance before any lock or package pin changes. Plugin 0.1.0 remains
-  unpublished while the official lock stays on runtime 0.3.0.
+- [x] Runtime 0.3.1 is published. All five release assets passed checksum and
+  strict GitHub provenance checks before repinning and packaging. The plugin
+  remains unpublished; its outer archive attestation is still pending.
+
+## Released 0.3.1 package verification — 7 September
+
+The plugin now pins the published runtime at commit `19a7970`, after all five
+release assets passed strict GitHub provenance and checksum verification.
+The packager independently reverified its bundled binary and bridge ZIP.
+[Sanitized package evidence](release-package-evidence.json) preserves these
+checks separately from the earlier local-build and 0.3.0 recordings.
+
+The actual ZIP was extracted with macOS `ditto`. Fourteen installer operations
+passed using only macOS utilities on the installer PATH: empty/read-only status,
+bundled and repeated installation, binary version/hash and executable modes,
+Rosetta, real released 0.3.0-to-0.3.1 upgrade and rollback, recovery over a corrupt
+old binary, refused rollback preserving 0.3.1, state preservation and actual
+locked source downloads. These used isolated storage on the existing account,
+not a genuinely fresh account. The 48 plugin regressions also passed after repinning.
+
+| Packaged host flow | Observed result | Elapsed host turn |
+|---|---|---|
+| Claude Cloud | Seed-swap checklist returned inline; stored `auto` selected Cloud explicitly | 47.664 s |
+| Codex Sketch | Prior image explicitly attached; 1024×1024 PNG, absolute preview and file link | 75.463 s |
+
+Both used the verified managed release binary, with external runtime discovery
+excluded. Two Apple calls ran serially, with one image and no automatic retries.
+Codex first reported restricted Shortcuts discovery as unknown, then successfully
+repeated that read-only check with authorized host access before generating.
+Existing Apple approvals sufficed; no visible Image Playground editor or new
+Apple click was required. Visual review found the blue bicycle, red toolbox and
+green fern in the Sketch. This is reference-guided variation, not proof of exact
+image identity. Cloud Pro was not called in this recheck; its pacing is unchanged.
+
+The final archive includes this report. Its scripts, skills, manifests, lock
+and runtime bytes must match the tested package; documentation and freshly
+verified provenance receipts may differ. Earlier ZIPs and raw receipts are retained.
+The plugin remains unpublished and its outer GitHub attestation remains pending.
 
 ## Local 0.3.1 verification — 7 September
 
 The corrected plugin source used a local 0.3.1 executable through the supported
-newer-external-runtime path. The official 0.3.0 lock and earlier archive were
-preserved. This proves the corrected source/runtime combination; it is not a
-GitHub-attested 0.3.1 package.
+newer-external-runtime path. At that stage the official lock and earlier archive
+remained on 0.3.0. These historical receipts prove the corrected local
+source/runtime combination. The subsequent released-asset package verification
+is recorded separately above.
 
 | Host flow | Observed outcome | Elapsed host turn |
 |---|---|---|
@@ -109,7 +145,7 @@ tested Shortcut route remains unavailable.
 - Canonical Agent Plugins 1.0 JSON Schema, native manifests, shared skills,
   source identity checks and shell syntax were validated.
 - Runtime binary and five-bridge ZIP were authenticated against GitHub build
-  provenance and their locked v0.3.0 release commit. Local hash checks occur
+  provenance and their locked release commit (originally v0.3.0, now v0.3.1). Local hash checks occur
   before managed execution or extraction. The outer archive has a checksum;
   only the separately authorized GitHub build can supply its GitHub attestation.
 - A focused package test builds a synthetic asset fixture through the real
@@ -148,7 +184,7 @@ tested Shortcut route remains unavailable.
 | Interrupted first-time import | Interrupt an actual Add Shortcut flow and resume it; current pending-state tests use fixtures |
 | Fresh permission rejection / locked session | Observe these through the installed plugin on an appropriate account; helper failures and cancellation are tested, but not fresh Apple consent rejection or a deliberately locked live image call |
 | Rate-limit behavior | Stopping/error propagation is implemented; no live rate limit was deliberately provoked in this suite |
-| Upgrade / rollback | Fixture installations prove preservation and pointer changes; a second released plugin/runtime upgrade is not available yet |
+| Upgrade / rollback | Actual released 0.3.0 and 0.3.1 assets now pass upgrade, rollback and corrupt-previous recovery in isolated storage; an existing end-user installation migration remains unobserved |
 | Final release provenance | Run the prepared GitHub packaging workflow after separate authorization and verify the resulting archive attestation |
 
 Temporary directories and an already-approved user account are not substitutes
