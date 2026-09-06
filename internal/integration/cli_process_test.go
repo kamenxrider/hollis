@@ -66,12 +66,14 @@ func TestBuiltBinaryProcessContracts(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name     string
-		args     []string
-		wantExit int
+		name       string
+		args       []string
+		wantExit   int
+		wantStdout string
 	}{
 		{name: "help", args: []string{"--help"}, wantExit: 0},
-		{name: "version", args: []string{"version"}, wantExit: 0},
+		{name: "version", args: []string{"version"}, wantExit: 0, wantStdout: "hollis dev\n"},
+		{name: "version flag", args: []string{"--version"}, wantExit: 0, wantStdout: "hollis dev\n"},
 		{name: "unknown flag", args: []string{"--definitely-unknown"}, wantExit: 2},
 		{name: "unknown command", args: []string{"definitely-unknown"}, wantExit: 2},
 		{name: "extra version argument", args: []string{"version", "extra"}, wantExit: 2},
@@ -89,6 +91,55 @@ func TestBuiltBinaryProcessContracts(t *testing.T) {
 			result := runProcess(bin, tc.args, t.TempDir(), nil)
 			if result.exit != tc.wantExit {
 				t.Fatalf("exit=%d want=%d\nstdout=%s\nstderr=%s", result.exit, tc.wantExit, result.stdout, result.stderr)
+			}
+			if tc.wantStdout != "" && result.stdout != tc.wantStdout {
+				t.Fatalf("stdout=%q, want %q", result.stdout, tc.wantStdout)
+			}
+		})
+	}
+}
+
+func TestBuiltBinaryInjectedVersionContracts(t *testing.T) {
+	repo := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "hollis")
+	const releaseVersion = "0.3.1"
+	build := exec.Command(
+		"go", "build",
+		"-ldflags", "-X github.com/kamenxrider/hollis/internal/cli.version="+releaseVersion,
+		"-o", bin,
+		"./cmd/hollis",
+	)
+	build.Dir = repo
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build injected-version CLI: %v\n%s", err, out)
+	}
+
+	for _, tc := range []struct {
+		name      string
+		args      []string
+		wantAgent bool
+	}{
+		{name: "version flag", args: []string{"--version"}},
+		{name: "version command", args: []string{"version"}},
+		{name: "agent version command", args: []string{"--agent", "version"}, wantAgent: true},
+		{name: "agent version flag", args: []string{"--agent", "--version"}, wantAgent: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := runProcess(bin, tc.args, t.TempDir(), nil)
+			if result.exit != 0 || result.stderr != "" {
+				t.Fatalf("exit=%d stdout=%s stderr=%s", result.exit, result.stdout, result.stderr)
+			}
+			if !tc.wantAgent {
+				if result.stdout != "hollis "+releaseVersion+"\n" {
+					t.Fatalf("stdout=%q, want exact injected version", result.stdout)
+				}
+				return
+			}
+			var body map[string]any
+			decodeObject(t, result.stdout, &body)
+			results, ok := body["results"].(map[string]any)
+			if !ok || results["version"] != releaseVersion || body["meta"] == nil {
+				t.Fatalf("agent version body=%#v", body)
 			}
 		})
 	}
@@ -148,7 +199,7 @@ func TestBuiltBinaryStructuredErrorContracts(t *testing.T) {
 	var versionBody map[string]any
 	decodeObject(t, version.stdout, &versionBody)
 	results, ok := versionBody["results"].(map[string]any)
-	if !ok || results["version"] != "0.2.0" || versionBody["meta"] == nil {
+	if !ok || results["version"] != "dev" || versionBody["meta"] == nil {
 		t.Fatalf("agent version body=%#v", versionBody)
 	}
 	versionFlag := runProcess(bin, []string{"--agent", "--version"}, t.TempDir(), nil)
@@ -158,7 +209,7 @@ func TestBuiltBinaryStructuredErrorContracts(t *testing.T) {
 	var versionFlagBody map[string]any
 	decodeObject(t, versionFlag.stdout, &versionFlagBody)
 	results, ok = versionFlagBody["results"].(map[string]any)
-	if !ok || results["version"] != "0.2.0" || versionFlagBody["meta"] == nil {
+	if !ok || results["version"] != "dev" || versionFlagBody["meta"] == nil {
 		t.Fatalf("agent --version body=%#v", versionFlagBody)
 	}
 	for _, args := range [][]string{{"--agent", "--help"}, {"--agent", "help"}} {

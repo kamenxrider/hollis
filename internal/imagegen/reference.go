@@ -12,6 +12,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"io/fs"
 	"os"
 	"strings"
 	"syscall"
@@ -100,20 +101,20 @@ func NewReferenceImageFromPath(path, expectedSHA256 string) (*ReferenceImage, er
 	// symlink race on the Unix hosts supported by Hollis.
 	lstat, err := os.Lstat(path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: inspect local path: %v", ErrInvalidReference, err)
+		return nil, fmt.Errorf("%w: inspect reference file: %w", ErrInvalidReference, classifyReferenceFileError(err))
 	}
 	if lstat.Mode()&os.ModeSymlink != 0 || !lstat.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: reference path is not a regular file", ErrInvalidReference)
 	}
 	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return nil, fmt.Errorf("%w: open local file: %v", ErrInvalidReference, err)
+		return nil, fmt.Errorf("%w: open reference file: %w", ErrInvalidReference, classifyReferenceFileError(err))
 	}
 	defer file.Close()
 
 	info, err := file.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("%w: inspect local file: %v", ErrInvalidReference, err)
+		return nil, fmt.Errorf("%w: inspect opened reference file: %w", ErrInvalidReference, classifyReferenceFileError(err))
 	}
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: reference path is not a regular file", ErrInvalidReference)
@@ -124,7 +125,7 @@ func NewReferenceImageFromPath(path, expectedSHA256 string) (*ReferenceImage, er
 
 	data, err := io.ReadAll(io.LimitReader(file, MaxReferenceBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("%w: read local file: %v", ErrInvalidReference, err)
+		return nil, fmt.Errorf("%w: read reference file: %w", ErrInvalidReference, classifyReferenceFileError(err))
 	}
 	if int64(len(data)) > MaxReferenceBytes {
 		return nil, ErrReferenceTooLarge
@@ -137,6 +138,20 @@ func NewReferenceImageFromPath(path, expectedSHA256 string) (*ReferenceImage, er
 		return nil, ErrReferenceChecksumMismatch
 	}
 	return reference, nil
+}
+
+// Avoid propagating os.PathError, whose Error method includes the caller's
+// path. Keep useful filesystem sentinels discoverable while reducing all other
+// operating-system detail to one path-free diagnostic.
+func classifyReferenceFileError(err error) error {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return fs.ErrNotExist
+	case errors.Is(err, fs.ErrPermission):
+		return fs.ErrPermission
+	default:
+		return errors.New("file access failed")
+	}
 }
 
 // ValidateReferenceImage revalidates all bytes and metadata in reference.
