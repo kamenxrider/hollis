@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -171,6 +173,243 @@ func TestLocalStoreLockIsExclusiveStableAndReleased(t *testing.T) {
 	}
 	if err := second.Unlock(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLocalStoreLockRejectsReplaceableParentOrAncestor(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		unsafePart string
+	}{
+		{name: "manifest parent", unsafePart: "state"},
+		{name: "manifest ancestor", unsafePart: "shared"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			shared := filepath.Join(root, "shared")
+			state := filepath.Join(shared, "state")
+			storeMustMkdir(t, state, 0o700)
+			unsafePath := map[string]string{"shared": shared, "state": state}[test.unsafePart]
+			if err := os.Chmod(unsafePath, 0o777); err != nil {
+				t.Fatal(err)
+			}
+			jobPath := filepath.Join(state, "job.json")
+			if _, err := NewLocalStore().Lock(t.Context(), jobPath); err == nil || !strings.Contains(err.Error(), "lock") {
+				t.Fatalf("Lock error = %v, want replaceable-directory rejection", err)
+			}
+			if _, err := os.Lstat(jobPath + ".lock"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("unsafe Lock created a sidecar: %v", err)
+			}
+		})
+	}
+}
+
+func TestLocalStoreLockCannotBeReacquiredAfterParentBecomesReplaceable(t *testing.T) {
+	store, job := plannedStoreJob(t)
+	first := mustLock(t, store, job.JobPath)
+	defer first.Unlock()
+	parent := filepath.Dir(job.JobPath)
+	if err := os.Chmod(parent, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(job.JobPath + ".lock"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewLocalStore().Lock(t.Context(), job.JobPath); err == nil || !strings.Contains(err.Error(), "lock parent") {
+		t.Fatalf("replacement path permitted an independent lock: %v", err)
+	}
+}
+
+func TestLocalStoreLockAllowsStickySharedParentAndCanonicalAliases(t *testing.T) {
+	root := t.TempDir()
+	shared := filepath.Join(root, "shared")
+	if err := os.Mkdir(shared, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shared, 0o777|os.ModeSticky); err != nil {
+		t.Fatal(err)
+	}
+	realState := filepath.Join(shared, "state")
+	storeMustMkdir(t, realState, 0o700)
+	aliasState := filepath.Join(root, "state-alias")
+	if err := os.Symlink(realState, aliasState); err != nil {
+		t.Fatal(err)
+	}
+	realPath := filepath.Join(realState, "job.json")
+	aliasPath := filepath.Join(aliasState, "job.json")
+	first := mustLock(t, NewLocalStore(), aliasPath)
+	defer first.Unlock()
+	if _, err := NewLocalStore().Lock(t.Context(), realPath); err == nil || !strings.Contains(err.Error(), "already locked") {
+		t.Fatalf("canonical alias bypassed lock: %v", err)
+	}
+}
+
+func TestLocalStoreLockPreservesNoFollowAndPrivateModeChecks(t *testing.T) {
+	t.Run("symlink", func(t *testing.T) {
+		store, job := plannedStoreJob(t)
+		target := filepath.Join(filepath.Dir(job.JobPath), "target.lock")
+		storeMustWrite(t, target, "target")
+		if err := os.Symlink(target, job.JobPath+".lock"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Lock(t.Context(), job.JobPath); err == nil {
+			t.Fatal("Lock followed a sidecar symlink")
+		}
+	})
+	t.Run("public mode", func(t *testing.T) {
+		store, job := plannedStoreJob(t)
+		lockPath := job.JobPath + ".lock"
+		if err := os.WriteFile(lockPath, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(lockPath, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Lock(t.Context(), job.JobPath); err == nil || !strings.Contains(err.Error(), "not private") {
+			t.Fatalf("Lock error = %v, want private-mode rejection", err)
+		}
+	})
+}
+
+func TestTrustedLockOwnerIDsAreCurrentUserOrRootOnly(t *testing.T) {
+	current := uint32(os.Getuid())
+	if !trustedLockOwnerID(current) || !trustedLockOwnerID(0) {
+		t.Fatal("current user or root was not trusted for a lock directory")
+	}
+	foreign := current + 1
+	if foreign == 0 {
+		foreign++
+	}
+	if trustedLockOwnerID(foreign) {
+		t.Fatalf("foreign uid %d was trusted for a lock directory", foreign)
+	}
+}
+
+func TestLocalStoreLockRejectsReplacementACLs(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS ACL semantics")
+	}
+	for _, test := range []struct {
+		name     string
+		target   string
+		acl      string
+		harmless bool
+	}{
+		{name: "manifest parent delete child", target: "parent", acl: "everyone allow search,add_file,delete_child"},
+		{name: "manifest ancestor delete child", target: "ancestor", acl: "everyone allow search,delete_child"},
+		{name: "lock file delete and write security", target: "lock", acl: "everyone allow read,delete,writesecurity"},
+		{name: "read-only allow", target: "parent", acl: "everyone allow readattr,readextattr,readsecurity", harmless: true},
+		{name: "deny delete", target: "parent", acl: "everyone deny delete,delete_child", harmless: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			ancestor := filepath.Join(root, "ancestor")
+			parent := filepath.Join(ancestor, "state")
+			storeMustMkdir(t, parent, 0o700)
+			jobPath := filepath.Join(parent, "job.json")
+			lockPath := jobPath + ".lock"
+			target := map[string]string{"parent": parent, "ancestor": ancestor, "lock": lockPath}[test.target]
+			if test.target == "lock" {
+				if err := os.WriteFile(lockPath, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			setTestACL(t, target, test.acl)
+
+			lock, err := NewLocalStore().Lock(t.Context(), jobPath)
+			if test.harmless {
+				if err != nil {
+					t.Fatalf("harmless ACL rejected: %v", err)
+				}
+				if err := lock.Unlock(); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil {
+				_ = lock.Unlock()
+				t.Fatal("replacement-capable ACL was accepted")
+			}
+			if !strings.Contains(err.Error(), "ACL") {
+				t.Fatalf("Lock error = %v, want ACL rejection", err)
+			}
+		})
+	}
+}
+
+func TestLocalStoreLockACLInspectionEscapesControlPaths(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS ACL semantics")
+	}
+	parent := filepath.Join(t.TempDir(), "state\n\t\x1b[31m")
+	storeMustMkdir(t, parent, 0o700)
+	lock, err := NewLocalStore().Lock(t.Context(), filepath.Join(parent, "job.json"))
+	if err != nil {
+		t.Fatalf("safe control-character path rejected: %v", err)
+	}
+	if err := lock.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setTestACL(t *testing.T, path, entry string) {
+	t.Helper()
+	command := exec.Command("/bin/chmod", "+a", entry, path)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("set ACL: %v: %s", err, output)
+	}
+	t.Cleanup(func() {
+		command := exec.Command("/bin/chmod", "-N", path)
+		if output, err := command.CombinedOutput(); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("clear ACL: %v: %s", err, output)
+		}
+	})
+}
+
+func TestValidateMacACLListing(t *testing.T) {
+	header := "drwx------@ 2 user staff 64 Sep 6 12:00 /private/tmp/state\n"
+	for _, test := range []struct {
+		name    string
+		listing string
+		wantErr bool
+	}{
+		{name: "no ACL", listing: header},
+		{name: "read-only allow", listing: header + " 0: group:everyone allow readattr,readextattr,readsecurity\n"},
+		{name: "inherited read-only allow", listing: header + " 0: group:everyone inherited allow read,file_inherit\n"},
+		{name: "deny replacement", listing: header + " 0: group:everyone deny delete,delete_child\n"},
+		{name: "allow replacement", listing: header + " 0: group:everyone allow search,delete_child\n", wantErr: true},
+		{name: "allow permission mutation", listing: header + " 0: group:everyone allow read,writesecurity\n", wantErr: true},
+		{name: "unknown permission", listing: header + " 0: group:everyone deny future_permission\n", wantErr: true},
+		{name: "malformed extra output", listing: header + "warning\n", wantErr: true},
+		{name: "ambiguous decision", listing: header + " 0: group:everyone allow deny read\n", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateMacACLListing([]byte(test.listing))
+			if test.wantErr && err == nil {
+				t.Fatal("unsafe or malformed ACL listing was accepted")
+			}
+			if !test.wantErr && err != nil {
+				t.Fatalf("safe ACL listing rejected: %v", err)
+			}
+		})
+	}
+}
+
+func TestCappedCommandOutputLimitsCopy(t *testing.T) {
+	var output cappedCommandOutput
+	source := io.LimitReader(strings.NewReader(strings.Repeat("x", maxACLListingBytes+1)), maxACLListingBytes+1)
+	written, err := io.Copy(&output, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written != maxACLListingBytes+1 {
+		t.Fatalf("io.Copy wrote %d bytes, want %d", written, maxACLListingBytes+1)
+	}
+	if !output.overflow {
+		t.Fatal("oversized io.Copy did not mark output overflow")
+	}
+	if output.Len() != maxACLListingBytes {
+		t.Fatalf("captured %d bytes, want capped %d", output.Len(), maxACLListingBytes)
 	}
 }
 

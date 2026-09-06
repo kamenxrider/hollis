@@ -29,6 +29,7 @@ func newServeCmdWithImages(_ *rootFlags, newRunner newRunnerFunc, generator imag
 		addr           string
 		tokenFile      string
 		allowRemote    bool
+		noAuth         bool
 		maxConcurrency int
 	)
 	cmd := &cobra.Command{
@@ -43,13 +44,15 @@ Endpoints:
   POST /v1/responses
   POST /v1/images/generations
 
-Loopback is the default. A non-loopback bind requires both --allow-remote and
-authentication supplied by --token-file or HOLLIS_API_TOKEN. Hollis does not
-provide TLS: expose it only through an encrypted trusted path such as Tailscale,
-WireGuard, or an SSH tunnel. Streaming is intentionally unsupported.`,
-		Example: `  hollis serve
-  hollis serve --addr 127.0.0.1:1978 --token-file /private/path/hollis.token
-  HOLLIS_API_TOKEN='<at least 32 bytes>' hollis serve --allow-remote --addr 100.64.0.2:1978`,
+Bearer authentication is required by default, including on loopback. Supply it
+with --token-file or HOLLIS_API_TOKEN. --no-auth is an explicit loopback-only
+opt-out. A non-loopback bind requires both --allow-remote and authentication.
+Hollis does not provide TLS: expose it only through an encrypted trusted path
+such as Tailscale, WireGuard, or an SSH tunnel. Streaming is intentionally unsupported.`,
+		Example: `  hollis serve --token-file /private/path/hollis.token
+	  hollis serve --no-auth
+	  hollis serve --addr 127.0.0.1:1978 --token-file /private/path/hollis.token
+	  HOLLIS_API_TOKEN='<at least 32 bytes>' hollis serve --allow-remote --addr 100.64.0.2:1978`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := noExtraArgs("serve")(cmd, args); err != nil {
 				return err
@@ -70,15 +73,22 @@ WireGuard, or an SSH tunnel. Streaming is intentionally unsupported.`,
 			if err != nil {
 				return usageErr(fmt.Errorf("invalid --addr %q: must be host:port", addr))
 			}
-			tokenSpecified := tokenFile != ""
-			if _, present := os.LookupEnv("HOLLIS_API_TOKEN"); present {
-				tokenSpecified = true
+			_, environmentTokenSpecified := os.LookupEnv("HOLLIS_API_TOKEN")
+			tokenSpecified := tokenFile != "" || environmentTokenSpecified
+			if noAuth && tokenSpecified {
+				return usageErr(errors.New("--no-auth cannot be combined with --token-file or HOLLIS_API_TOKEN"))
+			}
+			if noAuth && allowRemote {
+				return usageErr(errors.New("--no-auth cannot be combined with --allow-remote"))
+			}
+			if !noAuth && !tokenSpecified {
+				return usageErr(errors.New("serve requires --token-file or HOLLIS_API_TOKEN; use --no-auth only for explicit loopback-only access"))
 			}
 			token, err := loadServeToken(tokenFile)
 			if err != nil {
 				return configErr(err)
 			}
-			if tokenSpecified && len([]byte(token)) < 32 {
+			if !noAuth && len([]byte(token)) < 32 {
 				return usageErr(errors.New("API token must be at least 32 bytes"))
 			}
 			remoteAuthorized := allowRemote && token != ""
@@ -103,6 +113,7 @@ WireGuard, or an SSH tunnel. Streaming is intentionally unsupported.`,
 
 			r := newRunner()
 			api := server.New(r, token)
+			api.AllowUnauthenticated = noAuth
 			api.MaxConcurrency = maxConcurrency
 			imageConfig, err := loadConfig()
 			if err != nil {
@@ -162,6 +173,7 @@ WireGuard, or an SSH tunnel. Streaming is intentionally unsupported.`,
 	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:1978", "Listen address")
 	cmd.Flags().StringVar(&tokenFile, "token-file", "", "Read the bearer token from a private regular file")
 	cmd.Flags().BoolVar(&allowRemote, "allow-remote", false, "Allow a non-loopback bind when authentication is configured")
+	cmd.Flags().BoolVar(&noAuth, "no-auth", false, "Allow unauthenticated access on a resolved loopback address only")
 	cmd.Flags().IntVar(&maxConcurrency, "max-concurrency", 1, "Maximum simultaneous model runs (1-4)")
 	return cmd
 }
