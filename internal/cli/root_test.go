@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -525,6 +526,50 @@ func TestChatsListShowsModelColumn(t *testing.T) {
 	for _, want := range []string{"MODEL", "cloud-pro", "on-device"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("chats list output missing %q: %q", want, out.String())
+		}
+	}
+}
+
+func TestPersistedChatControlsAreNeutralizedOnEveryHumanTerminalView(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "hollis.db")
+	st, err := store.Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := st.CreateConversation("cloud", "title\x1b]52;c;payload\a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendMessage(conv.ID, "assistant", "reply marker\x1b[2J\u009b31m"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	oldOpen := openStore
+	openStore = func() (*store.Store, error) { return store.Open(databasePath) }
+	t.Cleanup(func() { openStore = oldOpen })
+	oldTerminalOutput := terminalOutput
+	terminalOutput = func(io.Writer) bool { return true }
+	t.Cleanup(func() { terminalOutput = oldTerminalOutput })
+
+	for _, args := range [][]string{
+		{"chats", "list"},
+		{"chats", "search", "marker"},
+		{"chats", "show", conv.ID},
+	} {
+		cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+		cmd.SetArgs(args)
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if strings.ContainsAny(out.String(), "\x1b\a\u009b") {
+			t.Fatalf("%v retained a stored control: %q", args, out.String())
+		}
+		if !strings.Contains(out.String(), `\u001b`) {
+			t.Fatalf("%v did not render ESC visibly: %q", args, out.String())
 		}
 	}
 }

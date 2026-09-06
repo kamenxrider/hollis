@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// These cases exercise filesystem and transport behavior using a local fake.
-// They make no claim about decoding image pixels or provider understanding.
+// These cases exercise bounded filesystem and transport behavior using a
+// local fake. They make no claim about provider understanding.
 func TestImageRequestRejectsNonregularAndBrokenLinksWithoutSpawn(t *testing.T) {
 	dir := t.TempDir()
 	folder := filepath.Join(dir, "folder.png")
@@ -55,23 +55,80 @@ func TestImageRequestRejectsNonregularAndBrokenLinksWithoutSpawn(t *testing.T) {
 	}
 }
 
-func TestImageRequestRegularSymlinkAndUppercaseExtension(t *testing.T) {
+func TestImageRequestRejectsFinalSymlinkAndAcceptsUppercaseExtension(t *testing.T) {
 	original := writeTestImage(t, "original.png")
 	link := filepath.Join(t.TempDir(), "linked image.PNG")
 	if err := os.Symlink(original, link); err != nil {
 		t.Fatal(err)
 	}
 	r, records := runnerWithFake(t, "echo-image")
-	got, used, err := r.RunWithImages(context.Background(), ModelChatGPT, "Describe", []string{link})
+	_, _, err := r.RunWithImages(context.Background(), ModelChatGPT, "Describe", []string{link})
+	var runErr *Error
+	if !errors.As(err, &runErr) || runErr.Kind != KindUsage {
+		t.Fatalf("err=%v, want usage error for final symlink", err)
+	}
+	if _, err := os.Stat(filepath.Join(records, "count.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("symlink reached transport: %v", err)
+	}
+
+	uppercase := writeTestImage(t, "linked image.PNG")
+	r, records = runnerWithFake(t, "echo-image")
+	got, used, err := r.RunWithImages(context.Background(), ModelChatGPT, "Describe", []string{uppercase})
 	if err != nil || got != "Describe" || used != ModelChatGPT {
-		t.Fatalf("got=%q used=%q err=%v", got, used, err)
+		t.Fatalf("uppercase extension got=%q used=%q err=%v", got, used, err)
 	}
 	args, err := os.ReadFile(filepath.Join(records, "argv-lines.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(string(args), "--input-path\n"+link+"\n") {
-		t.Fatalf("symlink path not preserved in transport arguments: %q", args)
+	if strings.Contains(string(args), uppercase) {
+		t.Fatalf("transport received original uppercase path: %q", args)
+	}
+}
+
+func TestImageRequestRejectsSymlinkedParentDirectories(t *testing.T) {
+	privateImage := writeTestImage(t, "private.png")
+	workspace := t.TempDir()
+	link := filepath.Join(workspace, "photos")
+	if err := os.Symlink(filepath.Dir(privateImage), link); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(filepath.Dir(privateImage), "nested")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(privateImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "private.png"), contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(link, "private.png"), filepath.Join(link, "nested", "private.png")} {
+		t.Run(path, func(t *testing.T) {
+			r, records := runnerWithFake(t, "echo-image")
+			_, _, err := r.RunWithImages(context.Background(), ModelCloud, "Describe", []string{path})
+			var runErr *Error
+			if !errors.As(err, &runErr) || runErr.Kind != KindUsage {
+				t.Fatalf("err=%v, want usage refusal for symlinked parent", err)
+			}
+			if _, err := os.Stat(filepath.Join(records, "count.txt")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("symlinked parent reached transport: %v", err)
+			}
+		})
+	}
+}
+
+func TestImageRequestAllowsSearchableDirectoryWithoutListingAccess(t *testing.T) {
+	path := writeTestImage(t, "photo.png")
+	dir := filepath.Dir(path)
+	if err := os.Chmod(dir, 0o111); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	r, _ := runnerWithFake(t, "echo-image")
+	if got, _, err := r.RunWithImages(context.Background(), ModelCloud, "Describe", []string{path}); err != nil || got != "Describe" {
+		t.Fatalf("readable image in searchable directory got=%q err=%v", got, err)
 	}
 }
 

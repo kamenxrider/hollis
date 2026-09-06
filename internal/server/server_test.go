@@ -50,7 +50,7 @@ func do(t *testing.T, h http.Handler, method, path, body string) *httptest.Respo
 }
 
 func TestHealth(t *testing.T) {
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	res := do(t, srv.Handler(), http.MethodGet, "/health", "")
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", res.Code)
@@ -60,8 +60,36 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestNewWithoutTokenFailsClosedOnV1(t *testing.T) {
+	runner := &countRunner{}
+	srv := New(runner, "")
+	handler := srv.Handler()
+	for _, request := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodGet, path: "/v1/models"},
+		{method: http.MethodPost, path: "/v1/chat/completions", body: `{"model":"cloud","messages":[{"role":"user","content":"hi"}]}`},
+		{method: http.MethodPost, path: "/v1/responses", body: `{"model":"cloud","input":"hi"}`},
+		{method: http.MethodPost, path: "/v1/images/generations", body: `{"model":"hollis-image","prompt":"hi"}`},
+	} {
+		res := do(t, handler, request.method, request.path, request.body)
+		if res.Code != http.StatusUnauthorized || !strings.Contains(res.Body.String(), `"code":"authentication_required"`) {
+			t.Fatalf("%s status=%d body=%s, want authentication_required", request.path, res.Code, res.Body.String())
+		}
+	}
+	if runner.calls != 0 {
+		t.Fatalf("unauthenticated requests reached runner %d times", runner.calls)
+	}
+	health := do(t, handler, http.MethodGet, "/health", "")
+	if health.Code != http.StatusOK {
+		t.Fatalf("health status=%d body=%s", health.Code, health.Body.String())
+	}
+}
+
 func TestModelsListsAllTiers(t *testing.T) {
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	res := do(t, srv.Handler(), http.MethodGet, "/v1/models", "")
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", res.Code)
@@ -97,7 +125,7 @@ func TestModelsListsAllTiers(t *testing.T) {
 }
 
 func TestChatCompletionsShapeAndTranscript(t *testing.T) {
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	res := post(t, srv.Handler(), "/v1/chat/completions",
 		`{"model":"cloud","messages":[{"role":"system","content":"Be brief"},{"role":"user","content":"Hi there"}]}`)
 	if res.Code != http.StatusOK {
@@ -135,7 +163,7 @@ func TestChatCompletionsShapeAndTranscript(t *testing.T) {
 }
 
 func TestChatCompletionsStreamUnsupported(t *testing.T) {
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	res := post(t, srv.Handler(), "/v1/chat/completions",
 		`{"model":"cloud","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	if res.Code != http.StatusBadRequest {
@@ -147,7 +175,7 @@ func TestChatCompletionsStreamUnsupported(t *testing.T) {
 }
 
 func TestChatCompletionsLastMessageMustBeUser(t *testing.T) {
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	res := post(t, srv.Handler(), "/v1/chat/completions",
 		`{"model":"cloud","messages":[{"role":"assistant","content":"hi"}]}`)
 	if res.Code != http.StatusBadRequest {
@@ -166,7 +194,7 @@ func (r *callCountingRunner) Run(_ context.Context, model runner.Model, _ string
 
 func TestChatCompletionsRejectsUnknownNestedMessageFieldsBeforeRunner(t *testing.T) {
 	r := &callCountingRunner{}
-	srv := New(r, "")
+	srv := NewUnauthenticated(r)
 	res := post(t, srv.Handler(), "/v1/chat/completions",
 		`{"model":"cloud","messages":[{"role":"user","content":"hi","name":"ignored"}]}`)
 	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), `"code":"unsupported_parameter"`) {
@@ -180,7 +208,7 @@ func TestChatCompletionsRejectsUnknownNestedMessageFieldsBeforeRunner(t *testing
 func TestModelsOmitUnavailableTiers(t *testing.T) {
 	// the catalog is what resolves.
 	// A 26 machine (no Pro bridge) lists auto + its three tiers only.
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	srv.Available = map[string]bool{"cloud": true, "on-device": true, "chatgpt": true, "cloud-pro": false}
 	res := do(t, srv.Handler(), http.MethodGet, "/v1/models", "")
 	if res.Code != http.StatusOK {
@@ -197,7 +225,7 @@ func TestModelsOmitUnavailableTiers(t *testing.T) {
 }
 
 func TestChatCompletionsUnavailableModel(t *testing.T) {
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	srv.Available = map[string]bool{"cloud": true, "on-device": true, "chatgpt": true, "cloud-pro": false}
 	res := post(t, srv.Handler(), "/v1/chat/completions",
 		`{"model":"cloud-pro","messages":[{"role":"user","content":"hi"}]}`)
@@ -211,7 +239,7 @@ func TestChatCompletionsUnavailableModel(t *testing.T) {
 
 func TestChatCompletionsAutoNotGated(t *testing.T) {
 	// auto has no bridge of its own; either discovered constituent makes it viable.
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	srv.Available = map[string]bool{"cloud": true, "on-device": true, "chatgpt": true, "cloud-pro": false}
 	res := post(t, srv.Handler(), "/v1/chat/completions",
 		`{"messages":[{"role":"user","content":"hi"}]}`)
@@ -221,7 +249,7 @@ func TestChatCompletionsAutoNotGated(t *testing.T) {
 }
 
 func TestAutoUnavailableWhenNeitherConstituentResolved(t *testing.T) {
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	srv.Available = map[string]bool{"cloud": false, "on-device": false, "chatgpt": true, "cloud-pro": false}
 	models := do(t, srv.Handler(), http.MethodGet, "/v1/models", "")
 	if strings.Contains(models.Body.String(), `"id":"auto"`) {
@@ -235,7 +263,7 @@ func TestAutoUnavailableWhenNeitherConstituentResolved(t *testing.T) {
 }
 
 func TestChatCompletionsUnknownModel(t *testing.T) {
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	res := post(t, srv.Handler(), "/v1/chat/completions",
 		`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
 	if res.Code != http.StatusBadRequest {
@@ -244,7 +272,7 @@ func TestChatCompletionsUnknownModel(t *testing.T) {
 }
 
 func TestResponsesStringInput(t *testing.T) {
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	res := post(t, srv.Handler(), "/v1/responses",
 		`{"model":"cloud","input":"Reply with RESP-OK"}`)
 	if res.Code != http.StatusOK {
@@ -283,7 +311,7 @@ func TestResponsesStringInput(t *testing.T) {
 }
 
 func TestResponsesArrayInputWithInstructions(t *testing.T) {
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	res := post(t, srv.Handler(), "/v1/responses", `{
 		"model": "cloud",
 		"instructions": "Always answer in one word",
@@ -322,7 +350,7 @@ func TestResponsesArrayInputWithInstructions(t *testing.T) {
 }
 
 func TestResponsesStreamUnsupported(t *testing.T) {
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	res := post(t, srv.Handler(), "/v1/responses",
 		`{"model":"cloud","input":"hi","stream":true}`)
 	if res.Code != http.StatusBadRequest {
@@ -334,7 +362,7 @@ func TestResponsesStreamUnsupported(t *testing.T) {
 }
 
 func TestRunnerTimeoutMapsTo504(t *testing.T) {
-	srv := New(&echoRunner{err: &runner.Error{Kind: runner.KindTimeout, ExitCode: -1}}, "")
+	srv := NewUnauthenticated(&echoRunner{err: &runner.Error{Kind: runner.KindTimeout, ExitCode: -1}})
 	res := post(t, srv.Handler(), "/v1/chat/completions",
 		`{"model":"cloud","messages":[{"role":"user","content":"hi"}]}`)
 	if res.Code != http.StatusGatewayTimeout {
@@ -343,7 +371,7 @@ func TestRunnerTimeoutMapsTo504(t *testing.T) {
 }
 
 func TestRunnerFailureMapsTo502(t *testing.T) {
-	srv := New(&echoRunner{err: &runner.Error{Kind: runner.KindTransport, ExitCode: 1}}, "")
+	srv := NewUnauthenticated(&echoRunner{err: &runner.Error{Kind: runner.KindTransport, ExitCode: 1}})
 	res := post(t, srv.Handler(), "/v1/chat/completions",
 		`{"model":"cloud","messages":[{"role":"user","content":"hi"}]}`)
 	if res.Code != http.StatusBadGateway {
@@ -359,15 +387,25 @@ func TestBearerAuthOnV1Endpoints(t *testing.T) {
 	if res := do(t, h, http.MethodGet, "/health", ""); res.Code != http.StatusOK {
 		t.Fatalf("health status = %d, want 200", res.Code)
 	}
-	// /v1/models without the header → 401.
-	res := do(t, h, http.MethodGet, "/v1/models", "")
-	if res.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", res.Code)
+	for _, request := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodGet, path: "/v1/models"},
+		{method: http.MethodPost, path: "/v1/chat/completions", body: `{"model":"cloud","messages":[{"role":"user","content":"hi"}]}`},
+		{method: http.MethodPost, path: "/v1/responses", body: `{"model":"cloud","input":"hi"}`},
+		{method: http.MethodPost, path: "/v1/images/generations", body: `{"model":"hollis-image","prompt":"hi"}`},
+	} {
+		res := do(t, h, request.method, request.path, request.body)
+		if res.Code != http.StatusUnauthorized {
+			t.Fatalf("%s status = %d, want 401", request.path, res.Code)
+		}
 	}
 	// With the header → through.
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	req.Header.Set("Authorization", "Bearer secret")
-	res = httptest.NewRecorder()
+	res := httptest.NewRecorder()
 	h.ServeHTTP(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", res.Code)
@@ -377,7 +415,7 @@ func TestBearerAuthOnV1Endpoints(t *testing.T) {
 func TestNoUsageFieldsEver(t *testing.T) {
 	// Plan principle 5: never invent token counts. The success payloads
 	// must not contain a usage object.
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	for _, tc := range [][]string{
 		{"/v1/chat/completions", `{"model":"cloud","messages":[{"role":"user","content":"hi"}]}`},
 		{"/v1/responses", `{"model":"cloud","input":"hi"}`},
@@ -393,7 +431,7 @@ func TestNoUsageFieldsEver(t *testing.T) {
 }
 
 func TestEndpointMethodsAndAllowHeaders(t *testing.T) {
-	handler := New(&echoRunner{}, "").Handler()
+	handler := NewUnauthenticated(&echoRunner{}).Handler()
 	for _, tc := range []struct {
 		path, wrong, allow string
 	}{
@@ -411,7 +449,7 @@ func TestEndpointMethodsAndAllowHeaders(t *testing.T) {
 }
 
 func TestStrictJSONAndContentType(t *testing.T) {
-	handler := New(&echoRunner{}, "").Handler()
+	handler := NewUnauthenticated(&echoRunner{}).Handler()
 	for _, tc := range []struct {
 		name, body, code string
 	}{
@@ -440,7 +478,7 @@ func TestStrictJSONAndContentType(t *testing.T) {
 
 func TestInputValidationHappensBeforeRunner(t *testing.T) {
 	counting := &countRunner{}
-	handler := New(counting, "").Handler()
+	handler := NewUnauthenticated(counting).Handler()
 	for _, body := range []string{
 		`{"input":null}`,
 		`{"input":""}`,
@@ -464,7 +502,7 @@ func TestInputValidationHappensBeforeRunner(t *testing.T) {
 }
 
 func TestRequestBodyLimit(t *testing.T) {
-	handler := New(&echoRunner{}, "").Handler()
+	handler := NewUnauthenticated(&echoRunner{}).Handler()
 	for _, body := range []string{
 		strings.Repeat(" ", MaxRequestBytes+1),
 		`{"input":"hi"}` + strings.Repeat(" ", MaxRequestBytes+1),
@@ -478,7 +516,7 @@ func TestRequestBodyLimit(t *testing.T) {
 }
 
 func TestAvailabilityMapIsFailClosed(t *testing.T) {
-	srv := New(&echoRunner{}, "")
+	srv := NewUnauthenticated(&echoRunner{})
 	srv.Available = map[string]bool{"cloud": true}
 	models := do(t, srv.Handler(), http.MethodGet, "/v1/models", "")
 	if strings.Contains(models.Body.String(), "cloud-pro") || strings.Contains(models.Body.String(), "on-device") || strings.Contains(models.Body.String(), "chatgpt") {
@@ -491,7 +529,7 @@ func TestAvailabilityMapIsFailClosed(t *testing.T) {
 
 func TestRemoteErrorsAreStableAndSanitized(t *testing.T) {
 	secret := "private Apple stderr and prompt"
-	srv := New(&echoRunner{err: &runner.Error{Kind: runner.KindRateLimited, ExitCode: 1, Stderr: secret, Err: errors.New(secret)}}, "")
+	srv := NewUnauthenticated(&echoRunner{err: &runner.Error{Kind: runner.KindRateLimited, ExitCode: 1, Stderr: secret, Err: errors.New(secret)}})
 	res := post(t, srv.Handler(), "/v1/responses", `{"input":"quiet"}`)
 	if res.Code != http.StatusTooManyRequests || res.Header().Get("Retry-After") != "1" {
 		t.Fatalf("status=%d retry=%q", res.Code, res.Header().Get("Retry-After"))
@@ -504,7 +542,7 @@ func TestRemoteErrorsAreStableAndSanitized(t *testing.T) {
 
 func TestConcurrencyLimitRejectsImmediatelyAndHealthStaysOpen(t *testing.T) {
 	blocking := &blockingRunner{started: make(chan struct{}), release: make(chan struct{})}
-	srv := New(blocking, "")
+	srv := NewUnauthenticated(blocking)
 	srv.MaxConcurrency = 1
 	handler := srv.Handler()
 	firstDone := make(chan *httptest.ResponseRecorder, 1)

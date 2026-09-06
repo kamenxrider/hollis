@@ -100,6 +100,9 @@ func (g *recordingGenerator) lastCall() imagegen.Request {
 
 func testGenerationServer(generator *recordingGenerator, token string) *Server {
 	server := New(&echoRunner{}, token)
+	if token == "" {
+		server.AllowUnauthenticated = true
+	}
 	server.ImageGenerator = generator
 	server.ImageBridges = map[string]string{
 		"animation": "Hollis Image Animation", "illustration": "Hollis Image Illustration",

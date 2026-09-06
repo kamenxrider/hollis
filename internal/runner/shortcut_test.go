@@ -3,8 +3,15 @@
 package runner
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"hash/crc32"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -47,6 +54,7 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 		"case \"$mode\" in\n" +
 		"  echo) cat " + dir + "/stdin.txt ;;\n" +
 		"  echo-image) previous=''; for value in \"$@\"; do if [ \"$previous\" = '--input-path' ]; then cat \"$value\"; exit; fi; previous=\"$value\"; done; exit 64 ;;\n" +
+		"  replace-source) printf 'replacement bytes' > \"$HOLLIS_REPLACE_SOURCE\"; previous=''; input_count=0; for value in \"$@\"; do if [ \"$previous\" = '--input-path' ]; then input_count=$((input_count + 1)); if [ \"$input_count\" -eq 2 ]; then cat \"$value\"; exit; fi; fi; previous=\"$value\"; done; exit 64 ;;\n" +
 		"  empty) exit 0 ;;\n" +
 		"  whitespace) printf ' \\n\\t' ;;\n" +
 		"  missing) echo 'The shortcut named \"AFM Bridge\" could not be found' >&2; exit 1 ;;\n" +
@@ -72,7 +80,31 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 func writeTestImage(t *testing.T, name string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(path, []byte("fixture image bytes"), 0o600); err != nil {
+	var encoded bytes.Buffer
+	if ext := strings.ToLower(filepath.Ext(name)); ext == ".png" {
+		img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+		for y := 0; y < 2; y++ {
+			for x := 0; x < 2; x++ {
+				img.Set(x, y, color.RGBA{R: uint8(40 + x), G: uint8(80 + y), B: 120, A: 255})
+			}
+		}
+		if err := png.Encode(&encoded, img); err != nil {
+			t.Fatal(err)
+		}
+	} else if ext == ".jpg" || ext == ".jpeg" {
+		img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+		for y := 0; y < 2; y++ {
+			for x := 0; x < 2; x++ {
+				img.Set(x, y, color.RGBA{R: uint8(40 + x), G: uint8(80 + y), B: 120, A: 255})
+			}
+		}
+		if err := jpeg.Encode(&encoded, img, &jpeg.Options{Quality: 90}); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		encoded.WriteString("fixture image bytes")
+	}
+	if err := os.WriteFile(path, encoded.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -106,8 +138,11 @@ func TestRunWithImagesUsesInputPathsAndNoStdin(t *testing.T) {
 	if len(args) != 10 {
 		t.Fatalf("argv=%q, want 10 arguments", args)
 	}
-	if args[0] != "run" || args[1] != BridgeUUIDCloudPro || args[2] != "--output-type" || args[3] != "public.plain-text" || args[4] != "--input-path" || args[6] != "--input-path" || args[7] != first || args[8] != "--input-path" || args[9] != second {
+	if args[0] != "run" || args[1] != BridgeUUIDCloudPro || args[2] != "--output-type" || args[3] != "public.plain-text" || args[4] != "--input-path" || args[6] != "--input-path" || args[8] != "--input-path" {
 		t.Fatalf("unexpected image argv: %#v", args)
+	}
+	if args[7] == first || args[9] == second || filepath.Ext(args[7]) != ".png" || filepath.Ext(args[9]) != ".jpg" {
+		t.Fatalf("transport received original or wrong staged image paths: %#v", args)
 	}
 	promptPath := args[5]
 	if filepath.Ext(promptPath) != ".txt" {
@@ -163,6 +198,40 @@ func TestPrivateImagePromptFileIsRemovedAfterTransportFailure(t *testing.T) {
 	}
 }
 
+func TestRunWithImagesStagesValidatedBytesBeforeTransport(t *testing.T) {
+	r, records := runnerWithFake(t, "replace-source")
+	imagePath := writeTestImage(t, "selected image.PNG")
+	want, err := os.ReadFile(imagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOLLIS_REPLACE_SOURCE", imagePath)
+
+	got, used, err := r.RunWithImages(context.Background(), ModelCloud, "Describe", []string{imagePath})
+	if err != nil || used != ModelCloud {
+		t.Fatalf("got model=%s err=%v", used, err)
+	}
+	if got != string(want) {
+		t.Fatalf("transport received replacement bytes, got %d bytes want original %d", len(got), len(want))
+	}
+	if replacement, err := os.ReadFile(imagePath); err != nil {
+		t.Fatal(err)
+	} else if string(replacement) != "replacement bytes" {
+		t.Fatalf("fake transport did not replace source: %q", replacement)
+	}
+	args, err := os.ReadFile(filepath.Join(records, "argv-lines.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(args), "\n"), "\n")
+	if len(lines) < 8 || lines[6] != "--input-path" || lines[7] == imagePath {
+		t.Fatalf("transport did not receive a staged image path: %#v", lines)
+	}
+	if _, err := os.Stat(lines[7]); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("staged image survived transport completion: %v", err)
+	}
+}
+
 func TestImageRequestValidationRefusesUnsafeShapesWithoutSpawn(t *testing.T) {
 	one := writeTestImage(t, "one.png")
 	two := writeTestImage(t, "two.jpeg")
@@ -193,6 +262,47 @@ func TestImageRequestValidationRefusesUnsafeShapesWithoutSpawn(t *testing.T) {
 				t.Fatalf("transport spawned for invalid image request: %v", statErr)
 			}
 		})
+	}
+}
+
+func TestRunWithImagesRejectsInvalidImageContentWithoutSpawn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "not-an-image.png")
+	if err := os.WriteFile(path, []byte("fixture image bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, dir := runnerWithFake(t, "echo-image")
+	_, _, err := r.RunWithImages(context.Background(), ModelCloud, "Describe", []string{path})
+	var runErr *Error
+	if !errors.As(err, &runErr) || runErr.Kind != KindUsage {
+		t.Fatalf("err=%v, want usage error", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "count.txt")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("invalid image reached transport: %v", statErr)
+	}
+}
+
+func TestRunWithImagesRejectsOversizedPixelHeaderBeforeDecode(t *testing.T) {
+	path := writeTestImage(t, "oversized.png")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A tiny PNG can declare a huge decoded image. Keep the IHDR checksum
+	// correct so rejection must come from the pixel budget, before decoding.
+	binary.BigEndian.PutUint32(data[16:20], 100_000)
+	binary.BigEndian.PutUint32(data[20:24], 100_000)
+	binary.BigEndian.PutUint32(data[29:33], crc32.ChecksumIEEE(data[12:29]))
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, records := runnerWithFake(t, "echo-image")
+	_, _, err = r.RunWithImages(context.Background(), ModelCloud, "Describe", []string{path})
+	var runErr *Error
+	if !errors.As(err, &runErr) || runErr.Kind != KindUsage || !strings.Contains(err.Error(), "pixel limit") {
+		t.Fatalf("err=%v, want usage error for pixel limit", err)
+	}
+	if _, err := os.Stat(filepath.Join(records, "count.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("oversized image reached transport: %v", err)
 	}
 }
 

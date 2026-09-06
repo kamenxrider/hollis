@@ -7,6 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"os"
 	"os/exec"
@@ -15,6 +18,17 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
+)
+
+const (
+	// maxImageBytes bounds each direct image input before it is handed to
+	// another process. Keep this at the documented Hollis per-file limit;
+	// generation-specific API byte and pixel limits belong to their callers.
+	maxImageBytes int64 = 64 << 20
+	// The compressed byte limit alone cannot bound a full pixel decode.
+	maxImagePixels int64 = 64_000_000
 )
 
 // ShortcutRunner invokes `/usr/bin/shortcuts run <bridge-reference>` with piped
@@ -89,17 +103,28 @@ func (r *ShortcutRunner) RunWithFallback(ctx context.Context, model Model, promp
 // Shortcuts transport requires both the prompt and images to be supplied as a
 // repeated --input-path list; stdin is intentionally left empty.
 func (r *ShortcutRunner) RunWithImages(ctx context.Context, model Model, prompt string, imagePaths []string) (string, Model, error) {
-	if err := ValidateImageRequest(model, prompt, imagePaths); err != nil {
+	if err := validateImageRequestShape(model, prompt, imagePaths); err != nil {
 		return "", model, err
 	}
-	text, err := r.runTierWithImages(ctx, model, prompt, imagePaths)
+	stagedPaths, cleanup, err := stageImageInputs(imagePaths)
+	if err != nil {
+		return "", model, err
+	}
+	defer cleanup()
+
+	text, err := r.runTierWithImages(ctx, model, prompt, stagedPaths)
 	return text, model, err
 }
 
 // ValidateImageRequest checks the measured v0.2 image contract before any
-// Shortcut process is spawned. PNG and JPEG are the only formats currently
-// promised; content sniffing and additional formats remain future work.
+// Shortcut process is spawned. PNG and JPEG are the only supported formats;
+// the concrete ShortcutRunner binds and decodes the bytes from a descriptor
+// that cannot resolve a symlink when it stages the request.
 func ValidateImageRequest(model Model, prompt string, imagePaths []string) error {
+	return validateImageRequestShape(model, prompt, imagePaths)
+}
+
+func validateImageRequestShape(model Model, prompt string, imagePaths []string) error {
 	usage := func(err error) error {
 		return &Error{Kind: KindUsage, ExitCode: -1, Err: err}
 	}
@@ -138,22 +163,185 @@ func ValidateImageRequest(model Model, prompt string, imagePaths []string) error
 		if ext != ".png" && ext != ".jpg" && ext != ".jpeg" {
 			return usage(fmt.Errorf("unsupported image %q: use a PNG or JPEG file", path))
 		}
-		info, err := os.Stat(path)
+		info, err := os.Lstat(path)
 		if err != nil {
 			return usage(fmt.Errorf("open image %q: %w", path, err))
 		}
-		if !info.Mode().IsRegular() {
-			return usage(fmt.Errorf("image %q must be a regular file", path))
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			return usage(fmt.Errorf("open image %q: %w", path, err))
-		}
-		if err := file.Close(); err != nil {
-			return usage(fmt.Errorf("close image %q after validation: %w", path, err))
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return usage(fmt.Errorf("image %q must be a direct regular file", path))
 		}
 	}
 	return nil
+}
+
+func imageUsageError(err error) error {
+	return &Error{Kind: KindUsage, ExitCode: -1, Err: err}
+}
+
+// stageImageInputs binds each image to the bytes read from its validated
+// descriptor. The child receives only paths in a private directory, so it
+// cannot reopen the caller's pathname after validation.
+func stageImageInputs(imagePaths []string) ([]string, func(), error) {
+	stageDir, err := os.MkdirTemp("", "hollis-image-inputs-")
+	if err != nil {
+		return nil, nil, &Error{
+			Kind: KindTransport, ExitCode: -1,
+			Err: fmt.Errorf("create private image staging directory: %w", err),
+		}
+	}
+	cleanup := func() { _ = os.RemoveAll(stageDir) }
+	if err := os.Chmod(stageDir, 0o700); err != nil {
+		cleanup()
+		return nil, nil, &Error{
+			Kind: KindTransport, ExitCode: -1,
+			Err: fmt.Errorf("secure image staging directory: %w", err),
+		}
+	}
+
+	staged := make([]string, 0, len(imagePaths))
+	for i, imagePath := range imagePaths {
+		contents, err := readValidatedImage(imagePath)
+		if err != nil {
+			cleanup()
+			return nil, nil, imageUsageError(fmt.Errorf("open image %q: %w", imagePath, err))
+		}
+		ext := filepath.Ext(imagePath)
+		stagePath := filepath.Join(stageDir, fmt.Sprintf("image-%d%s", i, ext))
+		if err := writeStagedImage(stagePath, contents); err != nil {
+			cleanup()
+			return nil, nil, &Error{
+				Kind: KindTransport, ExitCode: -1,
+				Err: fmt.Errorf("stage image %q: %w", imagePath, err),
+			}
+		}
+		staged = append(staged, stagePath)
+	}
+	return staged, cleanup, nil
+}
+
+func writeStagedImage(path string, contents []byte) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	closeAndRemove := func(err error) error {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		return closeAndRemove(err)
+	}
+	n, err := file.Write(contents)
+	if err != nil {
+		return closeAndRemove(err)
+	}
+	if n != len(contents) {
+		return closeAndRemove(io.ErrShortWrite)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
+}
+
+func readValidatedImage(path string) ([]byte, error) {
+	// Lstat rejects a final symlink before opening. O_NOFOLLOW protects the
+	// open itself if the final component is swapped between these operations;
+	// O_NONBLOCK ensures a raced FIFO cannot make validation wait for a writer.
+	lstat, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("inspect path: %w", err)
+	}
+	if lstat.Mode()&os.ModeSymlink != 0 || !lstat.Mode().IsRegular() {
+		return nil, errors.New("image path must be a direct regular file")
+	}
+	file, err := openDirectImage(path)
+	if err != nil {
+		return nil, fmt.Errorf("open direct file: %w", err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("inspect opened file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, errors.New("image descriptor is not a regular file")
+	}
+	if !os.SameFile(lstat, info) {
+		_ = file.Close()
+		return nil, errors.New("image path changed while opening")
+	}
+	if info.Size() <= 0 {
+		_ = file.Close()
+		return nil, errors.New("image file is empty")
+	}
+	if info.Size() > maxImageBytes {
+		_ = file.Close()
+		return nil, fmt.Errorf("image file exceeds %d byte limit", maxImageBytes)
+	}
+
+	contents, err := io.ReadAll(io.LimitReader(file, maxImageBytes+1))
+	closeErr := file.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read image: %w", err)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close image: %w", closeErr)
+	}
+	if int64(len(contents)) > maxImageBytes {
+		return nil, fmt.Errorf("image file exceeds %d byte limit", maxImageBytes)
+	}
+	if int64(len(contents)) != info.Size() {
+		return nil, errors.New("image file changed while reading")
+	}
+
+	config, format, err := image.DecodeConfig(bytes.NewReader(contents))
+	if err != nil {
+		return nil, fmt.Errorf("decode image header: %w", err)
+	}
+	if format != "png" && format != "jpeg" {
+		return nil, errors.New("image content must be PNG or JPEG")
+	}
+	if config.Width <= 0 || config.Height <= 0 {
+		return nil, errors.New("image dimensions are empty")
+	}
+	if int64(config.Width) > maxImagePixels/int64(config.Height) {
+		return nil, fmt.Errorf("image exceeds %d pixel limit", maxImagePixels)
+	}
+	if _, _, err := image.Decode(bytes.NewReader(contents)); err != nil {
+		return nil, fmt.Errorf("decode image pixels: %w", err)
+	}
+	return contents, nil
+}
+
+// openDirectImage asks the macOS kernel to reject symlinks in every component
+// during the open itself. No separate parent check can race with that open.
+func openDirectImage(path string) (*os.File, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	// macOS provides these root-owned compatibility links. Resolve only their
+	// known targets; ordinary user-created links remain prohibited.
+	for _, alias := range []string{"/var", "/tmp", "/etc"} {
+		if !strings.HasPrefix(abs, alias+"/") {
+			continue
+		}
+		info, err := os.Lstat(alias)
+		if err != nil {
+			return nil, err
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		target, linkErr := os.Readlink(alias)
+		if ok && stat.Uid == 0 && linkErr == nil && filepath.Clean(filepath.Join("/", target)) == "/private"+alias {
+			abs = "/private" + abs
+		}
+		break
+	}
+	return os.OpenFile(abs, os.O_RDONLY|unix.O_NOFOLLOW_ANY|syscall.O_NONBLOCK, 0)
 }
 
 // runAuto tries the default tier (cloud) once, then the on-device model

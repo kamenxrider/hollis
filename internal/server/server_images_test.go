@@ -121,7 +121,7 @@ func TestImageEndpointsStageOrderedBytesAndPreserveResponseEnvelopes(t *testing.
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &recordingImageRunner{}
-			res := post(t, New(r, "").Handler(), tc.path, tc.body)
+			res := post(t, NewUnauthenticated(r).Handler(), tc.path, tc.body)
 			if res.Code != http.StatusOK {
 				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
 			}
@@ -152,7 +152,7 @@ func TestImageModelSelectionAndLimitsHappenBeforeStaging(t *testing.T) {
 
 	r := &recordingImageRunner{}
 	omitted := fmt.Sprintf(`{"messages":[{"role":"user","content":[{"type":"text","text":"Describe"},{"type":"image_url","image_url":{"url":%q}}]}]}`, imageURL)
-	res := post(t, New(r, "").Handler(), "/v1/chat/completions", omitted)
+	res := post(t, NewUnauthenticated(r).Handler(), "/v1/chat/completions", omitted)
 	if res.Code != http.StatusOK {
 		t.Fatalf("omitted model: status=%d body=%s", res.Code, res.Body.String())
 	}
@@ -165,7 +165,7 @@ func TestImageModelSelectionAndLimitsHappenBeforeStaging(t *testing.T) {
 		t.Run(model, func(t *testing.T) {
 			body := fmt.Sprintf(`{"model":%q,"input":[{"role":"user","content":[{"type":"input_text","text":"Describe"},{"type":"input_image","image_url":%q}]}]}`, model, imageURL)
 			before := tempEntries(t, root)
-			res := post(t, New(&recordingImageRunner{}, "").Handler(), "/v1/responses", body)
+			res := post(t, NewUnauthenticated(&recordingImageRunner{}).Handler(), "/v1/responses", body)
 			if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), `"code":"unsupported_parameter"`) {
 				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
 			}
@@ -177,7 +177,7 @@ func TestImageModelSelectionAndLimitsHappenBeforeStaging(t *testing.T) {
 
 	twoImages := fmt.Sprintf(`{"model":"chatgpt","input":[{"role":"user","content":[{"type":"input_text","text":"Compare"},{"type":"input_image","image_url":%q},{"type":"input_image","image_url":%q}]}]}`, imageURL, imageURL)
 	before := tempEntries(t, root)
-	res = post(t, New(&recordingImageRunner{}, "").Handler(), "/v1/responses", twoImages)
+	res = post(t, NewUnauthenticated(&recordingImageRunner{}).Handler(), "/v1/responses", twoImages)
 	if res.Code != http.StatusRequestEntityTooLarge || !strings.Contains(res.Body.String(), `"code":"context_too_large"`) {
 		t.Fatalf("chatgpt count: status=%d body=%s", res.Code, res.Body.String())
 	}
@@ -208,7 +208,7 @@ func TestImageAuthenticationAndCapacityPrecedeStaging(t *testing.T) {
 	}
 
 	blocking := &recordingImageRunner{entered: make(chan struct{}, 1), release: make(chan struct{})}
-	srv := New(blocking, "")
+	srv := NewUnauthenticated(blocking)
 	handler := srv.Handler()
 	firstDone := make(chan *httptest.ResponseRecorder, 1)
 	go func() { firstDone <- post(t, handler, "/v1/responses", body) }()
@@ -240,7 +240,7 @@ func TestImageInternalStagingFailureIsServerError(t *testing.T) {
 	imageURL := imageDataURL("image/png", encodeTestPNG(t, color.RGBA{A: 0xff}))
 	body := fmt.Sprintf(`{"model":"cloud","input":[{"role":"user","content":[{"type":"input_text","text":"Describe"},{"type":"input_image","image_url":%q}]}]}`, imageURL)
 	r := &recordingImageRunner{}
-	srv := New(r, "")
+	srv := NewUnauthenticated(r)
 	srv.stageImages = func(context.Context, []encodedImage) (stagedImages, error) {
 		return stagedImages{}, errors.New("private filesystem detail")
 	}
@@ -262,7 +262,7 @@ func TestImageRequestRequiresImageRunner(t *testing.T) {
 	t.Setenv("TMPDIR", root)
 	imageURL := imageDataURL("image/png", encodeTestPNG(t, color.RGBA{A: 0xff}))
 	body := fmt.Sprintf(`{"model":"cloud","messages":[{"role":"user","content":[{"type":"text","text":"Describe"},{"type":"image_url","image_url":{"url":%q}}]}]}`, imageURL)
-	res := post(t, New(&echoRunner{}, "").Handler(), "/v1/chat/completions", body)
+	res := post(t, NewUnauthenticated(&echoRunner{}).Handler(), "/v1/chat/completions", body)
 	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), `"code":"model_unavailable"`) {
 		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
 	}
@@ -278,7 +278,7 @@ func TestImageCancellationMapsToTimeoutAndCleansUp(t *testing.T) {
 	body := fmt.Sprintf(`{"model":"cloud","messages":[{"role":"user","content":[{"type":"text","text":"Describe"},{"type":"image_url","image_url":{"url":%q}}]}]}`, imageURL)
 
 	stagingCanceled := &recordingImageRunner{}
-	srv := New(stagingCanceled, "")
+	srv := NewUnauthenticated(stagingCanceled)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)).WithContext(ctx)
@@ -293,7 +293,7 @@ func TestImageCancellationMapsToTimeoutAndCleansUp(t *testing.T) {
 	}
 
 	waiting := &recordingImageRunner{entered: make(chan struct{}, 1), waitForCtx: true}
-	srv = New(waiting, "")
+	srv = NewUnauthenticated(waiting)
 	ctx, cancel = context.WithCancel(t.Context())
 	req = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
@@ -322,7 +322,7 @@ func TestImageRunnerFailureCleansUpAndNeverFallsBackToText(t *testing.T) {
 	r := &recordingImageRunner{err: errors.New("synthetic image runner failure")}
 	imageURL := imageDataURL("image/png", encodeTestPNG(t, color.RGBA{A: 0xff}))
 	body := fmt.Sprintf(`{"model":"cloud","input":[{"role":"user","content":[{"type":"input_text","text":"Describe"},{"type":"input_image","image_url":%q}]}]}`, imageURL)
-	res := post(t, New(r, "").Handler(), "/v1/responses", body)
+	res := post(t, NewUnauthenticated(r).Handler(), "/v1/responses", body)
 	if res.Code != http.StatusBadGateway || !strings.Contains(res.Body.String(), `"code":"shortcut_failed"`) {
 		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
 	}
