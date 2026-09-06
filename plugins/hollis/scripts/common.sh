@@ -25,6 +25,71 @@ report() {
   printf ',"runtime_home":'; json_string "$PLUGIN_HOME"
   printf '}\n'
 }
+rollback_state() {
+  ROLLBACK_STATUS=none
+  ROLLBACK_VERSION=
+  ROLLBACK_MESSAGE='No rollback candidate is recorded.'
+  local pointer="$PLUGIN_HOME/previous" candidate dir receipt binary receipt_version expected actual
+  if [[ ! -e "$pointer" && ! -L "$pointer" ]]; then return 0; fi
+  if [[ ! -f "$pointer" || -L "$pointer" ]]; then
+    ROLLBACK_STATUS=unavailable
+    ROLLBACK_MESSAGE='The rollback pointer is missing or unsafe.'
+    return 0
+  fi
+  if ! candidate=$(cat "$pointer" 2>/dev/null) || ! version_ok "$candidate"; then
+    ROLLBACK_STATUS=unavailable
+    ROLLBACK_MESSAGE='The rollback version is invalid.'
+    return 0
+  fi
+  ROLLBACK_VERSION=$candidate
+  dir="$PLUGIN_HOME/versions/$candidate"
+  if [[ ! -d "$PLUGIN_HOME/versions" || -L "$PLUGIN_HOME/versions" || ! -d "$dir" || -L "$dir" ]]; then
+    ROLLBACK_STATUS=unavailable
+    ROLLBACK_MESSAGE='The retained runtime directory is missing or unsafe.'
+    return 0
+  fi
+  receipt="$dir/runtime.lock.json"
+  if [[ ! -f "$receipt" || -L "$receipt" ]]; then
+    ROLLBACK_STATUS=unavailable
+    ROLLBACK_MESSAGE='The retained runtime receipt is missing or unsafe.'
+    return 0
+  fi
+  if ! receipt_version=$(field "$receipt" version) || [[ "$receipt_version" != "$candidate" ]]; then
+    ROLLBACK_STATUS=unavailable
+    ROLLBACK_MESSAGE='The retained runtime receipt is invalid.'
+    return 0
+  fi
+  if ! expected=$(field "$receipt" binary.sha256) || [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+    ROLLBACK_STATUS=unavailable
+    ROLLBACK_MESSAGE='The retained runtime receipt has an invalid SHA-256.'
+    return 0
+  fi
+  binary="$dir/hollis"
+  if [[ ! -f "$binary" || -L "$binary" || ! -x "$binary" ]]; then
+    ROLLBACK_STATUS=unavailable
+    ROLLBACK_MESSAGE='The retained runtime executable is missing or unsafe.'
+    return 0
+  fi
+  if ! actual=$(digest "$binary" 2>/dev/null) || [[ "$actual" != "$expected" ]]; then
+    ROLLBACK_STATUS=unavailable
+    ROLLBACK_MESSAGE='The retained runtime failed integrity verification.'
+    return 0
+  fi
+  ROLLBACK_STATUS=available
+  ROLLBACK_MESSAGE='The retained runtime was verified and can be restored.'
+  return 0
+}
+managed_report() {
+  rollback_state
+  printf '{"status":'; json_string "$1"
+  printf ',"message":'; json_string "$2"
+  printf ',"runtime_home":'; json_string "$PLUGIN_HOME"
+  printf ',"rollback":{"status":'; json_string "$ROLLBACK_STATUS"
+  printf ',"version":'
+  if [[ -n "$ROLLBACK_VERSION" ]]; then json_string "$ROLLBACK_VERSION"; else printf 'null'; fi
+  printf ',"message":'; json_string "$ROLLBACK_MESSAGE"
+  printf '}}\n'
+}
 field() { /usr/bin/plutil -extract "$2" raw -o - "$1" 2>/dev/null; }
 version_ok() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 newer() {

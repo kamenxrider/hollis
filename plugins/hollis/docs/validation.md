@@ -1,4 +1,4 @@
-# Plugin 0.1.0 validation — 6 September 2026
+# Plugin 0.1.0 validation — updated 7 September 2026
 
 The local review package works in Claude Code and Codex on the tested existing
 Mac account. **Full first-time installation acceptance remains open:** this run
@@ -10,7 +10,58 @@ Apple contribution first. [Sanitized results](../examples/recorded/results.json)
 retain actual answers, timestamps and image checksums. Private raw receipts
 remain in the maintainer workspace; no credentials or host settings are packaged.
 
-## Observed live behavior
+## Release acceptance checklist
+
+- [x] The retained v0.1.0 archive has a fixed checksum, regular entries, the
+  ARM64 runtime and all five bridge names. A provider-free fixture also checks
+  archive bytes and modes, and macOS `ditto` extraction checks executable bits.
+- [x] Existing live receipts and the recorded example disclose model routes,
+  image references, absolute image links and the limits of an already-approved
+  account.
+- [x] Post-fix integration passed all 48 plugin tests, full Go tests/race/vet,
+  twelve actual reference-error process checks and four serialized Apple calls
+  against a local 0.3.1 build. [Sanitized results](review-evidence.json).
+- [x] Claude and Codex returned generated-image previews and working absolute
+  Markdown file links; Codex attached the prior Claude image explicitly.
+- [ ] A genuinely fresh supported Mac account installs the package, completes
+  Add Shortcut/Allow decisions, and repeats one text and one image request.
+- [ ] A separately authorized release publishes runtime 0.3.1 and verifies its
+  provenance before any lock or package pin changes. Plugin 0.1.0 remains
+  unpublished while the official lock stays on runtime 0.3.0.
+
+## Local 0.3.1 verification — 7 September
+
+The corrected plugin source used a local 0.3.1 executable through the supported
+newer-external-runtime path. The official 0.3.0 lock and earlier archive were
+preserved. This proves the corrected source/runtime combination; it is not a
+GitHub-attested 0.3.1 package.
+
+| Host flow | Observed outcome | Elapsed host turn |
+|---|---|---|
+| Claude Cloud | Stored `auto` resolved to requested/used Cloud; repair-cafe plan returned inline | 64.403 s |
+| Claude resumed image turn | Illustration from conversation context; absolute preview/file link | 27.094 s |
+| Codex Cloud + reference image | Invitation inline, then Sketch with matching reference SHA-256; absolute preview/file link | 104.716 s |
+
+Four successful Apple calls, including two images, were serialized with no
+retries. More than five seconds separated generations. The account already had
+Apple approvals; no recurring click or visible Image Playground editor was
+required. Both images contain the bicycle, toolbox and fern, with changed
+composition. Model answers still require judgment: the Cloud plan left capacity
+and volunteer allocation ambiguous. These checks do not prove exact image
+identity or universal model quality.
+
+The 0.3.1 error checks covered missing, denied and other filesystem failures in
+human/agent output for direct generation and conversation references. All twelve
+processes returned exit 2 with path-free errors and no image output. Injected
+Go tests separately assert zero generator calls on invalid references.
+
+Full Go tests, race tests and vet passed from an exact source snapshot excluding
+preserved historical development backups; all 92 current Go files match it.
+Thirty image-harness tests passed on the host after the sandbox blocked process
+inventory (`ps`). This access limitation and the successful host rerun are both
+retained. The 22 review-boundary and three image-bridge tests also passed.
+
+## Original 0.3.0 live behavior — 6 September
 
 Hardware: physical Apple-silicon Mac16,8; macOS 27.0 build 26A5425a.
 Hollis 0.3.0, Claude Code 2.1.263, Codex CLI 0.153.4.
@@ -61,7 +112,14 @@ tested Shortcut route remains unavailable.
   provenance and their locked v0.3.0 release commit. Local hash checks occur
   before managed execution or extraction. The outer archive has a checksum;
   only the separately authorized GitHub build can supply its GitHub attestation.
-- **24 provider-free regression tests** pass: corruption, archive traversal,
+- A focused package test builds a synthetic asset fixture through the real
+  packager (the provenance verifier is mocked only inside that test), checks
+  exact source/runtime membership and modes, and uses macOS `ditto` to compare
+  extracted bytes and all five bridges. The retained ZIP/hash is never written.
+- The 7 September integration run passed **48 provider-free plugin tests**:
+  the original 24 plus eight readiness, ten recovery and six archive tests.
+  Native manifest/skill validation, shell syntax and both bridge profiles pass.
+- The original 24 tests cover: corruption, archive traversal,
   unsafe paths, interrupted locks, preservation of state/custom bridges,
   newer installs, upgrade/rollback fixtures, piped input and exit codes,
   cancellation cleanup, pacing, optional bridge independence, pending imports,

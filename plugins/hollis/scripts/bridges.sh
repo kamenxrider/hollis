@@ -7,6 +7,32 @@ MODE=${1:-status}; ROUTE=${2:-all}
 [[ -z ${3:-} || ( "$MODE" == import && "$3" == --reopen ) ]] || fail 'Only import accepts --reopen.'
 case "$ROUTE" in cloud|cloud-pro|on-device|chatgpt|image|all) ;; *) fail 'Unknown bridge route.';; esac
 [[ "$MODE" != import || "$ROUTE" != all ]] || fail 'Import one selected bridge at a time.'
+safe_path "$PLUGIN_HOME"
+runtime_home_accessible() {
+  local path=$PLUGIN_HOME parent
+  if [[ -e "$path" ]]; then
+    [[ -d "$path" && -r "$path" && -x "$path" ]] || return 1
+    return 0
+  fi
+  parent=$(dirname "$path")
+  while [[ "$parent" != / && ! -e "$parent" ]]; do parent=$(dirname "$parent"); done
+  [[ -d "$parent" && -r "$parent" && -x "$parent" ]]
+}
+if [[ "$MODE" == status ]]; then
+  # Match setup.sh path: a newer caller-owned runtime takes precedence over
+  # managed state, including a stale or corrupt managed pointer.
+  if ! external_newer >/dev/null; then
+    if [[ ! -e "$PLUGIN_HOME/current" ]]; then
+      runtime_home_accessible || {
+        report access_required 'Cannot inspect the installed runtime home. Allow local filesystem access and rerun this setup step.'
+        exit 5
+      }
+      [[ ! -L "$PLUGIN_HOME/current" ]] || regular "$PLUGIN_HOME/current"
+      report setup_required 'Install the runtime, select bridges, and enable Apple Intelligence in System Settings.'
+      exit 0
+    fi
+  fi
+fi
 BIN=$("$PLUGIN_ROOT/scripts/setup.sh" path)
 if [[ "$MODE" == status ]]; then
   # Readiness is read-only: concurrent checks need neither a setup lock nor

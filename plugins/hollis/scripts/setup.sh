@@ -22,7 +22,7 @@ install_runtime() {
   local external= dest stage_names expected_names i current= keep_current=false
   external=$(external_newer || true)
   acquire setup
-  if [[ -e "$PLUGIN_HOME/current" ]]; then
+  if [[ -e "$PLUGIN_HOME/current" || -L "$PLUGIN_HOME/current" ]]; then
     regular "$PLUGIN_HOME/current"; current=$(cat "$PLUGIN_HOME/current")
     version_ok "$current" || fail 'Invalid installed version pointer.'
     if newer "$current" "$VERSION"; then
@@ -52,27 +52,32 @@ install_runtime() {
     verify "$dest/hollis-bridges.zip" "$(field "$RUNTIME_LOCK" bridges.sha256)"
     cmp -s "$dest/runtime.lock.json" "$RUNTIME_LOCK" || fail 'Existing runtime receipt differs; preserve and inspect it.'
   fi
-  if [[ "$keep_current" == true || -n "$external" ]]; then
+  if [[ "$keep_current" == true ]]; then
+    managed_report existing_newer "The pinned bridge kit is available. The newer installed Hollis was preserved and will be used."
+    return 0
+  fi
+  if [[ -n "$external" ]]; then
     report existing_newer "The pinned bridge kit is available. The newer installed Hollis was preserved and will be used."
     return 0
   fi
   if [[ -n "$current" && "$current" != "$VERSION" ]]; then atomic_text "$PLUGIN_HOME/previous" "$current"; fi
   atomic_text "$PLUGIN_HOME/current" "$VERSION"
-  report runtime_installed "Hollis $VERSION is installed. Select bridges next; inference and Apple permissions have not been tested."
+  managed_report runtime_installed "Hollis $VERSION is installed. Select bridges next; inference and Apple permissions have not been tested."
 }
 rollback() {
   platform; acquire setup
-  regular "$PLUGIN_HOME/previous"; regular "$PLUGIN_HOME/current"
-  local previous current dir
-  previous=$(cat "$PLUGIN_HOME/previous"); current=$(cat "$PLUGIN_HOME/current")
-  version_ok "$previous" && version_ok "$current" || fail 'Invalid rollback version.'
-  dir="$PLUGIN_HOME/versions/$previous"; safe_path "$dir"
-  regular "$dir/runtime.lock.json"
-  [[ $(field "$dir/runtime.lock.json" version) == "$previous" ]] || fail 'Rollback receipt does not match its version.'
-  verify "$dir/hollis" "$(field "$dir/runtime.lock.json" binary.sha256)"
+  rollback_state
+  if [[ "$ROLLBACK_STATUS" != available ]]; then
+    managed_report action_required 'Rollback was refused because the retained runtime could not be verified.'
+    exit 10
+  fi
+  regular "$PLUGIN_HOME/current"
+  local previous=$ROLLBACK_VERSION current
+  current=$(cat "$PLUGIN_HOME/current")
+  version_ok "$current" || fail 'Invalid rollback version.'
   atomic_text "$PLUGIN_HOME/current" "$previous"
   atomic_text "$PLUGIN_HOME/previous" "$current"
-  report runtime_installed "Restored runtime $previous. Configuration, bridges and conversations were preserved."
+  managed_report runtime_installed "Restored runtime $previous. Configuration, bridges and conversations were preserved."
 }
 
 case "${1:-help}" in
@@ -80,7 +85,7 @@ case "${1:-help}" in
     platform; read_lock
     safe_path "$PLUGIN_HOME"
     if candidate=$(external_newer); then report existing_newer "Use the newer Hollis at $candidate."
-    elif [[ -e "$PLUGIN_HOME/current" ]]; then runtime_path >/dev/null; report runtime_installed 'Runtime verified. Bridge discovery and an explicit first call establish route readiness.'
+    elif [[ -e "$PLUGIN_HOME/current" || -L "$PLUGIN_HOME/current" ]]; then runtime_path >/dev/null; managed_report runtime_installed 'Runtime verified. Bridge discovery and an explicit first call establish route readiness.'
     else report setup_required 'Install the runtime, select bridges, and enable Apple Intelligence in System Settings.'; fi;;
   install) [[ $# == 1 ]] || fail 'Usage: setup.sh install'; install_runtime;;
   rollback) [[ $# == 1 ]] || fail 'Usage: setup.sh rollback'; rollback;;

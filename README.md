@@ -39,6 +39,7 @@ Measured on **macOS 27.0 (26A5421a and 26A5425a)**. macOS 26 is untested — see
 - Require API authentication by default and harden local files and review automation.
 
 [Release notes and upgrade instructions](docs/releases/v0.3.0.md) ·
+[Prepared 0.3.1 runtime notes](docs/releases/v0.3.1.md) ·
 [What was tested](EVIDENCE.md).
 
 ## Use Apple in your agent conversation
@@ -50,7 +51,8 @@ then continue in the same conversation. It works alongside gstack without
 requiring an upstream change.
 
 Plugin **0.1.0**, pinned to Hollis **0.3.0**, is a local review build pending its
-separate publication. See [installation and validation](docs/plugin.md).
+separate publication. A prepared 0.3.1 runtime target is not yet published or
+pinned. See [installation and validation](docs/plugin.md).
 
 ## Contents
 
