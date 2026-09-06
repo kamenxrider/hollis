@@ -9,7 +9,7 @@ import (
 )
 
 // version is the printed CLI's version, overridable at build time via ldflags.
-var version = "0.2.0"
+var version = "dev"
 
 func newVersionCmd(flags *rootFlags) *cobra.Command {
 	return &cobra.Command{

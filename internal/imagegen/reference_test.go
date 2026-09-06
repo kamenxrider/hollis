@@ -13,6 +13,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,6 +128,92 @@ func TestNewReferenceImageFromPathChecksExpectedHashAndRejectsSymlinks(t *testin
 	}
 	if _, err := NewReferenceImageFromPath(link, ""); !errors.Is(err, ErrInvalidReference) {
 		t.Fatalf("symlink err=%v, want ErrInvalidReference", err)
+	}
+}
+
+func TestNewReferenceImageFromPathMissingErrorDoesNotExposePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "private-account-reference.png")
+	_, err := NewReferenceImageFromPath(path, "")
+	if !errors.Is(err, ErrInvalidReference) || !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("err=%v, want ErrInvalidReference and fs.ErrNotExist", err)
+	}
+	if strings.Contains(err.Error(), path) || strings.Contains(err.Error(), filepath.Base(path)) {
+		t.Fatalf("error exposed reference path: %v", err)
+	}
+}
+
+func TestReferenceFileErrorClassificationDoesNotExposePath(t *testing.T) {
+	const privatePath = "/private/account-name/reference.png"
+	for _, test := range []struct {
+		name       string
+		cause      error
+		want       string
+		wantTarget error
+	}{
+		{name: "missing", cause: fs.ErrNotExist, want: fs.ErrNotExist.Error(), wantTarget: fs.ErrNotExist},
+		{name: "permission", cause: fs.ErrPermission, want: fs.ErrPermission.Error(), wantTarget: fs.ErrPermission},
+		{name: "other", cause: errors.New("device error mentioning " + privatePath), want: "file access failed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := classifyReferenceFileError(&fs.PathError{Op: "open", Path: privatePath, Err: test.cause})
+			if err.Error() != test.want {
+				t.Fatalf("error=%q, want %q", err, test.want)
+			}
+			if strings.Contains(err.Error(), privatePath) {
+				t.Fatalf("error exposed reference path: %v", err)
+			}
+			if test.wantTarget != nil && !errors.Is(err, test.wantTarget) {
+				t.Fatalf("errors.Is(%v, %v)=false", err, test.wantTarget)
+			}
+		})
+	}
+}
+
+func TestNewReferenceImageFromPathAcceptsPNGAndJPEG(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		data     func(*testing.T, int, int) []byte
+		wantMIME string
+	}{
+		{name: "png", data: referencePNG, wantMIME: "image/png"},
+		{name: "jpeg", data: referenceJPEG, wantMIME: "image/jpeg"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := filepath.Join(t.TempDir(), "alternate path with spaces")
+			if err := os.Mkdir(directory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(directory, "reference."+test.name)
+			data := test.data(t, 3, 2)
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			reference, err := NewReferenceImageFromPath(path, "")
+			if err != nil {
+				t.Fatalf("NewReferenceImageFromPath: %v", err)
+			}
+			if reference.MIMEType != test.wantMIME || reference.Width != 3 || reference.Height != 2 || !bytes.Equal(reference.Bytes, data) {
+				t.Fatalf("reference=%+v, want %s 3x2 with unchanged bytes", reference, test.wantMIME)
+			}
+		})
+	}
+}
+
+func TestNewReferenceImageFromPathRejectsOversizedFileBeforeDecode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oversized.png")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(MaxReferenceBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewReferenceImageFromPath(path, ""); !errors.Is(err, ErrReferenceTooLarge) {
+		t.Fatalf("err=%v, want ErrReferenceTooLarge", err)
 	}
 }
 
