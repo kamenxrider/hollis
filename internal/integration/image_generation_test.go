@@ -97,7 +97,10 @@ func newImageAcceptanceTransport(t *testing.T, mode string, childPIDPath string)
 	transport := imagegen.New()
 	transport.ShortcutsPath = "synthetic-image-shortcuts"
 	transport.TempDir = t.TempDir()
-	transport.Timeout = 2 * time.Second
+	// These checks exercise output validation, not generation latency. Allow
+	// the race-instrumented helper to encode the 16-million-pixel fixture on CI.
+	// Cancellation tests supply their own shorter request timeout.
+	transport.Timeout = 10 * time.Second
 	transport.Command = func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		trace.calls++
 		trace.name = name
