@@ -1,0 +1,18 @@
+{
+  "name": "hollis",
+  "version": "0.1.0",
+  "description": "Apple Cloud and Cloud Pro inside your conversation, with guided Mac setup, documents and images.",
+  "author": {
+    "name": "Hollis contributors"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Hollis",
+    "shortDescription": "Ask Apple, right here.",
+    "longDescription": "Use Cloud, Cloud Pro, On-Device and ChatGPT through macOS Shortcuts. Includes setup, document and image understanding, image generation and paced folder jobs.",
+    "developerName": "Hollis contributors",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Set up Hollis and ask Apple Cloud Pro for a perspective on what we are working on."
+  }
+}

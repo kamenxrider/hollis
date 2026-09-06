@@ -43,6 +43,12 @@ jobs:
       - name: Image bridge and packaging tests
         run: python3 -m unittest discover -s scripts/image-install-check -p 'test_*.py'
 
+      - name: Portable plugin and installer tests (no model calls)
+        run: |
+          python3 -m unittest discover -s scripts/plugin -p 'test_*.py'
+          python3 scripts/plugin/package_plugin.py --validate-only
+          for script in plugins/hollis/scripts/*.sh; do bash -n "$script"; done
+
       - name: Image harness tests (no model calls)
         run: '"$RUNNER_TEMP/hollis-image-suite-venv/bin/python" -m unittest discover -s scripts/image-suite -p "test_*.py"'
 

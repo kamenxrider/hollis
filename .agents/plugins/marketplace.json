@@ -1,0 +1,20 @@
+{
+  "name": "hollis-plugins",
+  "interface": {
+    "displayName": "Hollis Plugins"
+  },
+  "plugins": [
+    {
+      "name": "hollis",
+      "source": {
+        "source": "local",
+        "path": "./plugins/hollis"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

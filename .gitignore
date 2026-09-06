@@ -46,7 +46,13 @@ __pycache__/
 /results/macos-26-compat.md
 /results/tool-protocol-26A5425a.md
 /scripts/live-suite/
-.agents/
+.agents/*
+!.agents/plugins/
+.agents/plugins/*
+!.agents/plugins/marketplace.json
 .claude/
 skills-lock.json
 .aider*
+
+# Verified runtime bytes are bundled at packaging time, not committed.
+/plugins/hollis/assets/runtime/
