@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -26,6 +26,8 @@ jobs:
           go vet ./...
           go test ./...
           go test -race ./...
+          python3 -m unittest discover -s scripts/image-install-check -p 'test_*.py'
+          python3 -m unittest discover -s scripts/poolside-review -p 'test_*.py'
 
       - name: Build macOS binaries
         run: |
@@ -38,33 +40,16 @@ jobs:
               -o "dist/hollis-darwin-$arch" ./cmd/hollis
           done
 
-      # The binary is useless without the bridge shortcuts, and someone who
-      # installs by `curl`ing a release asset has no repo to run
-      # scripts/make-bridge.py from. Ship the unsigned bridges alongside it.
-      # A zip rather than four loose assets: the filenames contain spaces,
-      # which makes for unpleasant download URLs.
-      # `bridges/*.shortcut` would also match this machine's *.signed.shortcut
-      # imports, which .gitignore keeps out of the repo on purpose — signed
-      # blobs are one Mac's artifacts, not a portable kit. Match explicitly so
-      # the rule holds even if the checkout ever contains them.
+      # Ship all four model bridges and the image bridge in the normal bundle.
+      # Package from source with explicit membership, excluding diagnostics
+      # and machine-specific signed imports.
       - name: Bundle unsigned bridge shortcuts
-        run: |
-          mkdir -p dist
-          mapfile -d '' bridges < <(
-            find bridges -maxdepth 1 -name '*.shortcut' \
-                         -not -name '*.signed.shortcut' -print0
-          )
-          if [ "${#bridges[@]}" -ne 4 ]; then
-            echo "expected 4 unsigned bridges, found ${#bridges[@]}" >&2
-            printf '  %s\n' "${bridges[@]}" >&2
-            exit 1
-          fi
-          zip -j dist/hollis-bridges.zip "${bridges[@]}"
+        run: python3 scripts/package-bridges.py dist
 
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum hollis-darwin-arm64 hollis-darwin-amd64 hollis-bridges.zip > SHA256SUMS
+          shasum -a 256 hollis-darwin-arm64 hollis-darwin-amd64 hollis-bridges.zip > SHA256SUMS
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
@@ -89,8 +74,7 @@ jobs:
           fi
           gh release create "$GITHUB_REF_NAME" \
             --title "hollis $GITHUB_REF_NAME" \
-            --generate-notes \
-            --notes "Unsigned macOS binaries and user-imported Shortcut bridges. Verify SHA256SUMS and the GitHub build attestation before use; no Developer ID or notarization is claimed." \
+            --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
             dist/hollis-darwin-arm64 \
             dist/hollis-darwin-amd64 \
             dist/hollis-bridges.zip \

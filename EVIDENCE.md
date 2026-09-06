@@ -50,170 +50,91 @@ The repository keeps the provider-free regression suite as the living proof of
 these contracts. The detailed live record is retained outside the source tree
 for attachment to the `v0.2.0` release.
 
-## Earlier image-generation checkpoints (historical, pre-reference bridge, 2026-09-05)
+## v0.3.0 validation
 
-The image-generation paragraphs in this historical section describe the
-diagnostic and pre-reference-bridge checkpoints. Statements that dynamic
-attachments, API conversations, interactive turns, or ChatGPT were
-unresolved describe that earlier state. The current reference-bridge evidence
-and the remaining qualification boundary are recorded in the section below.
+All live observations below are from an already authorized Mac on macOS 27.0
+build `26A5425a`. They establish this configuration, not first-install success
+on another Mac or a particular private backend identity.
 
-Latest image diagnostics add nine serial CLI attempts: six validated PNGs and
-three Apple rejections. Two photographic Any Style requests generated animated
-3D results, so they failed the visual photorealism objective. A native Image
-Playground ChatGPT submission produced a realistic landscape from the same
-prompt rejected through Shortcuts. That native app result was visually checked;
-it is not proof of a working Hollis ChatGPT route.
+| Capability | Observed result | Boundary |
+| --- | --- | --- |
+| Instruction/document files | Passed on On-Device, Cloud, Cloud Pro and ChatGPT | UTF-8 text and Markdown; no PDF |
+| Text batches and resume | Passed on all four tiers | Completed jobs resumed without extra calls |
+| API PNG/JPEG understanding | Passed on Cloud, Cloud Pro and ChatGPT, across both API formats | No On-Device image input |
+| Image batches | Passed on the three online tiers | One fixture per tier; no additional call on resume |
+| Image generation | Animation, Illustration, Sketch, Genmoji and Any Style returned PNGs | Generic refusals also occurred; style names are requested settings, not backend attestations |
+| Image conversation delivery | Final nine-image sequence retained subjects and applied scene changes across interactive chat and both APIs | Details varied; not exact identity or pixel editing |
 
-A clean description-plus-revision prompt successfully reproduced the requested
-turtle scene change after the full CLI chat transcript had failed. Separately,
-a diagnostic copy of the unified Shortcut with the generated turtle PNG fixed
-in Photo passed two revision-only requests (greenhouse sunset and snowy forest).
-At that checkpoint, those tests proved reference-image feasibility, while
-dynamic CLI/API attachments were not yet implemented. ChatGPT with the Photo
-attachment still failed through Shortcuts. Calls were serial with at least 30
-seconds between them. The later reference-bridge implementation supersedes
-the attachment status; these checkpoints remain historical evidence.
+Document, API-understanding and batch smoke tests made 21 live requests, all
+matching the expected fixtures. Image qualification retained 52 valid PNGs
+across diagnostic and acceptance runs; earlier images included visual failures.
+Calls were serialized with at least three seconds between completion and the
+next generation. These counts describe separate test phases, not a success-rate
+benchmark.
 
-The resulting shared image-context renderer omits Hollis artifact records and
-general chat boilerplate while preserving user revisions, other text and input
-limits. Five additional serial live requests passed: the exact previously failed
-CLI continuation, and an initial image plus follow-up through each HTTP endpoint.
-All PNGs were inspected. A Responses follow-up changed the setting but lost the
-miniature greenhouse on the turtle shell; successful generation is not proof of
-exact visual continuity. Total this diagnostic phase: 14 Shortcut attempts, 11
-PNGs and three rejections, plus one successful native app submission. Dynamic
-photo attachment and the Shortcuts ChatGPT route were unresolved at that
-checkpoint.
+### Reference correction
 
-Validation after the renderer change: `go test ./...`, focused race tests and
-`go vet` for imagegen/cli/server passed. Both Darwin architectures built; the
-ARM binary ran the five live requests. The Intel binary was built but not run.
+A later zero-generation diagnostic found a missing connection between Base64
+Decode and Get Images in the generated reference Shortcut. Earlier checks of
+`reference_image_sent` and checksums proved Hollis sent the bytes, but did not
+prove the Shortcut delivered them to Photo. Those runs cannot establish that
+the model used the reference pixels.
+
+The generator now explicitly connects Decode → Get Images → Photo. The isolated
+corrected bridge returned the supplied image in an echo control and produced a
+new image with recognizable reference composition in a live generation. The
+regression test checks the UUID connection; packaging tests inspect the actual
+bridge inside the release archive. A new generation is still not exact editing.
+
+The assembled 0.3.0 binary then passed four new live image calls using the
+installed corrected diagnostic bridge. Its complete workflow matches the
+packaged generator after normalizing UUIDs. A CLI chat created a red sailboat,
+then changed the scene to snowy hills at sunset using the prior image. Both API
+conversation formats also accepted a replayed image and returned the requested
+variation. All four PNGs were decoded, checksum-checked and visually reviewed;
+no UI clicks were supplied. Calls had at least five seconds between completions
+and subsequent starts. One malformed test replay omitted required text; the API
+rejected it with HTTP400 before inference and corrected requests passed. The
+temporary authenticated API server was stopped.
+
+A fifth live check extracted the image Shortcut from the actual five-bridge
+release ZIP, signed it on the test Mac, and imported it under a separate
+release-check name. It generated the requested reference variation in 30.24
+seconds with no UI interactions during generation. The PNG decoded correctly,
+its checksum matched, and visual review confirmed the red sailboat, cream sail,
+jetty, snowy hills and orange sunset. Import required the normal Add Shortcut
+step. The existing user's bridge was not replaced. These five successful calls
+qualify the packaged workflow on this Mac, not first-ever setup on a fresh Mac.
 
 
-An isolated candidate adds UTF-8 instruction/document files and inline PNG/JPEG
-input for both HTTP model endpoints. The full Go race suite and `go vet ./...`
-passed after integration. Tests use injected runners and synthetic images;
-they cover exact document preparation, malformed input, image format and size
-limits, endpoint history, model selection, authentication, capacity and staging
-cleanup. These are local implementation checks, not new live Apple model tests.
+### Routes excluded from the release promise
 
-The image research harness also has 13 provider-free plan/answer tests and six
-synthetic subprocess tests. The subprocess checks need host `ps` access; they
-passed with that access after the sandbox denied process inspection. No live
-mode was used for these checks.
+- Native Image Playground can produce photographic images. Shortcut Any Style
+  has sometimes done so, but repeated photographic results are not established.
+- Image Playground's ChatGPT Shortcut failed before inference on this build
+  with a Shortcuts ToolKit database sandbox denial (`SQLite error 23`). Native
+  Image Playground worked. This is separate from the working ChatGPT model bridge.
+- The public Image Playground view controller displayed a completed preview
+  and returned its file only after Done in a controlled test. A background run
+  returned no file within 100 seconds. That helper is not shipped; it fails the
+  invisible, unattended requirement.
+- First-ever consent, another Mac, and locked/logged-out operation are untested.
+  A Shortcuts request may require an unlocked session; Hollis reports that error.
 
-The same candidate also includes finite folder batches with private JSON
-manifests and response envelopes. The combined race suite and vet passed after
-integration. A public-command test uses the real local store and a fake model
-to verify plan/run/resume, call budgets, lifetime counts, no repeat of verified
-successes and refusal of corrupted results. Store tests cover collision
-preservation, source/result validation, process-backed lock exclusion and
-release after process death. Fault injection verifies recovery when a result
-was saved before the success manifest. Pacing is tested with fake clocks.
-No live batch model calls were made during that implementation checkpoint;
-the subsequent authorized smoke run is recorded below.
+### Security and local checks
 
-Image generation is now registered as the optional experimental `image generate`
-command in the combined candidate. Its actual Shortcuts transport completed two
-unattended Animation-style generations on macOS 27.0 build `26A5425a`: red circle
-and blue square, both visually matched 1024×1024 PNGs, in 7.3s and 5.5s. Those
-live calls exercised the command before root registration. Full-root command,
-agent output and no-call validation are separately checked with fake generators.
-The combined candidate implements one parameterized JSON image Shortcut for all
-six style choices, optional fixed-style overrides, local crop/pad/resize, CLI
-conversation image turns, `/v1/images/generations`, and explicit generation on
-both conversation endpoints. Full `go test -race ./...` and `go vet ./...`
-passed with fake providers, and both Darwin architecture builds passed.
+The recorded Daybreak audit reported two medium and seven low findings, no high
+or critical findings. All nine received targeted fixes and regression checks.
+The combined candidate passed Go tests, the race suite, vet, Python harness and
+review-boundary tests, and builds for Apple Silicon and Intel. Intel was
+cross-built, not used for Apple Intelligence inference.
 
-The September 5 repeated live probe produced nine valid CLI PNGs: Any Style once,
-and Animation, Genmoji, Illustration, and Sketch twice each. All nine were fully
-decoded, checked against dimensions/checksums, and visually reviewed. Two prior
-single-bridge feasibility calls also passed, with distinct Animation and Sketch
-images. Genmoji returned transparency; explicit cropping clipped the subject.
-An identical Any Style repeat was rejected by Apple. ChatGPT failed through
-both the parameterized bridge and a fixed-style comparison. These failures
-remain part of the record and do not justify a reliability claim.
-
-At this pre-reference-bridge checkpoint, API attempts returned 502; a temporary private diagnostic identified the native
-error “This shortcut requires your Mac to be unlocked.” The console-lock flag
-subsequently read false, so the exact session/context requirement still needs
-verification. An initial CLI conversation request also received Apple's generic
-prompt rejection. The full 28-case matrix is **not complete**; successful live
-API generation, conversation follow-ups, interactive `/image`, and ChatGPT
-image generation were unqualified at that checkpoint. Broad live testing then
-stopped pending the session issue. No automatic retries or fallbacks were used;
-manual diagnostic comparisons were separately recorded, with at least 30
-seconds between attempts.
-
-The observed unlocked-session message is now classified into an actionable
-CLI error and API HTTP 409 `image_session_locked`. Provider-free transport, CLI,
-and server tests cover this exact diagnostic and redaction; the updated error
-classification has not made a new live call.
-
-The opt-in paced harness retains every attempt and output, stops on the first
-failure, checks full PNG decoding and metadata, and keeps provider-free contract
-tests separate from live evidence. This is an experimental local candidate,
-not a released image feature.
-A later realistic-scene run made 15 attempts and produced 13 validated,
-visually reviewed PNGs: two each for Animation, Illustration, Sketch, Genmoji,
-and Any Style, plus two standalone HTTP outputs and an initial CLI conversation
-image. ChatGPT rejected an alpine-cabin prompt; the CLI follow-up also received
-an Apple rejection. The API session error did not recur in these two later
-requests, but changed prompts and session/awake conditions prevent attributing
-that improvement to a single cause. API conversations, successful CLI
-follow-ups, and interactive image turns were unqualified at that checkpoint.
-The realistic preset supplements the geometry cases; it does not erase earlier
-failures or validate the prompting guide's architecture/API claims. The harness
-had 23 provider-free tests at that point.
-
-See [setup and capability boundaries](docs/image-generation.md).
-
-The prior document, HTTP-image and batch candidate also passed 21 real requests
-across On-Device, Cloud, Cloud Pro and ChatGPT on this build. Completed batches
-resumed without additional attempts. These earlier smoke tests are not repeated
-by the provider-free suite and do not imply a measured failure rate or quota.
-
-## Final reference-bridge evidence (2026-09-05)
-
-The source-generated and signed **Hollis Image - Reference Input v2** Shortcut
-was imported on an already authorized macOS 27.0 build `26A5425a`. The source
-generator is `scripts/make-image-bridge.py`; the reproducible signing and
-import setup is documented in [the image-generation guide](docs/image-generation.md#setup-generated-parameterized-shortcut).
-
-The complete qualification produced 52 valid images across diagnostic and
-acceptance runs. Calls were serialized with at least three seconds from one
-generation's completion to the next start. Coverage included CLI continuation,
-interactive `/image`, Chat Completions, Responses, standalone image API,
-PNG/JPEG references, all five working styles with and without a reference,
-and local crop/pad geometry. Reference-delivery metadata and checksums matched.
-
-Earlier prompt formats exposed visual failures: stale scenes and lost subjects.
-The final renderer places the newest revision first and retains earlier
-subject and text context. All nine final images passed visual review across
-three-turn interactive, Chat Completions, and Responses sequences: subjects
-remained recognizable and requested scene changes appeared. The 52 total is a
-transport-success count, not a claim that every diagnostic image was visually
-correct. Neither successful reference delivery nor these visual matches prove
-exact pixel conditioning or identity preservation by Apple's backend.
-
-The reference contract is implemented for standalone CLI input, automatic
-trusted-artifact reuse, explicit `none`, API inline input, and API assistant
-image replay. With a reference, Hollis puts the newest revision before earlier
-subject descriptions and text context, while validating the complete original
-history. CLI history is stored locally; API conversations remain stateless.
-Without a reference, chronological text replay remains available. The reference is guidance
-for a new generation, not guaranteed pixel editing.
-
-A scoped investigation on macOS 27.0 build `26A5425a` found that the Image
-Playground ChatGPT Shortcut route fails before inference: fixed, parameterized,
-native-Shortcuts, and fresh-extension checks all reproduced Apple's
-`GenerativePlaygroundAppIntents` Shortcuts ToolKit database sandbox denial
-(SQLite error 23), while the native Image Playground app succeeded. This is a
-host/build-scoped result, not proof of universal impossibility. Do not
-advertise, silently retry, or substitute that route; requalify after a
-supported Apple route or OS fix. First-ever permission prompts on a new Mac
-remain untested.
+Fixes cover API authentication, bounded image processing, local image paths,
+batch locks including macOS ACLs, terminal output, complete release-artifact
+verification, live-test credentials and credentialed review automation. The
+Poolside replacement uses text-only requests and no model command executor.
+Its live API compatibility and first published GitHub run remain untested;
+local fixture tests do not stand in for those results.
 
 ## Evidence matrix
 
@@ -276,7 +197,7 @@ prior public CLI that separately selects both Shortcuts tiers is found.
 
 ## Capability implications
 
-1. `v0.2.0` should remain honest completed-text transport: no fake streaming,
+1. Hollis remains completed-text transport: no fake streaming,
    invented token usage, or native-tool claim.
 2. Capability output should report evidence per transport and OS build, rather
    than copying features from Apple's developer framework.

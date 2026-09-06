@@ -33,6 +33,12 @@ jobs:
       - name: Poolside review boundary tests
         run: python3 -m unittest discover -s scripts/poolside-review -p 'test_*.py'
 
+      - name: Image bridge and packaging tests
+        run: python3 -m unittest discover -s scripts/image-install-check -p 'test_*.py'
+
+      - name: Image harness tests (no model calls)
+        run: python3 -m unittest discover -s scripts/image-suite -p 'test_*.py'
+
       # Bridge generation needs no Shortcuts on the runner: this catches
       # profile regressions (file sets, WFLLMModel strings, client
       # versions) before a user ever runs make-bridge.py. Files are

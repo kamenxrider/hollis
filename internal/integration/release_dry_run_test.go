@@ -16,7 +16,7 @@ import (
 )
 
 // TestReleaseDryRun performs the portable part of packaging without contacting
-// GitHub: both macOS binaries, deterministic unsigned bridges, their archive,
+// GitHub: both macOS binaries, unsigned model and image bridges, their archive,
 // and checksum input. SBOM creation and provenance attestations remain covered
 // by the pinned workflow contract because those are GitHub-hosted operations.
 func TestReleaseDryRun(t *testing.T) {
@@ -24,7 +24,7 @@ func TestReleaseDryRun(t *testing.T) {
 	dist := t.TempDir()
 	for _, arch := range []string{"arm64", "amd64"} {
 		output := filepath.Join(dist, "hollis-darwin-"+arch)
-		cmd := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w -X github.com/kamenxrider/hollis/internal/cli.version=0.2.0-dry-run", "-o", output, "./cmd/hollis")
+		cmd := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w -X github.com/kamenxrider/hollis/internal/cli.version=0.3.0-dry-run", "-o", output, "./cmd/hollis")
 		cmd.Dir = repo
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=darwin", "GOARCH="+arch)
 		if raw, err := cmd.CombinedOutput(); err != nil {
@@ -33,51 +33,28 @@ func TestReleaseDryRun(t *testing.T) {
 		assertNonEmptyRegularFile(t, output)
 	}
 
-	bridgeDir := filepath.Join(dist, "bridges")
-	generate := exec.Command("python3", filepath.Join(repo, "scripts", "make-bridge.py"), "--os", "27", bridgeDir)
-	if raw, err := generate.CombinedOutput(); err != nil {
-		t.Fatalf("generate release bridges: %v\n%s", err, raw)
+	packageBridges := exec.Command("python3", filepath.Join(repo, "scripts", "package-bridges.py"), dist)
+	if raw, err := packageBridges.CombinedOutput(); err != nil {
+		t.Fatalf("package release bridges: %v\n%s", err, raw)
 	}
-	entries, err := os.ReadDir(bridgeDir)
+	archive, err := zip.OpenReader(filepath.Join(dist, "hollis-bridges.zip"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var bridges []string
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".shortcut") && !strings.HasSuffix(entry.Name(), ".signed.shortcut") {
-			bridges = append(bridges, entry.Name())
-		}
+	defer archive.Close()
+	var names []string
+	for _, file := range archive.File {
+		names = append(names, file.Name)
 	}
-	sort.Strings(bridges)
-	if len(bridges) != 4 {
-		t.Fatalf("release dry-run found %d unsigned bridges, want 4: %v", len(bridges), bridges)
+	sort.Strings(names)
+	expected := []string{
+		"AFM Bridge - ChatGPT.shortcut", "AFM Bridge - Cloud Pro.shortcut",
+		"AFM Bridge - Cloud.shortcut", "AFM Bridge - On-Device.shortcut",
+		"Hollis Image - Reference Input v2.shortcut",
 	}
-	archive := filepath.Join(dist, "hollis-bridges.zip")
-	zipFile, err := os.Create(archive)
-	if err != nil {
-		t.Fatal(err)
+	if strings.Join(names, "\n") != strings.Join(expected, "\n") {
+		t.Fatalf("release bridge membership = %v, want %v", names, expected)
 	}
-	zipWriter := zip.NewWriter(zipFile)
-	for _, name := range bridges {
-		writer, err := zipWriter.Create(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		raw, err := os.ReadFile(filepath.Join(bridgeDir, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := writer.Write(raw); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := zipWriter.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := zipFile.Close(); err != nil {
-		t.Fatal(err)
-	}
-	assertNonEmptyRegularFile(t, archive)
 
 	for _, name := range []string{"hollis-darwin-arm64", "hollis-darwin-amd64", "hollis-bridges.zip"} {
 		file, err := os.Open(filepath.Join(dist, name))

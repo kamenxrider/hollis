@@ -27,7 +27,9 @@ func TestReleaseWorkflowIsImmutableAndAttested(t *testing.T) {
 		"hollis.spdx.json",
 		"actions/attest-build-provenance@",
 		"refusing to overwrite immutable assets",
-		"Unsigned macOS binaries",
+		"--notes-file",
+		"docs/releases/$GITHUB_REF_NAME.md",
+		"python3 scripts/package-bridges.py dist",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("release workflow missing %q", required)
@@ -130,7 +132,7 @@ func TestReadmeQuickstartVerifiesAllArtifactsBeforeUse(t *testing.T) {
 		t.Fatal("README quickstart resolves release assets independently through latest URLs")
 	}
 	verifyAt := strings.Index(quickstart, `gh attestation verify hollis-bridges.zip`)
-	for _, use := range []string{"chmod +x", "sudo mv", "unzip hollis-bridges.zip", "shortcuts sign", "open \"${f%.shortcut}.signed.shortcut\""} {
+	for _, use := range []string{"chmod +x", "sudo mv", "unzip hollis-bridges.zip", "shortcuts sign", "open \"$HOLLIS_SIGNED\""} {
 		if useAt := strings.Index(quickstart, use); verifyAt < 0 || useAt < verifyAt {
 			t.Errorf("README uses release artifact via %q before checksum and provenance verification", use)
 		}
