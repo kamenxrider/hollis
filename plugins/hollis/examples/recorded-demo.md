@@ -42,7 +42,7 @@ that returned image. This was the next result:
 It added the requested element but substantially changed the scene. The prompt
 also described the scene, so this observation does not establish that the
 generator used the attached pixels. Later controls left reliable reference
-editing unproven; see [image references](../../../docs/image-references.md).
+editing unproven; see [reference evidence](../docs/compatibility.md#image-reference-evidence).
 The final host reply supplied a preview and a usable file link.
 
 **The same package in Codex:** Apple Cloud turned the event plan into a short

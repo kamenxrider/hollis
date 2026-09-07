@@ -110,7 +110,7 @@ Apple click was required. Visual review found the blue bicycle, red toolbox and
 green fern in the Sketch. The prompt also named these subjects, so this is proof
 of generation with an attachment, not of the generator using its pixels. Later
 0.3.2 controls left reliable reference editing unproven; see
-[image references](../../../docs/image-references.md). Cloud Pro was not called
+[reference evidence](compatibility.md#image-reference-evidence). Cloud Pro was not called
 in this recheck; its pacing is unchanged.
 
 The final archive includes this report. Its scripts, skills, manifests, lock
