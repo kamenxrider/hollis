@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "runtime": {
+    "version": "0.3.3",
+    "source_commit": "2795ddb81e22d82ba377f06b6ac211432e714336",
+    "release_url": "https://github.com/kamenxrider/hollis/releases/tag/v0.3.3",
+    "assets": {
+      "SHA256SUMS": {
+        "sha256": "623fd614480f621be3b2a1db1578a190f60dc173d87d02779b2d8321a57aa609",
+        "verified": true,
+        "size": 257
+      },
+      "hollis-bridges.zip": {
+        "sha256": "a57c08259a4f478d34f9a3bf783b6ebc0e39552e482e9267ea97b33201eed803",
+        "verified": true,
+        "size": 5362
+      },
+      "hollis-darwin-amd64": {
+        "sha256": "c0b6e9280ad0398c0c6417969203f87ff34c4016697f1606f806d7ac429feea3",
+        "verified": true,
+        "size": 12759328
+      },
+      "hollis-darwin-arm64": {
+        "sha256": "080860389f98f03fedbf2e8862adb51f92a2ecb16a7af90bb6207cc76997a421",
+        "verified": true,
+        "size": 12115106
+      },
+      "hollis.spdx.json": {
+        "sha256": "683326cfda9ec1bd4194ed514303709932dd3e36b6478418cee0a66191519382",
+        "verified": true,
+        "size": 111833
+      }
+    },
+    "strict_provenance": {
+      "repository": "kamenxrider/hollis",
+      "workflow": "kamenxrider/hollis/.github/workflows/release.yml",
+      "source_ref": "refs/tags/v0.3.3",
+      "source_digest": "2795ddb81e22d82ba377f06b6ac211432e714336",
+      "signer_digest": "2795ddb81e22d82ba377f06b6ac211432e714336",
+      "self_hosted_runners_denied": true
+    },
+    "checksum_manifest_matched": true
+  },
+  "package": {
+    "version": "0.1.0",
+    "review_archive": "dist/plugin-v0.1.0-runtime-v0.3.3-review/hollis-plugin-0.1.0.zip",
+    "review_archive_sha256": "2c51bda28317a140f7b9c654c9938df32f626e8f8bc3766e3cd1d10cde07844a",
+    "published_archive": "https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0",
+    "identity_note": "The GitHub workflow separately rebuilds and attests the public archive. Fresh provenance receipts can change the ZIP hash; source/runtime contents must match."
+  },
+  "installation": {
+    "status": "passed",
+    "runtime": "0.3.3",
+    "calls": 14,
+    "provider_calls": 0,
+    "installer_path": "macOS system utilities only",
+    "cases": [
+      "read-only empty status",
+      "path contract",
+      "bundled install and repeat",
+      "version and locked binary",
+      "executable modes",
+      "Rosetta check",
+      "real 0.3.1 upgrade and rollback",
+      "repair over corrupt old binary",
+      "refused rollback preserves current",
+      "state preservation",
+      "actual locked source download"
+    ],
+    "fresh_account": false
+  },
+  "tests": {
+    "plugin_regressions": 51,
+    "go_format_vet_tests_race": "passed in a clean tracked-source snapshot",
+    "image_harness": 30,
+    "image_bridge": 3,
+    "review_boundary": 22,
+    "host_matrix": 4,
+    "manifest_and_shell_syntax": "passed"
+  },
+  "tested_core_sha256": {
+    ".claude-plugin/plugin.json": "b6148acfbf6224d3a47c4354fcde0c2eb988983da91a187d87d7d5d613b7cb3a",
+    ".codex-plugin/plugin.json": "61e67e5846b6e9c0caa4378b6545b3c4aeb316d095616f024082251e69c66fa4",
+    "plugin.json": "927983a19664b1d507e4fe28c4dd4e2d94646ac2af454e79cd04f234128724a4",
+    "runtime.lock.json": "bc7d4f2b44effcc6e7ed6f3741be9668d5879808361a2be8b7fb030ad25ec3e5",
+    "scripts/bridges.sh": "ccd5fa4f7ce741523fc6370755e591c3bcb73e292d06ec24956f32fcc50fbff5",
+    "scripts/common.sh": "8cb676141ef96f026676a65a6c04ad5bc4f66f8f7f6eb55979ba2f552c19be8f",
+    "scripts/run.sh": "adfa2aff38a45f257e549f20b0ad51187fdecd84663f32158495e93e40192716",
+    "scripts/setup.sh": "0cfbc2e342f9021cf7e21eccd9d315346011cafe53019783df18f448d140f8fa",
+    "skills/hollis/SKILL.md": "c4d5afc934d17f077cd8fb538f285b007d5841be4cafcd2e5faf47b31cdde98d",
+    "skills/hollis-setup/SKILL.md": "dc18144cb523d40f71dc3340b51508bb0f125da9454f67bc26ce6cddbfe4aa9a"
+  },
+  "runtime_source_comparison": {
+    "compared_files": 110,
+    "runtime_bridge_and_helper_source_changes": [],
+    "old_release": "0.3.2"
+  },
+  "live_testing": {
+    "new_apple_calls": 0,
+    "historical_representative_host_version": "0.3.2",
+    "scope": "No runtime, bridge or helper implementation changed. Historical model outputs and timings remain attributed to their original builds. Fresh-account installation and first Apple consent remain unproven."
+  },
+  "preserved_historical_artifacts": {
+    "dist/plugin-v0.1.0-runtime-v0.3.1/hollis-plugin-0.1.0.zip": {
+      "sha256": "82f78972687e8d3e6ddc1b4888fb869fb39b93195dcaef9bdf0ae2b2980362d6",
+      "bytes": 8354628
+    },
+    "plugins/hollis/docs/release-package-evidence.json": {
+      "sha256": "4ac089aec7315b4ccdbf40cc3147dd5f94fd3628a023f90fe807d08d3b5039f1",
+      "bytes": 8369
+    }
+  }
+}

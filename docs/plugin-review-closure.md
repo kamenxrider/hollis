@@ -4,16 +4,14 @@ All three consolidated findings and all five smaller items are addressed in
 source. Claude and Codex still return useful Apple answers and images inside
 the conversation. The original runtime corrections shipped in
 [0.3.1](https://github.com/kamenxrider/hollis/releases/tag/v0.3.1).
-Plugin `0.1.0` now pins released 0.3.2; its
-[current package checks](../plugins/hollis/docs/release-0.3.2-package-evidence.json)
+Plugin `0.1.0` pins released 0.3.3; its
+[current package checks](../plugins/hollis/docs/release-0.3.3-package-evidence.json)
 are separate from the historical 0.3.1 results below. Earlier archives remain unchanged.
 
 Review baseline: `23f0b80`. [Sanitized verification results](../plugins/hollis/docs/review-evidence.json)
 record the pre-release fix verification. [Released package evidence](../plugins/hollis/docs/release-package-evidence.json)
 records the later 0.3.1 repin and installation checks. Original reproductions,
-worker reports and raw host receipts
-are preserved locally under `docs/dev/plugin-review-2026-09-06/` and
-`docs/dev/plugin-fixes-2026-09-07/`; those private folders are not distributed.
+worker reports and raw host receipts are retained privately and are not distributed.
 
 ## Three findings
 

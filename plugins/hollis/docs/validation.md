@@ -1,16 +1,46 @@
 # Plugin 0.1.0 validation — updated 7 September 2026
 
-Plugin 0.1.0 bundles released Hollis 0.3.2 and works in Claude Code and Codex on
-the tested existing Mac account. **Full first-time installation acceptance
-remains open:** these checks did not use a clean macOS account with fresh Apple
-approvals. Historical checks below retain their original runtime versions.
+Plugin 0.1.0 bundles released Hollis 0.3.3. Earlier Claude Code and Codex live
+flows used the runtime versions recorded below on an existing Mac account.
+**Full first-time installation acceptance remains open:** these checks did not
+use a clean macOS account with fresh Apple approvals. Historical checks below
+retain their original runtime versions.
 
 The [recorded demonstration](../examples/recorded-demo.md) shows the useful
 Apple contribution first. [Sanitized results](../examples/recorded/results.json)
 retain actual answers, timestamps and image checksums. Private raw receipts
 remain in the maintainer workspace; no credentials or host settings are packaged.
 
-## Released-runtime 0.3.2 package verification — 7 September
+## Runtime 0.3.3 package verification — 7 September
+
+All five newly published runtime assets passed checksum and strict GitHub
+provenance verification against the 0.3.3 source tag. The packager independently
+verified the ARM64 executable and five-bridge ZIP before including them.
+[Package evidence](release-0.3.3-package-evidence.json) records this build and
+its installation checks separately from earlier live measurements.
+
+The macOS-extracted archive passed bundled/repeated installation, exact runtime
+identity and checksum, executable modes, Rosetta, 0.3.1 upgrade and rollback,
+recovery over a corrupt prior binary, refused rollback preserving the working
+runtime, state preservation, and downloads of the locked source assets. These
+checks use macOS utilities on the installer PATH and isolated storage.
+
+All 51 plugin regressions, manifest and shell checks passed. Full Go formatting,
+vet, tests and race checks passed, with the existing image and review harnesses.
+A comparison of 110 runtime, bridge and helper files found no implementation
+changes from 0.3.2. No new Apple requests were made for this maintenance build;
+previous host answers, images and timings retain their recorded runtime versions.
+
+The plugin's own GitHub workflow rebuilds and attests its distributed archive.
+The final archive is checked against the accepted source/runtime bytes; its
+runtime receipt can differ because provenance is freshly verified. This does
+not establish clean-account setup, fresh Apple consent or new inline-rendering
+proof. Previously retained local archives are unchanged.
+
+## Historical 0.3.2 package verification — 7 September
+
+Runtime 0.3.2 was withdrawn and replaced by 0.3.3. These checks describe the
+original assets and local archive; they are not new calls against 0.3.3.
 
 All five 0.3.2 release assets passed checksum and strict GitHub provenance
 verification against commit `7c2b384`. The plugin packager independently verified
@@ -61,7 +91,7 @@ below. The retained archive and the historical checks here remain 0.3.1-backed.
   Add Shortcut/Allow decisions, and repeats one text and one image request.
 - [x] Runtime 0.3.1 is published. All five release assets passed checksum and
   strict GitHub provenance checks before repinning and packaging. The plugin
-  remains unpublished; its outer archive attestation is still pending.
+  was unpublished at that checkpoint; its outer archive attestation was pending.
 
 ## Local 0.3.2 source verification — 7 September
 
@@ -147,7 +177,8 @@ in this recheck; its pacing is unchanged.
 The final archive includes this report. Its scripts, skills, manifests, lock
 and runtime bytes must match the tested package; documentation and freshly
 verified provenance receipts may differ. Earlier ZIPs and raw receipts are retained.
-The plugin remains unpublished and its outer GitHub attestation remains pending.
+At that historical checkpoint the plugin was unpublished and its outer GitHub
+attestation was pending.
 
 ## Local 0.3.1 verification — 7 September
 
