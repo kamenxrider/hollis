@@ -246,6 +246,39 @@ esac
         self.assertEqual(result.returncode, 5)
         self.assertEqual(json.loads(result.stdout)["status"], "unknown")
 
+    def test_status_identifies_runtime_config_and_discovery_outcome(self):
+        self.install()
+        self.env["FIXTURE_CONFIG"] = json.dumps({"path": str(self.base / "isolated state/config.json"), "bridges": {}, "image_bridge": ""})
+        self.shortcuts()
+        result = self.call("status", "image")
+        data = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(data["config_path"], str(self.base / "isolated state/config.json"))
+        self.assertEqual(data["runtime_path"], str(self.home / "versions" / self.lock["version"] / "hollis"))
+        self.assertEqual(data["discovery"], {"status": "completed", "exit_code": 0, "listed_shortcuts": 0})
+        self.assertEqual(data["routes"][0]["status"], "missing")
+        helper = self.base / "shortcuts"
+        helper.write_text("#!/bin/bash\necho '/private/path token=CANARY' >&2\nexit 1\n")
+        failed = self.call("status", "image")
+        data = json.loads(failed.stdout)
+        self.assertEqual(data["status"], "unknown")
+        self.assertEqual(data["config_path"], str(self.base / "isolated state/config.json"))
+        self.assertEqual(data["discovery"], {"status": "failed", "exit_code": 1})
+        self.assertNotIn("CANARY", failed.stdout + failed.stderr)
+
+    def test_config_failure_reports_unverified_path_before_discovery(self):
+        source = self.binary.read_text().replace('config) if [[ "$2" == show ]]; then',
+            'config) echo "/private/customer token=CANARY" >&2; exit 10; if [[ "$2" == show ]]; then')
+        self.binary.write_text(source); self.relock(); self.install()
+        self.shortcuts()
+        result = self.call("status", "image")
+        data = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 10)
+        self.assertEqual(data["status"], "unknown")
+        self.assertIsNone(data["config_path"])
+        self.assertEqual(data["discovery"], {"status": "not_attempted", "exit_code": None})
+        self.assertNotIn("CANARY", result.stdout + result.stderr)
+
     def test_image_discovery_and_configuration_are_separate(self):
         self.install(); self.shortcuts("Hollis Image - Reference Input v2")
         status = json.loads(self.call("status", "image").stdout)["routes"][0]

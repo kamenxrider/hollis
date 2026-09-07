@@ -28,3 +28,15 @@ macOS builds, host versions and completed versus unproven setup scenarios are
 listed in the [validation record](validation.md). Temporary test directories establish
 installer behavior; they do **not** establish clean-account readiness, Rosetta
 execution or behavior on an untested OS.
+
+Runtime 0.3.2 was validated locally with the existing 0.1.0 plugin source.
+The distributed candidate archive remains pinned to verified 0.3.1 until a
+separately authorized runtime release supplies new attested assets. A newer
+local test binary is selected explicitly; it is not represented as an updated
+bundled runtime. Fresh-account and first-consent testing remain deferred.
+
+The repeated reference controls did not establish reliable use of the supplied
+pixels: fully described scenes generated with and without references, while
+subject-omission controls missed their attachments' subjects. Treat reference
+delivery and visual fidelity as separate checks. All five styles generated in
+the round; the coffee photo conditions were declined, without an identified cause.

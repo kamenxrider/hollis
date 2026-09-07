@@ -1,5 +1,25 @@
 # Troubleshooting
 
+`setup.sh status` reports `runtime_path` (the selected executable) and
+`config_path` (the configuration path reported by that executable), separately
+from the plugin's `runtime_home`. Check these after a host restart. A null
+config path is unverified, not a guessed default. Persist `HOLLIS_PLUGIN_HOME`,
+`HOLLIS_STATE_DIR` and any intentional `HOLLIS_CALLER_PATH` in the test launcher
+or scoped host settings when using an isolated test installation.
+
+`discovery.status: completed` means Shortcuts returned a listing;
+`listed_shortcuts: 0` means that listing was empty. A `failed` listing keeps
+readiness `unknown` and records its exit code. It does not prove missing
+bridges or identify sandbox, helper or GUI-session failure without additional
+evidence. `not_attempted` means configuration resolution failed first.
+
+With runtime 0.3.2, `request_declined` means Apple asked for a different
+description without specifying the cause. `shortcut_failed` means the Shortcut
+execution failed for an unrecognized reason. Both retain CLI exit 5. Neither
+is a reason to reinstall a discovered bridge or silently retry another model.
+The currently pinned 0.3.1 package still uses its older error codes; installing
+plugin source alone does not upgrade that binary.
+
 | Outcome | Next action |
 |---|---|
 | Setup required | `status` before installation returns `setup_required` without creating state; run the setup skill to install the runtime and selected bridges |

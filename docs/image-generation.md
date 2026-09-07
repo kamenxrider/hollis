@@ -73,6 +73,12 @@ images. Earlier reference tests checked bytes at the Hollis boundary but missed
 a connection inside the Shortcut. The corrected connection passed an echo
 control and a live reference generation. See the [corrected evidence](../EVIDENCE.md#reference-correction).
 
+In the 0.3.2 comparisons, both historical prompts generated three times with
+and three times without their references. Controls that omitted the subject
+from the prompt did not reproduce the attached subject. Successful attachment
+delivery is therefore not enough to promise reliable reference editing. See
+the [repeated test results](releases/v0.3.2.md#validation).
+
 **Any Style does not guarantee photographs.** Native Image Playground can
 produce photographs, but we have not found a repeatable unattended photographic
 setting for its Shortcut action. The image bridge remains experimental, with
@@ -278,6 +284,10 @@ See [image references](image-references.md) for exact inline and replay
 schemas. Streaming remains unsupported.
 
 ## Evidence
+
+See [failure codes](errors.md) for runtime 0.3.2's `request_declined` and
+`shortcut_failed` diagnostics. A request for a different description leaves
+the underlying cause unknown; it is not confirmed safety-filter evidence.
 
 The [evidence record](../EVIDENCE.md#v030-validation) separates live model
 results from local contract tests and records the reference-wiring correction.

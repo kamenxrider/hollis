@@ -52,6 +52,9 @@ jobs:
       - name: Image harness tests (no model calls)
         run: '"$RUNNER_TEMP/hollis-image-suite-venv/bin/python" -m unittest discover -s scripts/image-suite -p "test_*.py"'
 
+      - name: Host matrix journal and pacing tests (no model calls)
+        run: python3 -m unittest discover -s scripts/live-suite -p 'test_host_matrix.py'
+
       # Bridge generation needs no Shortcuts on the runner: this catches
       # profile regressions (file sets, WFLLMModel strings, client
       # versions) before a user ever runs make-bridge.py. Files are

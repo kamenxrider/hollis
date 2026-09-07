@@ -12,6 +12,9 @@ remain in the maintainer workspace; no credentials or host settings are packaged
 
 ## Release acceptance checklist
 
+For the later local 0.3.2 source/runtime results, see the separate section
+below. The retained archive and the historical checks here remain 0.3.1-backed.
+
 - [x] The retained v0.1.0 archive has a fixed checksum, regular entries, the
   ARM64 runtime and all five bridge names. A provider-free fixture also checks
   archive bytes and modes, and macOS `ditto` extraction checks executable bits.
@@ -28,6 +31,54 @@ remain in the maintainer workspace; no credentials or host settings are packaged
 - [x] Runtime 0.3.1 is published. All five release assets passed checksum and
   strict GitHub provenance checks before repinning and packaging. The plugin
   remains unpublished; its outer archive attestation is still pending.
+
+## Local 0.3.2 source verification — 7 September
+
+The existing Mac account ran 36 planned calls and eight registered diagnostics:
+40 completed outputs and four `request_declined` failures. All calls were
+serialized, with at least 10 seconds after completion and 45 seconds before
+Cloud Pro. No automatic retry, rate limit, timeout or uncertain completion occurred.
+
+| Condition | Claude Code | Codex |
+|---|---|---|
+| Text: Cloud, Cloud Pro, On-Device, ChatGPT | 4/4 correct budget answers | 4/4 correct budget answers |
+| Understanding: Cloud, Cloud Pro, ChatGPT | 3/3 correct red-left/blue-right answers | 3/3 correct red-left/blue-right answers |
+| Animation, Illustration, Sketch, Genmoji | 4/4 PNGs | 4/4 PNGs |
+| Any Style coffee photo prompt | Declined | Declined |
+| Two historical cases × reference present/absent × three repetitions | Not assigned | 12/12 PNGs; similarity attributable to the prompt remains a confound |
+
+Two Any Style lighthouse controls also returned stylized PNGs. Replacing only
+the coffee prompt's opening “A photograph of” with “An image of” was declined
+twice. Thus Any Style remains usable, while these photo conditions failed for
+an unknown reason. Three source-omission controls returned unrelated subjects:
+the presence of reference bytes does not establish reliable visual editing.
+One final Cloud smoke check passed against the final build.
+
+Claude Code loaded the source plugin through `--plugin-dir` and invoked the
+same helper used by the Codex host. A scoped test launcher
+identified the local binary and isolated state explicitly. This proves the
+source/helper integration; it is not a new installed-archive or fresh-account
+test. The plugin lock and retained archive remain on verified 0.3.1.
+
+The updated `status` reports `runtime_path`, binary-resolved `config_path` and
+structured discovery status. An actual sandboxed invocation returned unknown
+with discovery exit 1 and the correct isolated path; an invocation with host
+access completed discovery. An exit code cannot establish whether sandbox, helper or
+session access was the cause.
+
+All 50 plugin regressions passed, including config-read failure and successful
+empty versus failed discovery. Full Go tests/race/vet, existing package integrity
+and macOS extraction tests, four journal/pacing tests, manifest validation and
+shell syntax checks passed. New subprocess and API tests cover specific error
+codes, path-free public diagnostics and bounded model-call counts.
+
+Both hosts emitted absolute previews and `Open image` links. Claude inspected
+its four PNGs through its file tool; Codex inspected its results and sent a
+preview in the conversation. Agent inspection and emitted Markdown are not
+proof of what the user's host rendered; user-visible inline rendering remains
+unconfirmed. No Image Playground automation was used, and no generation click
+was requested by either host. Desktop visibility was not independently recorded.
+Fresh-account setup and first Apple consent remain untested.
 
 ## Released 0.3.1 package verification — 7 September
 
