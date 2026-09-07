@@ -24,3 +24,6 @@ Get [plugin 0.1.0](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.
 or install from the repository using the guide above. Its validation record
 distinguishes completed tests from remaining first-account acceptance work;
 see the [validation report](plugin-validation.md).
+
+Maintainer checks, runtime provenance and release sequencing are documented in
+the plugin's [package guide](../plugins/hollis/docs/package.md).

@@ -8,4 +8,4 @@ gstack's Outside Voice is a useful workflow precedent. The companion works throu
 
 For a recorded example, use the public fixture in the package's `examples/` directory. If the user requested both models, ask Cloud and Cloud Pro serially about the same material, then follow up on a useful finding or well-supported confirmation. Show actual timing and disclose edits to a recording. JSON receipts validate the route; the useful result is the demonstration.
 
-This is an independent companion workflow; it does not imply endorsement by gstack.
+Hollis is an independent companion and does not imply endorsement by gstack.
