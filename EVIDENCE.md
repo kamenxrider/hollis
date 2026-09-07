@@ -6,13 +6,21 @@ different product surfaces and must not be presented as interchangeable.
 
 ## Agent plugin evidence
 
-The local plugin 0.1.0 review package pins Hollis 0.3.0. Its
+The retained plugin 0.1.0 package pins verified Hollis 0.3.1. Its original
 [recorded gstack/Claude and Codex demonstration](plugins/hollis/examples/recorded-demo.md)
 contains actual Apple answers and generated images. The
-[validation report](docs/plugin-validation.md) records 24 provider-free regression
-tests and 26 successful live Apple invocations, while explicitly leaving fresh
+[validation report](docs/plugin-validation.md) follows the original 26 successful
+live Apple invocations and subsequent regression/package checks, leaving fresh
 Mac-account installation and the separate release attestation unproven/pending.
 This evidence does not expand the model or privacy claims below.
+
+The subsequent [local 0.3.2 validation](docs/releases/v0.3.2.md#validation)
+records 36 planned calls plus eight diagnostics, with 40 completed outputs and
+four declined requests. It preserves the existing package and adds narrower
+failure codes and more informative plugin status. Reference-free controls
+also matched the fully described scenes, while subject-omission controls did
+not recover their attached subjects. Reliable pixel-guided editing remains
+unproven; generation completion alone does not establish reference use.
 
 ## Product claim
 

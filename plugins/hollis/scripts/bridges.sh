@@ -45,12 +45,33 @@ else
   acquire setup
   WORK_DIR=$(mktemp -d "$PLUGIN_HOME/.bridge.XXXXXX")
 fi
-# Discovery is separate from inference. A helper failure does not mean missing.
-if ! /usr/bin/shortcuts list > "$WORK_DIR/shortcuts.txt" 2> "$WORK_DIR/discovery-error.txt"; then
-  report unknown 'Shortcuts discovery failed. Run from the local Mac with host access; do not reinstall or retry inference blindly.'
+# Report the binary-resolved state path, not a guess based on environment names.
+CONFIG_PATH=
+context_fields() {
+  printf ',"runtime_home":'; json_string "$PLUGIN_HOME"
+  printf ',"runtime_path":'; json_string "$BIN"
+  printf ',"config_path":'
+  if [[ -n "$CONFIG_PATH" ]]; then json_string "$CONFIG_PATH"; else printf null; fi
+}
+config_code=0
+"$BIN" config show --json > "$WORK_DIR/config.json" 2> "$WORK_DIR/config-error.txt" || config_code=$?
+if [[ "$config_code" != 0 ]]; then
+  printf '{"status":"unknown","message":"The runtime could not resolve its configuration. Inspect local state access before configuring a bridge.","inference_tested":false'
+  context_fields
+  printf ',"discovery":{"status":"not_attempted","exit_code":null}}\n'
+  exit "$config_code"
+fi
+CONFIG_PATH=$(field "$WORK_DIR/config.json" path || true)
+# A failed listing is unknown. Only a completed listing can establish absence;
+# its exit status alone cannot identify sandbox, helper or session restrictions.
+discovery_code=0
+/usr/bin/shortcuts list > "$WORK_DIR/shortcuts.txt" 2> "$WORK_DIR/discovery-error.txt" || discovery_code=$?
+if [[ "$discovery_code" != 0 ]]; then
+  printf '{"status":"unknown","message":"Could not list Shortcuts. Check local Mac host access; no bridge is proven missing. The underlying cause is unconfirmed.","inference_tested":false'
+  context_fields
+  printf ',"discovery":{"status":"failed","exit_code":%s}}\n' "$discovery_code"
   exit 5
 fi
-"$BIN" config show --json > "$WORK_DIR/config.json"
 "$BIN" doctor --json > "$WORK_DIR/doctor.json" 2> "$WORK_DIR/doctor-error.txt" || true
 bridge_name() {
   case "$1" in
@@ -82,7 +103,10 @@ route_info() {
   fi
 }
 if [[ "$MODE" == status ]]; then
-  printf '{"inference_tested":false,"routes":['
+  printf '{"inference_tested":false'
+  context_fields
+  listed=$(/usr/bin/awk 'NF { count++ } END { print count+0 }' "$WORK_DIR/shortcuts.txt")
+  printf ',"discovery":{"status":"completed","exit_code":0,"listed_shortcuts":%s},"routes":[' "$listed"
   comma=
   for route in cloud cloud-pro on-device chatgpt image; do
     [[ "$ROUTE" == all || "$ROUTE" == "$route" ]] || continue
