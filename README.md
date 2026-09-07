@@ -59,7 +59,12 @@ requiring an upstream change.
 
 Plugin **0.1.0** bundles the released, provenance-verified Hollis **0.3.1**
 runtime. The plugin is a local review package pending its separate publication.
-See [installation and validation](docs/plugin.md).
+Start with [Claude/Codex installation](plugins/hollis/README.md#install),
+[everyday requests](plugins/hollis/docs/usage.md) or the
+[recorded gstack demonstration](plugins/hollis/examples/recorded-demo.md).
+The [plugin overview](docs/plugin.md) links setup, compatibility and validation;
+the [folder map](plugins/hollis/docs/package.md) explains the portable package
+and native host adapters.
 
 ## Contents
 

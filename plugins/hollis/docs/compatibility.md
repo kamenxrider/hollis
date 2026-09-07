@@ -35,8 +35,18 @@ separately authorized runtime release supplies new attested assets. A newer
 local test binary is selected explicitly; it is not represented as an updated
 bundled runtime. Fresh-account and first-consent testing remain deferred.
 
+## Image reference evidence
+
 The repeated reference controls did not establish reliable use of the supplied
 pixels: fully described scenes generated with and without references, while
 subject-omission controls missed their attachments' subjects. Treat reference
 delivery and visual fidelity as separate checks. All five styles generated in
 the round; the coffee photo conditions were declined, without an identified cause.
+
+With the subject omitted from an otherwise identical prompt, the café attachment
+produced a male portrait, the turtle attachment produced flowers, and no
+attachment produced another male portrait. Each condition was observed once.
+These results do not establish impossibility or isolate the failing layer;
+the installed bridge's current action graph could not be read in that round.
+The earlier corrected-bridge echo test established byte delivery through that
+tested bridge, not that the generator conditions on those pixels.

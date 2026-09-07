@@ -22,12 +22,15 @@ plugin source alone does not upgrade that binary.
 
 | Outcome | Next action |
 |---|---|
+| Marketplace cannot find Hollis | Point marketplace add at the repository or extracted archive root containing both the marketplace entry and `plugins/hollis`; the inner plugin folder is not the marketplace root |
+| Skills absent after installation | In Claude follow the install summary's reload instruction or start a new session; in Codex start a new conversation and check the skills picker. Verify the host installed the intended package |
 | Setup required | `status` before installation returns `setup_required` without creating state; run the setup skill to install the runtime and selected bridges |
 | Unsupported system | Use a local eligible Apple-silicon Mac on the supported macOS route |
 | Hardware/helper access unknown | Retry the diagnostic from the local host with permitted access; do not conclude the bridge is missing |
 | Runtime filesystem access required | Permit the local operation in the host sandbox; this is not a stale lock and does not call for reinstalling bridges |
 | Add Shortcut pending | Complete the visible import, then rerun that route's import check. If you closed it and want another attempt, explicitly use `setup.sh import <route> --reopen` |
-| Bridge discovered | Make the requested model call; discovery alone does not establish inference |
+| Bridge discovered and configured | Make the requested model call; discovery alone does not establish inference |
+| Image discovered, `configured:false` | Ask setup to connect the existing image bridge with `setup.sh import image`; it need not reinstall that Shortcut |
 | Custom bridge unverified | Preserve it; inspect its exact name/UUID and Shortcuts availability before changing configuration |
 | Integrity failure | Stop; reacquire the pinned package from its trusted distribution and investigate the changed asset |
 | macOS blocks the executable | Follow macOS's supported first-open process; do not automatically remove quarantine or bypass Gatekeeper |
