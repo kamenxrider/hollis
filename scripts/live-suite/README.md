@@ -1,4 +1,66 @@
-# Image generation live suite
+# Live Apple test harnesses
+
+These are developer tools, not installation dependencies. See the
+[scripts index](../README.md) for the other harnesses and their prerequisites.
+
+## Controlled host matrix
+
+`host_matrix.py` runs one preselected case through the plugin's `run.sh`.
+It uses Python 3's standard library and was used for the
+[0.3.2 validation](../../docs/releases/v0.3.2.md#validation). It does not launch
+Claude or Codex: the calling host invokes it, and host-visible image rendering
+still needs a separate observation.
+
+Before a live run, review a manifest with these fields:
+
+- `kit`, `binary`, `binary_sha256`: absolute plugin/runtime paths and the
+  reviewed runtime's SHA-256. The helper verifies both the bytes and the runtime
+  selected by `setup.sh path` before dispatch.
+- `output`: a private experiment directory, shared by both hosts for locking,
+  pacing and receipts. Different directories do not share those protections.
+- `env`: explicit test overrides, including `HOLLIS_PLUGIN_HOME` and
+  `HOLLIS_STATE_DIR`. Verify the binary's resolved config path before starting;
+  the harness inherits other environment variables and does not create an
+  isolated installation for you. Do not put credentials in the manifest.
+- `cases`: unique filename-safe `id`, `sequence`, explicit `model` for text and
+  vision, and CLI `arguments` as an array. Include `--agent` for structured
+  output and an explicit model/style; do not use `auto`. Optional `inputs`
+  lists files to checksum, and `image_output` names an expected PNG.
+
+Only after authorizing that experiment, dispatch one case:
+
+```sh
+python3 scripts/live-suite/host_matrix.py \
+  --manifest /absolute/private/experiment.json --case cloud-01 --live
+```
+
+The shared lock serializes calls. The helper waits at least 10 seconds after
+the previous completion, or 45 seconds before Cloud Pro. It journals before
+dispatch, records timestamps, arguments, results, input hashes and PNG header
+dimensions, and refuses to reuse a receipt. Rate limits, uncertain/unknown
+outcomes and changed inputs block the affected sequence. Investigate abandoned
+locks and blocked sequences instead of clearing them to force another attempt.
+Read receipt outcomes: the harness can finish recording a failed Apple call
+without itself exiting nonzero.
+
+Full image decoding, reference similarity, photographic appearance and
+instruction-following require separate checks. The sanitized release report
+does not include the private local manifest and host transcripts; it is not a
+ready-to-run experiment package. Preserve originals and prepare any public
+reproduction bundle using the [evidence guide](../../EVIDENCE.md#evidence-storage-and-sharing).
+
+Offline regressions require no Apple access or Pillow:
+
+```sh
+python3 -m unittest discover -s scripts/live-suite -p 'test_host_matrix.py'
+```
+
+## Earlier image-generation suite
+
+This diagnostic suite includes a ChatGPT generation probe. Its six tested
+settings are not six supported product styles: the released generation route
+supports five styles, and ChatGPT generation remains unavailable through the
+tested Shortcut route.
 
 `image_generation_live.py` is the bounded post-release probe for the image
 transport. It is intentionally opt-in and serial. A fresh run makes at most
