@@ -10,9 +10,10 @@ Private raw receipts and host transcripts from this run remain under
 `examples/recorded/results.json` contains selected actual outputs and sanitized
 timings. It contains no host configuration, credentials or unrelated conversation.
 
-The later [released package verification](../plugins/hollis/docs/release-package-evidence.json)
-records the verified 0.3.1 pin and actual installation/upgrade checks separately
-from the original recordings.
+The [0.3.2-backed package verification](../plugins/hollis/docs/release-0.3.2-package-evidence.json)
+records the current runtime pin, installation/upgrade checks and representative
+Claude/Codex calls. The earlier [0.3.1 package verification](../plugins/hollis/docs/release-package-evidence.json)
+and original recordings remain preserved under their measured versions.
 
 Maintainers can repeat provider-free checks with
 `python3 -m unittest discover -s scripts/plugin -p 'test_*.py'`.

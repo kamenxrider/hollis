@@ -240,8 +240,9 @@ bridges. Ask Apple to assess your plan, compare documents or create an image,
 then continue in the same conversation. It works alongside gstack without
 requiring an upstream change.
 
-Plugin **0.1.0** bundles the released, provenance-verified Hollis **0.3.1**
-runtime. The plugin is a local review package pending its separate publication.
+Plugin **0.1.0** bundles the released, provenance-verified Hollis **0.3.2**
+runtime. Get the [plugin release](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0)
+or install it from this repository.
 Start with [Claude/Codex installation](plugins/hollis/README.md#install),
 [everyday requests](plugins/hollis/docs/usage.md) or the
 [recorded gstack demonstration](plugins/hollis/examples/recorded-demo.md).

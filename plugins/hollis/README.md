@@ -8,11 +8,10 @@ It works in **Claude Code and Codex**, alongside gstack or on its own. You ask
 in the conversation; Hollis calls the selected Apple route on your Mac and
 brings the result back. No separate server or model API key is needed.
 
-**Package status:** plugin **0.1.0** is unpublished. Its runtime lock and preserved
-review archive use released Hollis **0.3.1**. Runtime **0.3.2** has separate local
-validation; it is not bundled until its release, provenance verification and a
-new package build. Current source documentation can be newer than the preserved
-archive. See [validation](docs/validation.md).
+**Plugin 0.1.0** bundles the released, provenance-verified Hollis **0.3.2**
+runtime and all five bridges. Get the [plugin release](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0)
+or install from this repository below. Earlier review archives and their
+receipts remain historical evidence; see [validation](docs/validation.md).
 
 **Requires a local Apple-silicon Mac running macOS 27 with Apple Intelligence.**
 Have Claude Code or Codex installed and signed in. The host must execute on this
@@ -25,9 +24,10 @@ See [compatibility](docs/compatibility.md).
 
 ## Install
 
-Use a supplied review archive or a checkout that contains this plugin. Public
-GitHub installation will be available after publication; do not assume the
-repository's default branch or an older archive contains the latest source.
+Install from GitHub using the host commands below, or download and extract
+`hollis-plugin-0.1.0.zip` from the [release page](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0).
+The archive includes the runtime and bridges; a source installation downloads
+those same locked assets during setup.
 
 | What you have | Folder to give the host | Runtime and bridges |
 | --- | --- | --- |
@@ -47,9 +47,12 @@ Go, Python, Node, shell configuration edits or administrator installation.
 Enter these in the **Claude conversation**, one at a time:
 
 ```text
-/plugin marketplace add /absolute/path/to/hollis-package
+/plugin marketplace add kamenxrider/hollis
 /plugin install hollis@hollis-plugins
 ```
+
+For an extracted archive or local checkout, replace `kamenxrider/hollis` in the
+first command with `/absolute/path/to/hollis-package`.
 
 Choose the installation scope in Claude. If the install summary asks for
 `/reload-plugins`, run it; otherwise start a new session if the skills are not
@@ -64,9 +67,13 @@ listed. Then run:
 Run these in a **terminal on the same Mac**:
 
 ```sh
-codex plugin marketplace add "/absolute/path/to/hollis-package"
+codex plugin marketplace add kamenxrider/hollis --ref plugin-v0.1.0
 codex plugin add hollis@hollis-plugins
 ```
+
+For an extracted archive or local checkout, use
+`codex plugin marketplace add "/absolute/path/to/hollis-package"` for the first
+command; omit `--ref` for a local folder.
 
 Start a new Codex conversation and type the following there, **not in the shell**:
 

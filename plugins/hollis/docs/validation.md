@@ -1,16 +1,47 @@
 # Plugin 0.1.0 validation — updated 7 September 2026
 
-The local review package works in Claude Code and Codex on the tested existing
-Mac account. **Full first-time installation acceptance remains open:** this run
-did not have a clean macOS account with fresh Apple approvals. Public publication
-and the GitHub build that attests the outer plugin archive are also pending.
+Plugin 0.1.0 bundles released Hollis 0.3.2 and works in Claude Code and Codex on
+the tested existing Mac account. **Full first-time installation acceptance
+remains open:** these checks did not use a clean macOS account with fresh Apple
+approvals. Historical checks below retain their original runtime versions.
 
 The [recorded demonstration](../examples/recorded-demo.md) shows the useful
 Apple contribution first. [Sanitized results](../examples/recorded/results.json)
 retain actual answers, timestamps and image checksums. Private raw receipts
 remain in the maintainer workspace; no credentials or host settings are packaged.
 
-## Release acceptance checklist
+## Released-runtime 0.3.2 package verification — 7 September
+
+All five 0.3.2 release assets passed checksum and strict GitHub provenance
+verification against commit `7c2b384`. The plugin packager independently verified
+the bundled ARM64 executable and five-bridge ZIP before building its archive.
+[Package evidence](release-0.3.2-package-evidence.json) records the runtime,
+tested package contents and preserved older archives separately.
+
+The actual archive passed native macOS `ditto` extraction and byte/mode checks.
+Fourteen installer operations passed with only macOS utilities on the installer
+PATH: empty status, bundled/repeated install, version and hash, Rosetta,
+0.3.1-to-0.3.2 upgrade and rollback, recovery over a corrupt old runtime, refused
+rollback preserving the healthy runtime, state preservation and source downloads.
+All 51 plugin regressions, manifest validation and shell syntax checks passed.
+
+| Packaged host flow | Observed result | Measured time |
+|---|---|---|
+| Claude Code | Seed-swap checklist inline; stored `auto` selected Cloud explicitly | 145.211 s for the whole host turn, including setup checks |
+| Codex desktop | 1024×1024 Sketch of a lighthouse, mossy island and yellow sailboat; image inspected and absolute Open image link emitted | 7.742 s for generation |
+
+Exactly two Apple calls ran serially with at least ten seconds of separation,
+no retries and no tier substitution. Both used the verified managed 0.3.2 binary
+and isolated `HOLLIS_STATE_DIR`. Existing bridges and Apple approvals were reused;
+no visible Playground automation was used. These are representative release
+checks, not a repeat of the full 44-call matrix or fresh-account proof.
+
+The local acceptance ZIP has its own recorded hash. The GitHub release workflow
+rebuilds and attests the distributed ZIP; its scripts, skills, manifests, lock
+and runtime bytes must match the tested core. Documentation and freshly verified
+provenance receipts can differ. Earlier archives and receipts remain unchanged.
+
+## Historical 0.3.1 release acceptance checklist
 
 For the later local 0.3.2 source/runtime results, see the separate section
 below. The retained archive and the historical checks here remain 0.3.1-backed.

@@ -14,7 +14,7 @@ The agent handles these steps:
    and wait for Apple's required downloads. A restricted check means unknown
    access, not incompatible hardware.
 2. Verify and install the runtime under
-   `~/Library/Application Support/hollis/plugin/versions/0.3.1/`.
+   `~/Library/Application Support/hollis/plugin/versions/0.3.2/`.
    A newer existing Hollis is preserved and used. The plugin's bridge kit remains
    available. No PATH modification is needed.
 3. Offer all five bridges and import selected ones individually. Approve
