@@ -107,8 +107,11 @@ Codex first reported restricted Shortcuts discovery as unknown, then successfull
 repeated that read-only check with authorized host access before generating.
 Existing Apple approvals sufficed; no visible Image Playground editor or new
 Apple click was required. Visual review found the blue bicycle, red toolbox and
-green fern in the Sketch. This is reference-guided variation, not proof of exact
-image identity. Cloud Pro was not called in this recheck; its pacing is unchanged.
+green fern in the Sketch. The prompt also named these subjects, so this is proof
+of generation with an attachment, not of the generator using its pixels. Later
+0.3.2 controls left reliable reference editing unproven; see
+[image references](../../../docs/image-references.md). Cloud Pro was not called
+in this recheck; its pacing is unchanged.
 
 The final archive includes this report. Its scripts, skills, manifests, lock
 and runtime bytes must match the tested package; documentation and freshly

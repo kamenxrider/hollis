@@ -65,8 +65,9 @@ copy the whole host transcript into a second saved conversation.
   resize processing when you need a particular output shape.
 - Folder processing with a preview, a specific call budget and resumable progress.
 
-Any Style does not guarantee a photograph. References guide variations rather
-than preserving exact identity. ChatGPT image generation is unavailable through
+Any Style does not guarantee a photograph. References can be submitted, but
+reliable use of their pixels remains unproven, including subject preservation.
+ChatGPT image generation is unavailable through
 the tested Shortcut route. These limits differ from the native Image Playground app.
 
 ## Alongside gstack

@@ -153,8 +153,9 @@ pixels. These are Hollis validation limits. Reference inputs are separate:
 they may be PNG or JPEG up to 4 MiB and 16 megapixels; see
 [image references](image-references.md) for the CLI, chat, and API contracts.
 No native resolution/aspect-ratio/seed parameter or exact Apple model
-identifier is exposed by the tested Shortcut. A reference can guide a new
-generation, but Hollis does not promise pixel-perfect editing.
+identifier is exposed by the tested Shortcut. Hollis can submit a reference,
+but reliable use of its pixels remains unproven, including preservation of
+the subject or composition.
 
 ## Output dimensions and aspect ratio
 

@@ -37,11 +37,13 @@ style and returned this image:
 We asked for a warmer variation with a yellow watering can, explicitly attaching
 that returned image. This was the next result:
 
-![Reference-guided repair-cafe variation](recorded/repair-cafe-warm.png)
+![Repair-cafe variation requested with an attached reference](recorded/repair-cafe-warm.png)
 
-It added the requested element but substantially changed the scene. A reference
-guides a variation; it does not lock composition or identity. The final host
-reply supplied a preview and a usable file link.
+It added the requested element but substantially changed the scene. The prompt
+also described the scene, so this observation does not establish that the
+generator used the attached pixels. Later controls left reliable reference
+editing unproven; see [image references](../../../docs/image-references.md).
+The final host reply supplied a preview and a usable file link.
 
 **The same package in Codex:** Apple Cloud turned the event plan into a short
 invitation, followed by a Sketch image with a local 16:9 crop and clickable link.
