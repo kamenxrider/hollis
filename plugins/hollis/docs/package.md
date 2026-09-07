@@ -118,8 +118,8 @@ review archives do not change with source. The plugin release is explicitly
 excluded from GitHub's “Latest” label so the CLI installer continues to find
 the latest runtime.
 
-When a new runtime is ready, publish it only with authorization, verify its
-release provenance, then update the lock and build a new plugin archive. Recheck
+When a new runtime is released, verify its provenance, then update the lock and
+build a new plugin archive. Recheck
 both hosts against that exact archive before replacing the candidate. Preserve
 previous archives and receipts, and record unresolved acceptance gaps.
 
@@ -127,7 +127,7 @@ For a plugin release, keep the portable/native manifest versions and Claude's
 marketplace version aligned; use the matching `plugin-v<version>` tag and release
 notes. Once public, bump the plugin version for updates so host caches can detect
 them. A manual workflow run produces review artifacts; pushing a plugin release
-tag publishes it. 
+tag publishes it.
 
 [Install and use](../README.md) · [Setup and state paths](setup.md) ·
 [Recorded validation](validation.md)
