@@ -163,7 +163,10 @@ or a folder of documents.
 The plugin lives in Hollis's repository and has its own version and release
 archive. Shared skills and scripts sit beside a portable Agent Plugins manifest
 and small native Claude/Codex manifests. There are no separate host-specific
-copies of the workflow. Other hosts need their own compatibility checks.
+copies of the workflow. The portable format is already included; it is not a
+third plugin to install. Claude Code and Codex are the supported hosts for this
+release. Support for additional harnesses is future work: each needs a tested
+installation and conversation flow on the eligible Mac before we advertise it.
 See the [folder map, format boundaries and build instructions](docs/package.md).
 
 [Setup](docs/setup.md) · [Compatibility](docs/compatibility.md) ·
