@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/kamenxrider/hollis/internal/shortcutdiagnostic"
 )
 
 var _ Generator = (*ShortcutTransport)(nil)
@@ -138,12 +140,18 @@ func (g *ShortcutTransport) Generate(ctx context.Context, req Request) (Result, 
 		_ = cmd.Cancel()
 		waitErr = <-waitDone
 	}
-	if deadlineHit {
+	if deadlineHit || runCtx.Err() != nil {
 		return fail(contextError(ctx, runCtx, req.BridgeRef, timeout))
 	}
 	if waitErr != nil {
 		stderrText := strings.TrimSpace(stderrBuffer.String())
 		exitCode := exitCode(waitErr)
+		if exitCode > 0 && shortcutdiagnostic.RequestDeclined(stderrText) {
+			return fail(&Error{
+				Kind: KindRequestDeclined, BridgeRef: req.BridgeRef, ExitCode: exitCode,
+				Stderr: stderrText, Err: errors.New(shortcutdiagnostic.DeclinedMessage),
+			})
+		}
 		if strings.Contains(stderrText, "This shortcut requires your Mac to be unlocked.") {
 			return fail(&Error{
 				Kind: KindSessionLocked, BridgeRef: req.BridgeRef, ExitCode: exitCode,

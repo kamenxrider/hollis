@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kamenxrider/hollis/internal/imagegen"
+	"github.com/kamenxrider/hollis/internal/shortcutdiagnostic"
 	"github.com/spf13/cobra"
 )
 
@@ -210,7 +211,9 @@ func toImageCLIError(err error) error {
 	case imagegen.KindSessionLocked:
 		return transportErr(fmt.Errorf("%w; unlock or check the active session and retry manually", imagegen.ErrSessionLocked))
 	case imagegen.KindNonZeroExit:
-		return transportErr(fmt.Errorf("%w\nhint: verify --bridge names an installed image-generation Shortcut; see docs/image-generation.md for setup", err))
+		return executionErr("shortcut_failed", shortcutdiagnostic.FailedMessage)
+	case imagegen.KindRequestDeclined:
+		return executionErr("request_declined", shortcutdiagnostic.DeclinedMessage)
 	case imagegen.KindSpawn, imagegen.KindNoOutput,
 		imagegen.KindInvalidPNG, imagegen.KindImageTooLarge, imagegen.KindCleanup,
 		imagegen.KindOutputInspection:

@@ -67,7 +67,7 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 		// `wait` keeps the script alive as the direct child. Tests assert
 		// against that exact PID rather than pgrep-ing for a command line.
 		"  hang) sleep 300 & echo $! > " + dir + "/child.pid; wait ;;\n" +
-		"  fail-once) if [ \"$count\" -le 1 ]; then echo 'cloud unavailable' >&2; exit 1; fi; cat " + dir + "/stdin.txt ;;\n" +
+		"  fail-once) if [ \"$count\" -le 1 ]; then echo 'Too many incoming requests' >&2; exit 1; fi; cat " + dir + "/stdin.txt ;;\n" +
 		"esac\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -395,7 +395,7 @@ func TestRateLimitAndGenericExitOneAreNotMissing(t *testing.T) {
 	for _, tc := range []struct {
 		mode string
 		want Kind
-	}{{"rate", KindRateLimited}, {"generic", KindTransport}} {
+	}{{"rate", KindRateLimited}, {"generic", KindShortcutFailed}} {
 		r, _ := runnerWithFake(t, tc.mode)
 		_, _, err := r.Run(context.Background(), ModelCloud, "hello")
 		var runErr *Error
@@ -436,21 +436,17 @@ func TestCanceledRunDoesNotFallback(t *testing.T) {
 }
 
 func TestAutoFallbackPolicy(t *testing.T) {
-	for _, mode := range []string{"rate", "generic", "empty"} {
+	for _, mode := range []string{"rate", "missing"} {
 		r, dir := runnerWithFake(t, mode)
-		// Make only the first invocation fail; the fake's fail-once mode is
-		// already covered separately. These cases assert policy classification.
-		if mode != "empty" {
-			// After the first spawn the environment-driven mode is still the same,
-			// so both calls fail; two spawns are the assertion.
-		}
+		// Both tiers report the same recognized failure. The strategy must
+		// stop at exactly two spawns, never a retry loop.
 		_, _, _ = r.Run(context.Background(), ModelAuto, "hello")
 		count, _ := os.ReadFile(dir + "/count.txt")
 		if strings.TrimSpace(string(count)) != "2" {
 			t.Fatalf("mode %s spawn count=%q, want two", mode, count)
 		}
 	}
-	for _, mode := range []string{"usage", "sigabrt", "sigterm"} {
+	for _, mode := range []string{"generic", "empty", "whitespace", "usage", "sigabrt", "sigterm"} {
 		r, dir := runnerWithFake(t, mode)
 		_, _, _ = r.Run(context.Background(), ModelAuto, "hello")
 		count, _ := os.ReadFile(dir + "/count.txt")

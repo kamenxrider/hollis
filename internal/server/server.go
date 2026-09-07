@@ -25,6 +25,7 @@ import (
 	"github.com/kamenxrider/hollis/internal/chat"
 	"github.com/kamenxrider/hollis/internal/imagegen"
 	"github.com/kamenxrider/hollis/internal/runner"
+	"github.com/kamenxrider/hollis/internal/shortcutdiagnostic"
 	"github.com/kamenxrider/hollis/internal/store"
 )
 
@@ -340,6 +341,12 @@ func writeRunResult(w http.ResponseWriter, requested runner.Model, text string, 
 	var runErr *runner.Error
 	if errors.As(err, &runErr) {
 		switch runErr.Kind {
+		case runner.KindRequestDeclined:
+			writeAPIError(w, http.StatusBadGateway, "server_error", "request_declined", shortcutdiagnostic.DeclinedMessage)
+		case runner.KindShortcutFailed:
+			writeAPIError(w, http.StatusBadGateway, "server_error", "shortcut_failed", shortcutdiagnostic.FailedMessage)
+		case runner.KindTransport:
+			writeAPIError(w, http.StatusBadGateway, "server_error", "transport", "the Shortcut transport could not complete the request")
 		case runner.KindRateLimited:
 			w.Header().Set("Retry-After", "1")
 			writeAPIError(w, http.StatusTooManyRequests, "rate_limit_error", "rate_limited", "Apple Intelligence is rate limited")

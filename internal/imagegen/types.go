@@ -158,6 +158,7 @@ const (
 	KindCanceled         ErrorKind = "canceled"
 	KindSpawn            ErrorKind = "spawn"
 	KindNonZeroExit      ErrorKind = "nonzero_exit"
+	KindRequestDeclined  ErrorKind = "request_declined"
 	KindSessionLocked    ErrorKind = "session_locked"
 	KindNoOutput         ErrorKind = "no_output"
 	KindInvalidPNG       ErrorKind = "invalid_png"

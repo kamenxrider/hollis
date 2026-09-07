@@ -107,15 +107,15 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 			ExitCodes: map[string]int{
 				"success": 0, "unexpected": 1, "usage": 2, "missing": 3, "transport": 5,
 				"timeout": 7, "config": 10,
+				"request_declined": 5, "shortcut_failed": 5,
 			},
 			JSONSchema:    "agent meta schema_version=2; data under results; --select filters results",
 			ErrorSchema:   "{meta:{source,schema_version},error:{code,message,exit_code}}",
 			ModelDefaults: "positional model <tier> > explicit --model flag > config model > built-in default; text defaults to auto, --image defaults directly to cloud",
-			Fallback: "auto tries cloud once, then on-device once, only for missing/rate-limited/" +
-				"transient/no-output failures; invalid input, timeout, cancellation, and crashes never retry",
-			Network: "HTTP defaults to loopback; remote bind requires --allow-remote plus bearer authentication and an external encrypted tunnel",
-			Stdout:  "successful command output only",
-			Stderr:  "human errors, fallback notices, and newly-created plain-chat IDs only",
+			Fallback:      "auto tries cloud once, then on-device once, only for confirmed missing bridges or recognized rate limits; all other failures stop without another model call",
+			Network:       "HTTP defaults to loopback; remote bind requires --allow-remote plus bearer authentication and an external encrypted tunnel",
+			Stdout:        "successful command output only",
+			Stderr:        "human errors, fallback notices, and newly-created plain-chat IDs only",
 		},
 		Commands: collectAgentCommands(rootCmd),
 	}
