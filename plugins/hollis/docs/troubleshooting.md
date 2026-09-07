@@ -17,8 +17,8 @@ With runtime 0.3.2, `request_declined` means Apple asked for a different
 description without specifying the cause. `shortcut_failed` means the Shortcut
 execution failed for an unrecognized reason. Both retain CLI exit 5. Neither
 is a reason to reinstall a discovered bridge or silently retry another model.
-The currently pinned 0.3.1 package still uses its older error codes; installing
-plugin source alone does not upgrade that binary.
+Preserved 0.3.1-backed archives still use the older error codes; updating
+documentation alone does not upgrade their bundled binary.
 
 | Outcome | Next action |
 |---|---|
@@ -61,5 +61,5 @@ With runtime 0.3.1, invalid image-reference diagnostics distinguish `file does
 not exist`, `permission denied` and other `file access failed` errors without
 printing the path. Check the attachment locally and select an accessible regular
 PNG or JPEG; invalid references do not dispatch an Apple request. The preserved
-0.3.0 archive lacks this runtime fix; the current package bundles verified
-0.3.1 assets and includes it.
+0.3.0 archive lacks this runtime fix; the current package pins verified
+0.3.2 assets and includes it.

@@ -113,7 +113,7 @@ Fresh-account setup and first Apple consent remain untested.
 
 ## Released 0.3.1 package verification — 7 September
 
-The plugin now pins the published runtime at commit `19a7970`, after all five
+The historical 0.3.1 package pinned the runtime at commit `19a7970`, after all five
 release assets passed strict GitHub provenance and checksum verification.
 The packager independently reverified its bundled binary and bridge ZIP.
 [Sanitized package evidence](release-package-evidence.json) preserves these
@@ -232,7 +232,7 @@ tested Shortcut route remains unavailable.
 - Runtime binary and five-bridge ZIP were authenticated against GitHub build
   provenance and their locked release commit (originally v0.3.0, now v0.3.1). Local hash checks occur
   before managed execution or extraction. The outer archive has a checksum;
-  only the separately authorized GitHub build can supply its GitHub attestation.
+  only the GitHub build can supply its GitHub attestation.
 - A focused package test builds a synthetic asset fixture through the real
   packager (the provenance verifier is mocked only inside that test), checks
   exact source/runtime membership and modes, and uses macOS `ditto` to compare
@@ -270,7 +270,7 @@ tested Shortcut route remains unavailable.
 | Fresh permission rejection / locked session | Observe these through the installed plugin on an appropriate account; helper failures and cancellation are tested, but not fresh Apple consent rejection or a deliberately locked live image call |
 | Rate-limit behavior | Stopping/error propagation is implemented; no live rate limit was deliberately provoked in this suite |
 | Upgrade / rollback | Actual released 0.3.0 and 0.3.1 assets now pass upgrade, rollback and corrupt-previous recovery in isolated storage; an existing end-user installation migration remains unobserved |
-| Final release provenance | Run the prepared GitHub packaging workflow after separate authorization and verify the resulting archive attestation |
+| Final release provenance | Run the GitHub packaging workflow and verify the resulting archive attestation |
 
 Temporary directories and an already-approved user account are not substitutes
 for the clean-account row. Other macOS versions, remote Linux execution and
