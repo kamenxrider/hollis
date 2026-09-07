@@ -8,7 +8,7 @@ bridge accepts a style and an optional reference image.
 
 The normal **hollis-bridges.zip** release download includes all four model
 bridges plus **Hollis Image - Reference Input v2**. Follow the
-[Quickstart](../README.md#quickstart) to verify the package, sign the shortcuts
+[verified install](../README.md#install-verified) to verify the package, sign the shortcuts
 on your Mac and add them. No source checkout or separate image download is needed.
 
 Then configure the exact image Shortcut name:

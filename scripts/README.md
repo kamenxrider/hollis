@@ -1,7 +1,7 @@
 # Developer tools and test harnesses
 
 These are maintainer tools, **not end-user installation dependencies**. To install
-and use Hollis, start with the [CLI](../README.md#quickstart) or
+and use Hollis, start with the [CLI](../README.md#install-verified) or
 [agent plugin](../plugins/hollis/README.md). Run the commands below from the
 repository root.
 
