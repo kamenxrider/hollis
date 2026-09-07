@@ -567,6 +567,9 @@ Apple exposes no stable backend IDs through this interface, so these mappings st
 
 ## Testing
 
+See the [developer tools index](scripts/README.md) for each harness's purpose,
+dependencies, and distinction between offline checks and live model calls.
+
 ```bash
 test -z "$(gofmt -l .)"
 go vet ./...

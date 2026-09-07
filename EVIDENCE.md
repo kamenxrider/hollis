@@ -22,6 +22,34 @@ also matched the fully described scenes, while subject-omission controls did
 not recover their attached subjects. Reliable pixel-guided editing remains
 unproven; generation completion alone does not establish reference use.
 
+## Evidence storage and sharing
+
+Git contains the [test harnesses](scripts/README.md), selected measurements in
+`results/`, and sanitized reports such as the
+[0.3.2 per-call record](docs/releases/v0.3.2-validation.json). The ignored
+`docs/dev/` tree holds local research, generated originals, receipts and host
+captures. Ignoring a file keeps it out of a clone; it does not back it up.
+Local evidence paths are not public downloads, and these reports do not
+establish that an independent backup or public raw-evidence archive exists.
+
+Preserve raw originals, including failures and superseded runs, in a private
+off-device backup. Record file checksums and verify a restore before claiming
+recoverability. Keep redacted reports and compressed display images as separate
+derivatives so the original receipts and image hashes remain meaningful.
+
+A public release evidence bundle is a separate, reviewed export for one test
+round, not a copy of the entire private tree. Include the shareable prompts,
+fixtures, case manifest, outcomes (including failures), timing, runtime/source
+identities, environment versions and checksums needed to examine the claims.
+Document redactions and unavailable inputs. Exclude credentials, configuration
+and conversation databases, unrelated files and unreviewed host transcripts.
+
+After separate publication authorization, that bundle can accompany the runtime
+release as an asset, with its checksum and a direct link from the release notes.
+Until an upload is verified, describe it as planned. A public export complements
+the private backup; it does not replace it. Re-running the harness reproduces the
+protocol, not necessarily the provider's answers or generated pixels.
+
 ## Product claim
 
 The defensible claim is:
