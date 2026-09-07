@@ -5,14 +5,16 @@ inside the plugin, alongside the [recorded demonstration](../plugins/hollis/exam
 It distinguishes successful live calls, installer fixtures, remaining clean-account
 acceptance work and the separate archive-attestation/publication step.
 
-Private raw receipts and host transcripts from this run remain under
-`docs/dev/plugin-validation-2026-09-06/`, which Git ignores. The packaged
+Private raw receipts and host transcripts remain outside the distributed source.
+The packaged
 `examples/recorded/results.json` contains selected actual outputs and sanitized
 timings. It contains no host configuration, credentials or unrelated conversation.
 
-The [0.3.2-backed package verification](../plugins/hollis/docs/release-0.3.2-package-evidence.json)
-records the current runtime pin, installation/upgrade checks and representative
-Claude/Codex calls. The earlier [0.3.1 package verification](../plugins/hollis/docs/release-package-evidence.json)
+The [0.3.3-backed package verification](../plugins/hollis/docs/release-0.3.3-package-evidence.json)
+records the current runtime pin and installation/upgrade checks. The historical
+[0.3.2 package verification](../plugins/hollis/docs/release-0.3.2-package-evidence.json)
+retains the representative Claude/Codex calls under their measured version.
+The earlier [0.3.1 package verification](../plugins/hollis/docs/release-package-evidence.json)
 and original recordings remain preserved under their measured versions.
 
 Maintainers can repeat provider-free checks with

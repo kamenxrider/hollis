@@ -112,7 +112,7 @@ provenance. An existing archive is never overwritten.
 
 ## Versions and release sequence
 
-Plugin **0.1.0** pins released runtime **0.3.2** in `runtime.lock.json`.
+Plugin **0.1.0** pins released runtime **0.3.3** in `runtime.lock.json`.
 Editing skills or docs does not upgrade the bundled binary, and preserved
 review archives do not change with source. The plugin release is explicitly
 excluded from GitHub's “Latest” label so the CLI installer continues to find

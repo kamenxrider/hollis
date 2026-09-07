@@ -8,9 +8,9 @@ It works in **Claude Code and Codex**, alongside gstack or on its own. You ask
 in the conversation; Hollis calls the selected Apple route on your Mac and
 brings the result back. No separate server or model API key is needed.
 
-**Plugin 0.1.0** pins the released, provenance-verified Hollis **0.3.2** runtime
-and all five bridges. Source installation is available below; the downloadable
-plugin archive is not yet published. Earlier review archives and their receipts
+**Plugin 0.1.0** bundles the released, provenance-verified Hollis **0.3.3** runtime
+and all five bridges. [Download the plugin archive](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0)
+or use the source installation below. Earlier review archives and their receipts
 remain historical evidence; see [validation](docs/validation.md).
 
 **Requires a local Apple-silicon Mac running macOS 27 with Apple Intelligence.**
@@ -25,8 +25,8 @@ See [compatibility](docs/compatibility.md).
 ## Install
 
 Install from GitHub using the host commands below. A source installation
-downloads the locked runtime and bridges during setup. The archive instructions
-also apply to a locally built `hollis-plugin-0.1.0.zip`, which bundles those assets.
+downloads the locked runtime and bridges during setup. The downloadable
+`hollis-plugin-0.1.0.zip` bundles those assets and both host installation entries.
 
 | What you have | Folder to give the host | Runtime and bridges |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ listed. Then run:
 Run these in a **terminal on the same Mac**:
 
 ```sh
-codex plugin marketplace add kamenxrider/hollis --ref main
+codex plugin marketplace add kamenxrider/hollis --ref plugin-v0.1.0
 codex plugin add hollis@hollis-plugins
 ```
 

@@ -29,7 +29,7 @@ listed in the [validation record](validation.md). Temporary test directories est
 installer behavior; they do **not** establish clean-account readiness, Rosetta
 execution or behavior on an untested OS.
 
-Plugin 0.1.0 bundles the released runtime 0.3.2 after verification of its
+Plugin 0.1.0 bundles the released runtime 0.3.3 after verification of its
 GitHub provenance and checksums. Earlier source and archive tests retain their
 original version labels in the validation record. Fresh-account and first-consent
 testing remain deferred.

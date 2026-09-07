@@ -62,4 +62,4 @@ not exist`, `permission denied` and other `file access failed` errors without
 printing the path. Check the attachment locally and select an accessible regular
 PNG or JPEG; invalid references do not dispatch an Apple request. The preserved
 0.3.0 archive lacks this runtime fix; the current package pins verified
-0.3.2 assets and includes it.
+0.3.3 assets and includes it.

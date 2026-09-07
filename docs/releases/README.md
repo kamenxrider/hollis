@@ -4,9 +4,9 @@ Runtime and plugin versions are separate. Each release has its own archive and v
 
 | Version | Status | Notes |
 | --- | --- | --- |
-| Runtime 0.3.3 | Release build | [Maintenance rebuild with fresh provenance](v0.3.3.md) |
+| Runtime 0.3.3 | Released | [Maintenance rebuild with fresh provenance](v0.3.3.md) |
 | Runtime 0.3.2 | Withdrawn; use 0.3.3 | [Clearer failures, bounded fallback and validation](v0.3.2.md) |
-| Plugin 0.1.0 | Release package | [Claude/Codex setup, conversation workflows and package contents](plugin-v0.1.0.md) |
+| Plugin 0.1.0 | Released | [Claude/Codex setup, conversation workflows and package contents](plugin-v0.1.0.md) |
 | Runtime 0.3.1 | Released | [Path-free image-reference errors, development version identity and upgrade instructions](v0.3.1.md) |
 | Runtime 0.3.0 | Released | [Documents, batches, image generation, API images and security changes](v0.3.0.md) |
 

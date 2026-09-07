@@ -11,7 +11,7 @@ Codex installation from GitHub or the downloadable archive. In Claude, start
 with `/hollis:hollis-setup`; in Codex, use `$hollis:hollis-setup`.
 Setup explains the required **Add Shortcut** and first-use **Allow** prompts.
 
-The archive bundles the provenance-verified **Hollis 0.3.2 ARM64 runtime** and
+The archive bundles the provenance-verified **Hollis 0.3.3 ARM64 runtime** and
 all five bridges. Source installations fetch those same locked assets. Normal
 setup uses macOS utilities, with no Homebrew, GitHub CLI, Go, Python, Node or
 administrator installation required. GitHub build attestations, the archive
@@ -55,5 +55,5 @@ visible Image Playground automation is used. Host-visible inline rendering
 remains separate from the confirmed absolute file-link behavior.
 
 [Validation and package evidence](../../plugins/hollis/docs/validation.md) retain
-the earlier 0.3.0/0.3.1 recordings under their original versions. This release
-has its own 0.3.2-backed package checks; previous archives are preserved.
+the earlier 0.3.0/0.3.1/0.3.2 recordings under their original versions. This release
+has its own 0.3.3-backed package checks; previous archives are preserved.

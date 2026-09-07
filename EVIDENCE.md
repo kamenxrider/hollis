@@ -6,12 +6,15 @@ different product surfaces and must not be presented as interchangeable.
 
 ## Agent plugin evidence
 
-The retained plugin 0.1.0 package pins verified Hollis 0.3.1. Its original
+The plugin 0.1.0 release bundles verified Hollis 0.3.3. Earlier packages and
+recordings retain their original versions. Its original
 [recorded gstack/Claude and Codex demonstration](plugins/hollis/examples/recorded-demo.md)
 contains actual Apple answers and generated images. The
 [validation report](docs/plugin-validation.md) follows the original 26 successful
 live Apple invocations and subsequent regression/package checks, leaving fresh
-Mac-account installation and the separate release attestation unproven/pending.
+Mac-account installation unproven. The released package has separate
+[verification evidence](plugins/hollis/docs/release-0.3.3-package-evidence.json)
+and GitHub build attestations.
 This evidence does not expand the model or privacy claims below.
 
 The subsequent [local 0.3.2 validation](docs/releases/v0.3.2.md#validation)
