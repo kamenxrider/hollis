@@ -261,6 +261,7 @@ The local API requires authentication by default. [Authentication, limits and cl
 
 ## Reference
 
+<!-- Preserved anchors: external deep links from release notes and EVIDENCE.md. Do not remove. -->
 <a id="scripts-and-agents"></a>
 <a id="quick-reference"></a>
 <a id="your-data"></a>
