@@ -101,10 +101,10 @@ func TestReadmeQuickstartVerifiesAllArtifactsBeforeUse(t *testing.T) {
 		t.Fatal(err)
 	}
 	readme := string(raw)
-	start := strings.Index(readme, "## Quickstart")
-	end := strings.Index(readme, "### Other install routes")
+	start := strings.Index(readme, "## Install (verified)")
+	end := strings.Index(readme, "## Models")
 	if start < 0 || end <= start {
-		t.Fatal("README quickstart boundaries are missing")
+		t.Fatal("README verified install boundaries are missing")
 	}
 	quickstart := readme[start:end]
 	for _, required := range []string{
