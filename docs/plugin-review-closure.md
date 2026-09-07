@@ -2,9 +2,11 @@
 
 All three consolidated findings and all five smaller items are addressed in
 source. Claude and Codex still return useful Apple answers and images inside
-the conversation. **Runtime [0.3.1 is released](https://github.com/kamenxrider/hollis/releases/tag/v0.3.1).**
-Plugin `0.1.0` remains unpublished; its current lock and new package now use
-the verified 0.3.1 release assets. Earlier archives remain unchanged.
+the conversation. The original runtime corrections shipped in
+[0.3.1](https://github.com/kamenxrider/hollis/releases/tag/v0.3.1).
+Plugin `0.1.0` now pins released 0.3.2; its
+[current package checks](../plugins/hollis/docs/release-0.3.2-package-evidence.json)
+are separate from the historical 0.3.1 results below. Earlier archives remain unchanged.
 
 Review baseline: `23f0b80`. [Sanitized verification results](../plugins/hollis/docs/review-evidence.json)
 record the pre-release fix verification. [Released package evidence](../plugins/hollis/docs/release-package-evidence.json)

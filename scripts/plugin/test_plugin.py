@@ -330,10 +330,15 @@ platform
 
 
 class PackagingTests(unittest.TestCase):
+    def test_plugin_release_preserves_latest_runtime_for_cli_installation(self):
+        workflow = (ROOT / ".github/workflows/plugin-release.yml").read_text()
+        publish = workflow.split('gh release create "$GITHUB_REF_NAME"', 1)[1]
+        self.assertIn("--latest=false", publish)
+
     def test_source_contracts(self):
         manifest, lock = packaging.validate_source()
         self.assertEqual(manifest["version"], "0.1.0")
-        self.assertEqual(lock["version"], "0.3.1")
+        self.assertEqual(lock["version"], "0.3.2")
 
     def test_failed_provenance_never_returns_a_receipt(self):
         _, lock = packaging.validate_source()

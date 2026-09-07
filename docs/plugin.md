@@ -16,10 +16,11 @@ one set of skills and scripts, a portable manifest and native Claude/Codex adapt
 - [Recorded gstack and image demonstration](../plugins/hollis/examples/recorded-demo.md)
 
 The source package downloads the pinned runtime during setup; a built archive
-bundles the ARM64 Hollis 0.3.1 executable and all five bridges. Local 0.3.2
-validation does not change that pin. New source docs do not update a preserved ZIP.
+bundles the provenance-verified ARM64 Hollis 0.3.2 executable and all five bridges.
+New source docs do not update a preserved ZIP; older archives retain their
+original runtimes and recorded checksums.
 
-Plugin 0.1.0 is prepared locally for review. Its validation record distinguishes
-tests completed from remaining release acceptance work; see the
-[validation report](plugin-validation.md). Repository installation commands apply once this package is
-published on the selected ref.
+Get [plugin 0.1.0](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0)
+or install from the repository using the guide above. Its validation record
+distinguishes completed tests from remaining first-account acceptance work;
+see the [validation report](plugin-validation.md).

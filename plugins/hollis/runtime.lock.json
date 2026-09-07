@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "version": "0.3.1",
+  "version": "0.3.2",
   "repository": "kamenxrider/hollis",
-  "source_commit": "19a79702e547c71b5a8dbc9037782ab0706e0155",
-  "source_ref": "refs/tags/v0.3.1",
+  "source_commit": "7c2b384edb705b867e8ca27a92c2427ac95b6957",
+  "source_ref": "refs/tags/v0.3.2",
   "signer_workflow": "kamenxrider/hollis/.github/workflows/release.yml",
-  "release_url": "https://github.com/kamenxrider/hollis/releases/download/v0.3.1",
+  "release_url": "https://github.com/kamenxrider/hollis/releases/download/v0.3.2",
   "binary": {
     "name": "hollis-darwin-arm64",
-    "sha256": "649805415bf834687d3a5f9f44db8238e5e91a9defdba2ededfd25c97538a96c"
+    "sha256": "c53376b7c69d2523dda900f8a336c4457ae7d337061104749097fa0c23608dbd"
   },
   "bridges": {
     "name": "hollis-bridges.zip",
-    "sha256": "fbca4c9868b33065d6b170a7d943b292c2c6500bcf430d5039dc5d4e65776b38"
+    "sha256": "e0c62e75b990e1650f0fb42dbba6c3668371d2e331be4abe83fd227ef46ba7e2"
   },
   "bridge_files": [
     "AFM Bridge - Cloud.shortcut",

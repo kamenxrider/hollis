@@ -1,0 +1,151 @@
+{
+  "date": "2026-09-07",
+  "plugin_version": "0.1.0",
+  "runtime": {
+    "version": "0.3.2",
+    "source_commit": "7c2b384edb705b867e8ca27a92c2427ac95b6957",
+    "release_url": "https://github.com/kamenxrider/hollis/releases/tag/v0.3.2",
+    "assets": {
+      "SHA256SUMS": {
+        "sha256": "6d104636f6d754a284794a4a922a68a98c9eea0becbc3f8e3ac6da17feac27b5",
+        "verified": true,
+        "size": 257
+      },
+      "hollis-bridges.zip": {
+        "sha256": "e0c62e75b990e1650f0fb42dbba6c3668371d2e331be4abe83fd227ef46ba7e2",
+        "verified": true,
+        "size": 5363
+      },
+      "hollis-darwin-amd64": {
+        "sha256": "24b3746f243bf537bfa0fd3c1fa97b2ba28e27063de3eaacd0b40a43a3a620e8",
+        "verified": true,
+        "size": 12759328
+      },
+      "hollis-darwin-arm64": {
+        "sha256": "c53376b7c69d2523dda900f8a336c4457ae7d337061104749097fa0c23608dbd",
+        "verified": true,
+        "size": 12115106
+      },
+      "hollis.spdx.json": {
+        "sha256": "c3292d6f3ea0d4682a814253602286ad6e613b754c7598d3425ec8332fe8df47",
+        "verified": true,
+        "size": 111833
+      }
+    },
+    "strict_provenance": {
+      "repository": "kamenxrider/hollis",
+      "workflow": "kamenxrider/hollis/.github/workflows/release.yml",
+      "source_ref": "refs/tags/v0.3.2",
+      "source_digest": "7c2b384edb705b867e8ca27a92c2427ac95b6957",
+      "signer_digest": "7c2b384edb705b867e8ca27a92c2427ac95b6957",
+      "self_hosted_runners_denied": true
+    },
+    "checksum_manifest_matched": true
+  },
+  "review_package": {
+    "path": "dist/plugin-v0.1.0-runtime-v0.3.2-review/hollis-plugin-0.1.0.zip",
+    "sha256": "5fcc5425900ba932faaf19e551f55cfde0c7f699428a8a98ca46b68919c629c8",
+    "bytes": 8369521,
+    "native_extraction_verified": true,
+    "entries": 36,
+    "outer_github_attestation": false,
+    "boundary": "Local acceptance archive. The final GitHub archive is built separately; its core bytes must match the tested core below. Documentation and fresh provenance receipts can differ."
+  },
+  "installation": {
+    "status": "passed",
+    "runtime": "0.3.2",
+    "calls": 14,
+    "provider_calls": 0,
+    "installer_path": "macOS system utilities only",
+    "cases": [
+      "read-only empty status",
+      "path contract",
+      "bundled install and repeat",
+      "version and locked binary",
+      "executable modes",
+      "Rosetta check",
+      "real 0.3.1 upgrade and rollback",
+      "repair over corrupt old binary",
+      "refused rollback preserves current",
+      "state preservation",
+      "actual locked source download"
+    ],
+    "fresh_account": false
+  },
+  "plugin_regressions": {
+    "passed": 51,
+    "failed": 0
+  },
+  "host_checks": [
+    {
+      "host": "Claude Code",
+      "route": "cloud",
+      "model_requested": "cloud",
+      "model_used": "cloud",
+      "started_at": "2026-09-07T02:18:03.780071+00:00",
+      "ended_at": "2026-09-07T02:20:28.992367+00:00",
+      "elapsed_host_seconds": 145.211,
+      "answer": "Community Seed Swap Checklist (Saturday, 11am\u20131pm):\n- Volunteers: Assign exactly two people (e.g., setup/coordination and oversight).\n- Tables: Set up three tables (arrival, display, packing).\n- Envelopes: Provide clearly labelled envelopes for each seed type.\n- Rules: Post \u201cno selling\u201d signs; enforce free exchange only.\n- Practical risk: Seeds blowing away in wind \u2014 mitigate with weighted clips or covers on tables.",
+      "apple_calls": 1,
+      "stored_default": "auto",
+      "concrete_selection": "cloud",
+      "status": "passed"
+    },
+    {
+      "host": "Codex desktop",
+      "style": "sketch",
+      "started_at": "2026-09-07T02:21:00.035843+00:00",
+      "ended_at": "2026-09-07T02:21:07.778539+00:00",
+      "elapsed_generation_seconds": 7.742,
+      "prompt": "A tiny lighthouse on a mossy island, calm turquoise water, two white clouds and a yellow sailboat, clear composition, no lettering.",
+      "image": {
+        "sha256": "223cf934a705c9ea660c0b9e9568728a76be558de86136f2622b8799b035e200",
+        "bytes": 1143317,
+        "width": 1024,
+        "height": 1024
+      },
+      "visual_observation": "Colored pencil-like lighthouse on a mossy island, yellow sailboat, turquoise water and two white clouds; no visible lettering.",
+      "absolute_open_image_link_emitted": true,
+      "apple_calls": 1,
+      "status": "passed"
+    }
+  ],
+  "serialized": true,
+  "automatic_retries": 0,
+  "tested_core_sha256": {
+    ".claude-plugin/plugin.json": "b6148acfbf6224d3a47c4354fcde0c2eb988983da91a187d87d7d5d613b7cb3a",
+    ".codex-plugin/plugin.json": "61e67e5846b6e9c0caa4378b6545b3c4aeb316d095616f024082251e69c66fa4",
+    "assets/runtime/hollis-bridges.zip": "e0c62e75b990e1650f0fb42dbba6c3668371d2e331be4abe83fd227ef46ba7e2",
+    "assets/runtime/hollis-darwin-arm64": "c53376b7c69d2523dda900f8a336c4457ae7d337061104749097fa0c23608dbd",
+    "plugin.json": "927983a19664b1d507e4fe28c4dd4e2d94646ac2af454e79cd04f234128724a4",
+    "runtime.lock.json": "b5a7b051c93c9f7839fe2f691fdeafae0cc5f566c866b6bc09e5d86f522beb67",
+    "scripts/bridges.sh": "ccd5fa4f7ce741523fc6370755e591c3bcb73e292d06ec24956f32fcc50fbff5",
+    "scripts/common.sh": "8cb676141ef96f026676a65a6c04ad5bc4f66f8f7f6eb55979ba2f552c19be8f",
+    "scripts/run.sh": "adfa2aff38a45f257e549f20b0ad51187fdecd84663f32158495e93e40192716",
+    "scripts/setup.sh": "0cfbc2e342f9021cf7e21eccd9d315346011cafe53019783df18f448d140f8fa",
+    "skills/hollis/SKILL.md": "c4d5afc934d17f077cd8fb538f285b007d5841be4cafcd2e5faf47b31cdde98d",
+    "skills/hollis/references/gstack.md": "644eca549a53e3b4133fafa685aa3080466f812bbca076286df2e9cf9e25431d",
+    "skills/hollis/references/workflows.md": "86140e06f8c3f7c5048d2b0c4927266d8db6b11615ebb44a807d2d3b07560d38",
+    "skills/hollis-setup/SKILL.md": "dc18144cb523d40f71dc3340b51508bb0f125da9454f67bc26ce6cddbfe4aa9a"
+  },
+  "preserved_historical_artifacts": {
+    "dist/plugin-v0.1.0-runtime-v0.3.1/hollis-plugin-0.1.0.zip": {
+      "sha256": "82f78972687e8d3e6ddc1b4888fb869fb39b93195dcaef9bdf0ae2b2980362d6",
+      "bytes": 8354628
+    },
+    "plugins/hollis/docs/release-package-evidence.json": {
+      "sha256": "4ac089aec7315b4ccdbf40cc3147dd5f94fd3628a023f90fe807d08d3b5039f1",
+      "bytes": 8369
+    }
+  },
+  "acceptance_gaps": [
+    "fresh Mac account and first Apple consent",
+    "user-confirmed inline image rendering",
+    "deliberately locked live image session or fresh permission rejection",
+    "reliable reference conditioning and photographic Any Style output"
+  ],
+  "harness_notes": [
+    "A preflight assertion initially expected an agent envelope from config show --json; the flat path field was verified before any configuration or inference. This was a test assertion error, not a runtime failure.",
+    "Claude received context about its outer harness invocation, recognized setup was already complete and did not repeat it; exactly one Apple text call was made. Host elapsed time includes these checks."
+  ]
+}

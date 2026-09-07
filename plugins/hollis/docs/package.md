@@ -112,9 +112,11 @@ provenance. An existing archive is never overwritten.
 
 ## Versions and release sequence
 
-Plugin **0.1.0** currently pins runtime **0.3.1** in `runtime.lock.json`. Runtime
-**0.3.2** is a separately tested local candidate. Editing skills or docs does not
-upgrade the bundled binary, and the preserved archive does not change with source.
+Plugin **0.1.0** pins released runtime **0.3.2** in `runtime.lock.json`.
+Editing skills or docs does not upgrade the bundled binary, and preserved
+review archives do not change with source. The plugin release is explicitly
+excluded from GitHub's “Latest” label so the CLI installer continues to find
+the latest runtime.
 
 When a new runtime is ready, publish it only with authorization, verify its
 release provenance, then update the lock and build a new plugin archive. Recheck

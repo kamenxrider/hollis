@@ -55,6 +55,7 @@ jobs:
             exit 1
           fi
           gh release create "$GITHUB_REF_NAME" \
+            --latest=false \
             --title "Hollis plugin ${GITHUB_REF_NAME#plugin-}" \
             --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
             dist/plugin/*
