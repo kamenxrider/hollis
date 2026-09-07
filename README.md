@@ -176,7 +176,7 @@ A Mac with **Apple Intelligence** enabled, macOS 27 for the measured setup, and 
 
 | You type | Shortcuts model | Notes |
 | --- | --- | --- |
-| `auto` | Cloud → On-Device | Default; one local fallback only for unavailable, rate-limited, transient, or empty Cloud results |
+| `auto` | Cloud → On-Device | Default; one local fallback only for a confirmed missing bridge or recognized Cloud rate limit |
 | `cloud` | Cloud | "Great, fast answers" — Apple's server model on Private Cloud Compute |
 | `cloud-pro` | Cloud Pro | "Increased reasoning" — macOS 27+; slower than Cloud, stronger on harder prompts |
 | `on-device` | On-Device | Runs locally, works offline |
@@ -340,9 +340,12 @@ Exit codes are stable and parseable:
 | 1 | Unexpected internal error |
 | 2 | Usage error — bad flag, unknown model, empty prompt, no matching command |
 | 3 | Missing resource — unknown conversation id, no search hits, bridge not installed |
-| 5 | Discovery, transport, or Apple rate-limit failure |
+| 5 | Discovery, transport, Shortcut execution, declined request, or Apple rate-limit failure |
 | 7 | Timeout — the run exceeded its deadline and was killed |
 | 10 | Config or database error |
+
+Runtime 0.3.2 adds specific JSON codes `request_declined` and `shortcut_failed`,
+both retaining exit 5. See [failure meanings and next actions](docs/errors.md).
 
 ## Local OpenAI-shaped API
 

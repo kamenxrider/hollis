@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/kamenxrider/hollis/internal/shortcutdiagnostic"
 	"golang.org/x/sys/unix"
 )
 
@@ -83,7 +84,7 @@ func (r *ShortcutRunner) Run(ctx context.Context, model Model, prompt string) (s
 }
 
 // RunWithFallback implements FallbackRunner. ModelAuto tries cloud once and,
-// only for explicitly eligible transient failures, on-device once. Explicit
+// only for confirmed missing bridges or recognized rate limits, on-device once. Explicit
 // tiers never fall back.
 func (r *ShortcutRunner) RunWithFallback(ctx context.Context, model Model, prompt string) (string, Model, Fallback, error) {
 	if strings.TrimSpace(prompt) == "" {
@@ -586,12 +587,16 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 			}
 		}
 		signal, signaled := processSignal(res.err)
-		kind := KindTransport
+		kind := KindShortcutFailed
 		switch {
 		case signaled && signal == syscall.SIGABRT:
 			kind = KindSIGABRT
 		case signaled:
 			kind = KindSignal
+		case exitCode < 0:
+			kind = KindTransport
+		case exitCode != 64 && shortcutdiagnostic.RequestDeclined(stderrText):
+			kind = KindRequestDeclined
 		case isRateLimited(stderrText):
 			kind = KindRateLimited
 		case isMissingShortcut(stderrText):

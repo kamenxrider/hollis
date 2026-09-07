@@ -15,6 +15,7 @@ import (
 
 	"github.com/kamenxrider/hollis/internal/imagegen"
 	"github.com/kamenxrider/hollis/internal/runner"
+	"github.com/kamenxrider/hollis/internal/shortcutdiagnostic"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -35,6 +36,10 @@ func newRunnerDefault() runner.Runner { return runner.New() }
 // flags or stdin.
 func Execute() error {
 	cmd, flags := newRootCmdWithFlags(newRunnerDefault)
+	return executeCommand(cmd, flags)
+}
+
+func executeCommand(cmd *cobra.Command, flags *rootFlags) error {
 	err := cmd.Execute()
 	if err == nil {
 		return nil
@@ -91,7 +96,7 @@ config override > installed name; a compiled development UUID is retained only
 as an unverified candidate ('hollis config set bridge <tier> <name-or-uuid>'
 to override).
 Default model: auto (cloud first, then one on-device fallback only for an
-unavailable bridge, rate limit, transient transport failure, or empty output).
+unavailable bridge or recognized rate limit).
 Agent mode: add --agent to supported data commands for JSON output + non-interactive mode.
 Health check: run 'hollis doctor' to verify the transport and bridges.
 Local OpenAI-compatible endpoint: run 'hollis serve' (127.0.0.1:1978).
@@ -275,8 +280,9 @@ func wrapArgErrors(command *cobra.Command) {
 }
 
 type cliError struct {
-	code int
-	err  error
+	code        int
+	err         error
+	machineCode string
 }
 
 type reportedError struct{ err error }
@@ -298,6 +304,11 @@ func notFoundErr(err error) error  { return &cliError{code: 3, err: err} }
 func transportErr(err error) error { return &cliError{code: 5, err: err} }
 func timeoutErr(err error) error   { return &cliError{code: 7, err: err} }
 func configErr(err error) error    { return &cliError{code: 10, err: err} }
+
+// executionErr keeps semantic codes separate from the stable numeric exit map.
+func executionErr(code, message string) error {
+	return &cliError{code: 5, machineCode: code, err: errors.New(message)}
+}
 
 // ExitCode maps an error returned from Execute to a process exit code.
 // Exit codes are stable and agent-parseable (plan §23):
@@ -326,6 +337,10 @@ func toCLIError(err error) error {
 		return transportErr(err)
 	}
 	switch re.Kind {
+	case runner.KindRequestDeclined:
+		return executionErr("request_declined", shortcutdiagnostic.DeclinedMessage)
+	case runner.KindShortcutFailed:
+		return executionErr("shortcut_failed", shortcutdiagnostic.FailedMessage)
 	case runner.KindEmptyPrompt:
 		return usageErr(fmt.Errorf("%s\nhint: give a prompt as an argument or pipe it via stdin", err))
 	case runner.KindUsage:
@@ -382,6 +397,10 @@ func printJSONArrayFilteredTo(w io.Writer, items []map[string]any, flags *rootFl
 }
 
 func errorCode(err error) string {
+	var classified *cliError
+	if errors.As(err, &classified) && classified.machineCode != "" {
+		return classified.machineCode
+	}
 	switch ExitCode(err) {
 	case 2:
 		return "usage"

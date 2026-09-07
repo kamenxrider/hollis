@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/kamenxrider/hollis/internal/imagegen"
+	"github.com/kamenxrider/hollis/internal/shortcutdiagnostic"
 )
 
 const defaultImageStyle = "animation"
@@ -404,6 +405,12 @@ func writeImageGenerationError(w http.ResponseWriter, err error) {
 	var generationErr *imagegen.Error
 	if errors.As(err, &generationErr) {
 		switch generationErr.Kind {
+		case imagegen.KindRequestDeclined:
+			writeAPIError(w, http.StatusBadGateway, "server_error", "request_declined", shortcutdiagnostic.DeclinedMessage)
+		case imagegen.KindNonZeroExit:
+			writeAPIError(w, http.StatusBadGateway, "server_error", "shortcut_failed", shortcutdiagnostic.FailedMessage)
+		case imagegen.KindSpawn:
+			writeAPIError(w, http.StatusBadGateway, "server_error", "transport", "the image Shortcut could not be launched")
 		case imagegen.KindTimeout, imagegen.KindCanceled:
 			writeAPIError(w, http.StatusGatewayTimeout, "server_error", "image_generation_timeout", "image generation did not complete before its deadline")
 		case imagegen.KindMissingBridge:

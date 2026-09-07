@@ -39,13 +39,13 @@ const (
 
 // Models is the exhaustive set of concrete model tiers. ModelAuto is a
 // strategy, not a tier: it tries the default tier first and may fall back to
-// the on-device model for a narrow set of availability/transport failures, so
+// the on-device model for confirmed missing bridges or recognized rate limits, so
 // it is valid for selection but has no bridge of its own.
 var Models = []Model{ModelCloud, ModelCloudPro, ModelOnDevice, ModelChatGPT}
 
 // ModelAuto selects the default tier (cloud) and falls back to the
-// on-device model when the primary run fails with a transport-class
-// error. Explicit tier selections never fall back.
+// on-device model only for a confirmed missing bridge or recognized rate limit.
+// Explicit tier selections never fall back.
 const ModelAuto Model = "auto"
 
 // Valid reports whether m is selectable: any concrete tier or auto.
@@ -97,7 +97,9 @@ const (
 	KindTimeout         Kind = "timeout"            // deadline hit, child killed
 	KindContextCanceled Kind = "context_canceled"   // caller canceled before/during run
 	KindListFailure     Kind = "list_failure"       // `shortcuts list` transport failure
-	KindTransport       Kind = "transport"          // anything else
+	KindTransport       Kind = "transport"          // staging, launch, or pipe failure
+	KindRequestDeclined Kind = "request_declined"   // Apple asked for a different description; cause unknown
+	KindShortcutFailed  Kind = "shortcut_failed"    // unrecognized unsuccessful execution
 )
 
 // Error is a classified runner failure. Kind maps to a stable CLI exit code.
@@ -183,11 +185,11 @@ type FallbackRunner interface {
 }
 
 // FallbackEligible reports whether a primary-model failure may be retried on
-// the on-device tier. Context timeout/cancel, usage, empty prompt, and real
-// process crashes are never eligible.
+// the on-device tier. Only confirmed missing bridges and recognized rate limits
+// are eligible; ambiguous outcomes must never dispatch another model call.
 func FallbackEligible(kind Kind) bool {
 	switch kind {
-	case KindShortcutMissing, KindRateLimited, KindNoOutput, KindTransport:
+	case KindShortcutMissing, KindRateLimited:
 		return true
 	default:
 		return false
