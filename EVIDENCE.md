@@ -44,6 +44,12 @@ identities, environment versions and checksums needed to examine the claims.
 Document redactions and unavailable inputs. Exclude credentials, configuration
 and conversation databases, unrelated files and unreviewed host transcripts.
 
+Review public documentation and the complete package contents before publication.
+Private conversations, internal strategy and outreach drafts belong outside the
+public source and release archives. Demonstrations use purpose-built fictional
+inputs; publishing their reviewed results does not authorize sharing other
+conversations.
+
 After separate publication authorization, that bundle can accompany the runtime
 release as an asset, with its checksum and a direct link from the release notes.
 Until an upload is verified, describe it as planned. A public export complements
