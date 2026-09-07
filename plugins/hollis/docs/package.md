@@ -67,6 +67,11 @@ on 7 September 2026; older hosts may expose different capabilities.
 
 ## What belongs where
 
+- `README.md` is the human starting point. The plugin formats do not require it
+  for loading, but Hollis's own packaging requires and includes it. Keep it at
+  the plugin root; use `SKILL.md` for agent behavior. Do not add an unsupported
+  `readme` manifest field. The format references above describe loading rules,
+  not a requirement to omit user documentation.
 - Conversation behavior: shared `skills/` and their references.
 - Installation and dispatch: `scripts/`, preserving macOS utilities as the only
   end-user installation dependencies.
