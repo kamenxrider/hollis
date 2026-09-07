@@ -235,9 +235,10 @@ is blocked through Shortcuts on the tested macOS build.** The separate ChatGPT
 text/image-understanding bridge works.
 
 Use `/image` in a Hollis chat, or request generation through the API. A follow-up
-can attach the previous image and ask for a new scene. References guide a new
-image; exact identity and pixel editing are not promised. Ratios and sizes use
-local crop/pad/resize after generation, rather than native model controls.
+can attach the previous image and ask for a new scene. Reference bytes are sent,
+but reliable use of those pixels remains unproven, including subject preservation.
+Ratios and sizes use local crop/pad/resize after generation, rather than native
+model controls.
 
 [Generation and styles](docs/image-generation.md) ·
 [Image references and conversation examples](docs/image-references.md).

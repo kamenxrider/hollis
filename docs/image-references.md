@@ -1,20 +1,43 @@
 # Image references
 
 Hollis can send one local image to an image-generation Shortcut as a reference.
-The reference is client input for a new generation; it is not a promise of
-pixel-perfect editing. The configured Shortcut decides how much of the image
-it uses.
+Delivery of reference bytes has been demonstrated with the corrected bridge.
+Reliable use of those pixels by the generator remains unproven: do not rely on
+the reference to preserve a subject, composition or identity.
 
 Use the current generated bridge from [image setup](image-generation.md#setup).
 If you imported an earlier Reference Input v2 bridge, replace it: its Get Images
 action was missing the explicit connection to decoded reference bytes.
 
 The corrected connection was isolated with an echo test that returned the actual
-input image, followed by successful generation with recognizable composition.
-Earlier CLI/API conversation tests returned images and preserved subjects and
-scene changes, but their checksum metadata alone did not prove the old Shortcut
-passed reference pixels to Photo. The [evidence record](../EVIDENCE.md#reference-correction)
-explains that correction.
+input image. That establishes byte delivery through the tested bridge, not that
+the generator used those pixels. `reference_image_sent` and matching checksums
+describe Hollis's submitted input; they do not establish model conditioning.
+Earlier generations had recognizable composition, but the prompts also named
+the distinctive subjects. That result alone cannot distinguish reference use
+from following the text. The [evidence record](../EVIDENCE.md#reference-correction)
+preserves the original observations and bridge correction.
+
+In the 0.3.2 comparisons, fully described scenes also appeared without a
+reference, three times per historical case. A further control held prompt,
+style, host and runtime constant and asked for the reference's main subject
+without naming it:
+
+| Attachment | Observed output (one call per condition) |
+| --- | --- |
+| Repair-café scene | Portrait of a man in a cap |
+| Turtle with greenhouse | Sunflowers in a blue jug |
+| None | Portrait of a man in a hat |
+
+The café and no-reference conditions both produced unrelated male portraits;
+neither attached subject was recovered. These results argue against relying
+on reference editing in this flow. They do not prove that references can never
+influence generation or identify the failing layer. The released bridge's
+connections were inspected before these calls, but the current installed
+bridge's action graph was not readable. See the
+[0.3.2 call records](releases/v0.3.2-validation.json), including
+`diagnostic-reference-cafe`, `diagnostic-reference-turtle` and
+`diagnostic-reference-none`.
 
 Hollis puts the newest revision first and retains earlier subject/text context.
 The result is a newly generated image; details and proportions can change.

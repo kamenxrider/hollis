@@ -14,7 +14,7 @@ All examples below are arguments to `bash "$KIT/scripts/run.sh"`; replace paths 
 
 The five supported selections are `animation`, `illustration`, `sketch`, `genmoji`, and `any`. Default to `animation` when the user has no style preference, matching Hollis. `any` does not guarantee photographs. ChatGPT **text and image understanding** work; ChatGPT **image generation** is unavailable through the tested Shortcut route.
 
-For a follow-up: keep the previous returned local file path, then call `image generate` with the requested change and `--reference-image /absolute/previous.png`. This guides a new image; it does not promise identical subjects or pixel-level editing. Use a new output filename each time. An explicit fresh-scene request omits the reference.
+For a follow-up: keep the previous returned local file path, then call `image generate` with the requested change and `--reference-image /absolute/previous.png`. This submits the previous image; reliable use of its pixels remains unproven, including subject preservation. Keep relevant subject and scene context in the prompt, and assess the returned result rather than treating successful attachment delivery as proof of an edit. Use a new output filename each time. An explicit fresh-scene request omits the reference.
 
 Ratios and sizes are local processing after generation: `--aspect-ratio 16:9 --fit crop`, or `--size 1200x800 --fit pad`. Preserve native output when neither is requested. If the user requests a ratio without specifying a fit, explain crop versus padding and ask which preserves their intent. These flags do not control Apple's native sampling. No seed control is exposed.
 

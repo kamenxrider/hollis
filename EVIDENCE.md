@@ -81,7 +81,7 @@ on another Mac or a particular private backend identity.
 | API PNG/JPEG understanding | Passed on Cloud, Cloud Pro and ChatGPT, across both API formats | No On-Device image input |
 | Image batches | Passed on the three online tiers | One fixture per tier; no additional call on resume |
 | Image generation | Animation, Illustration, Sketch, Genmoji and Any Style returned PNGs | Generic refusals also occurred; style names are requested settings, not backend attestations |
-| Image conversation delivery | Final nine-image sequence retained subjects and applied scene changes across interactive chat and both APIs | Details varied; not exact identity or pixel editing |
+| Image conversation delivery | Final nine-image sequence retained subjects and applied scene changes across interactive chat and both APIs | Text also described the subjects; this does not establish reference-pixel use |
 
 Document, API-understanding and batch smoke tests made 21 live requests, all
 matching the expected fixtures. Image qualification retained 52 valid PNGs
@@ -99,10 +99,22 @@ prove the Shortcut delivered them to Photo. Those runs cannot establish that
 the model used the reference pixels.
 
 The generator now explicitly connects Decode → Get Images → Photo. The isolated
-corrected bridge returned the supplied image in an echo control and produced a
-new image with recognizable reference composition in a live generation. The
-regression test checks the UUID connection; packaging tests inspect the actual
-bridge inside the release archive. A new generation is still not exact editing.
+corrected bridge returned the supplied image in an echo control. That proves
+byte delivery through that tested bridge. A subsequent generation had
+recognizable composition, but its prompt also described the scene; this does
+not establish that the generator used reference pixels. The regression test
+checks the UUID connection; packaging tests inspect the actual bridge inside
+the release archive. Neither check proves model conditioning.
+
+The 0.3.2 controls strengthen this distinction: fully described scenes appeared
+with and without references, while prompts that omitted the subject did not
+recover either attached subject. A café reference produced a man in a cap;
+no reference produced a man in a hat; the turtle reference produced sunflowers
+in a blue jug. These were one call per subject-omission condition, not identical
+images or proof of impossibility. Reliable reference editing remains unproven.
+The installed bridge's current action graph could not be read in that round,
+so the observations do not isolate the failing layer. See
+[image references](docs/image-references.md) for the controls and call records.
 
 The assembled 0.3.0 binary then passed four new live image calls using the
 installed corrected diagnostic bridge. Its complete workflow matches the

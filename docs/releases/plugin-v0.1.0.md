@@ -21,9 +21,10 @@ are verified before packaging and before local execution/extraction. A
 separately authorized GitHub release build is still required to attest the
 outer plugin archive.
 
-Five image styles are exposed; Any Style is not a photorealism guarantee and
-references guide variations. ChatGPT generation remains unavailable through the
-tested Shortcut route. No visible Image Playground automation is used.
+Five image styles are exposed; Any Style is not a photorealism guarantee.
+Reference submission is supported, but reliable use of reference pixels remains
+unproven, including subject preservation. ChatGPT generation remains unavailable
+through the tested Shortcut route. No visible Image Playground automation is used.
 
 See [setup and limits](../../plugins/hollis/README.md),
 [privacy](../../plugins/hollis/docs/privacy.md) and
