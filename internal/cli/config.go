@@ -113,7 +113,7 @@ func validateConfig(c config) error {
 	}
 	for tier, ref := range c.Bridges {
 		model := runner.Model(tier)
-		if !model.Valid() || model == runner.ModelAuto {
+		if !model.Valid() || model == runner.ModelAuto || model == runner.ModelLocal {
 			return fmt.Errorf("unknown bridge tier %q", tier)
 		}
 		if strings.TrimSpace(ref) == "" || strings.HasPrefix(strings.TrimSpace(ref), "-") {
@@ -395,10 +395,10 @@ func newConfigSetCmd(flags *rootFlags) *cobra.Command {
 				}
 				value := args[1]
 				if !runner.Model(value).Valid() {
-					return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", value))
+					return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, chatgpt, or local", value))
 				}
 				// Explicit tiers must resolve on this machine; auto always applies.
-				if m := runner.Model(value); m != runner.ModelAuto {
+				if m := runner.Model(value); m != runner.ModelAuto && m != runner.ModelLocal {
 					resolved, err := resolveBridges(cmd.Context())
 					if err != nil && !canAttemptAfterDiscoveryFailure(resolved, m) {
 						return resolutionCLIError(err)
@@ -425,7 +425,7 @@ func newConfigSetCmd(flags *rootFlags) *cobra.Command {
 					return usageErr(errors.New("usage: hollis config set bridge <tier> <name-or-uuid>"))
 				}
 				tier, ref := runner.Model(args[1]), args[2]
-				if !tier.Valid() || tier == runner.ModelAuto {
+				if !tier.Valid() || tier == runner.ModelAuto || tier == runner.ModelLocal {
 					return usageErr(fmt.Errorf("unknown bridge tier %q: choose cloud, cloud-pro, on-device, or chatgpt", tier))
 				}
 				if strings.TrimSpace(ref) == "" {
@@ -483,14 +483,14 @@ func validateConfigSetArgs(_ *cobra.Command, args []string) error {
 			return usageErr(errors.New("usage: hollis config set model <tier>"))
 		}
 		if !runner.Model(args[1]).Valid() {
-			return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", args[1]))
+			return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, chatgpt, or local", args[1]))
 		}
 	case "bridge":
 		if len(args) != 3 {
 			return usageErr(errors.New("usage: hollis config set bridge <tier> <name-or-uuid>"))
 		}
 		tier := runner.Model(args[1])
-		if !tier.Valid() || tier == runner.ModelAuto {
+		if !tier.Valid() || tier == runner.ModelAuto || tier == runner.ModelLocal {
 			return usageErr(fmt.Errorf("unknown bridge tier %q: choose cloud, cloud-pro, on-device, or chatgpt", tier))
 		}
 		if strings.HasPrefix(strings.TrimSpace(args[2]), "-") {

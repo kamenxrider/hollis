@@ -481,14 +481,14 @@ func validateConcreteModel(model runner.Model) error {
 }
 
 func concreteModel(model runner.Model) bool {
-	return slices.Contains(runner.Models, model)
+	return model == runner.ModelLocal || slices.Contains(runner.Models, model)
 }
 
 func validateModelItems(model runner.Model, items []Item) error {
-	if model == runner.ModelOnDevice {
+	if model == runner.ModelOnDevice || model == runner.ModelLocal {
 		for _, item := range items {
 			if item.Kind == ItemImage {
-				return errors.New("on-device batch jobs cannot contain images")
+				return fmt.Errorf("%s batch jobs cannot contain images", model)
 			}
 		}
 	}

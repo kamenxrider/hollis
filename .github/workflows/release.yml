@@ -11,13 +11,29 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-latest
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
+
+      - name: Verify source privacy
+        run: |
+          python3 scripts/release/privacy.py --source
+          git archive --format=tar HEAD > "$RUNNER_TEMP/hollis-source.tar"
+          python3 scripts/release/privacy.py --archive "$RUNNER_TEMP/hollis-source.tar" --kind source
+
+      - name: Select and verify Apple SDK
+        run: |
+          # Native builds require Xcode 27, not whichever SDK macos-latest selects.
+          XCODE=$(find /Applications -maxdepth 1 -name 'Xcode_27*.app' -type d | sort -V | tail -1)
+          test -n "$XCODE" || { echo 'Xcode 27 is unavailable on this runner; no release will be published.' >&2; exit 1; }
+          echo "DEVELOPER_DIR=$XCODE/Contents/Developer" >> "$GITHUB_ENV"
+          DEVELOPER_DIR="$XCODE/Contents/Developer" xcodebuild -version
+          SDK=$(DEVELOPER_DIR="$XCODE/Contents/Developer" xcrun --sdk macosx --show-sdk-version)
+          test "${SDK%%.*}" -ge 27
 
       # A tag must not be able to publish a build the tests reject.
       - name: Test
@@ -28,6 +44,8 @@ jobs:
           go test -race ./...
           python3 -m unittest discover -s scripts/image-install-check -p 'test_*.py'
           python3 -m unittest discover -s scripts/poolside-review -p 'test_*.py'
+          python3 -m unittest discover -s scripts/plugin -p 'test_*.py'
+          python3 -m unittest discover -s scripts/release -p 'test_*.py'
 
       - name: Build macOS binaries
         run: |
@@ -40,16 +58,25 @@ jobs:
               -o "dist/hollis-darwin-$arch" ./cmd/hollis
           done
 
+      - name: Build native local helper
+        run: bash scripts/build-native.sh dist/hollis-native-darwin-arm64
+
       # Ship all four model bridges and the image bridge in the normal bundle.
       # Package from source with explicit membership, excluding diagnostics
       # and machine-specific signed imports.
       - name: Bundle unsigned bridge shortcuts
         run: python3 scripts/package-bridges.py dist
 
+      - name: Bundle Apple Silicon runtime
+        run: |
+          python3 scripts/plugin/package_runtime.py dist --version "${GITHUB_REF_NAME#v}"
+          python3 scripts/release/privacy.py --archive "dist/hollis-${GITHUB_REF_NAME#v}-darwin-arm64.zip" --kind bundle
+          python3 scripts/release/privacy.py --archive dist/hollis-bridges.zip --kind bridges
+
       - name: Generate checksums
         run: |
           cd dist
-          shasum -a 256 hollis-darwin-arm64 hollis-darwin-amd64 hollis-bridges.zip > SHA256SUMS
+          shasum -a 256 hollis-darwin-arm64 hollis-darwin-amd64 hollis-native-darwin-arm64 hollis-bridges.zip "hollis-${GITHUB_REF_NAME#v}-darwin-arm64.zip" > SHA256SUMS
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
@@ -58,6 +85,9 @@ jobs:
           format: spdx-json
           output-file: dist/hollis.spdx.json
           upload-artifact: false
+
+      - name: Inspect every publication asset
+        run: python3 scripts/release/privacy.py --release-dir dist --kind bundle
 
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
@@ -77,6 +107,8 @@ jobs:
             --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
             dist/hollis-darwin-arm64 \
             dist/hollis-darwin-amd64 \
+            dist/hollis-native-darwin-arm64 \
+            "dist/hollis-${GITHUB_REF_NAME#v}-darwin-arm64.zip" \
             dist/hollis-bridges.zip \
             dist/SHA256SUMS \
             dist/hollis.spdx.json

@@ -8,7 +8,9 @@ These observations describe the tested macOS builds. For installation and suppor
 hollis → /usr/bin/shortcuts → Use Model → Cloud / Cloud Pro / On-Device / ChatGPT
 ```
 
-Each model bridge configures incoming text, runs **Use Model**, then **Stop and Output**. Receive is input configuration, not a separate action. Text-only requests feed the prompt on stdin. Image requests pass a private temporary prompt file and the image files together as repeated inputs. Hollis captures plain text back. It does not patch or modify `fm`, and needs no Apple model API key: the transport is the local Shortcuts app, running as you. The optional HTTP server has its own local bearer token.
+Each model bridge configures incoming text, runs **Use Model**, then **Stop and Output**. Receive is input configuration, not a separate action. Hollis stages the exact rendered prompt in a private temporary `.txt` file and passes it with `--input-path`, for both text-only and image requests. Image paths follow the prompt as repeated inputs. The Shortcuts child receives no prompt on stdin. Hollis captures plain text back. It does not patch or modify `fm`, and needs no Apple model API key: the transport is the local Shortcuts app, running as you. The optional HTTP server has its own local bearer token.
+
+Positional prompts, piped stdin, `--prompt-file` and documents keep their existing CLI behavior; staging happens after the final prompt is rendered. The staging file has a unique name and mode `0600`, and receives the bytes without trimming, reflowing or adding a newline. It is removed when the request finishes, including ordinary errors, handled cancellation and timeouts. A forced process kill, host crash or removal failure can leave the private file in the system temporary directory; removal is not secure erasure. Staging failure prevents dispatch, with no retry through stdin. The 30-second default and 120-second maximum request timeout are unchanged.
 
 ### Bridge discovery
 
@@ -36,7 +38,8 @@ The transport rules below are not stylistic. Each one is a behaviour that was me
 | Empty input makes `shortcuts run` wait forever, and macOS has no `timeout(1)` | Refuses empty prompts before spawning; every run has a deadline |
 | A killed run can orphan the child | Puts the child in its own process group and kills the group |
 | Exit 0 with empty stdout is indistinguishable from success | Treats it as failure, never as an empty response |
-| With file input, piped stdin does not reach the model | Passes the prompt text file and image files together through repeated `--input-path` arguments |
+| Native stdin can interpret text as another input type | Consistently stages the complete text prompt as a `.txt` input file |
+| With file input, piped stdin does not reach the model | Passes the prompt text file first, followed by any image files through repeated `--input-path` arguments |
 | Responses are complete, not streamed | Does not fake streaming |
 
 The measured evidence behind these rules is summarized in [EVIDENCE.md](../EVIDENCE.md).

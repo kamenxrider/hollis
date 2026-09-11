@@ -28,7 +28,7 @@ checksum and runtime verification receipts accompany the release.
 - Contextual follow-ups, explicit model selection, useful answers inline and
   absolute image links. No silent model substitution.
 - Paced folder processing with a preview, explicit call budget and resumption.
-- A gstack companion workflow and recorded document/image examples, with no
+- A gstack companion workflow and document/image examples, with no
   upstream modification or endorsement implied.
 - Versioned private installation, preserved settings and custom bridges,
   verified rollback, and clear status for the runtime, state path and discovery.
@@ -54,6 +54,5 @@ through the tested Shortcut route. Images require an unlocked session; no
 visible Image Playground automation is used. Host-visible inline rendering
 remains separate from the confirmed absolute file-link behavior.
 
-[Validation and package evidence](../../plugins/hollis/docs/validation.md) retain
-the earlier 0.3.0/0.3.1/0.3.2 recordings under their original versions. This release
-has its own 0.3.3-backed package checks; previous archives are preserved.
+Historical recordings and package-review reports are retained privately and
+are not included in the upcoming source archives or plugin packages.

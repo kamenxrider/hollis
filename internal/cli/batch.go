@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -22,7 +23,7 @@ import (
 )
 
 const (
-	batchUsageModel = "cloud, cloud-pro, on-device, or chatgpt"
+	batchUsageModel = "cloud, cloud-pro, on-device, chatgpt, or local"
 	batchPlanUsage  = "hollis batch plan --input-dir <dir> --prompt-file <file> --model <tier> --output-dir <dir> --job <file>"
 )
 
@@ -118,7 +119,7 @@ is created without overwriting an existing file.`,
 	}
 	cmd.Flags().StringVar(&options.InputDir, "input-dir", "", "Input folder (nonrecursive)")
 	cmd.Flags().StringVar(&options.InstructionSource, "prompt-file", "", "Instruction text file")
-	cmd.Flags().StringVar(&model, "model", "", "Concrete model tier: cloud, cloud-pro, on-device, or chatgpt")
+	cmd.Flags().StringVar(&model, "model", "", "Concrete model tier: cloud, cloud-pro, on-device, chatgpt, or local")
 	cmd.Flags().StringVar(&options.OutputDir, "output-dir", "", "Private result folder")
 	cmd.Flags().StringVar(&options.JobPath, "job", "", "Manifest path to create")
 	return cmd
@@ -169,7 +170,11 @@ persistence, timeout, or cancellation error.`,
 				return configErr(errors.New("batch store is unavailable"))
 			}
 			executor := &hollisBatchExecutor{newRunner: newRunner}
-			result, err := batch.Run(cmd.Context(), jobPath, options, executor, store, realBatchClock{})
+			// Batch execution has no interactive reads; cancellation also covers
+			// pacing and journal updates between individual runner calls.
+			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			result, err := batch.Run(runCtx, jobPath, options, executor, store, realBatchClock{})
 			if err != nil {
 				return batchRunCLIError(err)
 			}
@@ -301,7 +306,7 @@ func (e *hollisBatchExecutor) Execute(ctx context.Context, request batch.Executi
 	if r == nil {
 		return batch.ExecutionOutput{}, errors.New("batch runner is unavailable")
 	}
-	resolved, err := resolveForRunner(callCtx, func() runner.Runner { return r })
+	resolved, err := resolveForModel(callCtx, func() runner.Runner { return r }, request.Model)
 	if err != nil && !canAttemptAfterDiscoveryFailure(resolved, request.Model) {
 		return batch.ExecutionOutput{}, resolutionCLIError(err)
 	}

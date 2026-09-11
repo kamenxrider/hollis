@@ -25,9 +25,10 @@ plugins/hollis/                 Plugin root: hosts load this directory
 │   ├── bridges.sh            Bridge discovery and individual imports
 │   └── common.sh             Shared installation and integrity helpers
 ├── docs/                     Usage, setup, compatibility, privacy and evidence
-├── examples/                 Sample plan, demo steps and recorded results
+├── examples/                 Fictional sample plan and workflow steps
 └── assets/runtime/           Added to built archives; absent from source
     ├── hollis-darwin-arm64
+    ├── hollis-native-darwin-arm64  Matching native-local helper (0.2.0)
     ├── hollis-bridges.zip     All five bridges
     └── provenance.json       Runtime-asset verification receipt
 ```
@@ -53,7 +54,8 @@ versions across all three manifests; reuse the shared skills instead of copying
 them per host. New host support needs a real installation and conversation check.
 
 The plugin currently calls Hollis's CLI. There is no MCP server, automatic install
-hook, streaming interface or background job. Portable packaging does not give a
+hook or background job. Agent output remains complete even though the native
+local runtime can stream human terminal text. Portable packaging does not give a
 remote host access to a Mac, establish Apple consent or guarantee identical host
 permissions and image rendering.
 
@@ -112,7 +114,9 @@ provenance. An existing archive is never overwritten.
 
 ## Versions and release sequence
 
-Plugin **0.1.0** pins released runtime **0.3.3** in `runtime.lock.json`.
+Plugin **0.2.0** targets runtime **0.4.0**. The lock remains at authenticated
+**0.3.3** until the new runtime is published; the source package refuses to build
+or install an older runtime as 0.2.0.
 Editing skills or docs does not upgrade the bundled binary, and preserved
 review archives do not change with source. The plugin release is explicitly
 excluded from GitHub's “Latest” label so the CLI installer continues to find
@@ -131,3 +135,24 @@ tag publishes it.
 
 [Install and use](../README.md) · [Setup and state paths](setup.md) ·
 [Recorded validation](validation.md)
+
+
+## 0.2.0 release sequencing
+
+The source package targets runtime 0.4.0. Its checked-in runtime lock remains
+at the last authenticated public release until the new runtime is published.
+Packaging 0.2.0 refuses an old lock instead of labelling 0.3.3 as 0.4.0.
+After runtime publication, a maintainer runs `scripts/plugin/refresh_lock.py`
+with the full release commit and an explicit output file, reviews that
+provenance-verified lock, then updates the source lock for the separate plugin
+release. Every Go/helper/bridge asset is authenticated again when packaging.
+No candidate-build hash is evidence of published provenance.
+
+Schema 2 adds the `native` asset pin and protocol version. Installation verifies
+and stores `hollis-native` beside `hollis`; repeated checks and rollback verify
+both. Older schema 1 receipts remain usable for legacy rollback. A newer
+external runtime retains ownership of its own helper and is never paired with
+an older managed helper.
+
+Package membership is an explicit file allowlist. Extra docs, local receipts,
+research, logs and brand working files are not swept into the archive.

@@ -44,6 +44,7 @@ type agentContextContracts struct {
 	ModelDefaults string         `json:"model_defaults"`
 	Fallback      string         `json:"fallback_policy"`
 	Network       string         `json:"network"`
+	Local         string         `json:"native_local"`
 	Stdout        string         `json:"stdout"`
 	Stderr        string         `json:"stderr"`
 }
@@ -95,7 +96,7 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 		CLI: agentContextCLI{
 			Name: "hollis",
 			Description: "Apple Intelligence (cloud, cloud-pro, on-device, chatgpt) from the " +
-				"terminal, via macOS Shortcuts. Persistent chats in local SQLite; local " +
+				"terminal, via macOS Shortcuts; explicit local through the native SDK. Persistent chats in local SQLite; local " +
 				"OpenAI-compatible HTTP endpoint via serve.",
 			Version: version,
 		},
@@ -114,6 +115,7 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 			ModelDefaults: "positional model <tier> > explicit --model flag > config model > built-in default; text defaults to auto, --image defaults directly to cloud",
 			Fallback:      "auto tries cloud once, then on-device once, only for confirmed missing bridges or recognized rate limits; all other failures stop without another model call",
 			Network:       "HTTP defaults to loopback; remote bind requires --allow-remote plus bearer authentication and an external encrypted tunnel",
+			Local:         "local is explicit and independent of Shortcuts; streaming human text and HTTP SSE only; JSON/agent and batch outputs remain complete; complete usage is Apple-measured; context overflow fails without shortening history",
 			Stdout:        "successful command output only",
 			Stderr:        "human errors, fallback notices, and newly-created plain-chat IDs only",
 		},

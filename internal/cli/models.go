@@ -37,7 +37,8 @@ var modelCatalog = []modelInfo{
 	{runner.ModelChatGPT, "ChatGPT", "OpenAI ChatGPT extension for Apple Intelligence", "OpenAI ChatGPT extension for Apple Intelligence", "OpenAI ChatGPT extension for Apple Intelligence"},
 }
 
-func newModelsCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
+func newModelsCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
+	var modelFilter string
 	cmd := &cobra.Command{
 		Use:   "models",
 		Short: "List the selectable model tiers and what maps to what",
@@ -55,8 +56,19 @@ sources.`,
   hollis models --json`,
 		Args: noExtraArgs("models"),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if modelFilter != "" && modelFilter != "local" {
+				return usageErr(fmt.Errorf("--model supports only local for native-only discovery"))
+			}
+			localStatus, localErr := probeNativeStatus(cmd.Context(), newRunner())
+			if modelFilter == "local" {
+				if flags.asJSON {
+					return printJSONArrayFilteredTo(cmd.OutOrStdout(), []map[string]any{localModelRow(localStatus, localErr)}, flags)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "local: %s (availability only; inference not tested)\n", localStatusLabel(localStatus, localErr))
+				return nil
+			}
 			resolved, err := resolveBridges(cmd.Context())
-			if err != nil {
+			if err != nil && !localStatus.Available {
 				return resolutionCLIError(err)
 			}
 			osMajor := macosMajorVersion()
@@ -83,6 +95,7 @@ sources.`,
 						"verified":     rb.Verified,
 					})
 				}
+				rows = append(rows, localModelRow(localStatus, localErr))
 				return printJSONArrayFilteredTo(cmd.OutOrStdout(), rows, flags)
 			}
 
@@ -97,10 +110,12 @@ sources.`,
 				desc := appleModelName(m, osMajor)
 				fmt.Fprintf(w, "  %-10s %s\n", string(m.tier), desc)
 			}
+			fmt.Fprintf(w, "  %-10s Native Foundation Models SDK: %s (inference not tested)\n", "local", localStatusLabel(localStatus, localErr))
 			fmt.Fprintf(w, "\nApple publishes no backend model IDs. The internal Shortcuts parameter\nstrings are included in --json; background in README \"Model tiers\".\n")
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&modelFilter, "model", "", "Use local for native-only availability without Shortcuts discovery")
 	return cmd
 }
 

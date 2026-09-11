@@ -75,6 +75,11 @@ rollback_state() {
     ROLLBACK_MESSAGE='The retained runtime failed integrity verification.'
     return 0
   fi
+  if ! (verify_native "$dir" "$receipt") >/dev/null 2>&1; then
+    ROLLBACK_STATUS=unavailable
+    ROLLBACK_MESSAGE='The retained native helper failed verification.'
+    return 0
+  fi
   ROLLBACK_STATUS=available
   ROLLBACK_MESSAGE='The retained runtime was verified and can be restored.'
   return 0
@@ -166,11 +171,10 @@ platform() {
   local os
   os=$(sw_vers -productVersion)
   [[ ${os%%.*} == 27 ]] || { report unsupported "This plugin supports the tested macOS 27 route; found $os."; exit 3; }
-  [[ -x /usr/bin/shortcuts ]] || fail 'Shortcuts is unavailable.'
 }
 read_lock() {
   regular "$RUNTIME_LOCK"
-  [[ $(field "$RUNTIME_LOCK" schema_version) == 1 ]] || fail 'Unsupported runtime lock.'
+  [[ $(field "$RUNTIME_LOCK" schema_version) == 1 || $(field "$RUNTIME_LOCK" schema_version) == 2 ]] || fail 'Unsupported runtime lock.'
   VERSION=$(field "$RUNTIME_LOCK" version)
   version_ok "$VERSION" || fail 'Invalid runtime version.'
   BINARY_NAME=$(field "$RUNTIME_LOCK" binary.name)
@@ -186,6 +190,7 @@ runtime_path() {
   regular "$dir/runtime.lock.json"
   [[ $(field "$dir/runtime.lock.json" version) == "$ver" ]] || fail 'Installed runtime receipt does not match its version.'
   verify "$dir/hollis" "$(field "$dir/runtime.lock.json" binary.sha256)"
+  verify_native "$dir" "$dir/runtime.lock.json"
   printf '%s\n' "$dir/hollis"
 }
 external_newer() {
@@ -196,4 +201,23 @@ external_newer() {
   ver=${out##* }
   newer "$ver" "$VERSION" || return 1
   printf '%s\n' "$candidate"
+}
+
+# The helper belongs to the selected runtime directory, never to PATH. Older
+# retained receipts do not contain a native helper and remain valid for rollback.
+verify_native() {
+  local dir=$1 receipt=$2 name version protocol
+  name=$(field "$receipt" native.name || true)
+  if [[ -z "$name" ]]; then
+    [[ $(field "$receipt" schema_version) != 2 ]] || fail 'Native helper pin is missing.'
+    return 0
+  fi
+  [[ "$name" == hollis-native-darwin-arm64 ]] || fail 'Unexpected native helper asset.'
+  protocol=$(field "$receipt" native.protocol_version)
+  [[ "$protocol" == 1 ]] || fail 'Unsupported native helper protocol.'
+  version=$(field "$receipt" version)
+  verify "$dir/hollis-native" "$(field "$receipt" native.sha256)"
+  [[ -x "$dir/hollis-native" ]] || fail 'Native helper is not executable.'
+  [[ $("$dir/hollis-native" --version) == "hollis-native $version" ]] || fail 'Native helper version does not match runtime.'
+  [[ $("$dir/hollis-native" --protocol-version) == "$protocol" ]] || fail 'Native helper protocol does not match runtime.'
 }

@@ -3,8 +3,7 @@
 The package fixture uses the real packager and synthetic runtime assets. The
 only mock is ``authenticate`` inside the test, standing in for the developer
 machine's GitHub CLI; the shipping packager still has no provenance bypass.
-When the retained review ZIP is present, its checksum and structure are also
-checked without rewriting it.
+Only synthetic fixtures are used; no retained private archive is distributed.
 """
 
 from __future__ import annotations
@@ -30,10 +29,6 @@ import package_plugin as packaging
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CANONICAL_ARCHIVE = ROOT / "dist/plugin-v0.1.0/hollis-plugin-0.1.0.zip"
-CANONICAL_SHA256 = (
-    "60fda465d04467989809c8fa5400b734d28be853b04e1702766a4742814e54f1"
-)
 
 
 def digest(path: Path) -> str:
@@ -72,7 +67,17 @@ class PackageArchiveTests(unittest.TestCase):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / relative, destination)
 
+        # Retain the legacy archive compatibility fixture independently of
+        # current plugin metadata and pending published runtime pins.
+        for name in ('plugin.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json'):
+            path = self.kit / name
+            manifest = json.loads(path.read_text())
+            manifest['version'] = '0.1.0'
+            path.write_text(json.dumps(manifest))
         self.lock = json.loads((self.kit / "runtime.lock.json").read_text())
+        self.lock.update(schema_version=1, version='0.3.3', source_ref='refs/tags/v0.3.3',
+                         release_url='https://github.com/kamenxrider/hollis/releases/download/v0.3.3')
+        self.lock.pop('native', None)
         self.assets = self.kit / "assets/runtime"
         self.assets.mkdir(parents=True)
         self.binary = self.assets / self.lock["binary"]["name"]
@@ -231,33 +236,6 @@ class PackageArchiveTests(unittest.TestCase):
     def test_ditto_extraction_preserves_fixture_modes_bytes_and_all_bridges(self) -> None:
         self._assert_ditto_archive(self.archive, self.base / "ditto-fixture")
 
-    def test_retained_canonical_archive_hash_and_shape_when_present(self) -> None:
-        if not CANONICAL_ARCHIVE.is_file():
-            self.skipTest("retained review archive is not present in this checkout")
-        self.assertEqual(digest(CANONICAL_ARCHIVE), CANONICAL_SHA256)
-        checksum = CANONICAL_ARCHIVE.with_suffix(".sha256")
-        self.assertEqual(checksum.read_text().split()[0], CANONICAL_SHA256)
-        with zipfile.ZipFile(CANONICAL_ARCHIVE) as archive:
-            self.assertTrue(archive.namelist())
-            self.assertTrue(all(not info.is_dir() for info in archive.infolist()))
-            self.assertIn(
-                "hollis-plugin-0.1.0/plugins/hollis/assets/runtime/hollis-darwin-arm64",
-                archive.namelist(),
-            )
-            bridges = zipfile.ZipFile(
-                archive.open(
-                    "hollis-plugin-0.1.0/plugins/hollis/assets/runtime/hollis-bridges.zip"
-                )
-            )
-            with bridges:
-                self.assertEqual(
-                    sorted(bridges.namelist()), sorted(self.lock["bridge_files"])
-                )
-
-    def test_ditto_extracts_retained_canonical_archive_when_present(self) -> None:
-        if not CANONICAL_ARCHIVE.is_file():
-            self.skipTest("retained review archive is not present in this checkout")
-        self._assert_ditto_archive(CANONICAL_ARCHIVE, self.base / "ditto-canonical")
 
 
 if __name__ == "__main__":

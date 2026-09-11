@@ -1,0 +1,12 @@
+# Private working material never belongs in downloadable source archives.
+/docs/dev export-ignore
+/assets/brand export-ignore
+/results/*live* export-ignore
+/results/macos-26-compat.md export-ignore
+/results/tool-protocol-26A5425a.md export-ignore
+
+# Research and recorded host runs are never publication inputs.
+/scripts/live-suite export-ignore
+/scripts/image-suite export-ignore
+/plugins/hollis/examples/recorded export-ignore
+/plugins/hollis/docs/*-evidence.json export-ignore

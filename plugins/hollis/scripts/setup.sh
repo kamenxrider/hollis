@@ -19,6 +19,11 @@ fetch_asset() {
 }
 install_runtime() {
   platform; read_lock
+  local plugin_version
+  plugin_version=$(field "$PLUGIN_ROOT/plugin.json" version)
+  if ! newer 0.2.0 "$plugin_version" && newer 0.4.0 "$VERSION"; then
+    fail 'This 0.2.0 source package awaits verified runtime 0.4.0 release pins; no older runtime was installed.'
+  fi
   local external= dest stage_names expected_names i current= keep_current=false
   external=$(external_newer || true)
   acquire setup
@@ -36,6 +41,10 @@ install_runtime() {
     WORK_DIR=$(mktemp -d "$PLUGIN_HOME/versions/.stage.XXXXXX")
     fetch_asset binary "$WORK_DIR/hollis"
     fetch_asset bridges "$WORK_DIR/hollis-bridges.zip"
+    if [[ -n $(field "$RUNTIME_LOCK" native.name || true) ]]; then
+      fetch_asset native "$WORK_DIR/hollis-native"
+      chmod 700 "$WORK_DIR/hollis-native"
+    fi
     stage_names=$(unzip -Z1 "$WORK_DIR/hollis-bridges.zip" | LC_ALL=C sort)
     expected_names=$(for i in 0 1 2 3 4; do field "$RUNTIME_LOCK" "bridge_files.$i"; done | LC_ALL=C sort)
     [[ "$stage_names" == "$expected_names" ]] || fail 'The archive must contain exactly the five pinned bridges, with no extra or duplicate entries.'
@@ -45,11 +54,13 @@ install_runtime() {
     cp "$RUNTIME_LOCK" "$WORK_DIR/runtime.lock.json"
     chmod 700 "$WORK_DIR/hollis"
     [[ $("$WORK_DIR/hollis" --version) == "hollis $VERSION" ]] || fail 'Downloaded executable reports an unexpected version.'
+    verify_native "$WORK_DIR" "$RUNTIME_LOCK"
     mv "$WORK_DIR" "$dest"; WORK_DIR=
   else
     safe_path "$dest"
     verify "$dest/hollis" "$(field "$RUNTIME_LOCK" binary.sha256)"
     verify "$dest/hollis-bridges.zip" "$(field "$RUNTIME_LOCK" bridges.sha256)"
+    verify_native "$dest" "$RUNTIME_LOCK"
     cmp -s "$dest/runtime.lock.json" "$RUNTIME_LOCK" || fail 'Existing runtime receipt differs; preserve and inspect it.'
   fi
   if [[ "$keep_current" == true ]]; then
@@ -62,7 +73,7 @@ install_runtime() {
   fi
   if [[ -n "$current" && "$current" != "$VERSION" ]]; then atomic_text "$PLUGIN_HOME/previous" "$current"; fi
   atomic_text "$PLUGIN_HOME/current" "$VERSION"
-  managed_report runtime_installed "Hollis $VERSION is installed. Select bridges next; inference and Apple permissions have not been tested."
+  managed_report runtime_installed "Hollis $VERSION is installed. Select a model next. Local uses its native helper; cloud routes use bridges. Inference and Apple permissions have not been tested."
 }
 rollback() {
   platform; acquire setup
@@ -91,5 +102,5 @@ case "${1:-help}" in
   rollback) [[ $# == 1 ]] || fail 'Usage: setup.sh rollback'; rollback;;
   import|status) exec /bin/bash "$PLUGIN_ROOT/scripts/bridges.sh" "$@";;
   path) platform; read_lock; if candidate=$(external_newer); then printf '%s\n' "$candidate"; else runtime_path; fi;;
-  *) printf 'Usage: setup.sh check | install | status [cloud|cloud-pro|on-device|chatgpt|image] | import <route> | path | rollback\n';;
+  *) printf 'Usage: setup.sh check | install | status [local|cloud|cloud-pro|on-device|chatgpt|image] | import <route> | path | rollback\n';;
 esac

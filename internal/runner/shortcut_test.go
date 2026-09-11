@@ -25,8 +25,8 @@ import (
 // runnerWithFake installs a fake `shortcuts` shell script that records argv,
 // drains stdin to disk, and behaves according to mode:
 //
-//	echo        cat the recorded stdin back (round-trip)
-//	echo-direct cat stdin directly (parallel-run isolation)
+//	echo        cat the staged prompt back (round-trip)
+//	echo-direct cat the staged prompt directly (parallel-run isolation)
 //	echo-image cat the first --input-path back (the private prompt file)
 //	empty     exit 0 with no stdout (the ambiguous signature)
 //	whitespace exit 0 with only non-content whitespace
@@ -44,7 +44,7 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 	path := dir + "/shortcuts"
 	script := "#!/bin/sh\n" +
 		"mode=${HOLLIS_FAKE_MODE:-" + mode + "}\n" +
-		"if [ \"$mode\" = 'echo-direct' ]; then cat; exit; fi\n" +
+		"if [ \"$mode\" = 'echo-direct' ]; then cat \"$6\"; exit; fi\n" +
 		"printf '%s\\n' \"$*\" > " + dir + "/argv.txt\n" +
 		"printf '%s\\n' \"$@\" > " + dir + "/argv-lines.txt\n" +
 		"cat > " + dir + "/stdin.txt\n" +
@@ -52,7 +52,7 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 		"count=$((count + 1))\n" +
 		"echo \"$count\" > " + dir + "/count.txt\n" +
 		"case \"$mode\" in\n" +
-		"  echo) cat " + dir + "/stdin.txt ;;\n" +
+		"  echo) cat \"$6\" ;;\n" +
 		"  echo-image) previous=''; for value in \"$@\"; do if [ \"$previous\" = '--input-path' ]; then cat \"$value\"; exit; fi; previous=\"$value\"; done; exit 64 ;;\n" +
 		"  replace-source) printf 'replacement bytes' > \"$HOLLIS_REPLACE_SOURCE\"; previous=''; input_count=0; for value in \"$@\"; do if [ \"$previous\" = '--input-path' ]; then input_count=$((input_count + 1)); if [ \"$input_count\" -eq 2 ]; then cat \"$value\"; exit; fi; fi; previous=\"$value\"; done; exit 64 ;;\n" +
 		"  empty) exit 0 ;;\n" +
@@ -67,7 +67,7 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 		// `wait` keeps the script alive as the direct child. Tests assert
 		// against that exact PID rather than pgrep-ing for a command line.
 		"  hang) sleep 300 & echo $! > " + dir + "/child.pid; wait ;;\n" +
-		"  fail-once) if [ \"$count\" -le 1 ]; then echo 'Too many incoming requests' >&2; exit 1; fi; cat " + dir + "/stdin.txt ;;\n" +
+		"  fail-once) if [ \"$count\" -le 1 ]; then echo 'Too many incoming requests' >&2; exit 1; fi; cat \"$6\" ;;\n" +
 		"esac\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestRunWithImagesUsesInputPathsAndNoStdin(t *testing.T) {
 
 func TestPrivateImagePromptFileIs0600UTF8AndRemoved(t *testing.T) {
 	prompt := "hello ✓"
-	path, cleanup, err := writeImagePromptFile(prompt)
+	path, cleanup, err := writePromptFile(prompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,8 +339,8 @@ func TestRunInvokesUUIDWithPlainTextFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "run " + BridgeUUIDCloudPro + " --output-type public.plain-text\n"
-	if string(argv) != want {
+	want := "run " + BridgeUUIDCloudPro + " --output-type public.plain-text --input-path "
+	if !strings.HasPrefix(string(argv), want) {
 		t.Fatalf("argv = %q, want %q", string(argv), want)
 	}
 }
@@ -735,7 +735,7 @@ func TestTimeoutKillsChild(t *testing.T) {
 }
 
 func TestConcurrencyFourParallel(t *testing.T) {
-	// The direct mode gives each child its own stdin/stdout pipe. Using the
+	// The direct mode gives each child its own prompt file and stdout pipe. Using the
 	// fake's shared recording file here lets concurrent test processes truncate
 	// one another and tests the fixture rather than ShortcutRunner.
 	r, _ := runnerWithFake(t, "echo-direct")

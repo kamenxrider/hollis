@@ -13,7 +13,7 @@ one set of skills and scripts, a portable manifest and native Claude/Codex adapt
 - [Everyday requests and follow-ups](../plugins/hollis/docs/usage.md)
 - [Setup, state locations and recovery](../plugins/hollis/docs/setup.md)
 - [Folder map, formats and maintainer build](../plugins/hollis/docs/package.md)
-- [Recorded gstack and image demonstration](../plugins/hollis/examples/recorded-demo.md)
+- [Fictional workflow example](../plugins/hollis/examples/demo.md)
 
 The source package downloads the pinned runtime during setup; a built archive
 bundles the provenance-verified ARM64 Hollis 0.3.3 executable and all five bridges.

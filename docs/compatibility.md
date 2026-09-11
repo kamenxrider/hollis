@@ -20,6 +20,14 @@ hollis respond --model cloud "Reply with OK"
 
 Please include `hollis doctor` output when reporting macOS 26 results — that is the fastest way for this to stop being untested.
 
+## Native local
+
+The explicit `local` route in 0.4.0 requires Apple Silicon and macOS 27. It uses
+the matched precompiled helper beside Hollis and does not require Shortcuts.
+A missing helper or unavailable Apple model is reported separately from bridge
+readiness. Native local on macOS 26 and Intel is unsupported. A source-only Go
+install does not install the Swift helper; use the [native-local guide](native-local.md).
+
 ## Doctor
 
 The example below uses version 0.3.0. Its “Quickstart” instruction refers to [verified install step 2](../README.md#install-verified).
@@ -54,7 +62,7 @@ JSON output adds the macOS version and build, each bridge's `resolved_ref`, its 
 
 - `doctor` says `MISSING`: install the bridges from [verified install step 2](../README.md#install-verified). If you renamed one in Shortcuts.app, run `hollis config set bridge <tier> "new name"`.
 - A command seems missing after `git pull`: rebuild it with `go build -o "$(go env GOPATH)/bin/hollis" ./cmd/hollis`; an older binary may still be first on `PATH`.
-- An OpenAI client fails with `stream: true`: set `stream: false` in the JSON body. Hollis does not read a streaming preference from custom headers.
+- An OpenAI client fails with `stream: true`: select native `local` for streaming, or set `stream: false` for a Shortcuts route. Hollis does not read a streaming preference from custom headers.
 
 ## Other install routes
 

@@ -5,7 +5,7 @@ platform; read_lock
 MODE=${1:-status}; ROUTE=${2:-all}
 [[ $# -le 3 ]] || fail 'Usage: import <route> [--reopen] or status [route].'
 [[ -z ${3:-} || ( "$MODE" == import && "$3" == --reopen ) ]] || fail 'Only import accepts --reopen.'
-case "$ROUTE" in cloud|cloud-pro|on-device|chatgpt|image|all) ;; *) fail 'Unknown bridge route.';; esac
+case "$ROUTE" in local|cloud|cloud-pro|on-device|chatgpt|image|all) ;; *) fail 'Unknown bridge route.';; esac
 [[ "$MODE" != import || "$ROUTE" != all ]] || fail 'Import one selected bridge at a time.'
 safe_path "$PLUGIN_HOME"
 runtime_home_accessible() {
@@ -34,6 +34,12 @@ if [[ "$MODE" == status ]]; then
   fi
 fi
 BIN=$("$PLUGIN_ROOT/scripts/setup.sh" path)
+if [[ "$ROUTE" == local ]]; then
+  [[ "$MODE" == status ]] || fail 'Local needs no Shortcut import. Run setup.sh status local.'
+  # The selected runtime owns helper discovery, including newer external installs.
+  # This path must not call Shortcuts or modify configuration.
+  exec "$BIN" models --model local --json
+fi
 if [[ "$MODE" == status ]]; then
   # Readiness is read-only: concurrent checks need neither a setup lock nor
   # permission to write inside the installed runtime directory.

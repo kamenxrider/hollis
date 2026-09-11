@@ -22,6 +22,10 @@ class InstallerTests(unittest.TestCase):
         self.base = Path(self.temp.name).resolve()
         self.kit = self.base / "kit"
         shutil.copytree(ROOT / "plugins/hollis", self.kit, ignore=shutil.ignore_patterns("runtime"))
+        # Installer fixtures exercise legacy versions independently of release pins.
+        manifest_path = self.kit / "plugin.json"
+        manifest = json.loads(manifest_path.read_text()); manifest["version"] = "0.1.0"
+        manifest_path.write_text(json.dumps(manifest))
         # CI may be macOS 26. Real hardware classification is tested separately.
         with (self.kit / "scripts/common.sh").open("a") as f:
             f.write('\nplatform() { return 0; }\n')
@@ -32,7 +36,8 @@ class InstallerTests(unittest.TestCase):
         self.lock = json.loads((self.kit / "runtime.lock.json").read_text())
         # Keep the synthetic upgrade matrix stable as the production pin moves.
         # Actual locked assets are exercised by the release package acceptance.
-        self.lock.update(version="0.3.0", source_ref="refs/tags/v0.3.0",
+        self.lock.pop("native", None)
+        self.lock.update(schema_version=1, version="0.3.0", source_ref="refs/tags/v0.3.0",
                          release_url="https://github.com/kamenxrider/hollis/releases/download/v0.3.0")
         self.binary = self.assets / self.lock["binary"]["name"]
         self.binary.write_text('''#!/bin/bash
@@ -337,8 +342,8 @@ class PackagingTests(unittest.TestCase):
 
     def test_source_contracts(self):
         manifest, lock = packaging.validate_source()
-        self.assertEqual(manifest["version"], "0.1.0")
-        self.assertEqual(lock["version"], "0.3.3")
+        self.assertEqual(manifest["version"], "0.2.0")
+        self.assertGreaterEqual(tuple(map(int, lock["version"].split("."))), (0, 3, 3))
 
     def test_failed_provenance_never_returns_a_receipt(self):
         _, lock = packaging.validate_source()

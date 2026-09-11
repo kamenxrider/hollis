@@ -18,7 +18,7 @@ curl -s localhost:1978/v1/responses \
   -d '{"model":"cloud-pro","stream":false,"input":"Explain closures in Go."}'
 ```
 
-The Responses reply text is at `output[0].content[0].text`. Its `input` may be a string or a message array, with optional `instructions`. `/v1/models` lists `auto` plus only the tiers whose bridges resolve here, so `cloud-pro` disappears when its bridge is not installed.
+The Responses reply text is at `output[0].content[0].text`. Its `input` may be a string or a message array, with optional `instructions`. `/v1/models` advertises available routes, including `local` when its native helper and Apple model are available. Shortcut tiers depend on their bridges; native local does not.
 
 ## Inline image input
 
@@ -36,7 +36,7 @@ Responses uses this input message content shape:
 [{"type":"input_text","text":"Describe this image"},{"type":"input_image","image_url":"data:image/png;base64,..."}]
 ```
 
-Omitting `model` on an image request selects `cloud`. Explicit `auto` and `on-device` are rejected. Cloud and Cloud Pro accept up to three images; ChatGPT accepts one. The HTTP request body remains limited to 8 MiB. Decoded images together may occupy at most 4 MiB, with at most 16 million pixels per image and 24 million pixels combined. These are Hollis limits, not reported Apple quotas. Invalid formats return 400 and oversized input returns 413 before a model runs.
+Omitting `model` on an image request selects `cloud`. Explicit `auto`, `on-device` and `local` are rejected. Cloud and Cloud Pro accept up to three images; ChatGPT accepts one. The HTTP request body remains limited to 8 MiB. Decoded images together may occupy at most 4 MiB, with at most 16 million pixels per image and 24 million pixels combined. These are Hollis limits, not reported Apple quotas. Invalid formats return 400 and oversized input returns 413 before a model runs.
 
 Hollis validates and stages image bytes privately, holds a concurrency slot through staging and execution, then removes staged files. Responses remain complete text, without streaming or invented usage counts.
 
@@ -48,7 +48,25 @@ Model work is serialized by default. `--max-concurrency` accepts 1–4; work bey
 
 Point an OpenAI-compatible client at `http://127.0.0.1:1978/v1` and it will usually **see** the models. That does not mean it can **call** them.
 
-Set `stream: false` in the **JSON body**. A custom HTTP header does not count; Hollis never reads streaming from headers. `stream: true` returns **400** (`use stream=false`). Clients that always stream — Osaurus Chat is one — will populate the model picker from `/v1/models` and then fail every completion. Clients that can turn streaming off (Aider: `stream: false` plus per-model `streaming: false`) do work.
+For `cloud`, `cloud-pro`, `on-device`, `chatgpt` and `auto`, set `stream: false`
+in the **JSON body**. These routes cannot stream. For native `local`, either
+complete responses or `stream: true` are supported. A custom HTTP header does
+not select streaming. Model discovery describes capabilities; it is not proof
+that every client supports the chosen request and response format.
+
+```sh
+curl -N localhost:1978/v1/chat/completions \
+  -H @hollis.headers -H 'Content-Type: application/json' \
+  -d '{"model":"local","stream":true,"messages":[{"role":"user","content":"Explain closures briefly."}]}'
+curl -N localhost:1978/v1/responses \
+  -H @hollis.headers -H 'Content-Type: application/json' \
+  -d '{"model":"local","stream":true,"input":"Explain closures briefly."}'
+```
+
+Native complete responses carry measured token usage in the endpoint's usage
+fields. Streamed usage is not promised. Stream events are flushed incrementally;
+errors after streaming starts are reported as stream errors, never a fabricated
+successful completion. Disconnecting cancels the local helper.
 
 The API does not accept `tools` or return native function calls. The
 underlying Shortcut returns one block of text. Separate live probes show that
@@ -67,7 +85,7 @@ and replaying a generated image in a follow-up. See the complete
 
 ## What it deliberately does not do
 
-Shortcuts returns a complete response rather than a token stream, so `stream: true` returns **400** instead of a faked stream. Apple exposes no token counts through this path, so no `usage` field is invented. The HTTP contract has no `tools` / function calls. `system` and `instructions` are advisory prompt content, not hard isolation boundaries. Both model routes reject malformed or trailing JSON, unknown fields, unsupported parameters/content, empty input, and prompts over 128 KiB before calling a model.
+Shortcuts routes return a complete response, so `stream: true` on those routes returns **400** instead of a faked stream. Only explicit native `local` streams. Apple exposes no token counts through this path, so no `usage` field is invented. The HTTP contract has no `tools` / function calls. `system` and `instructions` are advisory prompt content, not hard isolation boundaries. Both endpoints reject malformed or trailing JSON, unknown fields, unsupported parameters/content, empty input, and prompts over 128 KiB before calling a model. Native context-capacity failures are reported explicitly; history is never silently shortened or retried with fewer messages.
 
 ## Authentication and remote access
 

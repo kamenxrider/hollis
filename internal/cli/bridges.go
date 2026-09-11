@@ -84,7 +84,7 @@ func bridgeOverrides(c config) map[runner.Model]string {
 	overrides := make(map[runner.Model]string, len(c.Bridges))
 	for tier, ref := range c.Bridges {
 		m := runner.Model(tier)
-		if m.Valid() && m != runner.ModelAuto {
+		if m.Valid() && m != runner.ModelAuto && m != runner.ModelLocal {
 			overrides[m] = ref
 		}
 	}
@@ -112,8 +112,8 @@ func resolveBridges(ctx context.Context) (map[runner.Model]runner.ResolvedBridge
 // refs. Test fakes are left untouched: they intentionally abstract the
 // transport away, and resolution is a transport-presence concern.
 func applyResolvedRefs(r runner.Runner, resolved map[runner.Model]runner.ResolvedBridge) {
-	sr, ok := r.(*runner.ShortcutRunner)
-	if !ok {
+	sr := shortcutTransport(r)
+	if sr == nil {
 		return
 	}
 	refs := make(map[runner.Model]string, len(resolved))
@@ -171,8 +171,7 @@ func availabilityMap(resolved map[runner.Model]runner.ResolvedBridge) map[string
 // resolution should gate and retarget it. Fake runners in tests skip all
 // of it.
 func requireRealRunner(r runner.Runner) bool {
-	_, ok := r.(*runner.ShortcutRunner)
-	return ok
+	return shortcutTransport(r) != nil
 }
 
 // supportNote is the honest compatibility line shared by doctor output.
@@ -225,3 +224,21 @@ const missingBridgeRemedy = "MISSING: install that bridge (README \u201cQuicksta
 
 // unresolvedProNote is the doctor hint for Pro on pre-27 macOS.
 const unresolvedProNote = "cloud-pro: unsupported on macOS 26 (untested; Use Model had no Cloud Pro)"
+
+// shortcutTransport exposes only the Shortcuts half of the routed transport.
+func shortcutTransport(r runner.Runner) *runner.ShortcutRunner {
+	if sr, ok := r.(*runner.ShortcutRunner); ok {
+		return sr
+	}
+	if routed, ok := r.(interface{ ShortcutTransport() *runner.ShortcutRunner }); ok {
+		return routed.ShortcutTransport()
+	}
+	return nil
+}
+
+func resolveForModel(ctx context.Context, factory newRunnerFunc, model runner.Model) (map[runner.Model]runner.ResolvedBridge, error) {
+	if model == runner.ModelLocal {
+		return nil, nil
+	}
+	return resolveForRunner(ctx, factory)
+}

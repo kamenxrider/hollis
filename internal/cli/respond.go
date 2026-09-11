@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kamenxrider/hollis/internal/chat"
@@ -24,6 +26,7 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		promptFile string
 		documents  []string
 		images     []string
+		stream     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "respond [prompt]",
@@ -44,7 +47,8 @@ bridge is not installed), on-device (AFM 3 Core / Core Advanced by
 hardware), or chatgpt (ChatGPT extension; enable it in System Settings >
 Apple Intelligence & Siri). Image requests with no selected or configured
 model default directly to cloud because auto cannot safely fall back. See
-hollis models.`,
+hollis models. Select local for Apple's native system model with genuine
+streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
   hollis respond model cloud-pro "Draft a reply"
   printf 'long prompt from a pipeline' | hollis respond
@@ -60,7 +64,7 @@ hollis models.`,
 				return err
 			}
 			if cmd.Flags().Changed("model") && !runner.Model(model).Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", model))
+				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", model))
 			}
 			_, promptArgs, _ := splitModelArgs(args)
 			hasPromptFile := cmd.Flags().Changed("prompt-file")
@@ -161,7 +165,7 @@ hollis models.`,
 				return configErr(err)
 			}
 			if !m.Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", m))
+				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", m))
 			}
 			if len(images) > 0 {
 				if err := runner.ValidateImageRequest(m, prompt, images); err != nil {
@@ -169,12 +173,19 @@ hollis models.`,
 				}
 			}
 
+			streaming, err := selectStreaming(cmd, flags, m, stream)
+			if err != nil {
+				return err
+			}
 			r := newRunner()
-			ctx := cmd.Context()
+			// Handle interruption only after reading the prompt, so idle stdin
+			// retains normal signal behavior while in-flight staging can unwind.
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
 			// Runtime bridge resolution:
 			// explicit tiers refuse to run when their bridge did not resolve,
 			// and the real transport is retargeted at the resolved refs.
-			resolved, err := resolveForRunner(ctx, newRunner)
+			resolved, err := resolveForModel(ctx, newRunner, m)
 			if err != nil && !canAttemptAfterDiscoveryFailure(resolved, m) {
 				return resolutionCLIError(err)
 			}
@@ -190,12 +201,16 @@ hollis models.`,
 			var fallback runner.Fallback
 			var text string
 			var used runner.Model
+			var usage *runner.Usage
 			if len(images) > 0 {
 				imageRunner, ok := r.(runner.ImageRunner)
 				if !ok {
 					return transportErr(errors.New("configured runner does not support image input"))
 				}
 				text, used, err = imageRunner.RunWithImages(ctx, m, prompt, images)
+			} else if m == runner.ModelLocal {
+				completion, runErr := runLocalText(ctx, r, prompt, streaming, cmd.OutOrStdout())
+				text, used, usage, err = completion.Text, completion.Model, completion.Usage, runErr
 			} else if rich, ok := r.(runner.FallbackRunner); ok {
 				text, used, fallback, err = rich.RunWithFallback(ctx, m, prompt)
 			} else {
@@ -218,6 +233,9 @@ hollis models.`,
 					"model_used":      string(used),
 					"response":        text,
 				}
+				if usage != nil {
+					data["usage"] = usage
+				}
 				if fallback.Used {
 					data["fallback_reason"] = string(fallback.Reason)
 				}
@@ -234,14 +252,17 @@ hollis models.`,
 			}
 			// Plain text out. Apple emits no trailing newline; add one
 			// only for terminal ergonomics, never into stored values.
-			fmt.Fprint(cmd.OutOrStdout(), text)
+			if !streaming {
+				fmt.Fprint(cmd.OutOrStdout(), humanTerminalText(cmd.OutOrStdout(), text))
+			}
 			if !strings.HasSuffix(text, "\n") {
 				fmt.Fprintln(cmd.OutOrStdout())
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&model, "model", string(runner.ModelAuto), "Model tier: auto (default: cloud first, on-device fallback), cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro; macOS 27+), on-device (AFM 3 Core / Core Advanced by hardware), or chatgpt (ChatGPT extension); see hollis models")
+	cmd.Flags().BoolVar(&stream, "stream", false, "Stream native-local human text (default on terminals); --stream=false waits for completion")
+	cmd.Flags().StringVar(&model, "model", string(runner.ModelAuto), "Model tier: auto (default: cloud first, on-device fallback), cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro; macOS 27+), on-device (AFM 3 Core / Core Advanced by hardware), chatgpt (ChatGPT extension), or local (native SDK; Apple Silicon/macOS 27); see hollis models")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "UTF-8 file containing the instruction (instead of positional text or stdin)")
 	cmd.Flags().StringArrayVar(&documents, "file", nil, "UTF-8 .txt or .md document to include; repeat to preserve source order")
 	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (ChatGPT accepts one; unavailable with auto/on-device)")

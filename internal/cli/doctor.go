@@ -38,7 +38,7 @@ type bridgeCheck struct {
 // diagnostics do not depend on the host running the provider-free suite.
 var lookPath = exec.LookPath
 
-func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
+func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check transport health: shortcuts CLI, bridge shortcuts, settings",
@@ -47,7 +47,8 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
   hollis doctor --agent`,
 		Args: noExtraArgs("doctor"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			report := map[string]any{}
+			localStatus, localErr := probeNativeStatus(cmd.Context(), newRunner())
+			report := map[string]any{"local": localModelRow(localStatus, localErr)}
 			var diagnosticErr error
 
 			// Doctor always probes the real transport.
@@ -147,6 +148,7 @@ func newDoctorCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "hollis doctor (version %s)\n", version)
+			fmt.Fprintf(w, "  local: %s (availability only; inference not tested)\n", localStatusLabel(localStatus, localErr))
 			fmt.Fprintf(w, "  transport: %s\n", report["shortcuts_cli"])
 			if b := report["macos_build"]; b != "" {
 				fmt.Fprintf(w, "  macos: %s (%s)\n", report["macos"], b)

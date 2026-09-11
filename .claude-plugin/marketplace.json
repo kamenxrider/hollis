@@ -8,7 +8,7 @@
       "name": "hollis",
       "source": "./plugins/hollis",
       "description": "Apple inside the conversation",
-      "version": "0.1.0"
+      "version": "0.2.0"
     }
   ],
   "metadata": {
