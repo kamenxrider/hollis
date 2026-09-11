@@ -57,8 +57,8 @@ the bundled image bridge only when no general image bridge is set; custom settin
 are preserved. It makes no model calls and needs no `sudo`.
 
 ```bash
-curl -fsSLo install-hollis.sh https://raw.githubusercontent.com/kamenxrider/hollis/main/scripts/install.sh
-bash install-hollis.sh
+curl -fsSLo install-hollis.sh https://raw.githubusercontent.com/kamenxrider/hollis/main/scripts/install.sh && \
+  bash install-hollis.sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
