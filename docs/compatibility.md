@@ -4,7 +4,7 @@ This guide covers the Hollis CLI and Shortcuts transport. The [plugin compatibil
 
 ## What you need
 
-A Mac with **Apple Intelligence** enabled, macOS 27 for the measured setup, and `/usr/bin/shortcuts` (included with macOS). Cloud, Cloud Pro and ChatGPT need network access; On-Device works offline. For the ChatGPT bridge, enable the extension in *System Settings → Apple Intelligence & Siri*.
+An **Apple-silicon Mac** with **Apple Intelligence** enabled, macOS 27 for the measured setup, and `/usr/bin/shortcuts` (included with macOS). Cloud, Cloud Pro and ChatGPT need network access; On-Device works offline. For the ChatGPT bridge, enable the extension in *System Settings → Apple Intelligence & Siri*.
 
 ## Compatibility
 
@@ -25,8 +25,9 @@ Please include `hollis doctor` output when reporting macOS 26 results — that i
 The explicit `local` route in 0.4.0 requires Apple Silicon and macOS 27. It uses
 the matched precompiled helper beside Hollis and does not require Shortcuts.
 A missing helper or unavailable Apple model is reported separately from bridge
-readiness. Native local on macOS 26 and Intel is unsupported. A source-only Go
-install does not install the Swift helper; use the [native-local guide](native-local.md).
+readiness. Native local on macOS 26 and Intel is unsupported. The published `hollis-darwin-amd64` download is a legacy CLI artifact; Intel Macs
+do not support Apple Intelligence inference. The primary installer selects the
+ARM64 bundle. A source-only Go install does not install the Swift helper; use the [native-local guide](native-local.md).
 
 ## Doctor
 

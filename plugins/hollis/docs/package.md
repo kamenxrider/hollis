@@ -114,9 +114,8 @@ provenance. An existing archive is never overwritten.
 
 ## Versions and release sequence
 
-Plugin **0.2.0** targets runtime **0.4.0**. The lock remains at authenticated
-**0.3.3** until the new runtime is published; the source package refuses to build
-or install an older runtime as 0.2.0.
+Plugin **0.2.0** pins the published runtime **0.4.0** and its matching native
+helper. Source setup and packaging refuse an older runtime under this version.
 Editing skills or docs does not upgrade the bundled binary, and preserved
 review archives do not change with source. The plugin release is explicitly
 excluded from GitHub's “Latest” label so the CLI installer continues to find
@@ -139,8 +138,7 @@ tag publishes it.
 
 ## 0.2.0 release sequencing
 
-The source package targets runtime 0.4.0. Its checked-in runtime lock remains
-at the last authenticated public release until the new runtime is published.
+The checked-in runtime lock pins the authenticated public 0.4.0 release.
 Packaging 0.2.0 refuses an old lock instead of labelling 0.3.3 as 0.4.0.
 After runtime publication, a maintainer runs `scripts/plugin/refresh_lock.py`
 with the full release commit and an explicit output file, reviews that

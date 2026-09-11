@@ -1,4 +1,4 @@
-# Local OpenAI-shaped API
+# OpenAI-compatible API (Chat Completions and Responses)
 
 ```bash
 umask 077

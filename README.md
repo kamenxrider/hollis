@@ -1,230 +1,215 @@
-# hollis
-
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hollis-logo-dark.svg">
   <img src="docs/assets/hollis-logo.svg" alt="hollis — Your Mac has more to say." width="680">
 </picture>
 
-**Apple Cloud and Cloud Pro in your terminal, scripts and agent conversations.**
+**Apple Intelligence’s Cloud and Cloud Pro models in your terminal, scripts and AI agents.**
 
-Hollis makes the Apple Intelligence access on your Mac available to the tools
-you already use. Choose Cloud, Cloud Pro, On-Device or ChatGPT through Shortcuts, or explicitly
-select native local inference. Work with text and images, keep a conversation,
-or call Hollis from a local API.
-
-On the tested macOS 27 builds, Shortcuts exposes all four choices:
-
-![The Use Model action on macOS 27.0 (26A5421a): Cloud, Cloud Pro, On-Device, ChatGPT](results/img/use-model-picker-26A5421a.png)
-
-Cloud and Cloud Pro are distinct selections. Hollis reaches them through Apple’s
-Shortcuts command-line interface, using small, inspectable bridges you install.
-[How this differs from Apple’s `fm` CLI](#why-not-fm).
+Hollis brings Apple’s model choices to your command line. Ask about text and
+images, keep a conversation, generate an illustration, process a folder, or run
+an OpenAI-compatible API on localhost. Four choices use Shortcuts; native
+`local` uses Apple’s on-device SDK. No model API key is needed.
 
 ```bash
-hollis respond "Summarize this repo in one sentence"
-hollis respond --model cloud-pro "Analyze this bug"
-hollis respond --model local "Explain this error"  # genuine streaming in a terminal
+hollis respond "Explain closures in Go in three sentences"
+hollis respond --model cloud-pro --file README.md "Summarize this document"
+hollis respond --model local "Explain a race condition briefly"  # streams output
 hollis respond --image photo.jpg "Describe this image"
-printf 'long prompt' | hollis respond
-hollis chat                       # interactive, remembers the conversation
-hollis serve --token-file /private/path/hollis.token  # local OpenAI-shaped API
+cat prompt.txt | hollis respond
+hollis chat                          # remembers the conversation
+hollis image generate "A red sailboat" --style illustration --output boat.png
 ```
 
-Chats and configuration stay on your Mac. Model requests go to the provider you
-select: native `local` uses Apple’s on-device SDK; through Shortcuts, Cloud and
-Cloud Pro use Private Cloud Compute, and ChatGPT
-uses Apple’s ChatGPT extension. An agent that calls Hollis can see the returned
-answer. Apple’s processing privacy does not make that agent’s own service local.
+**Cloud availability:** Apple controls usage limits. Testing encountered an
+explicit Cloud Pro limit and hours-long cloud interruptions before recovery.
+Hollis cannot show your remaining allowance or predict recovery.
+[Limits and routing](#cloud-availability-and-limits).
 
-Measured on **macOS 27.0 (26A5421a and 26A5425a)**. macOS 26 is untested — see [Compatibility](docs/compatibility.md).
+**Choose your setup:** [CLI 0.4.0](#install) ·
+[Claude Code / Codex plugin 0.2.0](plugins/hollis/README.md#install), including runtime 0.4.0 and native local.
+
+Chats and configuration stay on your Mac. Requests go to the model you select.
+If a cloud-hosted agent calls Hollis, its provider can also receive Apple’s answer.
+Hollis does not automatically read your workspace: supply context with `--file`,
+`--image`, stdin, or through your agent.
+
+## Requirements
+
+- Apple-silicon Mac with Apple Intelligence enabled and its model downloads complete.
+- macOS 27. Historical tests used builds 26A5421a and 26A5425a; the 0.4.0 candidate was also checked on 26A428. macOS 26 is untested ([compatibility](docs/compatibility.md)).
+- [GitHub CLI](https://cli.github.com/) (`gh`) for the CLI download verification below. Plugin setup does not require it.
+- Network access for Cloud, Cloud Pro and ChatGPT; On-Device and native local work offline.
+- For ChatGPT, enable the extension in *System Settings → Apple Intelligence & Siri*.
+- Complete Apple’s first-use approvals; image generation needs an unlocked Mac.
 
 <a id="quickstart"></a>
+<a id="install-verified"></a>
 
-## Native local in 0.4.0
+## Install
 
-`--model local` selects Apple’s native on-device model on Apple Silicon/macOS 27.
-It streams human terminal answers as they arrive; `--stream=false` waits for the
-complete answer. JSON/agent output always stays complete. The existing `on-device`
-selection continues to use Shortcuts, and `auto` retains its existing routing.
+Using Claude Code or Codex? Start with the [plugin installation](plugins/hollis/README.md#install).
+For the standalone CLI:
 
-Install the matching precompiled helper alongside Hollis, as described in the
-[native-local guide](docs/native-local.md). Complete native responses expose measured
-token usage; streaming token usage is not promised. Context limits produce a clear
-error rather than shortened history. No developer tools are needed to run the bundle.
+**1. Download, verify and install.** The installer verifies the published ARM64
+bundle’s checksum and GitHub build provenance, installs `hollis` with its matching
+native helper in `~/.local/bin`, and opens the five Shortcut imports. It configures
+the bundled image bridge only when no general image bridge is set; custom settings
+are preserved. It makes no model calls and needs no `sudo`.
 
-## Install (verified)
+```bash
+curl -fsSLo install-hollis.sh https://raw.githubusercontent.com/kamenxrider/hollis/main/scripts/install.sh
+bash install-hollis.sh
+export PATH="$HOME/.local/bin:$PATH"
+```
 
-A Mac with **Apple Intelligence** enabled, macOS 27 for the measured setup, and `/usr/bin/shortcuts` (included with macOS). Cloud, Cloud Pro and ChatGPT need network access; On-Device works offline. For the ChatGPT bridge, enable the extension in *System Settings → Apple Intelligence & Siri*.
+Add `~/.local/bin` to your shell’s PATH permanently if needed. Inspect the
+[installer](scripts/install.sh), or run the checks yourself:
 
-This verified quickstart installs the CLI and bridges. For guided setup inside Claude or Codex, use the [plugin guide](plugins/hollis/README.md#install).
+<details>
+<summary>Verify manually</summary>
 
-**1. Download and verify the CLI and all five bridges.** This secure path
-requires the [GitHub CLI](https://cli.github.com/) for build-provenance
-verification. It uses a fresh private directory so older files cannot satisfy a
-checksum accidentally. The commands run in a fail-fast subshell: a missing or
-mismatched checksum or attestation stops before installation, extraction, or
-signing.
+These commands install the same matched bundle. The last command selects the
+bundled image bridge; skip it if you already use a custom image bridge.
 
 ```bash
 (
 set -euo pipefail
-
-# Apple Silicon. On Intel, use: HOLLIS_ASSET=hollis-darwin-amd64
-HOLLIS_ASSET=hollis-darwin-arm64
-HOLLIS_INSTALL_DIR="$(mktemp -d)"
-chmod 700 "$HOLLIS_INSTALL_DIR"
-cd "$HOLLIS_INSTALL_DIR"
-HOLLIS_VERSION="$(gh release view --repo kamenxrider/hollis --json tagName --jq .tagName)"
-printf '%s\n' "$HOLLIS_VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'
-HOLLIS_RELEASE_URL="https://github.com/kamenxrider/hollis/releases/download/$HOLLIS_VERSION"
-
-curl -fsSL -o "$HOLLIS_ASSET" "$HOLLIS_RELEASE_URL/$HOLLIS_ASSET"
-curl -fsSL -o hollis-bridges.zip "$HOLLIS_RELEASE_URL/hollis-bridges.zip"
-curl -fsSL -o SHA256SUMS "$HOLLIS_RELEASE_URL/SHA256SUMS"
-awk -v asset="$HOLLIS_ASSET" '
-  $2 == asset { binary++ }
-  $2 == "hollis-bridges.zip" { bridges++ }
-  $2 == asset || $2 == "hollis-bridges.zip" { print }
-  END { if (binary != 1 || bridges != 1) exit 1 }
-' SHA256SUMS > SELECTED_SHA256SUMS
+umask 077
+HOLLIS_VERSION=0.4.0
+HOLLIS_BUNDLE="hollis-$HOLLIS_VERSION-darwin-arm64.zip"
+cd "$(mktemp -d)"
+gh release download "v$HOLLIS_VERSION" --repo kamenxrider/hollis \
+  --pattern "$HOLLIS_BUNDLE" --pattern SHA256SUMS
+awk -v asset="$HOLLIS_BUNDLE" '$2 == asset { n++; print } END { if (n != 1) exit 1 }' \
+  SHA256SUMS > SELECTED_SHA256SUMS
 shasum -a 256 -c SELECTED_SHA256SUMS
-gh attestation verify "$HOLLIS_ASSET" --repo kamenxrider/hollis
-gh attestation verify hollis-bridges.zip --repo kamenxrider/hollis
-
-chmod +x "$HOLLIS_ASSET" && sudo mv "$HOLLIS_ASSET" /usr/local/bin/hollis
-unzip hollis-bridges.zip -d bridges
-
-mkdir signed-bridges
+gh attestation verify "$HOLLIS_BUNDLE" --repo kamenxrider/hollis \
+  --signer-workflow kamenxrider/hollis/.github/workflows/release.yml \
+  --source-ref refs/tags/v0.4.0 \
+  --source-digest 1906721a1cd5594ce47be6d4d306d7daa1e6891f \
+  --deny-self-hosted-runners
+unzip -q "$HOLLIS_BUNDLE" -d runtime
+mkdir -p "$HOME/.local/bin"
+install -m 755 runtime/hollis runtime/hollis-native "$HOME/.local/bin/"
+unzip -q runtime/hollis-bridges.zip -d bridges
+mkdir signed
 for f in bridges/*.shortcut; do
-  HOLLIS_SIGNED="signed-bridges/${f##*/}"
-  shortcuts sign --mode anyone --input "$f" --output "$HOLLIS_SIGNED"
-  open "$HOLLIS_SIGNED"
+  shortcuts sign --mode anyone --input "$f" --output "signed/${f##*/}"
+  open "signed/${f##*/}"
 done
 )
+export PATH="$HOME/.local/bin:$PATH"
+hollis config set image-bridge "Hollis Image - Reference Input v2"
 ```
 
-**2. Add the five shortcuts.** The bundle contains four model bridges and
-**Hollis Image - Reference Input v2** for image generation. The commands above
-sign them on your Mac and open them in Shortcuts. Choose **Add Shortcut** for
-each. If updating an earlier image bridge, replace that copy with this one so
-the corrected reference connection takes effect. This step is **blocking for model calls**:
-`doctor` still runs without the bridges, but reports `MISSING` and exits 3.
+</details>
 
-The first time a bridge runs, macOS may also ask you to **Allow** model access.
-
-Release binaries and Shortcut files are **unsigned by a Developer ID and not notarized**.
-Hollis does not claim Gatekeeper approval.
-
-### First answer and image
+**2. Add the shortcuts.** Choose **Add Shortcut** for each of the five files:
+four model bridges (Cloud, Cloud Pro, On-Device, ChatGPT) and **Hollis Image -
+Reference Input v2**. When updating an older image bridge, replace it with this
+version. The first request may also require Apple’s **Allow** approval.
+Native local needs no Shortcut import.
 
 **3. Check it.**
 
 ```bash
-hollis config set image-bridge "Hollis Image - Reference Input v2"
 hollis doctor
 hollis respond "Reply with OK"
+hollis respond --model local "Reply with OK"
 ```
 
-`doctor` checks the four model bridges. To test the newly configured image
-bridge, use a new filename in an existing directory:
+`doctor` checks setup and availability; a successful answer checks inference.
+It reports missing bridges even when native local works. Verified downloads and
+existing-account tests do not establish fresh-account onboarding.
 
-```bash
-hollis image generate "A small red sailboat on a calm blue lake" \
-  --style illustration --output sailboat.png
-```
-
-Once the shortcuts and first-use permissions are in place, Hollis returns the
-text or image directly. Image generation needs an unlocked Mac; it does not use
-the visible Image Playground editor. No source checkout or extra image download
-is needed.
-
-[Other install routes and troubleshooting](docs/compatibility.md).
+The binaries are not Developer ID signed or notarized. Checksum and build
+provenance verification establish their release origin.
+[Other installation routes and troubleshooting](docs/compatibility.md).
 
 ## Models
 
-| You type | Shortcuts model | Notes |
-| --- | --- | --- |
-| `auto` | Cloud → On-Device | Default; one local fallback only for a confirmed missing bridge or recognized Cloud rate limit |
-| `cloud` | Cloud | "Great, fast answers" — Apple's server model on Private Cloud Compute |
-| `cloud-pro` | Cloud Pro | "Increased reasoning" — macOS 27+; slower than Cloud, stronger on harder prompts |
-| `on-device` | On-Device | Runs locally, works offline |
-| `chatgpt` | ChatGPT | Apple's ChatGPT extension, not an Apple model |
+Five model choices: four through Shortcuts, one native. `auto` is a routing strategy.
 
-Cloud and Cloud Pro are genuinely different selections, not two names for one endpoint — that is the distinction `fm` never exposed. Apple publishes no stable backend model IDs for these choices, and hollis does not invent them.
+| You type | Runs through | Notes |
+| --- | --- | --- |
+| `cloud` | Shortcuts → Private Cloud Compute | Apple’s “Great, fast answers” selection |
+| `cloud-pro` | Shortcuts → Private Cloud Compute | Apple’s “Increased reasoning” selection |
+| `on-device` | Shortcuts → your Mac | Works offline; complete responses |
+| `local` | Native SDK → your Mac | Text-only; streams in a terminal; measured usage on complete responses |
+| `chatgpt` | Shortcuts → Apple’s ChatGPT extension | Not an Apple model |
+| `auto` | Cloud, then Shortcuts On-Device | Default; one fallback only for a confirmed missing bridge or recognized Cloud rate limit |
+
+Cloud and Cloud Pro are distinct selections in Shortcuts’ **Use Model** action.
+Apple does not publish stable backend model IDs for these choices.
+
+![Use Model on macOS 27.0 (26A5421a): Cloud, Cloud Pro, On-Device, ChatGPT](results/img/use-model-picker-26A5421a.png)
 
 ```bash
-hollis models                        # what resolves on this Mac
-hollis config set model cloud-pro    # persist a default
+hollis models
+hollis config set model cloud-pro
 ```
+
+### Cloud availability and limits
+
+Apple controls Cloud and Cloud Pro availability and usage limits. During testing,
+we encountered an explicit Cloud Pro usage limit and hours-long interruptions to
+cloud access before it recovered. Some failures returned generic Shortcuts errors;
+not every interruption was a confirmed quota hit.
+
+Hollis cannot show your remaining Shortcuts allowance or predict when access will
+recover. Pacing reduces bursts; it does not guarantee availability or prevent a
+usage limit. Pause after a limit rather than repeatedly retrying. No fixed reset
+interval, shared quota, or safe calls-per-minute allowance has been established.
+
+Explicit `cloud` and `cloud-pro` requests never silently switch models. Default
+`auto` may try Shortcuts On-Device once after a recognized Cloud limit or confirmed
+missing bridge. It never falls back to native local.
+
+Hollis requires no model API key and adds no inference charge. Apple’s limits and
+any charges from your agent host or linked service still apply.
 
 ## Everyday use
 
-```bash
-hollis respond "Summarize this repo in one sentence"
-printf 'Explain closures in Go' | hollis respond
-hollis respond --model cloud-pro "Analyze this bug"
-hollis respond model cloud-pro "same thing, model before the prompt"
-hollis respond --timeout 90s "A question worth waiting for"
-```
-
-The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple. The rendered text reaches Shortcuts through a private temporary file; see [transport and cleanup details](docs/shortcuts.md#how-it-works).
-
-### Text documents
+### Documents and chats
 
 ```bash
 hollis respond --prompt-file instructions.txt
-hollis respond "Summarize the differences" --file first.md --file second.txt
+hollis respond --file first.md --file second.txt "Summarize the differences"
+hollis chat
+hollis chat --continue <id> "What did we decide?"
+hollis chats list
 ```
 
-Attach local `.txt` and `.md` documents in order. PDF is not supported. The complete request must fit the 128 KiB prompt limit; Hollis rejects oversized input without truncation. [Input rules and file protections](docs/cli.md#text-documents).
+Attach UTF-8 `.txt` and `.md` files; PDF is not supported. Each `respond` call is
+stateless. Chats store and replay the conversation. The complete rendered prompt
+must fit 128 KiB; oversized requests and native context-capacity failures produce
+errors without silently shortening history. Default timeout is 30 seconds, with a
+120-second ceiling. [CLI and data guide](docs/cli.md).
 
-### Image generation
-
-Create and save a PNG without leaving your terminal or agent conversation.
-The standard release bundle includes the image Shortcut. Complete its setup first:
-[image setup](docs/image-generation.md#setup).
+### Image generation and understanding
 
 ```bash
 hollis image generate "A brass turtle carrying a tiny greenhouse" \
   --style illustration --output turtle.png
-hollis image generate "A lighthouse on a cliff at sunset" \
+hollis image generate "A lighthouse at sunset" \
   --style sketch --aspect-ratio 16:9 --fit crop --output banner.png
-```
-
-The tested Shortcut returns images without a per-image click on an already
-set-up, unlocked Mac. Hollis does not launch an Image Playground window or
-click its interface. Apple may ask for permissions during setup.
-
-Animation, Illustration, Sketch, Genmoji and Any Style returned images in our
-tests. **Any Style does not guarantee photographs. ChatGPT image generation
-is blocked through Shortcuts on the tested macOS build.** The separate ChatGPT
-text/image-understanding bridge works.
-
-Use `/image` in a Hollis chat, or request generation through the API. A follow-up
-can attach the previous image and ask for a new scene. Reference bytes are sent,
-but reliable use of those pixels remains unproven, including subject preservation.
-Ratios and sizes use local crop/pad/resize after generation, rather than native
-model controls.
-
-[Generation and styles](docs/image-generation.md) ·
-[Image references and conversation examples](docs/image-references.md).
-
-### Images
-
-`respond` accepts PNG and JPEG files through the existing bridges:
-
-```bash
-hollis respond --image photo.jpg "What is this?"
 hollis respond --model cloud-pro --image a.png --image b.png "Compare them"
 ```
 
-An image request with no selected or configured model defaults directly to Cloud. Cloud and Cloud Pro accept repeated `--image`; ChatGPT accepts one image. `auto` and On-Device are rejected for images because the tested On-Device Shortcut ignored the pixels, making automatic fallback unsafe.
+Generation saves a PNG to a new filename in an existing folder. Animation,
+Illustration, Sketch, Genmoji and Any Style returned images in tests. On the tested,
+already approved account, generation needed no per-image click or visible Playground
+editor. Any Style does not guarantee photographs; ChatGPT image generation is
+unavailable through the tested Shortcut. Reference bytes are sent, but reliable
+use of their pixels—including subject preservation—remains unproven.
+Ratios and sizes use local crop/pad/resize after generation.
 
-[File limits and safe image input](docs/cli.md#images) · [API images](docs/api.md#inline-image-input).
+For image understanding, Cloud and Cloud Pro accept up to three PNG/JPEG images;
+ChatGPT accepts one. Native local is text-only. `auto` and Shortcuts On-Device reject
+image input because the tested On-Device Shortcut ignored the pixels.
+[Images and styles](docs/image-generation.md) · [References and follow-ups](docs/image-references.md).
 
-## Paced folder processing
-
-Process a folder of documents or images, save each result, and resume later:
+### Batch processing
 
 ```bash
 hollis batch plan --input-dir ./inbox --prompt-file instructions.txt \
@@ -233,59 +218,84 @@ hollis batch run --job ./job.json --max-calls 12
 hollis batch resume --job ./job.json --max-calls 12
 ```
 
-Planning makes no model calls. Runs have an explicit call budget, wait between
-requests, and skip completed results after verifying them. Text works on all
-four tiers; images use Cloud, Cloud Pro or ChatGPT. A failure stops the run.
-This processes an existing folder once; it does not watch for new files.
+Planning makes no model calls. Runs wait between requests, have an explicit call
+budget, and verify saved results before skipping them. Text supports all five
+explicit model choices; images use Cloud, Cloud Pro or ChatGPT. `auto` is not a
+batch choice. A failure stops the run. [Batch guide](docs/batch.md).
 
-[File types, pacing, recovery and private storage](docs/batch.md).
+## Use Hollis in Claude Code and Codex
 
-## Persistent chats
+The [plugin 0.2.0](plugins/hollis/README.md) bundles runtime **0.4.0**, its matched
+native helper and five Shortcut bridges. Ask Apple to assess a supplied plan,
+compare documents or create an image, then keep working in the same conversation.
+Guided setup preserves your existing configuration and conversations.
+Plugin 0.1.0 bundled runtime 0.3.3 and does not include native local; update the
+plugin to get it. [Installation and everyday requests](plugins/hollis/README.md#install).
 
-Shortcuts model calls are stateless. Hollis stores conversations locally and replays the transcript each turn:
+## OpenAI-compatible API
+
+Chat Completions and Responses run on localhost. First create private authentication
+files and start the server:
 
 ```bash
-hollis chat
-hollis chat --continue <id> "What did we decide?"
-hollis chats list
+umask 077
+openssl rand -base64 48 > hollis.token
+{ printf 'Authorization: Bearer '; cat hollis.token; } > hollis.headers
+hollis serve --token-file hollis.token
 ```
 
-[Continue, search and manage conversations](docs/cli.md#persistent-chats).
+In another terminal in the same directory:
 
-## Use Apple in your agent conversation
+```bash
+curl -sS http://127.0.0.1:1978/v1/chat/completions \
+  -H @hollis.headers -H 'Content-Type: application/json' \
+  -d '{"model":"cloud","stream":false,"messages":[{"role":"user","content":"Explain closures briefly."}]}'
+```
 
-The new [Hollis plugin](plugins/hollis/README.md) brings these capabilities into
-Claude Code and Codex, including guided setup and a bundled Mac runtime and
-bridges. Ask Apple to assess your plan, compare documents or create an image,
-then continue in the same conversation. It works alongside gstack without
-requiring an upstream change.
+- Through Shortcuts, answers are complete and token usage is unavailable; `stream: true` returns 400.
+- Native `local` supports real SSE streaming on both endpoints and measured token usage on complete responses. Streaming usage is not promised.
+- CLI `--json` and `--agent` output never stream; explicit streaming with either is rejected.
+- No API tools/function calls. `system` and `instructions` are advisory prompt content.
 
-Plugin **0.1.0** bundles the released, provenance-verified Hollis **0.3.3** runtime.
-Download the [plugin archive](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0)
-or install from this repository.
-Start with [Claude/Codex installation](plugins/hollis/README.md#install),
-[everyday requests](plugins/hollis/docs/usage.md) or the
-[fictional workflow example](plugins/hollis/examples/demo.md).
-The [plugin overview](docs/plugin.md) links setup, compatibility and validation;
-the [folder map](plugins/hollis/docs/package.md) explains the portable package
-and native host adapters.
+[Client settings, authentication and limits](docs/api.md) · [Native local](docs/native-local.md).
 
-## What it deliberately does not do
+<a id="your-data"></a>
 
-- Shortcuts returns a complete response rather than a token stream, so `stream: true` returns **400** instead of a faked stream.
-- Apple exposes no token counts through this path, so no `usage` field is invented.
-- The HTTP contract has no `tools` / function calls.
-- `system` and `instructions` are advisory prompt content, not hard isolation boundaries.
-- Hollis deliberately has no command-line `--token`, because process arguments can be visible through `ps`.
+## Your data and uninstalling
 
-The local API requires authentication by default. [Authentication, limits and client settings](docs/api.md).
+Configuration (`config.json`), conversations and run history (`hollis.db`) live in
+`~/Library/Application Support/hollis`, unless `HOLLIS_STATE_DIR` overrides it.
+The plugin keeps its managed runtime under that directory’s `plugin` folder.
+Prompts use private temporary files, removed after requests; abrupt termination can
+leave files behind. [Transport and cleanup](docs/shortcuts.md#how-it-works).
+
+For the CLI installer above, remove the executables:
+
+```bash
+rm -i "$HOME/.local/bin/hollis" "$HOME/.local/bin/hollis-native"
+```
+
+For an earlier `/usr/local/bin` install, remove those copies instead. Remove the
+plugin through its host’s plugin manager. Delete the five Hollis shortcuts in
+Shortcuts if no remaining installation uses them. Your chats and settings remain;
+to erase them too, delete the Hollis Application Support folder in Finder after
+backing up anything you want to keep. [Plugin state and removal](plugins/hollis/docs/setup.md).
+
+## Why not `fm`?
+
+On macOS 27.0 build **26A428**, Apple’s installed `fm --help` and `fm respond --help`
+list only the on-device `system` model. Hollis exposes separate Cloud and Cloud Pro
+choices through Shortcuts, with successful responses checked on the 0.4.0 candidate.
+Joseph Humfrey demonstrated the Shortcut-to-PCC approach in
+[*The Shortcut to integrating Private Cloud Compute into my app*](https://joethephish.me/blog/the-shortcut-to-integrating-PCC/);
+Hollis adds explicit selection, CLI/API access, conversations and batches.
+[Evidence and scope](EVIDENCE.md).
 
 ## Reference
 
 <!-- Preserved anchors: external deep links from release notes and EVIDENCE.md. Do not remove. -->
 <a id="scripts-and-agents"></a>
 <a id="quick-reference"></a>
-<a id="your-data"></a>
 <a id="local-openai-shaped-api"></a>
 <a id="inline-image-input"></a>
 <a id="clients-listing-is-not-the-same-as-working"></a>
@@ -302,39 +312,16 @@ The local API requires authentication by default. [Authentication, limits and cl
 <a id="if-something-breaks"></a>
 <a id="testing"></a>
 
+
 | Guide | What you will find |
 | --- | --- |
-| [CLI and local data](docs/cli.md) | File input, chats, agent JSON, exit codes, storage and command reference |
-| [Local API](docs/api.md) | Chat Completions, Responses, images, authentication and “listing is not the same as working” |
-| [Shortcuts transport](docs/shortcuts.md) | Bridge discovery, measured quirks and model-family notes |
-| [Compatibility and troubleshooting](docs/compatibility.md) | macOS support, doctor output and alternate installation |
-| [Testing](docs/testing.md) | Offline checks, live-test boundaries and the harness index |
-
-## Why not `fm`?
-
-Apple ships its own Foundation Models CLI, `fm`, and hollis neither patches nor replaces it. Two things make Shortcuts the more capable path today.
-
-**Granularity.** Even when `fm` supported Private Cloud Compute, its selector was a single `pcc` target — one generic cloud model, with no way to ask for a specific tier. Shortcuts exposes Cloud and Cloud Pro as separate choices, so hollis can offer a distinction the CLI never had.
-
-**Availability.** On macOS 27.0 build `26A428`, Apple’s installed `fm --help` and `fm respond --help` list only the on-device `system` model. Hollis gives you explicit `cloud` and `cloud-pro` choices through Shortcuts, with successful responses verified on the 0.4.0 candidate. Both cloud choices remain subject to Apple’s availability and usage limits.
-
-There is also a reason not to link the framework directly. Apple gates third-party PCC access behind an entitlement, App Store Small Business Program enrollment, and a two-million-download ceiling; a non-entitled binary calling `PrivateCloudComputeLanguageModel` fails with `ModelManagerError 1046`. That entitlement gates the **developer framework, not the user-facing automation surface** — Shortcuts is a shipped consumer feature, `shortcuts run` is a documented Apple CLI, and the bridges are shortcuts you could build by hand in a minute. Hollis automates a supported surface rather than working around a restriction.
-
-That surface is one Apple can change in any build, exactly as it changed `fm` in this one, which is why every claim here names the build it was measured on.
-
-Prior art: bridging to Apple Intelligence through a Shortcut was shown by **Joseph Humfrey** in [*The Shortcut to integrating Private Cloud Compute into my app*](https://joethephish.me/blog/the-shortcut-to-integrating-PCC/) (June 2025). Hollis adds explicit tier selection, persistent chats, bounded batch processing and CLI/API access. A documented web and GitHub search on 2026-09-03 found many on-device or single-`pcc` CLIs, but no other public CLI exposing the two Shortcuts choices separately. Hollis is therefore, **to our knowledge**, the first public CLI to expose both Cloud and Cloud Pro—not the first Shortcut bridge or Apple-model CLI. Full scope, counterexamples, and falsification conditions: [EVIDENCE.md](EVIDENCE.md).
-
-## Evidence and references
-
-* [Hollis evidence and prior-art scope](EVIDENCE.md)
-* [Apple: Prompting an on-device foundation model](https://developer.apple.com/documentation/foundationmodels/prompting-an-on-device-foundation-model)
-* [Apple: Adding server-side intelligence with Private Cloud Compute](https://developer.apple.com/documentation/foundationmodels/adding-server-side-intelligence-with-private-cloud-compute)
+| [CLI and local data](docs/cli.md) | Inputs, chats, agent JSON, storage and exit codes |
+| [API](docs/api.md) | Chat Completions, Responses, and why a listed model can still fail |
+| [Shortcuts transport](docs/shortcuts.md) | Bridge discovery and measured behavior |
+| [Compatibility](docs/compatibility.md) | Tested builds, doctor and alternative installation |
+| [Testing](docs/testing.md) | Offline checks and live-test boundaries |
 
 <a id="whats-in-031"></a>
 <a id="included-from-030"></a>
 
-[Release notes and upgrade instructions](docs/releases/README.md).
-
-## License
-
-Apache-2.0 — [LICENSE](LICENSE)
+[Release notes](docs/releases/README.md) · [Evidence](EVIDENCE.md) · [Apache-2.0 license](LICENSE)
