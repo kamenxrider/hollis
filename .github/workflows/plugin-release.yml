@@ -22,6 +22,9 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts/plugin -p 'test_*.py'
           python3 scripts/plugin/package_plugin.py --validate-only
+          python3 scripts/release/privacy.py --source
+          git archive --format=tar HEAD > "$RUNNER_TEMP/hollis-source.tar"
+          python3 scripts/release/privacy.py --archive "$RUNNER_TEMP/hollis-source.tar" --kind source
           for script in plugins/hollis/scripts/*.sh; do bash -n "$script"; done
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             VERSION=$(python3 -c 'import json; print(json.load(open("plugins/hollis/plugin.json"))["version"])')
@@ -31,7 +34,12 @@ jobs:
       - name: Verify runtime provenance and package both hosts
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/plugin/package_plugin.py --output dist/plugin
+        run: |
+          python3 scripts/plugin/package_plugin.py --output dist/plugin
+          for archive in dist/plugin/*.zip; do
+            python3 scripts/release/privacy.py --archive "$archive" --kind plugin
+          done
+          python3 scripts/release/privacy.py --release-dir dist/plugin --kind plugin
 
       - name: Attest plugin archive and release evidence
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2

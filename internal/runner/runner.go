@@ -15,8 +15,8 @@
 //  7. Invoke positively discovered bridge names or explicit configured
 //     references. Compiled UUIDs are candidates, never installation proof.
 //  8. Default concurrency 1, configurable — 4 parallel runs proven clean.
-//  9. For image requests, pass a private prompt file and image files together
-//     as repeated --input-path arguments; stdin is not part of that call.
+//  9. Stage exact prompt bytes in a private .txt file and use --input-path,
+//     never child stdin. For images, append their staged paths after the prompt.
 package runner
 
 import (
@@ -35,9 +35,11 @@ const (
 	ModelCloudPro Model = "cloud-pro"
 	ModelOnDevice Model = "on-device"
 	ModelChatGPT  Model = "chatgpt"
+	ModelLocal    Model = "local"
 )
 
-// Models is the exhaustive set of concrete model tiers. ModelAuto is a
+// Models contains Shortcut-backed tiers only; native ModelLocal has no bridge.
+// ModelAuto is a
 // strategy, not a tier: it tries the default tier first and may fall back to
 // the on-device model for confirmed missing bridges or recognized rate limits, so
 // it is valid for selection but has no bridge of its own.
@@ -50,7 +52,7 @@ const ModelAuto Model = "auto"
 
 // Valid reports whether m is selectable: any concrete tier or auto.
 func (m Model) Valid() bool {
-	if m == ModelAuto {
+	if m == ModelAuto || m == ModelLocal {
 		return true
 	}
 	for _, v := range Models {
@@ -87,19 +89,23 @@ var MaxTimeout = 120 * time.Second
 type Kind string
 
 const (
-	KindEmptyPrompt     Kind = "empty_prompt"       // refused before spawn (hangs forever)
-	KindNoOutput        Kind = "shortcut_no_output" // exit 0 + empty stdout (also what a TTY run looks like)
-	KindShortcutMissing Kind = "shortcut_missing"   // confirmed by Apple error text
-	KindRateLimited     Kind = "rate_limited"       // explicit rate-limit text from Apple
-	KindUsage           Kind = "usage"              // exit 64
-	KindSIGABRT         Kind = "sigabrt"            // exit 134 (the -o /dev/stdout crash; never used by us)
-	KindSignal          Kind = "signal"             // another real Unix signal terminated the child
-	KindTimeout         Kind = "timeout"            // deadline hit, child killed
-	KindContextCanceled Kind = "context_canceled"   // caller canceled before/during run
-	KindListFailure     Kind = "list_failure"       // `shortcuts list` transport failure
-	KindTransport       Kind = "transport"          // staging, launch, or pipe failure
-	KindRequestDeclined Kind = "request_declined"   // Apple asked for a different description; cause unknown
-	KindShortcutFailed  Kind = "shortcut_failed"    // unrecognized unsuccessful execution
+	KindLocalUnavailable Kind = "local_unavailable"
+	KindContextCapacity  Kind = "context_capacity"
+	KindNativeProtocol   Kind = "native_protocol"
+	KindNativeFailed     Kind = "native_failed"
+	KindEmptyPrompt      Kind = "empty_prompt"       // refused before spawn (hangs forever)
+	KindNoOutput         Kind = "shortcut_no_output" // exit 0 + empty stdout (also what a TTY run looks like)
+	KindShortcutMissing  Kind = "shortcut_missing"   // confirmed by Apple error text
+	KindRateLimited      Kind = "rate_limited"       // explicit rate-limit text from Apple
+	KindUsage            Kind = "usage"              // exit 64
+	KindSIGABRT          Kind = "sigabrt"            // exit 134 (the -o /dev/stdout crash; never used by us)
+	KindSignal           Kind = "signal"             // another real Unix signal terminated the child
+	KindTimeout          Kind = "timeout"            // deadline hit, child killed
+	KindContextCanceled  Kind = "context_canceled"   // caller canceled before/during run
+	KindListFailure      Kind = "list_failure"       // `shortcuts list` transport failure
+	KindTransport        Kind = "transport"          // staging, launch, or pipe failure
+	KindRequestDeclined  Kind = "request_declined"   // Apple asked for a different description; cause unknown
+	KindShortcutFailed   Kind = "shortcut_failed"    // unrecognized unsuccessful execution
 )
 
 // Error is a classified runner failure. Kind maps to a stable CLI exit code.
@@ -194,4 +200,29 @@ func FallbackEligible(kind Kind) bool {
 	default:
 		return false
 	}
+}
+
+// Usage contains measured SDK token counts, never estimates.
+type Usage struct {
+	InputTokens     int `json:"input_tokens"`
+	OutputTokens    int `json:"output_tokens"`
+	ReasoningTokens int `json:"reasoning_tokens"`
+}
+
+// Completion is a complete, successful response. Usage is absent when unavailable.
+type Completion struct {
+	Text  string
+	Model Model
+	Usage *Usage
+}
+
+// CompleteRunner optionally provides measured response usage.
+type CompleteRunner interface {
+	RunComplete(context.Context, Model, string) (Completion, error)
+}
+
+// StreamRunner emits incremental text and returns only after successful completion.
+// A failed stream may have emitted text; callers must not persist it as success.
+type StreamRunner interface {
+	Stream(context.Context, Model, string, func(string) error) (Completion, error)
 }

@@ -12,7 +12,16 @@ hollis respond model cloud-pro "same thing, model before the prompt"
 hollis respond --timeout 90s "A question worth waiting for"
 ```
 
-The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple.
+The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple. For Shortcuts routes, all rendered text reaches Shortcuts through a private temporary `.txt` file; see [transport and cleanup details](shortcuts.md#how-it-works).
+
+## Native local streaming
+
+`hollis respond --model local` and `hollis chat --model local` use Apple’s native
+on-device SDK and stream human output when stdout is a terminal. Use `--stream`
+to stream explicitly to a pipe, or `--stream=false` for a complete answer. JSON
+and agent output never stream, even in a terminal; `--stream=true` with either
+is rejected. Terminal control characters are rendered visibly. No conversation
+is silently shortened to fit native context capacity. See [native local](native-local.md).
 
 ## Text documents
 
@@ -34,11 +43,11 @@ hollis respond --image photo.jpg "What is this?"
 hollis respond --model cloud-pro --image a.png --image b.png "Compare them"
 ```
 
-An image request with no selected or configured model defaults directly to Cloud. Cloud and Cloud Pro accept repeated `--image`; ChatGPT accepts one image. `auto` and On-Device are rejected for images because the tested On-Device Shortcut ignored the pixels, making automatic fallback unsafe.
+An image request with no selected or configured model defaults directly to Cloud. Cloud and Cloud Pro accept repeated `--image`; ChatGPT accepts one image. `local`, `auto` and On-Device are rejected for images because the tested On-Device Shortcut ignored the pixels, making automatic fallback unsafe.
 
 Images must be direct regular PNG/JPEG files, at most 64 MiB and 64 million pixels each. Hollis rejects symlinks in the file or its parent directories, apart from macOS's standard root-owned `/var`, `/tmp` and `/etc` aliases. Use the real path for an image reached through a custom directory link. The runner validates a private byte snapshot and passes only that snapshot to Shortcuts; staged images are removed after success, failure or cancellation.
 
-When images are present, give the prompt as an argument or with `--prompt-file`. Hollis writes it to a private temporary UTF-8 text file and passes that file plus the images as repeated Shortcuts inputs; the temporary prompt is deleted after the run. Do not pipe a second prompt through stdin with `--image`. Image chat history remains unsupported. The same model tiers accept inline images through the API, described in the [API guide](api.md#inline-image-input).
+When images are present, give the prompt as an argument or with `--prompt-file`. Hollis passes the private prompt file first, followed by the images as repeated Shortcuts inputs, and cleans up staging after the run subject to the limits described above. Do not pipe a second prompt through stdin with `--image`. Image chat history remains unsupported. The same model tiers accept inline images through the API, described in the [API guide](api.md#inline-image-input).
 
 ## Persistent chats
 

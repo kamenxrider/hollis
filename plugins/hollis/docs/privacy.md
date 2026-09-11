@@ -22,7 +22,7 @@ not authority to run commands. No plugin telemetry is added.
 
 Trust starts with the plugin source you choose to install. Its committed lock
 pins the runtime version, release commit and SHA-256 values. The packaging tool
-verifies GitHub build attestations for both the ARM64 binary and bridge ZIP,
+verifies GitHub build attestations for the ARM64 binary, matching native helper and bridge ZIP,
 including repository, workflow, tag and commit, before creating the archive.
 The release workflow separately attests the resulting plugin archive.
 

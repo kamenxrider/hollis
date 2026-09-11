@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kamenxrider/hollis/internal/chat"
@@ -18,6 +20,7 @@ import (
 	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/kamenxrider/hollis/internal/store"
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 )
 
 // openStore opens the chat database; tests substitute a temp path.
@@ -35,6 +38,8 @@ type turnResult struct {
 	Text           string
 	ModelUsed      runner.Model
 	FallbackReason string
+	Usage          *runner.Usage
+	Streamed       bool
 }
 
 // executeTurn builds and runs one turn, but does not persist it. Keeping the
@@ -45,6 +50,11 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 	if err := chat.ValidateTranscript(history, transcript); err != nil {
 		return turnResult{}, store.RunRecord{}, usageErr(err)
 	}
+
+	// Scope signal cancellation to this inference, not the interactive
+	// reader waiting for the next prompt. This lets runner cleanup complete.
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -58,7 +68,13 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 	var text string
 	var used runner.Model
 	var runErr error
-	if rich, ok := r.(runner.FallbackRunner); ok {
+	var usage *runner.Usage
+	streamOut, streamed := ctx.Value(streamOutputKey{}).(io.Writer)
+	streamed = streamed && requested == runner.ModelLocal
+	if requested == runner.ModelLocal {
+		completion, err := runLocalText(ctx, r, transcript, streamed, streamOut)
+		text, used, usage, runErr = completion.Text, completion.Model, completion.Usage, err
+	} else if rich, ok := r.(runner.FallbackRunner); ok {
 		text, used, fallback, runErr = rich.RunWithFallback(ctx, requested, transcript)
 	} else {
 		text, used, runErr = r.Run(ctx, requested, transcript)
@@ -98,6 +114,7 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 		Text:           text,
 		ModelUsed:      used,
 		FallbackReason: fallbackReason(requested, used, fallback),
+		Usage:          usage, Streamed: streamed,
 	}, record, nil
 }
 
@@ -194,6 +211,7 @@ func newChatCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 func newChatCmdWithImageGenerator(flags *rootFlags, newRunner newRunnerFunc, generator imagegen.Generator) *cobra.Command {
 	var (
 		modelFlag      string
+		stream         bool
 		continueID     string
 		timeout        time.Duration
 		generateImage  bool
@@ -237,12 +255,15 @@ they do not control Image Playground's native generation canvas.`,
 			if err := validateTimeout(cmd, timeout); err != nil {
 				return err
 			}
-			_, promptArgs, hasPosModel := splitModelArgs(args)
+			posModel, promptArgs, hasPosModel := splitModelArgs(args)
+			if generateImage && ((hasPosModel && posModel == string(runner.ModelLocal)) || (!hasPosModel && cmd.Flags().Changed("model") && modelFlag == string(runner.ModelLocal))) {
+				return usageErr(errors.New("local does not support image generation"))
+			}
 			if continueID != "" && (hasPosModel || cmd.Flags().Changed("model")) {
 				return usageErr(errors.New("--continue uses the conversation's stored model; do not pass --model or a positional model"))
 			}
 			if continueID == "" && cmd.Flags().Changed("model") && !runner.Model(modelFlag).Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", modelFlag))
+				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", modelFlag))
 			}
 			if len(promptArgs) > 0 {
 				if err := chat.ValidatePrompt(strings.Join(promptArgs, " ")); err != nil {
@@ -276,7 +297,7 @@ they do not control Image Playground's native generation canvas.`,
 					}
 				}
 				if !m.Valid() {
-					return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, or chatgpt", m))
+					return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", m))
 				}
 			}
 
@@ -341,6 +362,16 @@ they do not control Image Playground's native generation canvas.`,
 				}
 			}
 
+			streaming, err := selectStreaming(cmd, flags, selectedModel, stream)
+			if err != nil {
+				return err
+			}
+			if interactive && flags.asJSON {
+				return usageErr(errors.New("JSON and agent chat require a prompt argument or piped stdin"))
+			}
+			if selectedModel == runner.ModelLocal && generateImage {
+				return usageErr(errors.New("local does not support image generation"))
+			}
 			if generateImage {
 				resolved, err := resolveImageBridgeRequest(imageStyle, imageBridge)
 				if err != nil {
@@ -365,7 +396,7 @@ they do not control Image Playground's native generation canvas.`,
 			// Runtime bridge resolution:
 			// explicit tiers refuse to run when their bridge did not resolve,
 			// and every turn's transport is retargeted at the resolved refs.
-			resolved, err := resolveForRunner(cmd.Context(), newRunner)
+			resolved, err := resolveForModel(cmd.Context(), newRunner, selectedModel)
 			if err != nil && !canAttemptAfterDiscoveryFailure(resolved, selectedModel) {
 				return resolutionCLIError(err)
 			}
@@ -373,12 +404,16 @@ they do not control Image Playground's native generation canvas.`,
 				return err
 			}
 			useRunner := resolvedNewRunnerFunc(newRunner, resolved)
+			turnContext := cmd.Context()
+			if streaming {
+				turnContext = context.WithValue(turnContext, streamOutputKey{}, cmd.OutOrStdout())
+			}
 
 			if interactive {
-				return runInteractiveChatWithImages(cmd.Context(), st, string(selectedModel), continueID, useRunner, timeout, imageOptions, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+				return runInteractiveChatWithImages(turnContext, st, string(selectedModel), continueID, useRunner, timeout, imageOptions, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 			}
 			if continueID != "" {
-				result, err := runTurnResult(cmd.Context(), st, conv, prompt, useRunner, timeout)
+				result, err := runTurnResult(turnContext, st, conv, prompt, useRunner, timeout)
 				if err != nil {
 					return err
 				}
@@ -388,7 +423,7 @@ they do not control Image Playground's native generation canvas.`,
 				writeChatHuman(cmd, result, conv)
 				return nil
 			}
-			result, conv, err := runFirstTurn(cmd.Context(), st, m, prompt, useRunner, timeout)
+			result, conv, err := runFirstTurn(turnContext, st, m, prompt, useRunner, timeout)
 			if err != nil {
 				return err
 			}
@@ -399,7 +434,8 @@ they do not control Image Playground's native generation canvas.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&modelFlag, "model", string(runner.ModelAuto), "Model for a new conversation: auto (default: cloud first, on-device fallback), cloud, cloud-pro, on-device, or chatgpt (see hollis models)")
+	cmd.Flags().BoolVar(&stream, "stream", false, "Stream native-local human text (default on terminals); --stream=false waits for completion")
+	cmd.Flags().StringVar(&modelFlag, "model", string(runner.ModelAuto), "Model for a new conversation: auto (default: cloud first, on-device fallback), cloud, cloud-pro, on-device, chatgpt, or local (see hollis models)")
 	cmd.Flags().StringVar(&continueID, "continue", "", "Continue an existing conversation by id")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-turn timeout (default 30s, ceiling 120s)")
 	cmd.Flags().BoolVar(&generateImage, "generate-image", false, "Generate an image as this chat turn instead of calling the text model")
@@ -450,6 +486,9 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 		}
 		if line := strings.TrimSpace(raw); line != "" {
 			if imagePrompt, isImage := parseInteractiveImagePrompt(line); isImage {
+				if model == string(runner.ModelLocal) || conv.Model == string(runner.ModelLocal) {
+					return usageErr(errors.New("local does not support image generation"))
+				}
 				if imagePrompt == "" {
 					return usageErr(errors.New("interactive /image requires a prompt"))
 				}
@@ -486,13 +525,17 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 				continue
 			}
 			var result turnResult
+			turnCtx := ctx
+			if streamOut, ok := ctx.Value(streamOutputKey{}).(io.Writer); ok {
+				turnCtx = context.WithValue(ctx, streamOutputKey{}, &prefixedWriter{out: streamOut, prefix: "< "})
+			}
 			if conv.ID == "" {
-				result, conv, err = runFirstTurn(ctx, st, runner.Model(model), line, newRunner, timeout)
+				result, conv, err = runFirstTurn(turnCtx, st, runner.Model(model), line, newRunner, timeout)
 				if err == nil {
 					fmt.Fprintf(errOut, "conversation_id: %s\n", conv.ID)
 				}
 			} else {
-				result, err = runTurnResult(ctx, st, conv, line, newRunner, timeout)
+				result, err = runTurnResult(turnCtx, st, conv, line, newRunner, timeout)
 			}
 			if err != nil {
 				return err
@@ -500,7 +543,13 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 			if result.FallbackReason != "" {
 				fmt.Fprintf(errOut, "hollis: fallback %s: answered with %s\n", result.FallbackReason, result.ModelUsed)
 			}
-			fmt.Fprintln(out, "<", humanTerminalText(out, result.Text))
+			if result.Streamed {
+				if !strings.HasSuffix(result.Text, "\n") {
+					fmt.Fprintln(out)
+				}
+			} else {
+				fmt.Fprintln(out, "<", humanTerminalText(out, result.Text))
+			}
 		}
 		if readErr != nil {
 			// EOF (Ctrl-D). Any trailing line without a newline was just
@@ -538,6 +587,9 @@ func printChatJSON(cmd *cobra.Command, result turnResult, conv store.Conversatio
 		"model_used":      result.ModelUsed,
 		"response":        result.Text,
 	}
+	if result.Usage != nil {
+		data["usage"] = result.Usage
+	}
 	if result.FallbackReason != "" {
 		data["fallback_reason"] = result.FallbackReason
 	}
@@ -550,7 +602,9 @@ func writeChatHuman(cmd *cobra.Command, result turnResult, conv store.Conversati
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "conversation_id: %s\n", conv.ID)
 	text := humanTerminalText(cmd.OutOrStdout(), result.Text)
-	fmt.Fprint(cmd.OutOrStdout(), text)
+	if !result.Streamed {
+		fmt.Fprint(cmd.OutOrStdout(), text)
+	}
 	if !strings.HasSuffix(result.Text, "\n") {
 		fmt.Fprintln(cmd.OutOrStdout())
 	}
@@ -611,7 +665,7 @@ Exit codes: 0 hits, 2 empty query, 3 no matches.`,
 				return usageErr(errors.New("empty search query"))
 			}
 			if modelFilter != "" && !runner.Model(modelFilter).Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", modelFilter))
+				return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, chatgpt, or local", modelFilter))
 			}
 			if limit < 1 {
 				return usageErr(fmt.Errorf("invalid --limit %d: must be at least 1", limit))
@@ -624,7 +678,7 @@ Exit codes: 0 hits, 2 empty query, 3 no matches.`,
 				return usageErr(errors.New("empty search query"))
 			}
 			if modelFilter != "" && !runner.Model(modelFilter).Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, or chatgpt", modelFilter))
+				return usageErr(fmt.Errorf("unknown model %q: choose auto, cloud, cloud-pro, on-device, chatgpt, or local", modelFilter))
 			}
 			if limit < 1 {
 				return usageErr(fmt.Errorf("invalid --limit %d: must be at least 1", limit))
@@ -667,7 +721,7 @@ Exit codes: 0 hits, 2 empty query, 3 no matches.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&modelFilter, "model", "", "Only chats on this model tier: auto, cloud, cloud-pro, on-device, or chatgpt")
+	cmd.Flags().StringVar(&modelFilter, "model", "", "Only chats on this model tier: auto, cloud, cloud-pro, on-device, chatgpt, or local")
 	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum conversations to show")
 	return cmd
 }
@@ -871,8 +925,8 @@ var terminalOutput = func(w io.Writer) bool {
 	if !ok {
 		return false
 	}
-	info, err := file.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	_, err := unix.IoctlGetWinsize(int(file.Fd()), unix.TIOCGWINSZ)
+	return err == nil
 }
 
 func humanTerminalText(w io.Writer, value string) string {

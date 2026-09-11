@@ -45,9 +45,17 @@ __pycache__/
 # rewritten as a compatibility reference (needs a real macOS 26 machine).
 /results/macos-26-compat.md
 /results/tool-protocol-26A5425a.md
-/scripts/live-suite/*
-!/scripts/live-suite/host_matrix.py
-!/scripts/live-suite/test_host_matrix.py
+/scripts/live-suite/
+/scripts/image-suite/
+/plugins/hollis/examples/recorded/
+/plugins/hollis/examples/recorded-demo.md
+/plugins/hollis/docs/*-evidence.json
+/scripts/plugin/live_validate.py
+/scripts/plugin/host_demo.py
+/docs/releases/*-validation.json
+/docs/plugin-review-closure.md
+/internal/integration/live_test.go
+/internal/cli/image_live_test.go
 .agents/*
 !.agents/plugins/
 .agents/plugins/*
@@ -58,3 +66,6 @@ skills-lock.json
 
 # Verified runtime bytes are bundled at packaging time, not committed.
 /plugins/hollis/assets/runtime/
+
+# Private identity working pack; only selected docs/assets artwork is public.
+/assets/brand/

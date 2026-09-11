@@ -1,10 +1,16 @@
 # hollis
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hollis-logo-dark.svg">
+  <img src="docs/assets/hollis-logo.svg" alt="hollis — Your Mac has more to say." width="680">
+</picture>
+
 **Apple Cloud and Cloud Pro in your terminal, scripts and agent conversations.**
 
 Hollis makes the Apple Intelligence access on your Mac available to the tools
-you already use. Choose Cloud, Cloud Pro, On-Device or ChatGPT; work with text
-and images; keep a conversation; or call it from a local API.
+you already use. Choose Cloud, Cloud Pro, On-Device or ChatGPT through Shortcuts, or explicitly
+select native local inference. Work with text and images, keep a conversation,
+or call Hollis from a local API.
 
 On the tested macOS 27 builds, Shortcuts exposes all four choices:
 
@@ -17,6 +23,7 @@ Shortcuts command-line interface, using small, inspectable bridges you install.
 ```bash
 hollis respond "Summarize this repo in one sentence"
 hollis respond --model cloud-pro "Analyze this bug"
+hollis respond --model local "Explain this error"  # genuine streaming in a terminal
 hollis respond --image photo.jpg "Describe this image"
 printf 'long prompt' | hollis respond
 hollis chat                       # interactive, remembers the conversation
@@ -24,13 +31,26 @@ hollis serve --token-file /private/path/hollis.token  # local OpenAI-shaped API
 ```
 
 Chats and configuration stay on your Mac. Model requests go to the provider you
-select through Shortcuts: Cloud and Cloud Pro use Private Cloud Compute; ChatGPT
+select: native `local` uses Apple’s on-device SDK; through Shortcuts, Cloud and
+Cloud Pro use Private Cloud Compute, and ChatGPT
 uses Apple’s ChatGPT extension. An agent that calls Hollis can see the returned
 answer. Apple’s processing privacy does not make that agent’s own service local.
 
 Measured on **macOS 27.0 (26A5421a and 26A5425a)**. macOS 26 is untested — see [Compatibility](docs/compatibility.md).
 
 <a id="quickstart"></a>
+
+## Native local in 0.4.0
+
+`--model local` selects Apple’s native on-device model on Apple Silicon/macOS 27.
+It streams human terminal answers as they arrive; `--stream=false` waits for the
+complete answer. JSON/agent output always stays complete. The existing `on-device`
+selection continues to use Shortcuts, and `auto` retains its existing routing.
+
+Install the matching precompiled helper alongside Hollis, as described in the
+[native-local guide](docs/native-local.md). Complete native responses expose measured
+token usage; streaming token usage is not promised. Context limits produce a clear
+error rather than shortened history. No developer tools are needed to run the bundle.
 
 ## Install (verified)
 
@@ -147,7 +167,7 @@ hollis respond model cloud-pro "same thing, model before the prompt"
 hollis respond --timeout 90s "A question worth waiting for"
 ```
 
-The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple.
+The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple. The rendered text reaches Shortcuts through a private temporary file; see [transport and cleanup details](docs/shortcuts.md#how-it-works).
 
 ### Text documents
 
@@ -245,7 +265,7 @@ Download the [plugin archive](https://github.com/kamenxrider/hollis/releases/tag
 or install from this repository.
 Start with [Claude/Codex installation](plugins/hollis/README.md#install),
 [everyday requests](plugins/hollis/docs/usage.md) or the
-[recorded gstack demonstration](plugins/hollis/examples/recorded-demo.md).
+[fictional workflow example](plugins/hollis/examples/demo.md).
 The [plugin overview](docs/plugin.md) links setup, compatibility and validation;
 the [folder map](plugins/hollis/docs/package.md) explains the portable package
 and native host adapters.
@@ -296,7 +316,7 @@ Apple ships its own Foundation Models CLI, `fm`, and hollis neither patches nor 
 
 **Granularity.** Even when `fm` supported Private Cloud Compute, its selector was a single `pcc` target — one generic cloud model, with no way to ask for a specific tier. Shortcuts exposes Cloud and Cloud Pro as separate choices, so hollis can offer a distinction the CLI never had.
 
-**Availability.** On macOS 27.0 builds `26A5421a` and `26A5425a`, `fm` lists only `system`, and `fm available --model pcc` is rejected at argument validation — including from Terminal.app, so this is not a Warp/PTY quirk. Whether that is deliberate or a beta regression, Apple has not said.
+**Availability.** On macOS 27.0 build `26A428`, Apple’s installed `fm --help` and `fm respond --help` list only the on-device `system` model. Hollis gives you explicit `cloud` and `cloud-pro` choices through Shortcuts, with successful responses verified on the 0.4.0 candidate. Both cloud choices remain subject to Apple’s availability and usage limits.
 
 There is also a reason not to link the framework directly. Apple gates third-party PCC access behind an entitlement, App Store Small Business Program enrollment, and a two-million-download ceiling; a non-entitled binary calling `PrivateCloudComputeLanguageModel` fails with `ModelManagerError 1046`. That entitlement gates the **developer framework, not the user-facing automation surface** — Shortcuts is a shipped consumer feature, `shortcuts run` is a documented Apple CLI, and the bridges are shortcuts you could build by hand in a minute. Hollis automates a supported surface rather than working around a restriction.
 

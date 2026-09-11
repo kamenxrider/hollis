@@ -422,26 +422,22 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 
 	// Rule 1: plain text, never the RTF default. Rule 7: reference by UUID.
 	args := []string{"run", ref, "--output-type", "public.plain-text"}
-	var removePrompt func()
-	if len(imagePaths) > 0 {
-		promptPath, cleanup, err := writeImagePromptFile(prompt)
-		if err != nil {
-			return "", &Error{
-				Kind: KindTransport, Ref: ref, ExitCode: -1,
-				Err: fmt.Errorf("prepare private image prompt: %w", err),
-			}
+	// Native stdin can classify code-shaped text as a different input object.
+	// Always stage the exact rendered text, including for text-only requests.
+	// Keep the prompt first when co-delivering images. Never retry via stdin.
+	promptPath, cleanup, err := writePromptFile(prompt)
+	if err != nil {
+		return "", &Error{
+			Kind: KindTransport, Ref: ref, ExitCode: -1,
+			Err: fmt.Errorf("prepare private prompt: %w", err),
 		}
-		removePrompt = cleanup
-		defer removePrompt()
-		args = append(args, "--input-path", promptPath)
-		for _, imagePath := range imagePaths {
-			args = append(args, "--input-path", imagePath)
-		}
+	}
+	defer cleanup()
+	args = append(args, "--input-path", promptPath)
+	for _, imagePath := range imagePaths {
+		args = append(args, "--input-path", imagePath)
 	}
 	cmd := exec.CommandContext(ctx, r.ShortcutsPath, args...)
-	if len(imagePaths) == 0 {
-		cmd.Stdin = strings.NewReader(prompt)
-	}
 
 	// Rule 2: capture via pipes. bytes.Buffer forces exec to create an
 	// os.Pipe for stdout — the child never sees a TTY, which is the one
@@ -625,8 +621,11 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 	return out, nil
 }
 
-func writeImagePromptFile(prompt string) (string, func(), error) {
-	file, err := os.CreateTemp("", "hollis-image-prompt-*.txt")
+// writePromptFile stages bytes without normalization. Deferred removal covers
+// normal returns, errors and handled cancellation; SIGKILL or a host crash can
+// leave a mode-0600 temporary file. Removal does not promise secure erasure.
+func writePromptFile(prompt string) (string, func(), error) {
+	file, err := os.CreateTemp("", "hollis-prompt-*.txt")
 	if err != nil {
 		return "", nil, err
 	}
@@ -640,8 +639,12 @@ func writeImagePromptFile(prompt string) (string, func(), error) {
 	if err := file.Chmod(0o600); err != nil {
 		return fail(err)
 	}
-	if _, err := io.WriteString(file, prompt); err != nil {
+	n, err := io.WriteString(file, prompt)
+	if err != nil {
 		return fail(err)
+	}
+	if n != len(prompt) {
+		return fail(io.ErrShortWrite)
 	}
 	if err := file.Close(); err != nil {
 		cleanup()

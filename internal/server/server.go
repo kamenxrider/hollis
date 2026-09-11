@@ -1,8 +1,8 @@
 // Copyright 2026 kamenxrider and contributors. Licensed under Apache-2.0. See LICENSE.
 
 // Package server exposes Hollis's deliberately small OpenAI-compatible HTTP
-// surface. The Shortcuts transport returns complete text, so streaming and
-// token usage are never simulated.
+// surface. Native local supports genuine streaming and measured complete-response
+// usage; Shortcuts routes return complete text without simulated usage.
 package server
 
 import (
@@ -132,11 +132,11 @@ func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
 		data = append(data, map[string]any{"id": "auto", "object": "model", "owned_by": "hollis"})
 	}
 	owned := map[string]string{
-		"cloud": "Apple", "cloud-pro": "Apple", "on-device": "Apple", "chatgpt": "OpenAI",
+		"cloud": "Apple", "cloud-pro": "Apple", "on-device": "Apple", "chatgpt": "OpenAI", "local": "Apple",
 	}
-	for _, id := range []string{"cloud", "cloud-pro", "on-device", "chatgpt"} {
+	for _, id := range []string{"cloud", "cloud-pro", "on-device", "chatgpt", "local"} {
 		if s.modelAvailable(id) {
-			data = append(data, map[string]any{"id": id, "object": "model", "owned_by": owned[id]})
+			data = append(data, map[string]any{"id": id, "object": "model", "owned_by": owned[id], "capabilities": modelCapabilities(id)})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
@@ -158,6 +158,11 @@ func (s *Server) imageRouteAvailable() bool {
 }
 
 func (s *Server) modelAvailable(id string) bool {
+	if id == string(runner.ModelLocal) {
+		if _, ok := s.Runner.(runner.CompleteRunner); !ok {
+			return false
+		}
+	}
 	if id == string(runner.ModelAuto) {
 		if s.Available == nil {
 			return true
@@ -368,7 +373,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !decodeRequest(w, r, &request) {
 		return
 	}
-	if request.Stream {
+	if request.Stream && (request.Model != string(runner.ModelLocal) || len(request.ImageGeneration) != 0) {
 		unsupportedStreaming(w)
 		return
 	}
@@ -385,16 +390,24 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !ok || !validatePrompt(w, prepared.Prompt) {
 		return
 	}
-	text, used, ok := s.runPrepared(r.Context(), w, model, prepared)
+	if request.Stream {
+		s.streamPrepared(w, r, model, prepared, false)
+		return
+	}
+	completion, ok := s.completePrepared(r.Context(), w, model, prepared)
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id": "chatcmpl-" + randomID(), "object": "chat.completion", "created": time.Now().Unix(), "model": string(used),
+	result := map[string]any{
+		"id": "chatcmpl-" + randomID(), "object": "chat.completion", "created": time.Now().Unix(), "model": string(completion.Model),
 		"choices": []map[string]any{{
-			"index": 0, "message": map[string]any{"role": "assistant", "content": text}, "finish_reason": "stop",
+			"index": 0, "message": map[string]any{"role": "assistant", "content": completion.Text}, "finish_reason": "stop",
 		}},
-	})
+	}
+	if completion.Usage != nil {
+		result["usage"] = chatUsage(completion.Usage)
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
@@ -402,7 +415,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if !decodeRequest(w, r, &request) {
 		return
 	}
-	if request.Stream {
+	if request.Stream && (request.Model != string(runner.ModelLocal) || len(request.ImageGeneration) != 0) {
 		unsupportedStreaming(w)
 		return
 	}
@@ -419,17 +432,25 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if !ok || !validatePrompt(w, prepared.Prompt) {
 		return
 	}
-	text, used, ok := s.runPrepared(r.Context(), w, model, prepared)
+	if request.Stream {
+		s.streamPrepared(w, r, model, prepared, true)
+		return
+	}
+	completion, ok := s.completePrepared(r.Context(), w, model, prepared)
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id": "resp_" + randomID(), "object": "response", "created_at": time.Now().Unix(), "model": string(used), "status": "completed",
+	result := map[string]any{
+		"id": "resp_" + randomID(), "object": "response", "created_at": time.Now().Unix(), "model": string(completion.Model), "status": "completed",
 		"output": []map[string]any{{
 			"type": "message", "id": "msg_" + randomID(), "role": "assistant", "status": "completed",
-			"content": []map[string]any{{"type": "output_text", "text": text, "annotations": []any{}}},
+			"content": []map[string]any{{"type": "output_text", "text": completion.Text, "annotations": []any{}}},
 		}},
-	})
+	}
+	if completion.Usage != nil {
+		result["usage"] = responsesUsage(completion.Usage)
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) validatePreparedModel(w http.ResponseWriter, request preparedRequest) (runner.Model, bool) {
@@ -447,11 +468,12 @@ func (s *Server) validatePreparedModel(w http.ResponseWriter, request preparedRe
 	case runner.ModelCloud, runner.ModelCloudPro:
 	case runner.ModelChatGPT:
 		limit = MaxChatGPTImages
-	case runner.ModelAuto, runner.ModelOnDevice:
+	case runner.ModelAuto, runner.ModelOnDevice, runner.ModelLocal:
 		writeRequestValidationError(w, unsupportedParameter("image input requires cloud, cloud-pro, or chatgpt"))
 		return "", false
 	default:
-		panic("validated model missing image policy: " + model)
+		writeRequestValidationError(w, unsupportedParameter("the selected model does not support image input"))
+		return "", false
 	}
 	if len(request.Images) > limit {
 		writeRequestValidationError(w, imageLimitExceeded(fmt.Sprintf("model %q accepts at most %d image(s)", model, limit)))

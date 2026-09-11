@@ -1,4 +1,4 @@
-# Hollis: Apple inside the conversation
+# Hollis: Your Mac has more to say.
 
 Ask Apple's Cloud or Cloud Pro for a useful second perspective, turn documents
 into clear writing, understand images, or generate an illustration—then continue
@@ -8,10 +8,16 @@ It works in **Claude Code and Codex**, alongside gstack or on its own. You ask
 in the conversation; Hollis calls the selected Apple route on your Mac and
 brings the result back. No separate server or model API key is needed.
 
-**Plugin 0.1.0** bundles the released, provenance-verified Hollis **0.3.3** runtime
+**This source prepares plugin 0.2.0 for runtime 0.4.0**, adding the explicit
+native `local` route, real terminal streaming and measured complete-response
+usage. Agent/JSON replies remain complete; local needs no Shortcut import.
+The new package awaits authenticated 0.4.0 runtime release pins. Source setup
+and packaging refuse to install or bundle the older pin under the new version.
+
+The current public **plugin 0.1.0** bundles the released, provenance-verified Hollis **0.3.3** runtime
 and all five bridges. [Download the plugin archive](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0)
-or use the source installation below. Earlier review archives and their receipts
-remain historical evidence; see [validation](docs/validation.md).
+for the existing release. Internal recordings and review reports are excluded
+from upcoming packages; see [validation](docs/validation.md).
 
 **Requires a local Apple-silicon Mac running macOS 27 with Apple Intelligence.**
 Have Claude Code or Codex installed and signed in. The host must execute on this
@@ -24,7 +30,8 @@ See [compatibility](docs/compatibility.md).
 
 ## Install
 
-Install from GitHub using the host commands below. A source installation
+The commands below install the current public 0.1.0 release. For the forthcoming
+0.2.0 archive, use its extracted outer folder after publication. A source installation
 downloads the locked runtime and bridges during setup. The downloadable
 `hollis-plugin-0.1.0.zip` bundles those assets and both host installation entries.
 
@@ -156,7 +163,6 @@ For example, in Claude Code:
 Then: “Ask Apple whether that finding still matters if we launch for one team
 first.” Read the useful contribution in the same conversation; the host remains
 responsible for judging and applying suggestions. See the
-[recorded demonstration](examples/recorded-demo.md),
 [reproduction steps](examples/demo.md), [sample plan](examples/plan.md)
 and [gstack usage](skills/hollis/references/gstack.md).
 

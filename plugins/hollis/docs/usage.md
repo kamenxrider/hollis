@@ -84,5 +84,5 @@ uncertain, so investigate before requesting another generation. If the host or
 Apple needs a permission, the agent explains the specific action. Existing
 authorization still covers ordinary follow-ups within the agreed task.
 
-[Return to the plugin guide](../README.md) · [gstack demonstration](../examples/recorded-demo.md) ·
+[Return to the plugin guide](../README.md) · [workflow example](../examples/demo.md) ·
 [Troubleshooting](troubleshooting.md)

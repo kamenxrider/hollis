@@ -1274,15 +1274,18 @@ func TestModelsCommandJSONShape(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatalf("JSON output: %v (%q)", err, buf.String())
 	}
-	if len(got) != 5 {
-		t.Fatalf("models JSON rows = %d, want 5 (auto + 4 tiers)", len(got))
+	if len(got) != 6 {
+		t.Fatalf("models JSON rows = %d, want 6 (auto + 4 Shortcut tiers + local)", len(got))
 	}
 	// auto leads the list: selectable, but a strategy without a bridge —
 	// the same shape GET /v1/models reports.
 	if got[0]["model"] != "auto" {
 		t.Fatalf("first row = %v, want auto", got[0])
 	}
-	for _, row := range got[1:] {
+	if got[5]["model"] != "local" || got[5]["backend"] != "native" || got[5]["inference_verified"] != false {
+		t.Fatalf("missing route-specific native metadata: %v", got[5])
+	}
+	for _, row := range got[1:5] {
 		for _, field := range []string{"model", "wfllm_model", "apple_model", "resolved_ref", "source"} {
 			if _, ok := row[field]; !ok {
 				t.Fatalf("models JSON row missing %q: %v", field, row)

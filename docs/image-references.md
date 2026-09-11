@@ -34,10 +34,7 @@ neither attached subject was recovered. These results argue against relying
 on reference editing in this flow. They do not prove that references can never
 influence generation or identify the failing layer. The released bridge's
 connections were inspected before these calls, but the current installed
-bridge's action graph was not readable. See the
-[0.3.2 call records](releases/v0.3.2-validation.json), including
-`diagnostic-reference-cafe`, `diagnostic-reference-turtle` and
-`diagnostic-reference-none`.
+bridge's action graph was not readable. Per-call research records are retained privately.
 
 Hollis puts the newest revision first and retains earlier subject/text context.
 The result is a newly generated image; details and proportions can change.

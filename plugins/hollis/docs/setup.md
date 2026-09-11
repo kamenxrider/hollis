@@ -14,10 +14,10 @@ The agent handles these steps:
    and wait for Apple's required downloads. A restricted check means unknown
    access, not incompatible hardware.
 2. Verify and install the runtime under
-   `~/Library/Application Support/hollis/plugin/versions/0.3.3/`.
+   `~/Library/Application Support/hollis/plugin/versions/0.4.0/`.
    A newer existing Hollis is preserved and used. The plugin's bridge kit remains
    available. No PATH modification is needed.
-3. Offer all five bridges and import selected ones individually. Approve
+3. Native `local` requires the matching helper and no bridge; run `setup.sh status local`. Offer all five bridges and import selected ones individually. Approve
    **Add Shortcut** in Shortcuts. Existing discovered bridges and custom choices
    are preserved; skipping one does not disable another.
 4. Verify discovery and return to your task. The first requested inference can

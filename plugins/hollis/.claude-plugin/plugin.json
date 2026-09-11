@@ -1,8 +1,10 @@
 {
   "name": "hollis",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Apple Cloud and Cloud Pro inside your conversation, with guided Mac setup, documents and images.",
-  "author": {"name": "Hollis contributors"},
+  "author": {
+    "name": "Hollis contributors"
+  },
   "homepage": "https://github.com/kamenxrider/hollis/blob/main/docs/plugin.md",
   "repository": "https://github.com/kamenxrider/hollis",
   "license": "Apache-2.0"

@@ -2,8 +2,7 @@
 
 Use this fixture in an actual host conversation. It is a fictional public plan;
 the host must call Hollis and show the real outputs, not write a simulated chat.
-The [completed recording](recorded-demo.md) includes actual model responses,
-images, host timings and editing disclosures.
+No recorded conversation or model output is included in this example.
 
 1. With gstack available, discuss `plan.md` using its planning review workflow.
 2. Ask: “Use Hollis to ask Apple Cloud what we missed in this repair-cafe plan.
@@ -16,6 +15,5 @@ images, host timings and editing disclosures.
    the first image as a reference.
 
 Record host and Hollis versions, selected tiers, elapsed time and any failures in
-a private evidence directory. Publish only the fixture and selected actual
-outputs intended for the demonstration. Disclose any cuts or shortened waits.
+a private evidence directory. Keep run outputs private unless a specific public export has been reviewed and approved. Disclose any cuts or shortened waits.
 Do not publish the host's full settings, credentials or unrelated conversation.

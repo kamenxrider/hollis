@@ -589,3 +589,34 @@ func cloneJob(job *Job) *Job {
 	copy.Skipped = slices.Clone(job.Skipped)
 	return &copy
 }
+
+func TestNativeLocalBatchPlanAcceptsTextRejectsImages(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		files   map[string]string
+		wantErr bool
+	}{
+		{"text", map[string]string{"note.txt": "Hello", "other.md": "Second"}, false},
+		{"image", map[string]string{"photo.png": "fixture", "note.txt": "Hello"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, input, instruction := planFixture(t, "local", tc.files)
+			job, err := Plan(planOptions(root, input, instruction, runner.ModelLocal))
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "local batch jobs cannot contain images") {
+					t.Fatalf("%v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateJob(job); err != nil {
+				t.Fatal(err)
+			}
+			if job.Model != runner.ModelLocal {
+				t.Fatal("local silently substituted")
+			}
+		})
+	}
+}

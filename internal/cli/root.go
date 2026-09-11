@@ -30,7 +30,7 @@ type rootFlags struct {
 // newRunnerFunc lets tests substitute a fake runner.
 type newRunnerFunc func() runner.Runner
 
-func newRunnerDefault() runner.Runner { return runner.New() }
+func newRunnerDefault() runner.Runner { return runner.NewRouted() }
 
 // Execute runs the CLI in non-interactive mode: never prompts, all values via
 // flags or stdin.
@@ -98,6 +98,8 @@ to override).
 Default model: auto (cloud first, then one on-device fallback only for an
 unavailable bridge or recognized rate limit).
 Agent mode: add --agent to supported data commands for JSON output + non-interactive mode.
+Native local: --model local uses the Foundation Models SDK on Apple Silicon/macOS 27;
+human terminal output streams, JSON/agent output stays complete.
 Health check: run 'hollis doctor' to verify the transport and bridges.
 Local OpenAI-compatible endpoint: run 'hollis serve' (127.0.0.1:1978).
 See README.md for recipes.`,
@@ -343,6 +345,12 @@ func toCLIError(err error) error {
 		return executionErr("shortcut_failed", shortcutdiagnostic.FailedMessage)
 	case runner.KindEmptyPrompt:
 		return usageErr(fmt.Errorf("%s\nhint: give a prompt as an argument or pipe it via stdin", err))
+	case runner.KindContextCapacity:
+		return executionErr("context_capacity", "local model context capacity exceeded; conversation was not shortened. Start a new chat or explicitly supply a smaller request")
+	case runner.KindLocalUnavailable:
+		return executionErr("local_unavailable", err.Error())
+	case runner.KindNativeProtocol, runner.KindNativeFailed:
+		return executionErr(string(re.Kind), err.Error())
 	case runner.KindUsage:
 		return usageErr(err)
 	case runner.KindShortcutMissing:

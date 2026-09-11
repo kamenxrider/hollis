@@ -6,7 +6,8 @@
 | macOS | Initially macOS 27; other versions receive an explanation rather than an assumed match |
 | Rosetta | Detect physical ARM support even when the shell reports x86_64; runtime remains ARM64 |
 | Apple readiness | Enable Apple Intelligence and complete Apple's downloads/first-use approvals; inference is the final check |
-| Text | Shortcuts Cloud, Cloud Pro, On-Device, ChatGPT |
+| Text | Shortcuts Cloud, Cloud Pro, On-Device, ChatGPT; explicit native `local` in 0.2.0 |
+| Native Local | Matching bundled helper; no Shortcut import; human text streaming, complete agent/JSON replies |
 | Image understanding | Cloud, Cloud Pro, ChatGPT; not On-Device |
 | Generation | Animation, Illustration, Sketch, Genmoji, Any Style; unlocked session required |
 | Host integration | Claude Code first; Codex shares the same source skills and scripts |
@@ -29,7 +30,7 @@ listed in the [validation record](validation.md). Temporary test directories est
 installer behavior; they do **not** establish clean-account readiness, Rosetta
 execution or behavior on an untested OS.
 
-Plugin 0.1.0 bundles the released runtime 0.3.3 after verification of its
+The existing public plugin 0.1.0 bundles runtime 0.3.3 after verification of its
 GitHub provenance and checksums. Earlier source and archive tests retain their
 original version labels in the validation record. Fresh-account and first-consent
 testing remain deferred.

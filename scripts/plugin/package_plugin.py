@@ -20,7 +20,31 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 UA = "OpenAI File Downloader, XaiImageApiFetch/1.0"
 TOP_FILES = {"plugin.json", "runtime.lock.json", "README.md", "LICENSE"}
-DIRECTORIES = {".claude-plugin", ".codex-plugin", "skills", "scripts", "examples", "docs"}
+SOURCE_ALLOWLIST = (
+    '.claude-plugin/plugin.json',
+    '.codex-plugin/plugin.json',
+    'LICENSE',
+    'README.md',
+    'docs/compatibility.md',
+    'docs/package.md',
+    'docs/privacy.md',
+    'docs/setup.md',
+    'docs/troubleshooting.md',
+    'docs/usage.md',
+    'docs/validation.md',
+    'examples/demo.md',
+    'examples/plan.md',
+    'plugin.json',
+    'runtime.lock.json',
+    'scripts/bridges.sh',
+    'scripts/common.sh',
+    'scripts/run.sh',
+    'scripts/setup.sh',
+    'skills/hollis-setup/SKILL.md',
+    'skills/hollis/SKILL.md',
+    'skills/hollis/references/gstack.md',
+    'skills/hollis/references/workflows.md',
+)
 
 
 def digest(path):
@@ -55,7 +79,7 @@ def validate_source(root=ROOT):
             raise ValueError("Both host entries must address the same source package")
     lock = read_json(kit / "runtime.lock.json")
     version = lock["version"]
-    if lock["schema_version"] != 1 or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+    if lock["schema_version"] not in (1, 2) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("Invalid runtime lock")
     if lock["repository"] != "kamenxrider/hollis" or lock["source_ref"] != f"refs/tags/v{version}":
         raise ValueError("Unexpected runtime source")
@@ -68,10 +92,20 @@ def validate_source(root=ROOT):
     for key, expected in (("binary", "hollis-darwin-arm64"), ("bridges", "hollis-bridges.zip")):
         if lock[key]["name"] != expected or not re.fullmatch(r"[a-f0-9]{64}", lock[key]["sha256"]):
             raise ValueError("Invalid locked asset")
+    if lock["schema_version"] == 2:
+        native = lock.get("native", {})
+        if (native.get("name") != "hollis-native-darwin-arm64"
+                or native.get("protocol_version") != 1
+                or not re.fullmatch(r"[a-f0-9]{64}", native.get("sha256", ""))):
+            raise ValueError("Invalid locked native helper")
     names = lock["bridge_files"]
     if len(names) != 5 or len(set(names)) != 5 or any(Path(n).name != n or not n.endswith(".shortcut") for n in names):
         raise ValueError("Expected five unique flat bridge filenames")
     return portable, lock
+
+
+def asset_keys(lock):
+    return ("binary", "bridges", "native") if lock["schema_version"] == 2 else ("binary", "bridges")
 
 
 def check_asset(path, expected):
@@ -109,16 +143,12 @@ def authenticate(path, lock):
 
 def source_files(root):
     kit = root / "plugins/hollis"
-    for path in sorted(kit.rglob("*")):
-        rel = path.relative_to(kit)
-        if rel.parts[0] not in DIRECTORIES and str(rel) not in TOP_FILES:
-            continue
-        if path.is_symlink():
-            raise ValueError(f"Symlink in plugin source: {rel}")
-        if path.is_file():
-            if "__pycache__" in rel.parts or path.suffix in (".pyc", ".log"):
-                raise ValueError(f"Unexpected generated source file: {rel}")
-            yield Path("plugins/hollis") / rel, path
+    for filename in SOURCE_ALLOWLIST:
+        rel = Path(filename)
+        path = kit / rel
+        if any((kit / Path(*rel.parts[:i])).is_symlink() for i in range(1, len(rel.parts) + 1)) or not path.is_file():
+            raise ValueError(f"Missing or unsafe allowlisted plugin source: {rel}")
+        yield Path("plugins/hollis") / rel, path
     for rel in (".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json"):
         yield Path(rel), root / rel
 
@@ -133,6 +163,9 @@ def zip_entry(archive, name, content, executable=False):
 
 def package(root, output, assets=None):
     manifest, lock = validate_source(root)
+    if tuple(map(int, manifest["version"].split("."))) >= (0, 2, 0):
+        if lock["schema_version"] != 2 or tuple(map(int, lock["version"].split("."))) < (0, 4, 0):
+            raise ValueError("Plugin 0.2.0 awaits verified runtime 0.4.0 pins; run refresh_lock.py after runtime publication")
     output.mkdir(parents=True, exist_ok=True)
     name = f"hollis-plugin-{manifest['version']}"
     final = output / f"{name}.zip"
@@ -141,7 +174,7 @@ def package(root, output, assets=None):
     with tempfile.TemporaryDirectory(prefix=".plugin-build-", dir=output) as temporary:
         stage = Path(temporary)
         receipts = {}
-        for key in ("binary", "bridges"):
+        for key in asset_keys(lock):
             item = lock[key]
             target = stage / item["name"]
             if assets:
@@ -165,9 +198,9 @@ def package(root, output, assets=None):
         with zipfile.ZipFile(stage / "package.zip", "w") as archive:
             for rel, source in source_files(root):
                 zip_entry(archive, f"{name}/{rel.as_posix()}", source.read_bytes(), source.suffix == ".sh")
-            for key in ("binary", "bridges"):
+            for key in asset_keys(lock):
                 asset = lock[key]["name"]
-                zip_entry(archive, f"{name}/plugins/hollis/assets/runtime/{asset}", (stage / asset).read_bytes(), key == "binary")
+                zip_entry(archive, f"{name}/plugins/hollis/assets/runtime/{asset}", (stage / asset).read_bytes(), key in ("binary", "native"))
             zip_entry(archive, f"{name}/plugins/hollis/assets/runtime/provenance.json", receipt_bytes)
         os.replace(stage / "package.zip", final)
         (output / f"{name}.runtime-provenance.json").write_bytes(receipt_bytes)

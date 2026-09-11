@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kamenxrider/hollis/internal/imagegen"
+	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/kamenxrider/hollis/internal/server"
 	"github.com/spf13/cobra"
 )
@@ -35,7 +36,7 @@ func newServeCmdWithImages(_ *rootFlags, newRunner newRunnerFunc, generator imag
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve the local OpenAI-compatible HTTP endpoint",
-		Long: `Serve Hollis's completed-text OpenAI-compatible subset.
+		Long: `Serve Hollis's text OpenAI-compatible subset, with native-local streaming.
 
 Endpoints:
   GET  /health
@@ -48,7 +49,7 @@ Bearer authentication is required by default, including on loopback. Supply it
 with --token-file or HOLLIS_API_TOKEN. --no-auth is an explicit loopback-only
 opt-out. A non-loopback bind requires both --allow-remote and authentication.
 Hollis does not provide TLS: expose it only through an encrypted trusted path
-such as Tailscale, WireGuard, or an SSH tunnel. Streaming is intentionally unsupported.`,
+such as Tailscale, WireGuard, or an SSH tunnel. Native local supports streaming; Shortcuts routes return complete text.`,
 		Example: `  hollis serve --token-file /private/path/hollis.token
 	  hollis serve --no-auth
 	  hollis serve --addr 127.0.0.1:1978 --token-file /private/path/hollis.token
@@ -122,14 +123,21 @@ such as Tailscale, WireGuard, or an SSH tunnel. Streaming is intentionally unsup
 			api.ImageGenerator = generator
 			api.ImageBridge = imageConfig.ImageBridge
 			api.ImageBridges = imageConfig.ImageBridges
-			if resolved, resolveErr := resolveForRunner(cmd.Context(), newRunner); resolveErr != nil && !canAttemptAfterDiscoveryFailure(resolved, "auto") {
+			localStatus, _ := probeNativeStatus(cmd.Context(), r)
+			if resolved, resolveErr := resolveForRunner(cmd.Context(), newRunner); resolveErr != nil && !canAttemptAfterDiscoveryFailure(resolved, "auto") && !localStatus.Available {
 				return resolutionCLIError(resolveErr)
 			} else if resolved != nil {
 				applyResolvedRefs(r, resolved)
 				api.Available = availabilityMap(resolved)
+				api.Available[string(runner.ModelLocal)] = localStatus.Available
 			}
 
+			stopCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
 			httpServer := &http.Server{
+				// Shutdown alone does not cancel active handlers. Propagate the
+				// stop signal so runner cleanup completes within the grace period.
+				BaseContext:       func(net.Listener) context.Context { return stopCtx },
 				Handler:           api.Handler(),
 				ReadHeaderTimeout: 5 * time.Second,
 				ReadTimeout:       15 * time.Second,
@@ -148,8 +156,6 @@ such as Tailscale, WireGuard, or an SSH tunnel. Streaming is intentionally unsup
 
 			serveResult := make(chan error, 1)
 			go func() { serveResult <- httpServer.Serve(listener) }()
-			stopCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
 			select {
 			case serveErr := <-serveResult:
 				if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
