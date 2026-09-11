@@ -95,46 +95,49 @@ func TestReleaseBuildCreatesAllPublishedAssets(t *testing.T) {
 
 func TestReadmeQuickstartVerifiesAllArtifactsBeforeUse(t *testing.T) {
 	t.Parallel()
-	repo := repoRoot(t)
-	raw, err := os.ReadFile(filepath.Join(repo, "README.md"))
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "README.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	readme := string(raw)
-	start := strings.Index(readme, "## Install (verified)")
-	end := strings.Index(readme, "## Models")
+	start := strings.Index(readme, "<summary>Verify manually</summary>")
+	end := strings.Index(readme, "</details>")
 	if start < 0 || end <= start {
-		t.Fatal("README verified install boundaries are missing")
+		t.Fatal("README manual verification boundaries are missing")
 	}
 	quickstart := readme[start:end]
 	for _, required := range []string{
 		`set -euo pipefail`,
-		`HOLLIS_INSTALL_DIR="$(mktemp -d)"`,
-		`chmod 700 "$HOLLIS_INSTALL_DIR"`,
-		`HOLLIS_VERSION="$(gh release view --repo kamenxrider/hollis --json tagName --jq .tagName)"`,
-		`HOLLIS_RELEASE_URL="https://github.com/kamenxrider/hollis/releases/download/$HOLLIS_VERSION"`,
-		`curl -fsSL -o "$HOLLIS_ASSET"`,
-		`curl -fsSL -o hollis-bridges.zip`,
-		`$2 == asset`,
-		`$2 == "hollis-bridges.zip"`,
+		`umask 077`,
+		`cd "$(mktemp -d)"`,
+		`HOLLIS_VERSION=0.4.0`,
+		`HOLLIS_BUNDLE="hollis-$HOLLIS_VERSION-darwin-arm64.zip"`,
+		`gh release download "v$HOLLIS_VERSION" --repo kamenxrider/hollis`,
+		`--pattern "$HOLLIS_BUNDLE" --pattern SHA256SUMS`,
+		`$2 == asset { n++; print } END { if (n != 1) exit 1 }`,
 		`shasum -a 256 -c SELECTED_SHA256SUMS`,
-		`gh attestation verify "$HOLLIS_ASSET" --repo kamenxrider/hollis`,
-		`gh attestation verify hollis-bridges.zip --repo kamenxrider/hollis`,
+		`gh attestation verify "$HOLLIS_BUNDLE" --repo kamenxrider/hollis`,
+		`--signer-workflow kamenxrider/hollis/.github/workflows/release.yml`,
+		`--source-ref refs/tags/v0.4.0`,
+		`--source-digest 1906721a1cd5594ce47be6d4d306d7daa1e6891f`,
+		`--deny-self-hosted-runners`,
+		`install -m 755 runtime/hollis runtime/hollis-native "$HOME/.local/bin/"`,
 	} {
 		if !strings.Contains(quickstart, required) {
-			t.Errorf("README quickstart is missing %q", required)
+			t.Errorf("README bundle installation is missing %q", required)
 		}
 	}
-	if strings.Contains(quickstart, "--ignore-missing") {
-		t.Fatal("README quickstart permits missing checksum targets")
+	if strings.Contains(quickstart, "--ignore-missing") || strings.Contains(quickstart, "releases/latest") {
+		t.Fatal("README must verify one selected release without ignoring missing checksums")
 	}
-	if strings.Contains(quickstart, "releases/latest") {
-		t.Fatal("README quickstart resolves release assets independently through latest URLs")
+	checksumAt := strings.Index(quickstart, `shasum -a 256 -c SELECTED_SHA256SUMS`)
+	verifyAt := strings.Index(quickstart, `gh attestation verify`)
+	if checksumAt < 0 || verifyAt <= checksumAt {
+		t.Fatal("README must check the checksum before provenance verification")
 	}
-	verifyAt := strings.Index(quickstart, `gh attestation verify hollis-bridges.zip`)
-	for _, use := range []string{"chmod +x", "sudo mv", "unzip hollis-bridges.zip", "shortcuts sign", "open \"$HOLLIS_SIGNED\""} {
-		if useAt := strings.Index(quickstart, use); verifyAt < 0 || useAt < verifyAt {
-			t.Errorf("README uses release artifact via %q before checksum and provenance verification", use)
+	for _, use := range []string{`unzip -q "$HOLLIS_BUNDLE"`, `install -m 755`, `unzip -q runtime/hollis-bridges.zip`, `shortcuts sign`, `open "signed/${f##*/}"`} {
+		if useAt := strings.Index(quickstart, use); useAt < 0 || useAt <= verifyAt {
+			t.Errorf("README uses artifact via %q before verifying the enclosing bundle", use)
 		}
 	}
 }
