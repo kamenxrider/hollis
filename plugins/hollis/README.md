@@ -8,16 +8,13 @@ It works in **Claude Code and Codex**, alongside gstack or on its own. You ask
 in the conversation; Hollis calls the selected Apple route on your Mac and
 brings the result back. No separate server or model API key is needed.
 
-**This source prepares plugin 0.2.0 for runtime 0.4.0**, adding the explicit
-native `local` route, real terminal streaming and measured complete-response
-usage. Agent/JSON replies remain complete; local needs no Shortcut import.
-The new package awaits authenticated 0.4.0 runtime release pins. Source setup
-and packaging refuse to install or bundle the older pin under the new version.
+**Plugin 0.2.0 bundles runtime 0.4.0**, its matching native helper and five
+Shortcut bridges. Explicit native `local` adds genuine streaming for human
+terminal output and measured token usage on complete responses. Agent/JSON
+replies remain complete; local needs no Shortcut import.
 
-The current public **plugin 0.1.0** bundles the released, provenance-verified Hollis **0.3.3** runtime
-and all five bridges. [Download the plugin archive](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0)
-for the existing release. Internal recordings and review reports are excluded
-from upcoming packages; see [validation](docs/validation.md).
+[Download plugin 0.2.0](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.2.0).
+Plugin 0.1.0 bundles runtime 0.3.3 and does not include native local.
 
 **Requires a local Apple-silicon Mac running macOS 27 with Apple Intelligence.**
 Have Claude Code or Codex installed and signed in. The host must execute on this
@@ -30,15 +27,17 @@ See [compatibility](docs/compatibility.md).
 
 ## Install
 
-The commands below install the current public 0.1.0 release. For the forthcoming
-0.2.0 archive, use its extracted outer folder after publication. A source installation
-downloads the locked runtime and bridges during setup. The downloadable
-`hollis-plugin-0.1.0.zip` bundles those assets and both host installation entries.
+Download `hollis-plugin-0.2.0.zip` and its `.sha256` file from the release above.
+Verify the checksum before extracting with Archive Utility:
 
-| What you have | Folder to give the host | Runtime and bridges |
+```sh
+shasum -a 256 -c hollis-plugin-0.2.0.sha256
+```
+
+| What you have | Folder to give the host | Included runtime |
 | --- | --- | --- |
-| `hollis-plugin-0.1.0.zip`, extracted with Archive Utility | The outer `hollis-plugin-0.1.0` folder | ARM64 executable and all five bridges are bundled |
-| A Hollis source checkout containing this guide | The repository root | Setup downloads the exact assets in the committed lock |
+| Extracted release archive | Outer `hollis-plugin-0.2.0` folder | ARM64 CLI, matching native helper and all five bridges |
+| Source checkout pinned to `plugin-v0.2.0` | Repository root | Setup downloads the exact authenticated assets in the lock |
 
 Replace `/absolute/path/to/hollis-package` below with that folder. It contains
 the marketplace entries and `plugins/hollis/`. **Do not point marketplace
@@ -53,12 +52,12 @@ Go, Python, Node, shell configuration edits or administrator installation.
 Enter these in the **Claude conversation**, one at a time:
 
 ```text
-/plugin marketplace add kamenxrider/hollis
+/plugin marketplace add /absolute/path/to/hollis-package
 /plugin install hollis@hollis-plugins
 ```
 
-For an extracted archive or local checkout, replace `kamenxrider/hollis` in the
-first command with `/absolute/path/to/hollis-package`.
+Use the extracted release folder above so Claude installs the selected release,
+rather than following changes on `main`.
 
 Choose the installation scope in Claude. If the install summary asks for
 `/reload-plugins`, run it; otherwise start a new session if the skills are not
@@ -73,7 +72,7 @@ listed. Then run:
 Run these in a **terminal on the same Mac**:
 
 ```sh
-codex plugin marketplace add kamenxrider/hollis --ref plugin-v0.1.0
+codex plugin marketplace add kamenxrider/hollis --ref plugin-v0.2.0
 codex plugin add hollis@hollis-plugins
 ```
 
@@ -93,7 +92,7 @@ guide does not assume that every older host understands the format.
 
 ### What setup asks you to do
 
-Setup offers Cloud, Cloud Pro, On-Device, ChatGPT and image generation. Select
+Setup offers Cloud, Cloud Pro, On-Device, native local, ChatGPT and image generation. Select
 what you want. It explains **Add Shortcut** and first-use **Allow** prompts before
 opening them. Existing bridges and custom settings are preserved. You can skip
 capabilities and add them later by asking setup again. If interrupted, ask it to
@@ -104,6 +103,14 @@ answer or image confirms that capability works.** On the tested, already approve
 account, requests ran without per-image clicks or a visible Playground editor.
 Fresh-account and first-consent testing remain open. Image generation requires
 an unlocked session. [Setup and recovery details](docs/setup.md).
+
+Binaries are not Developer ID signed or notarized. The release checksum and
+GitHub build provenance verify their origin; setup checks the pinned contents.
+
+Apple controls cloud availability. Testing encountered an explicit Cloud Pro usage
+limit and hours-long cloud interruptions; generic failures were not all confirmed
+quota hits. Remaining allowance and recovery time are unknown. Pause after a limit;
+pacing cannot guarantee access. Explicit routes never silently switch models.
 
 Cloud and Cloud Pro use Apple's **Private Cloud Compute through Shortcuts**,
 separate from the native Foundation Models developer API. The calling agent
@@ -137,7 +144,7 @@ absolute **Open image** link and a preview where the host supports it.
 
 ## What you can ask for
 
-- Writing, planning, research synthesis and text-document comparison on all four
+- Writing, planning, research synthesis and text-document comparison on all five
   text routes. Hollis does not add a web search engine; provide the relevant sources.
 - Image understanding with Cloud, Cloud Pro or ChatGPT.
 - Image generation in **Animation, Illustration, Sketch, Genmoji and Any Style**.

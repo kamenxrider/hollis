@@ -21,6 +21,7 @@ jobs:
       - name: Validate and test
         run: |
           python3 -m unittest discover -s scripts/plugin -p 'test_*.py'
+          python3 -m unittest discover -s scripts/release -p 'test_*.py'
           python3 scripts/plugin/package_plugin.py --validate-only
           python3 scripts/release/privacy.py --source
           git archive --format=tar HEAD > "$RUNNER_TEMP/hollis-source.tar"

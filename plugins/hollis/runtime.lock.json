@@ -1,18 +1,18 @@
 {
-  "schema_version": 1,
-  "version": "0.3.3",
+  "schema_version": 2,
+  "version": "0.4.0",
   "repository": "kamenxrider/hollis",
-  "source_commit": "2795ddb81e22d82ba377f06b6ac211432e714336",
-  "source_ref": "refs/tags/v0.3.3",
+  "source_commit": "1906721a1cd5594ce47be6d4d306d7daa1e6891f",
+  "source_ref": "refs/tags/v0.4.0",
   "signer_workflow": "kamenxrider/hollis/.github/workflows/release.yml",
-  "release_url": "https://github.com/kamenxrider/hollis/releases/download/v0.3.3",
+  "release_url": "https://github.com/kamenxrider/hollis/releases/download/v0.4.0",
   "binary": {
     "name": "hollis-darwin-arm64",
-    "sha256": "080860389f98f03fedbf2e8862adb51f92a2ecb16a7af90bb6207cc76997a421"
+    "sha256": "5fe46868c5f95869989c87bd065e8a4b6b1c320f2e0cfe6c8731cfcc5a1c0924"
   },
   "bridges": {
     "name": "hollis-bridges.zip",
-    "sha256": "a57c08259a4f478d34f9a3bf783b6ebc0e39552e482e9267ea97b33201eed803"
+    "sha256": "27ab06ca7800733d6ddd8df6127fd278bd8f8601348536d506646ff4139f0e62"
   },
   "bridge_files": [
     "AFM Bridge - Cloud.shortcut",
@@ -20,5 +20,10 @@
     "AFM Bridge - On-Device.shortcut",
     "AFM Bridge - ChatGPT.shortcut",
     "Hollis Image - Reference Input v2.shortcut"
-  ]
+  ],
+  "native": {
+    "name": "hollis-native-darwin-arm64",
+    "protocol_version": 1,
+    "sha256": "021de8bdc88e17f119c9d48275b51d6bbdf148fcacb69675640773ed22a66eb3"
+  }
 }
