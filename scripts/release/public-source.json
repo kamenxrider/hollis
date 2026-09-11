@@ -6,7 +6,7 @@
     ".github/workflows/ci.yml": "638f612ca993e9f8b343fd9a897a311c60dc77de57a51c439ac1e385bdef6d94",
     ".github/workflows/plugin-release.yml": "c0b5a7912764ecf8d7beddb5e9c3d97b5aa0d314f4f7c15cc8282e6a6e4de60a",
     ".github/workflows/poolside-review.yml": "9e3358301d070f8efa312a6fe10e5dc2f28f66a01f02a5b43b664b9036c7d242",
-    ".github/workflows/release.yml": "6c7518d4e9e4586de03515f641fd34943029db2aa356fb7add04b6cb4b3d45fb",
+    ".github/workflows/release.yml": "735ca53f243d2c3fc7f5735cb851681cc769a6206e8acd58710bc650d2f3742c",
     ".gitignore": "54b9b790f433194cc7fded4d6d7f4710af7fd4909566f093678521877ce150a8",
     "EVIDENCE.md": "2f7d48844f99714ed9ef944646707352322d39198c3d707c730568c2dfe19e6a",
     "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
@@ -193,7 +193,7 @@
     "scripts/release/README.md": "7ecb5435e4539595f04e92612c8347d93c7872837005cb0671521f90939351d2",
     "scripts/release/privacy.py": "53162ae95fa3359efc5c02d03f693f5118c75bb2d11bb281d0eb0ba22a14be0e",
     "scripts/release/test_native_build.py": "1c6ca7cfd5bbe744733bb744e3db054605a1b448a2972e1bce42449829318f15",
-    "scripts/release/test_privacy.py": "3340e161c459f42cdb4180a3f183e0c844def955aa25a65e0acfff2f37090580"
+    "scripts/release/test_privacy.py": "2191d3c47d0cdc330e7e18bce060538244b1ac118ed0009a8ac0794f39c91078"
   },
   "schema_version": 1
 }

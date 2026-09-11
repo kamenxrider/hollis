@@ -85,6 +85,8 @@ jobs:
           format: spdx-json
           output-file: dist/hollis.spdx.json
           upload-artifact: false
+          upload-release-assets: false
+          dependency-snapshot: false
 
       - name: Inspect every publication asset
         run: python3 scripts/release/privacy.py --release-dir dist --kind bundle
