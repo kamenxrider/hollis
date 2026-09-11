@@ -339,18 +339,37 @@ func TestImageGenerationTransportCancelsOwnedProcessGroupAndCleans(t *testing.T)
 	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
 	transport, _ := newImageAcceptanceTransport(t, "hang", childPIDPath)
 	ctx, cancel := context.WithCancel(context.Background())
-	timer := time.AfterFunc(80*time.Millisecond, cancel)
-	defer timer.Stop()
+	done := make(chan struct{})
+	var generationErr error
+	go func() {
+		_, generationErr = transport.Generate(ctx, imagegen.Request{
+			Prompt:    "draw",
+			BridgeRef: "Synthetic Image Bridge",
+			Timeout:   15 * time.Second,
+		})
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("canceled generation did not stop")
+		}
+	}()
 
-	_, err := transport.Generate(ctx, imagegen.Request{
-		Prompt:    "draw",
-		BridgeRef: "Synthetic Image Bridge",
-		Timeout:   time.Second,
-	})
-	if !errors.Is(err, imagegen.ErrCanceled) {
-		t.Fatalf("Generate err=%v, want ErrCanceled", err)
-	}
+	// Exercise cancellation of a running process group. A fixed timer can
+	// cancel a race-instrumented helper before it even starts its child on CI.
 	childPID := waitForImageAcceptancePID(t, childPIDPath)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled generation did not return")
+	}
+	if !errors.Is(generationErr, imagegen.ErrCanceled) {
+		t.Fatalf("Generate err=%v, want ErrCanceled", generationErr)
+	}
 	waitForImageAcceptanceProcessExit(t, childPID)
 	entries, err := os.ReadDir(transport.TempDir)
 	if err != nil {
@@ -423,7 +442,7 @@ func imageAcceptanceArgument(args []string, name string) string {
 
 func waitForImageAcceptancePID(t *testing.T, path string) int {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(path)
 		if err == nil {

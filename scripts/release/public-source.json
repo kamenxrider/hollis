@@ -110,7 +110,7 @@
     "internal/integration/document_input_test.go": "7b997971272765dcab9ccedc4dabc4cbc5e2aec0f2516d78c498dc8dd8d6a3f8",
     "internal/integration/http_images_test.go": "45322467cf1726d5e4ae98d8aa9fa5686b28d74d6a80e947072723d828efcc34",
     "internal/integration/http_process_test.go": "158590f2213ffebe901ec6f57f9ed447cbca4d1a16d1d63c2a6d4a875a3f31b7",
-    "internal/integration/image_generation_test.go": "50e43762a8ecc29df059fbed701ded41862eb2b14cf645faf51bfe3d3744d084",
+    "internal/integration/image_generation_test.go": "c970914e40a4a500d4a547a20c470fa2fd2c1dd7cbb7fa808cbff9356e79c7ad",
     "internal/integration/live_token_test.go": "13a019f635fb870e7c398196f899012e689dc57b1cb87101bd7ddfa8521ea5e8",
     "internal/integration/release_contract_test.go": "afa7134e613338c9d1db01cfe84af49abf829022cb7cf3efe2599a0062e3170e",
     "internal/integration/release_dry_run_test.go": "88c5cea0afa7f3a85948e60b0abcf88de0f5c34a849c61f3ebb7c7edbeaeb1e5",
