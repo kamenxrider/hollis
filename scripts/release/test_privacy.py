@@ -140,3 +140,14 @@ class ContentGateTests(unittest.TestCase):
                 archive.writestr(name, bridges.getvalue() if name.endswith('.zip') else b'fixture')
         bundle.seek(0)
         privacy.check_archive(bundle, 'bundle')
+
+class ReleaseWorkflowGateTests(unittest.TestCase):
+    def test_sbom_cannot_upload_before_privacy_gate(self):
+        workflow = (privacy.ROOT / '.github/workflows/release.yml').read_text()
+        sbom = workflow.split('      - name: Generate SPDX SBOM\n', 1)[1].split('      - name:', 1)[0]
+        for setting in ('upload-artifact: false', 'upload-release-assets: false', 'dependency-snapshot: false'):
+            self.assertIn(setting, sbom)
+        self.assertLess(workflow.index('- name: Inspect every publication asset'),
+                        workflow.index('- name: Attest release artifacts'))
+        self.assertLess(workflow.index('- name: Inspect every publication asset'),
+                        workflow.index('- name: Create release and upload assets'))
