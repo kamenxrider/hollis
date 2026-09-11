@@ -191,9 +191,9 @@
     "scripts/poolside-review/test_poolside_review.py": "27149b7a988ba7bd532c7ae3b680c1154b32fbc62f9ce66a9acb746bdcc2aa86",
     "scripts/poolside-review/test_workflow_policy.py": "66e5ddc4fa838b694dc65d693bb330411884320f03284e4825c02d859af70b0f",
     "scripts/release/README.md": "7ecb5435e4539595f04e92612c8347d93c7872837005cb0671521f90939351d2",
-    "scripts/release/privacy.py": "53162ae95fa3359efc5c02d03f693f5118c75bb2d11bb281d0eb0ba22a14be0e",
+    "scripts/release/privacy.py": "05f43b740bd9e0969895a8904d4a682c68881e860c584f1ac65c50958e0b92d7",
     "scripts/release/test_native_build.py": "1c6ca7cfd5bbe744733bb744e3db054605a1b448a2972e1bce42449829318f15",
-    "scripts/release/test_privacy.py": "2191d3c47d0cdc330e7e18bce060538244b1ac118ed0009a8ac0794f39c91078"
+    "scripts/release/test_privacy.py": "2dffaf799c6243ce06aa58aa35b9fd9c6d06a11cc16358a3d95c2e09306d5d97"
   },
   "schema_version": 1
 }

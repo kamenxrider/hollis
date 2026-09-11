@@ -49,7 +49,7 @@ def check_names(names, kind='source'):
             clean.append(normalized)
     if kind in ('source', 'plugin') and clean and all('/' in n for n in clean):
         roots = {n.split('/')[0] for n in clean}
-        if len(roots) == 1 and next(iter(roots)).startswith('hollis-'):
+        if len(roots) == 1 and next(iter(roots)).startswith(('hollis-', 'kamenxrider-hollis-')):
             clean = [n.split('/', 1)[1] for n in clean]
     if len(clean) != len(set(clean)):
         raise ValueError('Duplicate archive member')

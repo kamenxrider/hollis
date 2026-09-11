@@ -11,10 +11,11 @@ class PrivacyTests(unittest.TestCase):
     def test_public_source_and_selected_artwork(self):
         privacy.check_names(['README.md', 'docs/assets/hollis-logo.svg', 'native/main.swift'])
         privacy.check_names(['hollis-0.4.0/README.md', 'hollis-0.4.0/docs/assets/hollis-logo.svg'])
+        self.assertEqual(privacy.check_names(['kamenxrider-hollis-abcdef0/README.md']), ['README.md'])
 
     def test_private_source_rejected_with_or_without_wrapper(self):
         for name in ('docs/dev/report.html', 'assets/brand/hollis-v1/reference.png', '.env', 'plugins/hollis/assets/runtime/provenance.json'):
-            for prefix in ('', 'hollis-0.4.0/'):
+            for prefix in ('', 'hollis-0.4.0/', 'kamenxrider-hollis-abcdef0/'):
                 with self.subTest(name=prefix+name), self.assertRaises(ValueError):
                     privacy.check_names([prefix+'README.md', prefix+name])
 
