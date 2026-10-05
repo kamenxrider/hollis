@@ -340,26 +340,46 @@ func TestSelectBatchPlanTypedItems(t *testing.T) {
 }
 
 func TestSelectPreservesExactNumericValues(t *testing.T) {
-	for _, mode := range []string{"--json", "--agent"} {
-		t.Run(mode, func(t *testing.T) {
-			setupSelectFixture(t)
-			data := map[string]any{"count": int64(9007199254740993), "drop": true}
-			var reference, selected bytes.Buffer
-			flags := &rootFlags{asJSON: true, agent: mode == "--agent"}
-			if err := printJSONFilteredTo(&reference, data, flags); err != nil {
-				t.Fatal(err)
-			}
-			flags.selectFields = "count"
-			if err := printJSONFilteredTo(&selected, data, flags); err != nil {
-				t.Fatal(err)
-			}
-			before := selectFixtureResult(t, reference.Bytes(), flags.agent).(map[string]any)["count"]
-			after := selectFixtureResult(t, selected.Bytes(), flags.agent).(map[string]any)["count"]
-			if before != json.Number("9007199254740993") || after != before || !strings.Contains(selected.String(), `"count":9007199254740993`) {
-				t.Fatalf("before=%#v after=%#v output=%s", before, after, selected.Bytes())
-			}
-			t.Logf("exact before/after JSON numeric value=%v; output=%s", after, selected.Bytes())
-		})
+	fixtures := []struct {
+		name  string
+		data  any
+		field string
+		want  string
+	}{
+		{"object", map[string]any{"count": int64(9007199254740993), "drop": true}, "count", `{"count":9007199254740993}`},
+		{"array", []map[string]any{{"count": int64(9007199254740993), "drop": true}}, "count", `[{"count":9007199254740993}]`},
+		{"typed nested", map[string]any{"metadata": struct {
+			Count int64 `json:"count"`
+			Drop  bool  `json:"drop"`
+		}{9007199254740993, true}, "drop": true}, "metadata.count", `{"metadata":{"count":9007199254740993}}`},
+	}
+	for _, fixture := range fixtures {
+		for _, mode := range []string{"--json", "--agent"} {
+			t.Run(fixture.name+"/"+mode, func(t *testing.T) {
+				setupSelectFixture(t)
+				var reference, selected bytes.Buffer
+				flags := &rootFlags{asJSON: true, agent: mode == "--agent"}
+				if err := printJSONFilteredTo(&reference, fixture.data, flags); err != nil {
+					t.Fatal(err)
+				}
+				flags.selectFields = fixture.field
+				if err := printJSONFilteredTo(&selected, fixture.data, flags); err != nil {
+					t.Fatal(err)
+				}
+				before, err := json.Marshal(selectFixtureResult(t, reference.Bytes(), flags.agent))
+				if err != nil {
+					t.Fatal(err)
+				}
+				after, err := json.Marshal(selectFixtureResult(t, selected.Bytes(), flags.agent))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Contains(before, []byte(`"count":9007199254740993`)) || !bytes.Contains(before, []byte(`"drop":true`)) || string(after) != fixture.want {
+					t.Fatalf("before=%s after=%s want=%s", before, after, fixture.want)
+				}
+				t.Logf("exact unfiltered=%s; filtered=%s", before, after)
+			})
+		}
 	}
 }
 
