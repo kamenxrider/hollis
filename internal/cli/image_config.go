@@ -146,7 +146,7 @@ func newImageStylesCmd(flags *rootFlags) *cobra.Command {
 				}
 			}
 			if flags.asJSON {
-				return printJSONArrayFilteredTo(cmd.OutOrStdout(), items, flags)
+				return printJSONFilteredTo(cmd.OutOrStdout(), items, flags)
 			}
 			return nil
 		},

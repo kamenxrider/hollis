@@ -5,10 +5,12 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -144,12 +146,7 @@ See README.md for recipes.`,
 	defaultHelp := rootCmd.HelpFunc()
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		if flags.asJSON || flags.agent {
-			_ = printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
-				"command": cmd.CommandPath(),
-				"use":     cmd.UseLine(),
-				"short":   cmd.Short,
-				"long":    cmd.Long,
-			}, &flags)
+			_ = printJSONFilteredTo(cmd.OutOrStdout(), helpData(cmd), &flags)
 			return
 		}
 		defaultHelp(cmd, args)
@@ -180,6 +177,11 @@ See README.md for recipes.`,
 			return usageErr(fmt.Errorf("%s supports human output only; remove --json/--agent", path))
 		}
 		if helpRequested {
+			if flags.asJSON {
+				if _, err := filterFields(helpData(cmd), flags.selectFields); err != nil {
+					return err
+				}
+			}
 			// Hollis installs a deferred help flag so all global contract
 			// validation above runs before Cobra renders help.
 			return pflag.ErrHelp
@@ -198,7 +200,7 @@ See README.md for recipes.`,
 	rootCmd.AddCommand(newDoctorCmd(&flags, newRunner))
 	rootCmd.AddCommand(newAgentContextCmd(rootCmd))
 	rootCmd.AddCommand(newVersionCmd(&flags))
-	rootCmd.SetHelpCommand(newStrictHelpCommand(rootCmd))
+	rootCmd.SetHelpCommand(newStrictHelpCommand(rootCmd, &flags))
 	rootCmd.InitDefaultHelpCmd()
 	rootCmd.InitDefaultCompletionCmd()
 	makeCompletionParentStrict(rootCmd)
@@ -246,7 +248,11 @@ func makeCompletionParentStrict(root *cobra.Command) {
 	}
 }
 
-func newStrictHelpCommand(root *cobra.Command) *cobra.Command {
+func helpData(cmd *cobra.Command) map[string]any {
+	return map[string]any{"command": cmd.CommandPath(), "use": cmd.UseLine(), "short": cmd.Short, "long": cmd.Long}
+}
+
+func newStrictHelpCommand(root *cobra.Command, flags *rootFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "help [command]",
 		Short: "Help about any command",
@@ -256,6 +262,9 @@ func newStrictHelpCommand(root *cobra.Command) *cobra.Command {
 			target, remaining, err := root.Find(args)
 			if err != nil || target == nil || len(remaining) != 0 {
 				return usageErr(fmt.Errorf("unknown help topic %q", strings.Join(args, " ")))
+			}
+			if flags.asJSON {
+				return printJSONFilteredTo(target.OutOrStdout(), helpData(target), flags)
 			}
 			return target.Help()
 		},
@@ -380,28 +389,15 @@ func encodeJSON(w io.Writer, data any) error {
 
 // printJSONFilteredTo emits JSON with --select applied through the caller's
 // Cobra writer, matching the house agent contract.
-func printJSONFilteredTo(w io.Writer, data map[string]any, flags *rootFlags) error {
-	data = filterFields(data, flags.selectFields)
-	if flags.agent {
-		wrapped := map[string]any{"meta": agentMeta(), "results": data}
-		return encodeJSON(w, wrapped)
+func printJSONFilteredTo(w io.Writer, data any, flags *rootFlags) error {
+	filtered, err := filterFields(data, flags.selectFields)
+	if err != nil {
+		return err
 	}
-	return encodeJSON(w, data)
-}
-
-// printJSONArrayFilteredTo emits a JSON array with --select applied per
-// element through the caller's Cobra writer.
-func printJSONArrayFilteredTo(w io.Writer, items []map[string]any, flags *rootFlags) error {
 	if flags.agent {
-		if strings.TrimSpace(flags.selectFields) != "" {
-			for i := range items {
-				items[i] = filterFields(items[i], flags.selectFields)
-			}
-		}
-		wrapped := map[string]any{"meta": agentMeta(), "results": items}
-		return encodeJSON(w, wrapped)
+		return encodeJSON(w, map[string]any{"meta": agentMeta(), "results": filtered})
 	}
-	return encodeJSON(w, items)
+	return encodeJSON(w, filtered)
 }
 
 func errorCode(err error) string {
@@ -444,48 +440,88 @@ func validateTimeout(cmd *cobra.Command, timeout time.Duration) error {
 	return nil
 }
 
-// filterFields keeps only the specified fields (comma-separated) from a
-// JSON object. Supports dotted paths for nested structures.
-func filterFields(data map[string]any, fields string) map[string]any {
+// filterFields keeps only the specified fields (comma-separated) from JSON
+// objects or arrays. Dotted paths follow the serialized JSON field names.
+func filterFields(data any, fields string) (any, error) {
 	if strings.TrimSpace(fields) == "" {
-		return data
+		return data, nil
 	}
 	var paths [][]string
-	for _, f := range strings.Split(fields, ",") {
-		f = strings.TrimSpace(f)
-		if f == "" {
+	for _, field := range strings.Split(fields, ",") {
+		field = strings.TrimSpace(field)
+		if field == "" {
 			continue
 		}
-		paths = append(paths, strings.Split(strings.ToLower(f), "."))
+		path := strings.Split(strings.ToLower(field), ".")
+		for _, part := range path {
+			if part == "" {
+				return nil, usageErr(fmt.Errorf("invalid --select path %q", field))
+			}
+		}
+		paths = append(paths, path)
 	}
-	return filterFieldsRec(data, paths)
+	if len(paths) == 0 {
+		return nil, usageErr(errors.New("--select requires at least one field"))
+	}
+	value := reflect.ValueOf(data)
+	if value.IsValid() && value.Kind() == reflect.Slice && value.Len() == 0 {
+		return []any{}, nil
+	}
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.UseNumber()
+	var object any
+	if err := decoder.Decode(&object); err != nil {
+		return nil, err
+	}
+	for _, path := range paths {
+		if _, matched := filterFieldsRec(object, [][]string{path}); !matched {
+			return nil, usageErr(fmt.Errorf("unknown --select field %q", strings.Join(path, ".")))
+		}
+	}
+	filtered, _ := filterFieldsRec(object, paths)
+	return filtered, nil
 }
 
-func filterFieldsRec(obj map[string]any, paths [][]string) map[string]any {
+func filterFieldsRec(data any, paths [][]string) (any, bool) {
+	if items, ok := data.([]any); ok {
+		out := make([]any, len(items))
+		matched := false
+		for i, item := range items {
+			filtered, found := filterFieldsRec(item, paths)
+			out[i] = filtered
+			matched = matched || found
+		}
+		return out, matched
+	}
+	obj, ok := data.(map[string]any)
+	if !ok {
+		return nil, false
+	}
 	keepWhole := map[string]bool{}
 	subPaths := map[string][][]string{}
-	for _, p := range paths {
-		if len(p) == 0 {
-			continue
-		}
-		if len(p) == 1 {
-			keepWhole[p[0]] = true
+	for _, path := range paths {
+		if len(path) == 1 {
+			keepWhole[path[0]] = true
 		} else {
-			subPaths[p[0]] = append(subPaths[p[0]], p[1:])
+			subPaths[path[0]] = append(subPaths[path[0]], path[1:])
 		}
 	}
 	out := map[string]any{}
-	for k, v := range obj {
-		lower := strings.ToLower(k)
+	for key, value := range obj {
+		lower := strings.ToLower(key)
 		if keepWhole[lower] {
-			out[k] = v
+			out[key] = value
 			continue
 		}
 		if subs := subPaths[lower]; subs != nil {
-			if nested, ok := v.(map[string]any); ok {
-				out[k] = filterFieldsRec(nested, subs)
+			if filtered, matched := filterFieldsRec(value, subs); matched {
+				out[key] = filtered
 			}
 		}
 	}
-	return out
+	return out, len(out) > 0
 }

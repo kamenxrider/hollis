@@ -707,7 +707,7 @@ Exit codes: 0 hits, 2 empty query, 3 no matches.`,
 						"updated_at": m.UpdatedAt, "hits": hits,
 					})
 				}
-				return printJSONArrayFilteredTo(cmd.OutOrStdout(), rows, flags)
+				return printJSONFilteredTo(cmd.OutOrStdout(), rows, flags)
 			}
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "%-38s  %-9s  %-17s  %s\n", "ID", "MODEL", "UPDATED", "TITLE / SNIPPET")
@@ -766,7 +766,7 @@ func newChatsListCmd(flags *rootFlags) *cobra.Command {
 				})
 			}
 			if flags.asJSON {
-				return printJSONArrayFilteredTo(cmd.OutOrStdout(), rows, flags)
+				return printJSONFilteredTo(cmd.OutOrStdout(), rows, flags)
 			}
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "%-38s  %-9s  %-9s  %s\n", "ID", "MESSAGES", "MODEL", "TITLE")

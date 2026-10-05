@@ -106,6 +106,21 @@ OpenAI does.
 
 `--agent` is shorthand for `--json --no-input` on data commands. In `--no-input` mode hollis never waits on a terminal, and destructive commands require explicit confirmation flags (`hollis chats delete <id> --yes`). Long-running `serve` and shell `completion` support human output only and reject JSON/agent mode clearly.
 
+`--select` projects comma-separated fields in both JSON and agent output, using
+case-insensitive JSON field names and dot paths (for example,
+`doctor --json --select bridges.status`). Arrays retain their order and one
+result per element; an element without a selected field becomes `{}`. A field
+may appear anywhere in the collection, so heterogeneous arrays are validated
+against all elements. Every requested path must match at least one field;
+unknown paths return a usage error (exit 2) rather than empty success output.
+In agent mode selection applies to `results`, not the `meta` or error envelope.
+
+An empty top-level collection succeeds with `[]` (or `"results": []` in agent
+mode), even with `--select`: there are no elements against which to validate
+field names. Malformed paths still return usage errors. Commands with their own
+no-result error, such as `chats search` with no hits (exit 3), keep that behavior.
+Selected values are retained without numeric rounding or conversion to strings.
+
 Exit codes are stable and parseable:
 
 | Code | Meaning |
