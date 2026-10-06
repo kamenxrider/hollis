@@ -7,9 +7,12 @@ import argparse
 import json
 import os
 import re
+import socket
+import ssl
 import stat
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -89,21 +92,58 @@ def urllib_transport(
 ) -> HttpResponse:
     request = urllib.request.Request(url, data=body, headers=dict(headers), method=method)
     opener = urllib.request.build_opener(_NoRedirect())
+    started = time.monotonic()
+    phase = "open"
+    headers_received = False
+    status_code = None
+    response_error = None
+    failed_phase = "open"
     try:
         with opener.open(request, timeout=30) as response:
-            status_code = int(response.status)
-            declared_length = response.headers.get("Content-Length")
-            if declared_length is not None:
-                try:
-                    if int(declared_length) > max_bytes:
-                        raise ResponseTooLarge("HTTP response exceeded the configured size limit")
-                except ValueError:
-                    raise ReviewError("HTTP response had an invalid length") from None
-            response_body = response.read(max_bytes + 1)
+            headers_received = True
+            phase = "metadata"
+            try:
+                status_code = int(response.status)
+                declared_length = response.headers.get("Content-Length")
+                if declared_length is not None:
+                    try:
+                        if int(declared_length) > max_bytes:
+                            raise ResponseTooLarge("HTTP response exceeded the configured size limit")
+                    except ValueError:
+                        raise ReviewError("HTTP response had an invalid length") from None
+                phase = "read"
+                response_body = response.read(max_bytes + 1)
+            except Exception as error:
+                response_error = error
+                failed_phase = phase
+                phase = "close"
+                raise
+            phase = "close"
     except urllib.error.HTTPError as error:
         return HttpResponse(status=int(error.code), body=b"")
-    except (urllib.error.URLError, TimeoutError, OSError):
-        raise ReviewError("HTTP request failed before a response was received") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        if error is response_error:
+            phase = failed_phase
+        reason = error.reason if isinstance(error, urllib.error.URLError) else error
+        if isinstance(reason, TimeoutError):
+            category = "timeout"
+        elif isinstance(reason, ssl.SSLCertVerificationError):
+            category = "tls_certificate"
+        elif isinstance(reason, ssl.SSLError):
+            category = "tls"
+        elif isinstance(reason, socket.gaierror):
+            category = "dns"
+        elif isinstance(reason, ConnectionError):
+            category = "connection"
+        else:
+            category = "other_transport"
+        elapsed_ms = int(max(0, min(2_147_483_647, (time.monotonic() - started) * 1000)))
+        received = "true" if headers_received else "false"
+        status = status_code if status_code is not None and 100 <= status_code <= 599 else 0
+        raise ReviewError(
+            f"HTTP transport failed: category={category} phase={phase} "
+            f"headers_received={received} elapsed_ms={elapsed_ms} status={status}"
+        ) from None
 
     if len(response_body) > max_bytes:
         raise ResponseTooLarge("HTTP response exceeded the configured size limit")
