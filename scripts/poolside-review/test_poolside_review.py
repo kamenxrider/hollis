@@ -1,10 +1,16 @@
 import importlib.util
+import io
 import json
 import os
+import socket
+import ssl
 import sys
 import tempfile
 import unittest
+import urllib.error
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 
 MODULE_PATH = Path(__file__).with_name("poolside_review.py")
@@ -316,6 +322,207 @@ class PoolsideResponseTests(unittest.TestCase):
                 github_token="token",
                 transport=FakeTransport(),
             )
+
+
+class UrllibTransportTests(unittest.TestCase):
+    canary = "synthetic-transport-private-canary"
+
+    def opener(self):
+        opener = MagicMock()
+        response = opener.open.return_value.__enter__.return_value
+        response.status = 200
+        response.headers = {}
+        response.read.return_value = b"{}"
+        return opener, response
+
+    def request(self):
+        return poolside_review.urllib_transport(
+            "POST",
+            "https://transport.invalid/" + self.canary,
+            {"Authorization": "Bearer " + self.canary, "X-Synthetic": self.canary},
+            self.canary.encode(),
+            32,
+        )
+
+    def assert_failure(self, opener, category, phase, headers_received, status, clocks=None):
+        with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
+            with patch("time.monotonic", side_effect=clocks or [10, 10.125]):
+                with self.assertRaises(poolside_review.ReviewError) as caught:
+                    self.request()
+        self.assertEqual(
+            str(caught.exception),
+            f"HTTP transport failed: category={category} phase={phase} "
+            f"headers_received={headers_received} elapsed_ms=125 status={status}",
+        )
+        self.assertTrue(caught.exception.__suppress_context__)
+        self.assertNotIn(self.canary, str(caught.exception))
+        self.assertEqual(opener.open.call_count, 1)
+        self.assertEqual(opener.open.call_args.kwargs, {"timeout": 30})
+
+    def test_classifies_direct_and_wrapped_open_failures_without_private_text(self):
+        cases = [
+            (TimeoutError(self.canary), "timeout"),
+            (socket.gaierror(-2, self.canary), "dns"),
+            (ssl.SSLCertVerificationError(1, self.canary), "tls_certificate"),
+            (ssl.SSLError(1, self.canary), "tls"),
+            (ConnectionResetError(self.canary), "connection"),
+            (OSError(self.canary), "other_transport"),
+        ]
+        for error, category in cases:
+            for wrapped in [False, True]:
+                with self.subTest(category=category, wrapped=wrapped):
+                    opener, _ = self.opener()
+                    opener.open.side_effect = urllib.error.URLError(error) if wrapped else error
+                    self.assert_failure(opener, category, "open", "false", 0)
+
+    def test_unknown_reason_text_and_class_names_are_not_logged(self):
+        unknown = type(self.canary, (Exception,), {})(self.canary)
+        for reason in [self.canary, unknown, urllib.error.URLError(self.canary)]:
+            with self.subTest(reason_type=reason is unknown):
+                opener, _ = self.opener()
+                opener.open.side_effect = urllib.error.URLError(reason)
+                self.assert_failure(opener, "other_transport", "open", "false", 0)
+
+    def test_after_header_body_timeout_is_attributed_to_read(self):
+        opener, response = self.opener()
+        response.read.side_effect = TimeoutError(self.canary)
+        self.assert_failure(opener, "timeout", "read", "true", 200)
+        response.read.assert_called_once_with(33)
+
+    def test_header_failure_is_attributed_to_metadata(self):
+        opener, response = self.opener()
+        response.headers = MagicMock()
+        response.headers.get.side_effect = OSError(self.canary)
+        self.assert_failure(opener, "other_transport", "metadata", "true", 200)
+        response.read.assert_not_called()
+
+    def test_close_failure_is_attributed_to_close(self):
+        opener, response = self.opener()
+        opener.open.return_value.__exit__.side_effect = ConnectionResetError(self.canary)
+        self.assert_failure(opener, "connection", "close", "true", 200)
+        response.read.assert_called_once_with(33)
+
+    def test_close_failure_replacing_body_error_is_attributed_to_close(self):
+        for body_error in [TimeoutError(self.canary), ValueError(self.canary)]:
+            with self.subTest(transport_error=isinstance(body_error, TimeoutError)):
+                opener, response = self.opener()
+                response.read.side_effect = body_error
+                opener.open.return_value.__exit__.side_effect = ssl.SSLError(1, self.canary)
+                self.assert_failure(opener, "tls", "close", "true", 200)
+
+    def test_unusual_status_is_not_logged_as_an_unbounded_number(self):
+        opener, response = self.opener()
+        response.status = 10**50
+        response.read.side_effect = TimeoutError(self.canary)
+        self.assert_failure(opener, "timeout", "read", "true", 0)
+
+    def test_elapsed_milliseconds_are_bounded(self):
+        for clocks, elapsed in [([10, 9], 0), ([0, 10**20], 2_147_483_647)]:
+            with self.subTest(elapsed=elapsed):
+                opener, _ = self.opener()
+                opener.open.side_effect = TimeoutError(self.canary)
+                with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
+                    with patch("time.monotonic", side_effect=clocks):
+                        with self.assertRaises(poolside_review.ReviewError) as caught:
+                            self.request()
+                self.assertEqual(
+                    str(caught.exception),
+                    "HTTP transport failed: category=timeout phase=open "
+                    f"headers_received=false elapsed_ms={elapsed} status=0",
+                )
+
+    def test_success_remains_bounded_without_diagnostic_output_or_retry(self):
+        opener, response = self.opener()
+        response.headers = {"Content-Length": "2", "X-Synthetic": self.canary}
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener) as build:
+                result = self.request()
+        self.assertEqual(result, poolside_review.HttpResponse(200, b"{}"))
+        self.assertEqual(stdout.getvalue() + stderr.getvalue(), "")
+        self.assertEqual(opener.open.call_count, 1)
+        self.assertEqual(opener.open.call_args.kwargs, {"timeout": 30})
+        response.read.assert_called_once_with(33)
+        self.assertIsInstance(build.call_args.args[0], poolside_review._NoRedirect)
+        self.assertIsNone(build.call_args.args[0].redirect_request(None, None, 302, self.canary, {}, self.canary))
+
+    def test_http_errors_keep_status_only_behavior_and_redirect_refusal(self):
+        for status in [301, 307, 401, 403, 404, 429, 500, 503]:
+            with self.subTest(status=status):
+                opener, _ = self.opener()
+                body = MagicMock()
+                opener.open.side_effect = urllib.error.HTTPError(
+                    "https://transport.invalid/" + self.canary,
+                    status,
+                    self.canary,
+                    {"X-Synthetic": self.canary},
+                    body,
+                )
+                with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
+                    result = self.request()
+                    self.assertEqual(result, poolside_review.HttpResponse(status, b""))
+                    with self.assertRaises(poolside_review.ReviewError) as caught:
+                        poolside_review._request_json(
+                            transport=poolside_review.urllib_transport,
+                            method="POST", url=poolside_review.POOLSIDE_URL,
+                            expected_host="inference.poolside.ai", headers={}, payload={},
+                            max_bytes=32, service="Poolside",
+                        )
+                expected = "Poolside redirect refused" if status < 400 else f"Poolside returned HTTP {status}"
+                self.assertEqual(str(caught.exception), expected)
+                body.read.assert_not_called()
+
+    def test_declared_and_actual_response_bounds_and_invalid_lengths_remain(self):
+        for declared, actual, message, reads in [
+            ("33", b"{}", "HTTP response exceeded the configured size limit", 0),
+            (None, b"x" * 33, "HTTP response exceeded the configured size limit", 1),
+            (self.canary, b"{}", "HTTP response had an invalid length", 0),
+        ]:
+            with self.subTest(declared=declared is not None, reads=reads):
+                opener, response = self.opener()
+                response.headers = {} if declared is None else {"Content-Length": declared}
+                response.read.return_value = actual
+                with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
+                    with self.assertRaises(poolside_review.ReviewError) as caught:
+                        self.request()
+                self.assertEqual(str(caught.exception), message)
+                self.assertEqual(response.read.call_count, reads)
+
+    def test_cli_failure_output_is_safe_and_does_not_write_review_artifact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path, output_path = root / "diff.json", root / "review.json"
+            input_path.write_text(json.dumps(diff_artifact(self.canary)), encoding="utf-8")
+            for phase in ["open", "read", "close"]:
+                with self.subTest(phase=phase):
+                    opener, response = self.opener()
+                    if phase == "open":
+                        opener.open.side_effect = urllib.error.URLError(self.canary)
+                    elif phase == "read":
+                        response.headers = {"X-Synthetic": self.canary}
+                        response.read.side_effect = TimeoutError(self.canary)
+                    else:
+                        response.read.return_value = self.canary.encode()
+                        opener.open.return_value.__exit__.side_effect = OSError(self.canary)
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with redirect_stdout(stdout), redirect_stderr(stderr):
+                        with patch.object(poolside_review, "_required_environment", return_value=self.canary):
+                            with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
+                                with patch("time.monotonic", side_effect=[10, 10.125]):
+                                    exit_code = poolside_review.main([
+                                        "create-review", "--input", str(input_path), "--output", str(output_path)
+                                    ])
+                    self.assertEqual(exit_code, 1)
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertNotIn(self.canary, stderr.getvalue())
+                    self.assertNotIn("Traceback", stderr.getvalue())
+                    category = "timeout" if phase == "read" else "other_transport"
+                    received = "false" if phase == "open" else "true"
+                    status = 0 if phase == "open" else 200
+                    self.assertEqual(stderr.getvalue(),
+                        f"Poolside review failed safely: HTTP transport failed: category={category} "
+                        f"phase={phase} headers_received={received} elapsed_ms=125 status={status}\n")
+                    self.assertFalse(output_path.exists())
 
 
 class ArtifactTests(unittest.TestCase):
