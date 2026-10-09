@@ -62,7 +62,7 @@ sources.`,
 			localStatus, localErr := probeNativeStatus(cmd.Context(), newRunner())
 			if modelFilter == "local" {
 				if flags.asJSON {
-					return printJSONArrayFilteredTo(cmd.OutOrStdout(), []map[string]any{localModelRow(localStatus, localErr)}, flags)
+					return printJSONFilteredTo(cmd.OutOrStdout(), []map[string]any{localModelRow(localStatus, localErr)}, flags)
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "local: %s (availability only; inference not tested)\n", localStatusLabel(localStatus, localErr))
 				return nil
@@ -96,7 +96,7 @@ sources.`,
 					})
 				}
 				rows = append(rows, localModelRow(localStatus, localErr))
-				return printJSONArrayFilteredTo(cmd.OutOrStdout(), rows, flags)
+				return printJSONFilteredTo(cmd.OutOrStdout(), rows, flags)
 			}
 
 			w := cmd.OutOrStdout()
