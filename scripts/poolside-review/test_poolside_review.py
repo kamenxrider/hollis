@@ -327,6 +327,50 @@ class PoolsideResponseTests(unittest.TestCase):
 class UrllibTransportTests(unittest.TestCase):
     canary = "synthetic-transport-private-canary"
 
+    def test_poolside_default_transport_uses_45(self):
+        opener, _ = self.opener()
+        transport = poolside_review.create_review.__kwdefaults__["transport"]
+        with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
+            result = transport("POST", poolside_review.POOLSIDE_URL,
+                               poolside_review._bearer_headers(self.canary), b"{}", 32)
+        self.assertEqual(result, poolside_review.HttpResponse(200, b"{}"))
+        self.assertEqual(opener.open.call_count, 1)
+        self.assertEqual(opener.open.call_args.kwargs, {"timeout": 45})
+        request = opener.open.call_args.args[0]
+        self.assertEqual((request.get_method(), request.full_url, request.data),
+                         ("POST", poolside_review.POOLSIDE_URL, b"{}"))
+        self.assertEqual(request.get_header("Authorization"), "Bearer " + self.canary)
+
+    def test_github_metadata_and_compare_default_transports_remain_30(self):
+        metadata, response = self.opener()
+        response.read.return_value = encoded(pull_response())
+        compare, response = self.opener()
+        response.read.return_value = b"+invented\n"
+        with patch.object(poolside_review.urllib.request, "build_opener", side_effect=[metadata, compare]) as build:
+            result = poolside_review.fetch_diff(repository=REPOSITORY, pull_request=PR_NUMBER,
+                                               base_sha=BASE_SHA, head_sha=HEAD_SHA,
+                                               github_token=self.canary)
+        self.assertTrue(result["diff_text"].endswith("+invented\n"))
+        self.assertEqual(build.call_count, 2)
+        for opener, suffix in [(metadata, "/pulls/17"), (compare, "/compare/" + BASE_SHA + "..." + HEAD_SHA)]:
+            self.assertEqual(opener.open.call_count, 1)
+            self.assertEqual(opener.open.call_args.kwargs, {"timeout": 30})
+            request = opener.open.call_args.args[0]
+            self.assertEqual(request.get_method(), "GET")
+            self.assertTrue(request.full_url.endswith(suffix))
+            self.assertIsNone(request.data)
+            self.assertEqual(request.get_header("Authorization"), "Bearer " + self.canary)
+
+    def test_injected_five_argument_transport_contract_is_unchanged(self):
+        transport = FakeTransport(poolside_review.HttpResponse(200, encoded({"ok": True})))
+        result = poolside_review._request_json(
+            transport=transport, method="POST", url=poolside_review.POOLSIDE_URL,
+            expected_host="inference.poolside.ai", headers=poolside_review._bearer_headers(self.canary),
+            payload={"fictional": True}, max_bytes=32, service="Poolside")
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual(transport.calls[0]["body"], b'{"fictional":true}')
+
     def opener(self):
         opener = MagicMock()
         response = opener.open.return_value.__enter__.return_value

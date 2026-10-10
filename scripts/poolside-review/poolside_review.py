@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.parse import urlsplit
@@ -89,6 +90,8 @@ def urllib_transport(
     headers: Mapping[str, str],
     body: bytes | None,
     max_bytes: int,
+    *,
+    timeout: int = 30,
 ) -> HttpResponse:
     request = urllib.request.Request(url, data=body, headers=dict(headers), method=method)
     opener = urllib.request.build_opener(_NoRedirect())
@@ -99,7 +102,7 @@ def urllib_transport(
     response_error = None
     failed_phase = "open"
     try:
-        with opener.open(request, timeout=30) as response:
+        with opener.open(request, timeout=timeout) as response:
             headers_received = True
             phase = "metadata"
             try:
@@ -402,7 +405,7 @@ def create_review(
     diff_artifact: Any,
     *,
     poolside_api_key: str,
-    transport: Transport = urllib_transport,
+    transport: Transport = partial(urllib_transport, timeout=45),
 ) -> dict[str, Any]:
     diff = _validate_diff_artifact(diff_artifact)
     headers = _bearer_headers(poolside_api_key)
