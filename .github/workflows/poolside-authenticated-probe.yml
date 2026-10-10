@@ -1,0 +1,338 @@
+name: Poolside authenticated synthetic probe
+
+'on':
+  push:
+    branches: [capy/poolside-authenticated-probe]
+
+permissions: {}
+
+jobs:
+  synthetic:
+    if: >-
+      ${{ github.repository == 'kamenxrider/hollis' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/capy/poolside-authenticated-probe' &&
+          github.event.created == true && github.event.deleted == false &&
+          github.event.before == '0000000000000000000000000000000000000000' &&
+          github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: One bounded invented-data authenticated POST
+        shell: bash
+        env:
+          POOLSIDE_API_KEY: ${{ secrets.POOLSIDE_API_KEY }}
+        run: |
+          python3 -I - <<'PY' 2>/dev/null
+          import json
+          import os
+          import select
+          import signal
+          import ssl
+          import subprocess
+          import sys
+          import time
+
+
+          WORKER = r'''
+          import json
+          import os
+          import socket
+          import ssl
+          import time
+          import urllib.error
+          import urllib.request
+
+          URL = "https://inference.poolside.ai/v1/chat/completions"
+          MODEL = "poolside/laguna-s-2.1"
+          MAX_BYTES = 1024 * 1024
+          MESSAGES = [
+              {"role": "system", "content": "Answer this harmless request concisely."},
+              {"role": "user", "content": "Reply with exactly OK."},
+          ]
+          started = time.monotonic()
+          state = {
+              "category": "worker", "phase": "credential", "elapsed_ms": 0,
+              "status": 0, "credential_checked": False, "credential_present": False,
+              "credential_format_ok": False, "request_attempted": False,
+              "headers_received": False, "verify_required": False,
+              "hostname_check": False, "json_valid": False, "model_match": False,
+              "content_nonempty": False, "finish_stop": False, "tools_absent": False,
+              "usage_available": False, "prompt_tokens": 0, "completion_tokens": 0,
+              "total_tokens": 0, "cleanup_ok": False,
+          }
+
+          def emit():
+              state["elapsed_ms"] = int(max(0, min(60000, (time.monotonic() - started) * 1000)))
+              print(json.dumps(state, separators=(",", ":")), flush=True)
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, request, fp, code, message, headers, newurl):
+                  return None
+
+          def reject_constant(value):
+              raise ValueError()
+
+          def probe():
+              response = None
+              key = ""
+              failed_phase = "credential"
+              try:
+                  key = os.environ.pop("POOLSIDE_API_KEY", "")
+                  state["credential_checked"] = True
+                  state["credential_present"] = bool(key)
+                  if not key:
+                      state["category"] = "credential_missing"
+                      return
+                  if "\r" in key or "\n" in key or any(ord(c) > 255 for c in key):
+                      state["category"] = "credential_format"
+                      return
+                  state["credential_format_ok"] = True
+                  state["phase"] = "setup"
+                  context = ssl.create_default_context()
+                  state["verify_required"] = context.verify_mode == ssl.CERT_REQUIRED
+                  state["hostname_check"] = context.check_hostname is True
+                  if not state["verify_required"] or not state["hostname_check"]:
+                      state["category"] = "environment"
+                      return
+                  payload = {"model": MODEL, "messages": MESSAGES, "max_tokens": 4000}
+                  assert sum(len(m["content"].encode("utf-8")) for m in MESSAGES) <= 256
+                  body = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+                  request = urllib.request.Request(URL, data=body, method="POST", headers={
+                      "Authorization": "Bearer " + key, "Accept": "application/json",
+                      "Content-Type": "application/json", "User-Agent": "hollis-poolside-review/1",
+                  })
+                  key = ""
+                  opener = urllib.request.build_opener(NoRedirect())
+                  state["phase"] = "open"
+                  state["request_attempted"] = True
+                  emit()
+                  try:
+                      response = opener.open(request, timeout=30)
+                  except urllib.error.HTTPError as error:
+                      response = error
+                  state["headers_received"] = True
+                  state["phase"] = "metadata"
+                  status = response.status
+                  if type(status) is not int or not 100 <= status <= 599:
+                      state["category"] = "protocol"
+                      return
+                  state["status"] = status
+                  if not 200 <= status < 300:
+                      state["category"] = "http_status"
+                      return
+                  declared = response.headers.get("Content-Length")
+                  if declared is not None and int(declared) > MAX_BYTES:
+                      state["category"] = "response_size"
+                      return
+                  state["phase"] = "read"
+                  emit()
+                  raw = response.read(MAX_BYTES + 1)
+                  if len(raw) > MAX_BYTES:
+                      state["category"] = "response_size"
+                      return
+                  state["phase"] = "parse"
+                  try:
+                      value = json.loads(raw.decode("utf-8"), parse_constant=reject_constant)
+                  except (ValueError, RecursionError):
+                      state["category"] = "json"
+                      return
+                  state["json_valid"] = True
+                  if type(value) is not dict:
+                      state["category"] = "response"
+                      return
+                  state["model_match"] = value.get("model") == MODEL
+                  choices = value.get("choices")
+                  choice = choices[0] if type(choices) is list and choices and type(choices[0]) is dict else {}
+                  message = choice.get("message")
+                  message = message if type(message) is dict else {}
+                  content = message.get("content")
+                  state["content_nonempty"] = type(content) is str and any(not c.isspace() for c in content)
+                  state["finish_stop"] = choice.get("finish_reason") == "stop"
+                  state["tools_absent"] = True
+                  pending = [value]
+                  while pending:
+                      node = pending.pop()
+                      if type(node) is dict:
+                          if "tool_calls" in node or "function_call" in node:
+                              state["tools_absent"] = False
+                              break
+                          pending.extend(v for v in node.values() if type(v) in (dict, list))
+                      elif type(node) is list:
+                          pending.extend(v for v in node if type(v) in (dict, list))
+                  usage = value.get("usage")
+                  if type(usage) is dict:
+                      p, c, t = (usage.get(k) for k in ("prompt_tokens", "completion_tokens", "total_tokens"))
+                      if (type(p) is int and type(c) is int and type(t) is int and
+                          0 <= p <= 4096 and 0 <= c <= 4000 and t == p + c):
+                          state["usage_available"] = True
+                          state["prompt_tokens"], state["completion_tokens"], state["total_tokens"] = p, c, t
+                  state["category"] = "ok" if all(state[k] for k in (
+                      "model_match", "content_nonempty", "finish_stop", "tools_absent"
+                  )) else "response"
+              except Exception as error:
+                  reason = error.reason if isinstance(error, urllib.error.URLError) else error
+                  if isinstance(reason, TimeoutError):
+                      state["category"] = "timeout"
+                  elif isinstance(reason, socket.gaierror):
+                      state["category"] = "dns"
+                  elif isinstance(reason, ssl.SSLCertVerificationError):
+                      state["category"] = "tls_certificate"
+                  elif isinstance(reason, ssl.SSLError):
+                      state["category"] = "tls"
+                  elif isinstance(reason, ConnectionError):
+                      state["category"] = "connection"
+                  else:
+                      state["category"] = "other"
+              finally:
+                  key = ""
+                  failed_phase = state["phase"]
+                  state["phase"] = "close"
+                  state["cleanup_ok"] = True
+                  if response is not None:
+                      try:
+                          response.close()
+                      except Exception:
+                          state["category"] = "cleanup"
+                          state["cleanup_ok"] = False
+                          failed_phase = "close"
+                  state["phase"] = "done" if state["category"] == "ok" else failed_phase
+                  emit()
+
+          if __name__ == "__main__":
+              probe()
+          '''
+
+          FLAGS = {"credential_checked", "credential_present", "credential_format_ok", "request_attempted", "headers_received", "verify_required", "hostname_check", "json_valid", "model_match", "content_nonempty", "finish_stop", "tools_absent", "usage_available", "cleanup_ok"}
+          CATEGORIES = {"worker", "credential_missing", "credential_format", "environment", "runtime", "protocol", "http_status", "response_size", "json", "response", "ok", "timeout", "dns", "tls_certificate", "tls", "connection", "other", "cleanup", "deadline", "output"}
+          PHASES = {"credential", "setup", "open", "metadata", "read", "parse", "close", "done"}
+          NUMBERS = {"elapsed_ms": 60000, "status": 599, "prompt_tokens": 4096, "completion_tokens": 4000, "total_tokens": 8096}
+
+          def main():
+              result = {k: False for k in FLAGS}
+              result.update({k: 0 for k in NUMBERS})
+              result.update(category="worker", phase="setup")
+              started = time.monotonic()
+              process = None
+              key = ""
+              environment = {}
+              pending = b""
+              total = 0
+              expired = False
+              proxy_present = any(k.lower().endswith("_proxy") and k.lower() != "no_proxy" for k in os.environ)
+              trust_override = any(k.lower() in {"ssl_cert_file", "ssl_cert_dir", "sslkeylogfile", "openssl_conf", "openssl_modules"} for k in os.environ)
+              try:
+                  if os.environ.get("ImageOS") != "ubuntu24":
+                      result["category"] = "runtime"
+                      return 1
+                  if proxy_present or trust_override:
+                      result["category"] = "environment"
+                      return 1
+                  key = os.environ.pop("POOLSIDE_API_KEY", "")
+                  result["credential_checked"] = True
+                  result["credential_present"] = bool(key)
+                  if not key:
+                      result["category"] = "credential_missing"
+                      return 1
+                  if "\r" in key or "\n" in key or any(ord(c) > 255 for c in key):
+                      result["category"] = "credential_format"
+                      return 1
+                  result["credential_format_ok"] = True
+                  environment = {"POOLSIDE_API_KEY": key}
+                  process = subprocess.Popen(
+                      [sys.executable, "-I", "-c", WORKER], stdin=subprocess.DEVNULL,
+                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                      env=environment, start_new_session=True,
+                  )
+                  key = ""
+                  environment.clear()
+                  while True:
+                      remaining = 50 - (time.monotonic() - started)
+                      if remaining <= 0:
+                          expired = True
+                          break
+                      ready, _, _ = select.select([process.stdout], [], [], remaining)
+                      if not ready:
+                          expired = True
+                          break
+                      chunk = os.read(process.stdout.fileno(), 1024)
+                      if not chunk:
+                          break
+                      total += len(chunk)
+                      if total > 8192:
+                          result["category"] = "output"
+                          break
+                      pending += chunk
+                      while b"\n" in pending:
+                          line, pending = pending.split(b"\n", 1)
+                          try:
+                              item = json.loads(line)
+                          except (ValueError, RecursionError):
+                              continue
+                          if type(item) is not dict or item.keys() != result.keys():
+                              continue
+                          if type(item["category"]) is not str or item["category"] not in CATEGORIES:
+                              continue
+                          if type(item["phase"]) is not str or item["phase"] not in PHASES:
+                              continue
+                          if any(type(item[k]) is not bool for k in FLAGS):
+                              continue
+                          if any(type(item[k]) is not int or not 0 <= item[k] <= bound for k, bound in NUMBERS.items()):
+                              continue
+                          if item["status"] != 0 and item["status"] < 100:
+                              continue
+                          if item["usage_available"]:
+                              if item["total_tokens"] != item["prompt_tokens"] + item["completion_tokens"]:
+                                  continue
+                          elif any(item[k] != 0 for k in ("prompt_tokens", "completion_tokens", "total_tokens")):
+                              continue
+                          result = item
+                  if expired:
+                      result["category"] = "deadline"
+                  if (expired or result["category"] == "output") and process.poll() is None:
+                      os.killpg(process.pid, signal.SIGKILL)
+                  try:
+                      process.wait(timeout=3)
+                  except subprocess.TimeoutExpired:
+                      result["category"] = "cleanup"
+                  if process.returncode is not None and process.returncode != 0 and not expired and result["category"] not in {"output", "cleanup"}:
+                      result["category"] = "worker"
+                  if result["category"] == "ok" and not (
+                      result["phase"] == "done" and 200 <= result["status"] < 300 and
+                      all(result[k] for k in FLAGS - {"usage_available"})
+                  ):
+                      result["category"] = "protocol"
+              except BaseException:
+                  result["category"] = "worker"
+              finally:
+                  key = ""
+                  environment.clear()
+                  if process is not None:
+                      if process.poll() is None:
+                          try:
+                              os.killpg(process.pid, signal.SIGKILL)
+                              process.wait(timeout=3)
+                          except BaseException:
+                              result["category"] = "cleanup"
+                              result["cleanup_ok"] = False
+                      if process.poll() is not None and expired:
+                          result["cleanup_ok"] = True
+                      if process.stdout is not None:
+                          try:
+                              process.stdout.close()
+                          except BaseException:
+                              result["category"] = "cleanup"
+                              result["cleanup_ok"] = False
+                  result["elapsed_ms"] = int(max(0, min(60000, (time.monotonic() - started) * 1000)))
+                  result["image_matches"] = os.environ.get("ImageOS") == "ubuntu24"
+                  result["proxy_config_present"] = proxy_present
+                  result["trust_override_present"] = trust_override
+                  result["python_major"], result["python_minor"], result["python_patch"] = [max(0, min(100, int(n))) for n in sys.version_info[:3]]
+                  result["openssl_major"], result["openssl_minor"], result["openssl_fix"], result["openssl_patch"], result["openssl_status"] = [max(0, min(255, int(n))) for n in ssl.OPENSSL_VERSION_INFO]
+                  print(json.dumps(result, separators=(",", ":")))
+              return 0 if result["category"] == "ok" else 1
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          PY
