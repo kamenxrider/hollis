@@ -1,0 +1,268 @@
+name: Poolside connectivity probe
+
+'on':
+  push:
+    branches: [capy/poolside-connectivity-probe]
+
+permissions: {}
+
+jobs:
+  connectivity:
+    if: >-
+      ${{ github.repository == 'kamenxrider/hollis' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/capy/poolside-connectivity-probe' &&
+          github.event.created == true && github.event.deleted == false &&
+          github.event.before == '0000000000000000000000000000000000000000' &&
+          github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Probe one verified unauthenticated HEAD
+        shell: bash
+        run: |
+          python3 -I - <<'PY' 2>/dev/null
+          import json
+          import os
+          import signal
+          import ssl
+          import subprocess
+          import sys
+          import tempfile
+          import time
+
+
+          WORKER = r'''
+          import http.client
+          import json
+          import socket
+          import ssl
+          import time
+          import urllib.error
+          import urllib.request
+
+          HOST = "inference.poolside.ai"
+          PATH = "/v1/chat/completions"
+          started = time.monotonic()
+          header_started = started
+          resources = []
+          state = {
+              "category": "other", "phase": "setup", "headers_received": False,
+              "status": 0, "elapsed_ms": 0, "dns_ms": 0, "tcp_ms": 0,
+              "tls_ms": 0, "headers_ms": 0, "dns_attempts": 0,
+              "connection_attempts": 0, "request_attempts": 0,
+              "dns_ok": False, "tcp_ok": False, "tls_ok": False,
+              "verify_required": False, "hostname_check": False,
+              "cleanup_ok": False,
+          }
+
+          def milliseconds(start):
+              return int(max(0, min(60000, (time.monotonic() - start) * 1000)))
+
+          def emit(phase):
+              state["phase"] = phase
+              state["elapsed_ms"] = milliseconds(started)
+              print(json.dumps(state, separators=(",", ":")), flush=True)
+
+          def remaining():
+              seconds = 35 - (time.monotonic() - started)
+              if seconds <= 0:
+                  raise TimeoutError()
+              return min(30, seconds)
+
+          class Connection(http.client.HTTPSConnection):
+              def connect(self):
+                  if self.host != HOST or self.port != 443 or self._tunnel_host or state["dns_attempts"]:
+                      raise ValueError()
+                  state["dns_attempts"] = 1
+                  emit("dns")
+                  mark = time.monotonic()
+                  addresses = socket.getaddrinfo(HOST, 443, type=socket.SOCK_STREAM)
+                  usable = [a for a in addresses if a[0] in (socket.AF_INET, socket.AF_INET6)]
+                  if not usable:
+                      raise socket.gaierror()
+                  address = next((a for a in usable if a[0] == socket.AF_INET), usable[0])
+                  state["dns_ms"] = milliseconds(mark)
+                  state["dns_ok"] = True
+                  state["connection_attempts"] = 1
+                  emit("tcp")
+                  mark = time.monotonic()
+                  raw = socket.socket(address[0], address[1], address[2])
+                  resources.append(raw)
+                  raw.settimeout(remaining())
+                  raw.connect(address[4])
+                  state["tcp_ms"] = milliseconds(mark)
+                  state["tcp_ok"] = True
+                  emit("tls")
+                  mark = time.monotonic()
+                  raw.settimeout(remaining())
+                  self.sock = self._context.wrap_socket(raw, server_hostname=HOST)
+                  resources.append(self.sock)
+                  state["tls_ms"] = milliseconds(mark)
+                  state["tls_ok"] = True
+
+              def send(self, data):
+                  global header_started
+                  if (state["request_attempts"] or
+                      not data.startswith(b"HEAD /v1/chat/completions HTTP/1.1\r\n") or
+                      not data.endswith(b"\r\n\r\n") or data.count(b"\r\n\r\n") != 1):
+                      raise ValueError()
+                  if self.sock is None:
+                      self.connect()
+                  state["request_attempts"] = 1
+                  emit("send")
+                  self.sock.settimeout(remaining())
+                  self.sock.sendall(data)
+                  self.sock.settimeout(remaining())
+                  header_started = time.monotonic()
+                  emit("headers")
+
+          class Handler(urllib.request.HTTPSHandler):
+              def https_open(self, request):
+                  return self.do_open(Connection, request, context=self._context)
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, request, fp, code, message, headers, newurl):
+                  return None
+
+          def probe():
+              try:
+                  context = ssl.create_default_context()
+                  state["verify_required"] = context.verify_mode == ssl.CERT_REQUIRED
+                  state["hostname_check"] = context.check_hostname is True
+                  if not state["verify_required"] or not state["hostname_check"]:
+                      raise ValueError()
+                  opener = urllib.request.build_opener(
+                      urllib.request.ProxyHandler({}), Handler(context=context), NoRedirect()
+                  )
+                  request = urllib.request.Request("https://" + HOST + PATH, method="HEAD")
+                  emit("setup")
+                  try:
+                      response = opener.open(request, timeout=remaining())
+                  except urllib.error.HTTPError as error:
+                      response = error
+                  resources.append(response)
+                  status = response.status
+                  if type(status) is not int or not 100 <= status <= 599:
+                      raise ValueError()
+                  state["headers_received"] = True
+                  state["headers_ms"] = milliseconds(header_started)
+                  state["status"] = status
+                  state["category"] = "ok"
+              except Exception as error:
+                  reason = error.reason if isinstance(error, urllib.error.URLError) else error
+                  if isinstance(reason, TimeoutError):
+                      state["category"] = "timeout"
+                  elif isinstance(reason, socket.gaierror):
+                      state["category"] = "dns"
+                  elif isinstance(reason, ssl.SSLCertVerificationError):
+                      state["category"] = "tls_certificate"
+                  elif isinstance(reason, ssl.SSLError):
+                      state["category"] = "tls"
+                  elif isinstance(reason, ConnectionError):
+                      state["category"] = "connection"
+                  elif isinstance(reason, http.client.HTTPException):
+                      state["category"] = "http_protocol"
+                  else:
+                      state["category"] = "other"
+              finally:
+                  failed_phase = state["phase"]
+                  emit("close")
+                  state["cleanup_ok"] = True
+                  for resource in reversed(resources):
+                      try:
+                          resource.close()
+                      except Exception:
+                          state["cleanup_ok"] = False
+                          state["category"] = "cleanup"
+                          failed_phase = "close"
+                  emit("done" if state["category"] == "ok" else failed_phase)
+
+          if __name__ == "__main__":
+              probe()
+          '''
+
+          CATEGORIES = {"ok", "timeout", "dns", "tls_certificate", "tls", "connection", "http_protocol", "other", "cleanup", "deadline", "worker", "output", "runtime"}
+          PHASES = {"setup", "dns", "tcp", "tls", "send", "headers", "close", "done"}
+          FLAGS = {"headers_received", "dns_ok", "tcp_ok", "tls_ok", "verify_required", "hostname_check", "cleanup_ok"}
+          COUNTS = {"dns_attempts", "connection_attempts", "request_attempts"}
+          TIMES = {"elapsed_ms", "dns_ms", "tcp_ms", "tls_ms", "headers_ms"}
+
+          def main():
+              result = {key: False for key in FLAGS}
+              result.update({key: 0 for key in COUNTS | TIMES})
+              result.update(category="worker", phase="setup", status=0)
+              process = None
+              expired = False
+              started = time.monotonic()
+              try:
+                  if os.environ.get("ImageOS") != "ubuntu24":
+                      result["category"] = "runtime"
+                      return 1
+                  with tempfile.TemporaryFile(dir="/tmp") as output:
+                      process = subprocess.Popen(
+                          [sys.executable, "-I", "-c", WORKER], stdin=subprocess.DEVNULL,
+                          stdout=output, stderr=subprocess.DEVNULL, env={}, start_new_session=True,
+                      )
+                      try:
+                          process.wait(timeout=max(0, 40 - (time.monotonic() - started)))
+                      except subprocess.TimeoutExpired:
+                          expired = True
+                          os.killpg(process.pid, signal.SIGKILL)
+                          process.wait(timeout=3)
+                      output.seek(0)
+                      data = output.read(4097)
+                      if len(data) > 4096:
+                          result["category"] = "output"
+                      else:
+                          for line in data.splitlines():
+                              try:
+                                  item = json.loads(line)
+                              except (ValueError, RecursionError):
+                                  continue
+                              if type(item) is not dict or item.keys() != result.keys():
+                                  continue
+                              if type(item["category"]) is not str or type(item["phase"]) is not str or item["category"] not in CATEGORIES or item["phase"] not in PHASES:
+                                  continue
+                              if any(type(item[k]) is not bool for k in FLAGS):
+                                  continue
+                              if any(type(item[k]) is not int or not 0 <= item[k] <= 1 for k in COUNTS):
+                                  continue
+                              if any(type(item[k]) is not int or not 0 <= item[k] <= 60000 for k in TIMES):
+                                  continue
+                              if type(item["status"]) is not int or not (item["status"] == 0 or 100 <= item["status"] <= 599):
+                                  continue
+                              result = item
+                          if expired:
+                              result["category"] = "deadline"
+                              result["cleanup_ok"] = True
+                          elif process.returncode != 0:
+                              result["category"] = "worker"
+                          elif result["category"] == "ok" and not (
+                              result["phase"] == "done" and 100 <= result["status"] <= 599 and
+                              all(result[k] for k in FLAGS) and all(result[k] == 1 for k in COUNTS)
+                          ):
+                              result["category"] = "worker"
+              except BaseException:
+                  result["category"] = "worker"
+              finally:
+                  if process is not None and process.poll() is None:
+                      try:
+                          os.killpg(process.pid, signal.SIGKILL)
+                          process.wait(timeout=3)
+                          result["cleanup_ok"] = True
+                      except BaseException:
+                          result["category"] = "cleanup"
+                          result["cleanup_ok"] = False
+                  result["elapsed_ms"] = int(max(0, min(60000, (time.monotonic() - started) * 1000)))
+                  result["image_matches"] = os.environ.get("ImageOS") == "ubuntu24"
+                  result["proxy_present"] = any(k in os.environ for k in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"))
+                  result["python_major"], result["python_minor"], result["python_patch"] = [max(0, min(100, int(n))) for n in sys.version_info[:3]]
+                  result["openssl_major"], result["openssl_minor"], result["openssl_fix"], result["openssl_patch"], result["openssl_status"] = [max(0, min(255, int(n))) for n in ssl.OPENSSL_VERSION_INFO]
+                  print(json.dumps(result, separators=(",", ":")))
+              return 0 if result["category"] == "ok" else 1
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          PY
