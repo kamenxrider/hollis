@@ -44,10 +44,10 @@ def policy_errors(workflow):
     review_job, post_job = workflow.split("\n  review:\n", 1)[1].split("\n  post:\n", 1)
     if "issues: write" in review_job or "pull-requests: write" in review_job:
         errors.append("review job has comment write permission")
-    if re.search(r"^\s{6}(?!issues: write$)[a-z-]+:\s+(?:read|write)$", post_job, re.MULTILINE):
-        errors.append("post job has permission beyond issue comments")
-    if "      issues: write" not in post_job:
-        errors.append("post job lacks issue comment permission")
+    if re.search(r"^\s{6}(?!pull-requests: write$)[a-z-]+:\s+(?:read|write)$", post_job, re.MULTILINE):
+        errors.append("post job has permission beyond pull-request comments")
+    if "      pull-requests: write" not in post_job:
+        errors.append("post job lacks pull-request comment permission")
 
     fetch = step_block(workflow, "Fetch the validated pull request diff")
     inference = step_block(workflow, "Request a text-only Poolside review")
@@ -110,6 +110,17 @@ class WorkflowPolicyTests(unittest.TestCase):
             "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
             self.workflow,
         )
+
+
+    def test_fixture_with_issues_write_on_post_job_is_rejected(self):
+        unsafe = self.workflow.replace("      pull-requests: write\n", "      issues: write\n", 1)
+        self.assertIn("post job has permission beyond pull-request comments", policy_errors(unsafe))
+
+    def test_fixture_without_post_permission_is_rejected(self):
+        unsafe = self.workflow.replace(
+            "    permissions:\n      pull-requests: write\n", "    permissions:\n", 1
+        )
+        self.assertIn("post job lacks pull-request comment permission", policy_errors(unsafe))
 
 
 if __name__ == "__main__":

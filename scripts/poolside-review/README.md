@@ -21,7 +21,8 @@ text. The reviewer analyzes the diff only and does not run tests.
 
 The review and comment jobs use clean runners. Only the fetch step receives a
 read-only GitHub token, only the inference step receives `POOLSIDE_API_KEY`, and
-only the final posting step receives a GitHub token with `issues: write`.
+only the final posting step receives a GitHub token with
+`pull-requests: write`, used for posting pull-request comments.
 The posting job downloads one bounded JSON file, checks its exact schema and
 pull-request binding, and passes the Markdown through a JSON request body.
 

@@ -242,7 +242,7 @@ func TestPoolsideReviewWorkflowIsSecretSafe(t *testing.T) {
 		"trusted-source/scripts/poolside-review/poolside_review.py create-review",
 		"actions/upload-artifact@",
 		"needs: review",
-		"issues: write",
+		"pull-requests: write",
 		`test ! -L "$REVIEW_ARTIFACT_DIR/review.json"`,
 		`(.review_markdown | utf8bytelength > 0 and utf8bytelength <= 60000)`,
 		`/usr/bin/gh api --silent --method POST`,
