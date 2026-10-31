@@ -190,7 +190,8 @@ def check_release_dir(folder, kind, root=ROOT):
         if not re.fullmatch(r'\d+\.\d+\.\d+', version):
             raise ValueError('Invalid runtime version')
         expected = {'hollis-darwin-arm64', 'hollis-darwin-amd64', 'hollis-native-darwin-arm64',
-                    'hollis-bridges.zip', f'hollis-{version}-darwin-arm64.zip', 'SHA256SUMS', 'hollis.spdx.json'}
+                    'hollis-bridges.zip', f'hollis-{version}-darwin-arm64.zip',
+                    'release-manifest.json', 'SHA256SUMS', 'hollis.spdx.json'}
     exact_members([p.name for p in folder.iterdir()], expected, 'release assets')
     for path in folder.iterdir():
         if path.is_symlink() or not path.is_file():

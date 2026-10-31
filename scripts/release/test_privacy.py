@@ -3,6 +3,7 @@ import pathlib
 import tempfile
 import unittest
 import zipfile
+import test_manifest
 spec = importlib.util.spec_from_file_location('privacy', pathlib.Path(__file__).with_name('privacy.py'))
 privacy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(privacy)
@@ -152,3 +153,13 @@ class ReleaseWorkflowGateTests(unittest.TestCase):
                         workflow.index('- name: Attest release artifacts'))
         self.assertLess(workflow.index('- name: Inspect every publication asset'),
                         workflow.index('- name: Create release and upload assets'))
+        self.assertLess(workflow.index('- name: Generate release manifest'),
+                        workflow.index('- name: Generate checksums'))
+
+    def test_release_manifest_is_required_in_the_exact_asset_set(self):
+        with tempfile.TemporaryDirectory() as folder:
+            release = test_manifest.make_release_dir(pathlib.Path(folder) / 'dist')
+            privacy.check_release_dir(release, 'bundle')
+            (release / 'release-manifest.json').unlink()
+            with self.assertRaisesRegex(ValueError, 'release assets'):
+                privacy.check_release_dir(release, 'bundle')

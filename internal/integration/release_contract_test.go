@@ -25,6 +25,8 @@ func TestReleaseWorkflowIsImmutableAndAttested(t *testing.T) {
 		"mkdir -p dist",
 		"go test -race ./...",
 		"hollis.spdx.json",
+		"release-manifest.json",
+		"Generate release manifest",
 		"actions/attest-build-provenance@",
 		"refusing to overwrite immutable assets",
 		"--notes-file",
@@ -69,12 +71,15 @@ func TestReleaseBuildCreatesAllPublishedAssets(t *testing.T) {
 	if checksumAt < 0 {
 		t.Fatal("release workflow has no checksum step")
 	}
-	checksumEnd := strings.Index(workflow[checksumAt:], "- name: Generate SPDX SBOM")
+	checksumEnd := strings.Index(workflow[checksumAt:], "- name: Inspect every publication asset")
 	if checksumEnd < 0 {
-		t.Fatal("release workflow has no SBOM step")
+		t.Fatal("release workflow has no publication inspection step after checksums")
 	}
 	checksum := workflow[checksumAt : checksumAt+checksumEnd]
-	for _, asset := range []string{"hollis-darwin-arm64", "hollis-darwin-amd64", "hollis-bridges.zip"} {
+	for _, asset := range []string{
+		"hollis-darwin-arm64", "hollis-darwin-amd64", "hollis-bridges.zip",
+		"hollis.spdx.json", "release-manifest.json",
+	} {
 		if !strings.Contains(checksum, asset) {
 			t.Errorf("checksums omit %s", asset)
 		}
@@ -86,6 +91,7 @@ func TestReleaseBuildCreatesAllPublishedAssets(t *testing.T) {
 		"dist/hollis-bridges.zip",
 		"dist/SHA256SUMS",
 		"dist/hollis.spdx.json",
+		"dist/release-manifest.json",
 	} {
 		if !strings.Contains(workflow, asset) {
 			t.Errorf("release publication omits %s", asset)

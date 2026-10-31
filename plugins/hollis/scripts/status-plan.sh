@@ -24,6 +24,14 @@ if [[ "$state" != verified ]]; then
   # External runtimes retain independent legacy availability diagnostics, not
   # authenticated readiness. Do not pass them into the Go planner.
   if [[ "$state" == unknown && $(field "$WORK_DIR/runtime.json" reason_code || true) == external_runtime_unverified ]]; then exit 64; fi
+  # Surface the concrete producer failure (for example an integrity fail on a
+  # corrupt installed binary) on stderr for readiness callers; the generic
+  # bootstrap record stays on stdout. The detail travels in the record's
+  # frozen optional message key.
+  detail=$(field "$WORK_DIR/runtime.json" message || true)
+  if [[ "$state" == action_required && -n "$detail" ]]; then
+    printf '%s\n' "$detail" >&2
+  fi
   unknown
 fi
 [[ "$record_code" == 0 && $(field "$WORK_DIR/runtime.json" artifact.verification || true) == verified ]] || unknown
