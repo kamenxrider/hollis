@@ -439,12 +439,14 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 	}
 	cmd := exec.CommandContext(ctx, r.ShortcutsPath, args...)
 
-	// Rule 2: capture via pipes. bytes.Buffer forces exec to create an
-	// os.Pipe for stdout — the child never sees a TTY, which is the one
-	// form that reliably produces output.
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// Rule 2: capture via pipes. The capped writers keep os/exec's pipe
+	// draining (the child's writes never block on the capture) while
+	// bounding parent memory: a flooding child grows the capture only to
+	// the cap. Truncation is recorded and surfaced — a truncated stdout is
+	// never returned as a complete response.
+	stdout, stderr := &cappedBuffer{}, &cappedBuffer{}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	// Rule 3: deadline semantics. exec.CommandContext kills only the direct
 	// child on cancel; put the child in its own process group and SIGKILL
@@ -617,9 +619,54 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 	}
 
 	// Rule 6: return stdout exactly as produced. Apple omits the trailing
-	// newline; we neither expect nor add one here.
+	// newline; we neither expect nor add one here. "As produced" means
+	// complete: a capture that hit the cap never passes as a response —
+	// partial output presented as whole would be the same fabrication class
+	// as the list path's post-deadline success.
+	if stdout.truncated {
+		return "", &Error{
+			Kind:     KindTransport,
+			Ref:      ref,
+			ExitCode: exitOf(res.err),
+			Stderr:   stderrText,
+			Err: fmt.Errorf("shortcut output exceeded the %d MiB capture cap; the response cannot be delivered faithfully",
+				runCaptureCap>>20),
+		}
+	}
 	return out, nil
 }
+
+// runCaptureCap bounds the run path's stdout and stderr capture. 1 MiB per
+// stream is the native helper's own input-cap scale (native.go's 1 MiB
+// request bound): roughly 500k characters of plain text, far above any real
+// completion, and far below the unbounded growth a flooding child caused
+// (measured: 514.5 MiB of parent RSS in 4 s at ~40 MiB/s).
+const runCaptureCap = 1 << 20
+
+// cappedBuffer keeps at most runCaptureCap bytes per stream and keeps
+// draining afterwards: the child's writes must never block on the capture,
+// and the kept prefix is always enough for classification (rate-limit,
+// declined, missing-shortcut signals appear early). Truncation is recorded
+// so callers can refuse to pass a truncated capture off as complete.
+type cappedBuffer struct {
+	buf       bytes.Buffer
+	truncated bool
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	if room := runCaptureCap - int64(b.buf.Len()); room <= 0 {
+		b.truncated = true
+		return len(p), nil
+	} else if int64(len(p)) > room {
+		b.buf.Write(p[:room])
+		b.truncated = true
+	} else {
+		b.buf.Write(p)
+	}
+	return len(p), nil
+}
+
+func (b *cappedBuffer) String() string { return b.buf.String() }
 
 // writePromptFile stages bytes without normalization. Deferred removal covers
 // normal returns, errors and handled cancellation; SIGKILL or a host crash can

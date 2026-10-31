@@ -88,9 +88,6 @@ func sampleRSS(t *testing.T) uint64 {
 }
 
 func TestRunCaptureIsBoundedUnderFlood(t *testing.T) {
-	if raceEnabled {
-		t.Skip("RSS is a proxy measurement; the race detector's allocator inflates baseline and transients, so the bound is asserted in non-race runs")
-	}
 	r := &ShortcutRunner{
 		ShortcutsPath: runFloodFixturePath(t),
 		BridgeRefs:    map[Model]string{ModelCloud: "gap-b-probe-ref"},
@@ -137,7 +134,11 @@ func TestRunCaptureIsBoundedUnderFlood(t *testing.T) {
 	t.Logf("parent RSS: base %.1f MiB, peak %.1f MiB, growth %.1f MiB under a ~40 MiB/s flood", float64(base)/1024, float64(peak)/1024, growthMiB)
 
 	// BOUNDED CAPTURE: parent memory must not grow with child volume.
-	if growthMiB > captureBoundMiB {
+	// Skipped under -race: the detector's allocator inflates baseline and
+	// transients, so the RSS proxy is not meaningful there. CI's test job
+	// runs both `go test ./...` (enforces this bound) and
+	// `go test -race ./...` (still runs the classification assertion).
+	if !raceEnabled && growthMiB > captureBoundMiB {
 		t.Errorf("BOUNDED CAPTURE violated: parent RSS grew %.1f MiB during a %.1fs flood; the run path's capture is unbounded", growthMiB, elapsed.Seconds())
 	}
 
