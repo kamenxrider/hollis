@@ -1,0 +1,14 @@
+hollis doctor (version dev)
+  local: unavailable: native helper availability has not been checked (availability only; inference not tested)
+  transport: ok
+  macos: 27.0 (27F99)
+  support: macOS 27 measured; Cloud Pro is unsupported on macOS 26
+  timeout default: 30s (ceiling 120s)
+  bridges (resolved at runtime):
+    [OK]        cloud      AFM Bridge - Cloud.signed (shortcuts-list)
+    [MISSING]   cloud-pro  DBB6E472-CBC6-4421-8D32-9D4543D5CDE6 (compiled-uuid)
+    [OK]        on-device  AFM Bridge - On-Device.signed (shortcuts-list)
+    [OK]        chatgpt    AFM Bridge - ChatGPT.signed (shortcuts-list)
+
+  MISSING: install that bridge (README “Quickstart” step 2), or point config at one you already have:
+  hollis config set bridge <tier> <name-or-uuid>

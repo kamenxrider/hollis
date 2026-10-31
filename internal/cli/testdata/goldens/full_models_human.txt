@@ -1,0 +1,10 @@
+hollis models (version dev)
+  auto       fallback strategy: cloud first, on-device on failure
+  cloud      AFM 3 Cloud (Private Cloud Compute)
+  cloud-pro  AFM 3 Cloud Pro (Private Cloud Compute; macOS 27+)
+  on-device  AFM 3 Core or AFM 3 Core Advanced (by hardware)
+  chatgpt    OpenAI ChatGPT extension for Apple Intelligence
+  local      Native Foundation Models SDK: unavailable: native helper availability has not been checked (inference not tested)
+
+Apple publishes no backend model IDs. The internal Shortcuts parameter
+strings are included in --json; background in README "Model tiers".
