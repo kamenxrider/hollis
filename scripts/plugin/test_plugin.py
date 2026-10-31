@@ -49,6 +49,9 @@ case "$1" in
    if [[ -n ${FIXTURE_CONFIG:-} ]]; then printf '%s\\n' "$FIXTURE_CONFIG"; else echo '{"bridges":{},"image_bridge":""}'; fi
  fi;;
  doctor) echo '{"bridges":[{"model":"cloud","verified":true,"resolved_ref":"Custom Cloud","status":"ok"},{"model":"cloud-pro","verified":false,"resolved_ref":"","status":"missing"}]}'; exit 3;;
+ models) printf '%s' "$FIXTURE_MODELS"; exit "${FIXTURE_MODELS_CODE:-0}";;
+ setup) if [[ -n ${FIXTURE_PLAN:-} ]]; then printf '%s\\n' "$FIXTURE_PLAN"; exit "${FIXTURE_PLAN_CODE:-0}"; fi
+   echo '{"error":{"code":"usage","message":"unknown command \\"setup\\": run hollis --help","exit_code":2}}'; exit 2;;
  *) exit 0;;
 esac
 ''')
@@ -310,6 +313,107 @@ esac
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["status"], "permission_pending")
         self.assertEqual(list(imports.iterdir()), [imports / "pending"])
+
+
+class PlannerStatusTests(unittest.TestCase):
+    """The record producer simulates A4 verification, not published provenance."""
+    call = InstallerTests.call
+    install = InstallerTests.install
+    relock = InstallerTests.relock
+    shortcuts = InstallerTests.shortcuts
+
+    def setUp(self):
+        InstallerTests.setUp(self)
+        self.install()
+        # Emit fixture stdout fresh, without parsing lock files in the adapter.
+        script = self.kit / "scripts/setup.sh"
+        script.write_text(script.read_text().replace('case "${1:-help}" in',
+            'case "${1:-help}" in\\n  runtime-record) printf "%s\\\\n" "$FIXTURE_RUNTIME_RECORD"; exit "${FIXTURE_RECORD_CODE:-0}";;'.replace("\\n", "\n", 1)))
+        version_dir = self.home / "versions/0.3.0"
+        self.record = {
+            "contract_version": 1, "state": "verified", "reason_code": "runtime_verified",
+            "runtime": {"version": "0.3.0", "source_commit": self.lock["source_commit"],
+                        "executable_path": str(version_dir / "hollis"), "install_root": str(version_dir), "owner": "plugin"},
+            "artifact": {"name": self.lock["binary"]["name"], "sha256": self.lock["binary"]["sha256"], "verification": "verified"},
+            "helper": {"verification": "unknown", "reason_code": "helper_not_pinned"},
+            "platform": {"os": "darwin", "architecture": "arm64", "minimum_macos": 27},
+            "bridges": {"archive_path": str(version_dir / "hollis-bridges.zip"),
+                        "archive_sha256": self.lock["bridges"]["sha256"], "verification": "verified",
+                        "members": [{"name": name, "sha256": "e" * 64} for name in self.lock["bridge_files"]]},
+            "receipt": {"schema_version": 1, "current_version": "0.3.0", "owner": "plugin"},
+        }
+        self.env["FIXTURE_RUNTIME_RECORD"] = json.dumps(self.record)
+
+    def plan(self, route="cloud", status="ready", code=0):
+        data = {"schema_version": 1, "source": "planner-v1", "route": route, "status": status,
+                "reason_code": "prerequisites_ready" if status == "ready" else "import_pending",
+                "message": "Offline plan fixture", "actions": [], "inference_tested": False,
+                "bridge": {"discovery": "completed", "configured": True, "reference": "Custom bridge", "discovered": status == "ready"}}
+        if code:
+            data["error"] = {"code": "config", "message": "Offline action needed", "exit_code": code}
+        self.env["FIXTURE_PLAN"], self.env["FIXTURE_PLAN_CODE"] = json.dumps(data), str(code)
+        return data
+
+    def test_old_verified_runtime_explicitly_falls_back_to_labeled_legacy(self):
+        self.shortcuts("Custom Cloud")
+        result = self.call("status", "cloud")
+        data = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(data["source"], "legacy")
+        self.assertEqual(data["artifact_verification"], "unknown")
+        self.assertEqual(data["routes"][0]["status"], "discovered")
+
+    def test_shared_plan_does_not_run_shortcuts_or_write_runtime_state(self):
+        for route in ("local", "cloud-pro"):
+            expected = self.plan(route)
+            before = sorted(str(path.relative_to(self.home)) for path in self.home.rglob("*"))
+            result = self.call("status", route)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            data = json.loads(result.stdout)
+            self.assertEqual(data["source"], "planner-v1")
+            self.assertEqual(data["plan"], expected)
+            self.assertEqual(data["routes"][0]["status"], "discovered")
+            self.assertEqual(before, sorted(str(path.relative_to(self.home)) for path in self.home.rglob("*")))
+
+    def test_legacy_local_preserves_model_payload_bytes_and_exit(self):
+        payload = '[\n  {"model":"local", "available":false,"helper_version":"0.4.0"}\n]\n'
+        self.env["FIXTURE_MODELS"] = payload
+        for code in (0, 7):
+            self.env["FIXTURE_MODELS_CODE"] = str(code)
+            result = self.call("status", "local")
+            self.assertEqual(result.returncode, code, result.stderr)
+            self.assertEqual(result.stdout,
+                '{"source":"legacy","artifact_verification":"unknown","models":' + payload + '}\n')
+            self.assertEqual(json.loads(result.stdout)["models"], json.loads(payload))
+
+    def test_pending_import_is_asserted_without_reopening(self):
+        imports = self.home / "imports"; imports.mkdir()
+        pending = imports / "pending"; pending.write_text("image\n")
+        log = self.base / "calls"; self.env["CALL_LOG"] = str(log)
+        self.plan("image", "approval_required", 10)
+        result = self.call("status", "image")
+        self.assertEqual(result.returncode, 10, result.stderr)
+        self.assertIn("--pending-import image", log.read_text())
+        self.assertEqual(pending.read_text(), "image\n")
+        self.assertEqual(list(imports.iterdir()), [pending])
+
+    def test_malformed_or_future_plan_is_not_legacy_success(self):
+        for response, code in (("not json", 0), (json.dumps(dict(self.plan(), schema_version=2)), 0),
+                               (json.dumps({"error": {"code": "config", "message": "not an older CLI"}}), 10)):
+            self.env["FIXTURE_PLAN"], self.env["FIXTURE_PLAN_CODE"] = response, str(code)
+            result = self.call("status", "cloud")
+            self.assertEqual(result.returncode, 10, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["status"], "unknown")
+
+    def test_unverified_record_never_invokes_planner(self):
+        self.record["state"], self.record["reason_code"] = "action_required", "runtime_integrity_failed"
+        self.record["artifact"]["verification"] = "failed"
+        self.env["FIXTURE_RUNTIME_RECORD"], self.env["FIXTURE_RECORD_CODE"] = json.dumps(self.record), "10"
+        log = self.base / "calls"; self.env["CALL_LOG"] = str(log)
+        result = self.call("status", "cloud")
+        self.assertEqual(result.returncode, 10, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["source"], "bootstrap")
+        self.assertFalse(log.exists())
 
 
 class PlatformTests(unittest.TestCase):

@@ -33,12 +33,26 @@ if [[ "$MODE" == status ]]; then
     fi
   fi
 fi
+if [[ "$MODE" == status && "$ROUTE" != all ]]; then
+  plan_code=0
+  /bin/bash "$PLUGIN_ROOT/scripts/status-plan.sh" "$ROUTE" || plan_code=$?
+  if [[ "$plan_code" != 64 ]]; then exit "$plan_code"; fi
+fi
 BIN=$("$PLUGIN_ROOT/scripts/setup.sh" path)
 if [[ "$ROUTE" == local ]]; then
   [[ "$MODE" == status ]] || fail 'Local needs no Shortcut import. Run setup.sh status local.'
   # The selected runtime owns helper discovery, including newer external installs.
   # This path must not call Shortcuts or modify configuration.
-  exec "$BIN" models --model local --json
+  WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/hollis-local-status.XXXXXX")
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  local_code=0
+  "$BIN" models --model local --json > "$WORK_DIR/models.json" || local_code=$?
+  printf '{"source":"legacy","artifact_verification":"unknown","models":'
+  cat "$WORK_DIR/models.json"
+  printf '}\n'
+  exit "$local_code"
 fi
 if [[ "$MODE" == status ]]; then
   # Readiness is read-only: concurrent checks need neither a setup lock nor
@@ -109,7 +123,7 @@ route_info() {
   fi
 }
 if [[ "$MODE" == status ]]; then
-  printf '{"inference_tested":false'
+  printf '{"source":"legacy","artifact_verification":"unknown","inference_tested":false'
   context_fields
   listed=$(/usr/bin/awk 'NF { count++ } END { print count+0 }' "$WORK_DIR/shortcuts.txt")
   printf ',"discovery":{"status":"completed","exit_code":0,"listed_shortcuts":%s},"routes":[' "$listed"
