@@ -38,6 +38,81 @@ func TestSelectionSchemaCoversDataCommands(t *testing.T) {
 	}
 }
 
+func TestSelectionGroupCommands(t *testing.T) {
+	root := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+	var groups [][]string
+	var walk func(*cobra.Command, []string)
+	walk = func(cmd *cobra.Command, path []string) {
+		if cmd.HasSubCommands() && cmd != root {
+			groups = append(groups, path)
+		}
+		for _, child := range cmd.Commands() {
+			walk(child, append(append([]string{}, path...), child.Name()))
+		}
+	}
+	walk(root, nil)
+	for _, path := range groups {
+		for _, mode := range []string{"--json", "--agent"} {
+			for _, help := range []bool{false, true} {
+				args := append(append([]string{}, path...), mode, "--select", "bogus")
+				if help {
+					args = append(args, "--help")
+				}
+				t.Run(strings.Join(args, " "), func(t *testing.T) {
+					cmd, flags := newRootCmdWithFlags(func() runner.Runner {
+						t.Fatal("group constructed runner")
+						return nil
+					})
+					var out bytes.Buffer
+					cmd.SetOut(&out)
+					cmd.SetErr(io.Discard)
+					cmd.SetArgs(args)
+					err := executeCommand(cmd, flags)
+					var payload struct {
+						Error struct {
+							Code string `json:"code"`
+							Exit int    `json:"exit_code"`
+						} `json:"error"`
+					}
+					if ExitCode(err) != 2 || json.Unmarshal(out.Bytes(), &payload) != nil || payload.Error.Code != "usage" || payload.Error.Exit != 2 {
+						t.Fatalf("error=%v output=%s", err, out.String())
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestSelectionHelpFallback(t *testing.T) {
+	for _, mode := range []string{"--json", "--agent"} {
+		for _, field := range []string{"bogus", "command"} {
+			t.Run(mode+field, func(t *testing.T) {
+				cmd, flags := newRootCmdWithFlags(func() runner.Runner {
+					t.Fatal("help constructed runner")
+					return nil
+				})
+				// A late-added non-runnable group exercises Cobra's fallback
+				// directly, without Hollis's pre-run validation.
+				group := &cobra.Command{Use: "fallback"}
+				group.AddCommand(&cobra.Command{Use: "child"})
+				cmd.AddCommand(group)
+				var out bytes.Buffer
+				cmd.SetOut(&out)
+				cmd.SetErr(io.Discard)
+				cmd.SetArgs([]string{"fallback", mode, "--select", field})
+				err := executeCommand(cmd, flags)
+				if field == "bogus" {
+					if ExitCode(err) != 2 || !strings.Contains(out.String(), `"code":"usage"`) {
+						t.Fatalf("fallback swallowed selection error: %v %s", err, out.String())
+					}
+				} else if err != nil || !strings.Contains(out.String(), `"command":"hollis fallback"`) {
+					t.Fatalf("fallback used wrong result schema: %v %s", err, out.String())
+				}
+			})
+		}
+	}
+}
+
 func TestSelectionRejectsUnknownBeforeSideEffects(t *testing.T) {
 	oldConfig, oldStore, oldList := configPath, openStore, listInstalledShortcuts
 	configPath = func() (string, error) { t.Fatal("selection touched config"); return "", nil }

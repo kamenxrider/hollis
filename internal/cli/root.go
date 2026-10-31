@@ -26,6 +26,7 @@ type rootFlags struct {
 	noInput      bool
 	selectFields string
 	resultSchema *fieldSchema
+	helpError    error
 }
 
 // newRunnerFunc lets tests substitute a fake runner.
@@ -42,6 +43,9 @@ func Execute() error {
 
 func executeCommand(cmd *cobra.Command, flags *rootFlags) error {
 	err := cmd.Execute()
+	if err == nil {
+		err = flags.helpError
+	}
 	if err == nil {
 		return nil
 	}
@@ -145,12 +149,16 @@ See README.md for recipes.`,
 	defaultHelp := rootCmd.HelpFunc()
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		if flags.asJSON || flags.agent {
-			_ = printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
+			// Cobra's help callback cannot return an error. Preserve it for
+			// executeCommand rather than silently succeeding without output.
+			helpFlags := flags
+			helpFlags.resultSchema = helpResultSchema
+			flags.helpError = printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
 				"command": cmd.CommandPath(),
 				"use":     cmd.UseLine(),
 				"short":   cmd.Short,
 				"long":    cmd.Long,
-			}, &flags)
+			}, &helpFlags)
 			return
 		}
 		defaultHelp(cmd, args)
@@ -211,7 +219,7 @@ See README.md for recipes.`,
 	rootCmd.SetHelpCommand(newStrictHelpCommand(rootCmd))
 	rootCmd.InitDefaultHelpCmd()
 	rootCmd.InitDefaultCompletionCmd()
-	makeCompletionParentStrict(rootCmd)
+	makeGroupParentsStrict(rootCmd, &flags)
 	installDeferredHelpFlags(rootCmd, &helpRequested)
 	wrapArgErrors(rootCmd)
 	return rootCmd, &flags
@@ -244,15 +252,18 @@ func installDeferredHelpFlags(command *cobra.Command, requested *bool) {
 	}
 }
 
-func makeCompletionParentStrict(root *cobra.Command) {
-	for _, child := range root.Commands() {
-		if child.Name() != "completion" {
-			continue
-		}
-		child.RunE = func(cmd *cobra.Command, _ []string) error {
+func makeGroupParentsStrict(command *cobra.Command, flags *rootFlags) {
+	if !command.Runnable() && command.HasSubCommands() {
+		// Cobra skips pre-run validation for non-runnable group commands.
+		command.RunE = func(cmd *cobra.Command, _ []string) error {
+			if flags.asJSON || flags.agent {
+				return usageErr(fmt.Errorf("%s requires a subcommand in JSON or agent mode", cmd.CommandPath()))
+			}
 			return cmd.Help()
 		}
-		return
+	}
+	for _, child := range command.Commands() {
+		makeGroupParentsStrict(child, flags)
 	}
 }
 
