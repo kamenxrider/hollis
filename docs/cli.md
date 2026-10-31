@@ -147,6 +147,7 @@ Configuration, chat history and run diagnostics live in one directory:
 ~/Library/Application Support/hollis/
 ├── hollis.db       conversations, messages, and per-run diagnostics
 ├── hollis.db.chat.lock  cross-process chat-continuation lock
+├── hollis.db.migration.lock  schema migration coordination lock
 ├── config.json.lock     cross-process config update lock
 └── config.json          default model and any bridge overrides
 ```
@@ -156,6 +157,41 @@ The state directory is mode `0700`; its database, config, lock, migration backup
 Generated images and batch results live at the output paths you choose, outside this state directory. They are not deleted when you delete a chat.
 
 Run diagnostics contain only request ID, requested/used tier, timing, exit code, error class, fallback, and byte counts — never prompts, replies, or raw Apple stderr. Conversation deletion removes its messages, run records, and search entries in one transaction. To delete everything Hollis knows, remove that directory. To delete one conversation, `hollis chats delete <id>`.
+
+### Database upgrades and recovery
+
+Close older Hollis processes before upgrading. Schema v3 adds an indexed UTC
+nanosecond key for chronological chat listing; readable timestamps and stored
+transcripts are preserved. Malformed timestamps or instants outside the signed
+64-bit nanosecond range (approximately September 1677 to April 2262) stop the
+upgrade with an error rather than inventing a timestamp.
+
+Schema changes, backfills, search-index recovery, and schema-version updates
+commit together. A failed migration rolls back its uncommitted changes.
+Before migrating or repairing an existing database, Hollis retains a private
+`.hollis.db.backup-*` SQLite snapshot in the state directory. It includes committed
+WAL data at the time of the snapshot, but it does not promise to capture later
+writes from an already-running process. The migration lock coordinates compatible
+Hollis openers; it does not make simultaneous old/new runtime use safe.
+
+**Changing the executable is not a database rollback.** Runtime 0.4.0 supports
+schema v2 and refuses a v3 database with a newer-schema error. A plugin's previous
+runtime pointer does not downgrade data or restore a backup. Use a runtime that
+supports the current schema.
+
+Backup recovery is a separate, explicit action. A pre-upgrade snapshot omits
+conversations and edits made after that snapshot. Hollis never silently restores
+it on startup failure or an executable switch. To recover deliberately:
+
+1. Stop all Hollis processes and other database users.
+2. Preserve the current `hollis.db` and any `hollis.db-wal`/`hollis.db-shm` files
+   together in a separate private directory. Do not overwrite or discard them.
+3. Copy the selected backup into a **new**, private state directory as
+   `hollis.db` (directory mode `0700`, file mode `0600`). Keep the original backup.
+4. Set `HOLLIS_STATE_DIR` to that new directory and run `hollis chats list` with a
+   compatible runtime. Check the recovered chats before choosing which directory
+   to use. A newer runtime may migrate the recovered copy; the original snapshot
+   and preserved upgraded database remain available.
 
 ## Quick reference
 
