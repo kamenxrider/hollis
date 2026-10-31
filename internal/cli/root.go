@@ -214,6 +214,7 @@ See README.md for recipes.`,
 	rootCmd.AddCommand(newConfigCmd(&flags, newRunner))
 	rootCmd.AddCommand(newServeCmdWithImages(&flags, newRunner, generator))
 	rootCmd.AddCommand(newDoctorCmd(&flags, newRunner))
+	rootCmd.AddCommand(newSetupCmd(&flags, newRunner))
 	rootCmd.AddCommand(newAgentContextCmd(rootCmd, &flags))
 	rootCmd.AddCommand(newVersionCmd(&flags))
 	rootCmd.SetHelpCommand(newStrictHelpCommand(rootCmd))
