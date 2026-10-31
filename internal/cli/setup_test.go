@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/kamenxrider/hollis/internal/runner"
@@ -42,6 +43,55 @@ func runSetupFixture(t *testing.T, r runner.Runner, args ...string) (map[string]
 		t.Fatalf("invalid JSON: %v output=%q commandErr=%v", decodeErr, out.String(), err)
 	}
 	return got, err
+}
+
+func runSetupHumanFixture(t *testing.T, r runner.Runner, args ...string) (string, error) {
+	t.Helper()
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs(args)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	err := cmd.Execute()
+	return out.String(), err
+}
+
+func TestSelectedDoctorHumanOutputIncludesPlanGuidance(t *testing.T) {
+	stubResolution(t, nil, true, 27)
+	unavailable := &setupStatusRunner{status: runner.LocalStatus{Available: false}}
+	output, err := runSetupHumanFixture(t, unavailable, "doctor", "--model", "local")
+	if ExitCode(err) != 10 {
+		t.Fatalf("err=%v", err)
+	}
+	for _, expected := range []string{
+		"local: model_not_ready (model_unavailable)",
+		"Apple Intelligence is enabled", "model downloads",
+		"language consistency", "  check_model_settings: ",
+		"Artifact verification: unknown; inference not tested",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %q in output:\n%s", expected, output)
+		}
+	}
+	ready := &setupStatusRunner{status: runner.LocalStatus{Available: true, Version: runner.NativeVersion, Protocol: runner.NativeProtocol}}
+	output, err = runSetupHumanFixture(t, ready, "doctor", "--model", "local")
+	if err != nil || !strings.Contains(output, "local: ready (prerequisites_ready)") ||
+		strings.Contains(output, "  ") {
+		t.Fatalf("ready output not concise: err=%v output=%q", err, output)
+	}
+}
+
+func TestSelectedDoctorHumanOutputIncludesImportAction(t *testing.T) {
+	stubConfigPath(t)
+	stubResolution(t, nil, true, 27)
+	output, err := runSetupHumanFixture(t, &setupStatusRunner{}, "doctor", "--model", "cloud")
+	if ExitCode(err) != 3 {
+		t.Fatalf("err=%v", err)
+	}
+	if !strings.Contains(output, "cloud: import_required (bridge_missing)") ||
+		!strings.Contains(output, "  import_bridge: ") {
+		t.Fatalf("missing action guidance:\n%s", output)
+	}
 }
 
 func TestSelectedDoctorLocalNeverTouchesShortcutsOrConfig(t *testing.T) {

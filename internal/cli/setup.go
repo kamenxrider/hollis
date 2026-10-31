@@ -137,6 +137,15 @@ func runSelectedDoctor(cmd *cobra.Command, flags *rootFlags, route string, newRu
 	if flags.asJSON {
 		return printRouteDiagnostic(cmd, flags, report, err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s: %s (%s)\nArtifact verification: unknown; inference not tested\n", route, report["status"], report["reason_code"])
+	fmt.Fprintf(cmd.OutOrStdout(), "%s: %s (%s)\n", route, report["status"], report["reason_code"])
+	if message, _ := report["message"].(string); message != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s\n", message)
+	}
+	if actions, _ := report["actions"].([]map[string]any); len(actions) > 0 {
+		for _, action := range actions {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", action["code"], action["message"])
+		}
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Artifact verification: unknown; inference not tested\n")
 	return err
 }
