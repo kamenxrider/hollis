@@ -118,6 +118,8 @@
     "internal/integration/release_dry_run_test.go": "88c5cea0afa7f3a85948e60b0abcf88de0f5c34a849c61f3ebb7c7edbeaeb1e5",
     "internal/integration/transport_paths_test.go": "bcd32dc85b1763d868d8e503f7b66882fed4171660c3d0906917e3f6ae3f64cb",
     "internal/runner/failure_contract_test.go": "e53b662d0ce9ad582a1bbe4496f9b8101b17f42b9a2d9e6df77765e36083222e",
+    "internal/runner/fm.go": "8eca3d575f8c1e1c333a25e6ce2b5271181feb132054a5e8e21b92cede02ed94",
+    "internal/runner/fm_test.go": "7f4b302c91fbb37a60d61c002d511994acdd8108466bb7ae394c0999418cda43",
     "internal/runner/image_regression_test.go": "f3ef02de0dde5517e4f0edc1af1b12c3126c8104a623060307b13777ede3869b",
     "internal/runner/native.go": "ac362eada7e1eb52871453d7ca1227afe7203a77f4a15022ff6f61825bc64ccd",
     "internal/runner/native_test.go": "4bab4d5c7cce8b9566a23e06c203039a2786dab15dfb1d34349eda97e6c4a017",
