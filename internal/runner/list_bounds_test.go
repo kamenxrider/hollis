@@ -104,6 +104,10 @@ func TestListFixture(t *testing.T) {
 	case "list-fake-grandchild":
 		time.Sleep(11 * time.Second)
 		_, _ = os.Stdout.WriteString("FAKE\n")
+		// The fixture's pipe lifetime ends with its write, not with the
+		// race detector's additional process-shutdown delay.
+		_ = os.Stdout.Close()
+		os.Exit(0)
 	}
 }
 
