@@ -444,7 +444,7 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 	// bounding parent memory: a flooding child grows the capture only to
 	// the cap. Truncation is recorded and surfaced — a truncated stdout is
 	// never returned as a complete response.
-	stdout, stderr := &cappedBuffer{}, &cappedBuffer{}
+	stdout, stderr := &cappedBuffer{}, &cappedStderr{}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
@@ -538,20 +538,29 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 	// On a TTY this is exactly what suppressed-but-successful output looks
 	// like, so it must always be treated as failure here.
 	if res.err == nil && strings.TrimSpace(out) == "" {
-		if isRateLimited(stderr.String()) {
+		if isRateLimited(stderrText) {
+			message := "rate limit reported"
+			if stderr.truncated {
+				message += " [stderr truncated]"
+			}
 			return "", &Error{
 				Kind:     KindRateLimited,
 				Ref:      ref,
 				ExitCode: 0,
-				Stderr:   stderr.String(),
-				Err:      errors.New("rate limit reported"),
+				Stderr:   stderrText,
+				Err:      errors.New(message),
 			}
+		}
+		message := "exit 0 with empty stdout; treated as failure, not an empty response"
+		if stderr.truncated {
+			message += " [stderr truncated]"
 		}
 		return "", &Error{
 			Kind:     KindNoOutput,
 			Ref:      ref,
 			ExitCode: 0,
-			Err:      errors.New("exit 0 with empty stdout; treated as failure, not an empty response"),
+			Stderr:   stderrText,
+			Err:      errors.New(message),
 		}
 	}
 
@@ -627,7 +636,7 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 		return "", &Error{
 			Kind:     KindTransport,
 			Ref:      ref,
-			ExitCode: exitOf(res.err),
+			ExitCode: 0,
 			Stderr:   stderrText,
 			Err: fmt.Errorf("shortcut output exceeded the %d MiB capture cap; the response cannot be delivered faithfully",
 				runCaptureCap>>20),
@@ -636,18 +645,13 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 	return out, nil
 }
 
-// runCaptureCap bounds the run path's stdout and stderr capture. 1 MiB per
-// stream is the native helper's own input-cap scale (native.go's 1 MiB
-// request bound): roughly 500k characters of plain text, far above any real
-// completion, and far below the unbounded growth a flooding child caused
-// (measured: 514.5 MiB of parent RSS in 4 s at ~40 MiB/s).
+// runCaptureCap bounds each run-path stream at 1 MiB. Oversized stdout is
+// rejected, not delivered as a partial response. Stderr retains its head and
+// tail so late diagnostics can still classify the failure.
 const runCaptureCap = 1 << 20
 
-// cappedBuffer keeps at most runCaptureCap bytes per stream and keeps
-// draining afterwards: the child's writes must never block on the capture,
-// and the kept prefix is always enough for classification (rate-limit,
-// declined, missing-shortcut signals appear early). Truncation is recorded
-// so callers can refuse to pass a truncated capture off as complete.
+// cappedBuffer keeps a bounded stdout prefix and keeps draining afterwards.
+// Truncation is recorded so callers never pass partial output off as complete.
 type cappedBuffer struct {
 	buf       bytes.Buffer
 	truncated bool
@@ -667,6 +671,54 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 }
 
 func (b *cappedBuffer) String() string { return b.buf.String() }
+
+// cappedStderr keeps equal-sized head and tail excerpts. The tail is a ring
+// so a noisy child does not force a full-buffer copy on every write.
+type cappedStderr struct {
+	head      []byte
+	tail      []byte
+	tailPos   int
+	truncated bool
+}
+
+func (b *cappedStderr) Write(p []byte) (int, error) {
+	n := len(p)
+	const half = runCaptureCap / 2
+	if room := half - len(b.head); room > 0 {
+		keep := min(room, len(p))
+		b.head = append(b.head, p[:keep]...)
+		p = p[keep:]
+	}
+	if room := half - len(b.tail); room > 0 {
+		keep := min(room, len(p))
+		b.tail = append(b.tail, p[:keep]...)
+		p = p[keep:]
+	}
+	if len(p) > 0 {
+		b.truncated = true
+		if len(p) >= half {
+			copy(b.tail, p[len(p)-half:])
+			b.tailPos = 0
+		} else {
+			written := copy(b.tail[b.tailPos:], p)
+			copy(b.tail, p[written:])
+			b.tailPos = (b.tailPos + len(p)) % half
+		}
+	}
+	return n, nil
+}
+
+func (b *cappedStderr) String() string {
+	var out strings.Builder
+	out.Grow(len(b.head) + len(b.tail) + len("\n[stderr truncated]\n"))
+	out.Write(b.head)
+	if b.truncated {
+		out.WriteString("\n[stderr truncated]\n")
+	}
+	out.Write(b.tail[b.tailPos:])
+	out.Write(b.tail[:b.tailPos])
+	return out.String()
+}
 
 // writePromptFile stages bytes without normalization. Deferred removal covers
 // normal returns, errors and handled cancellation; SIGKILL or a host crash can

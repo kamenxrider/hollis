@@ -166,6 +166,30 @@ func TestRunCaptureClassifiesStderrTailAfterCap(t *testing.T) {
 	}
 }
 
+func TestCappedStderrHeadTailAcrossWrites(t *testing.T) {
+	data := make([]byte, 3*runCaptureCap+123)
+	if _, err := rand.Read(data); err != nil {
+		t.Fatal(err)
+	}
+	const half = runCaptureCap / 2
+	want := string(data[:half]) + "\n[stderr truncated]\n" + string(data[len(data)-half:])
+	for _, chunk := range []int{17, 32 << 10, 2 * runCaptureCap} {
+		t.Run(strconv.Itoa(chunk), func(t *testing.T) {
+			var capture cappedStderr
+			for start := 0; start < len(data); start += chunk {
+				part := data[start:min(start+chunk, len(data))]
+				n, err := capture.Write(part)
+				if err != nil || n != len(part) {
+					t.Fatalf("write returned n=%d err=%v, want %d bytes", n, err, len(part))
+				}
+			}
+			if got := capture.String(); !capture.truncated || got != want {
+				t.Fatalf("head/tail mismatch: truncated=%v, captured %d bytes, want %d", capture.truncated, len(got), len(want))
+			}
+		})
+	}
+}
+
 // runFloodFixturePath is the run-path fixture: the run path spawns
 // ShortcutsPath with `run <ref> …` arguments, so the wrapper re-execs the
 // fixture entrypoint and ignores the run arguments.
