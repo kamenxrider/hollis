@@ -1,4 +1,4 @@
-// Regression test for the run path's capture bound (wave 2, "Gap B").
+// Regression tests for the run path's capture bound.
 //
 // Defect, measured on unmodified main: runTierWithImages captures stdout and
 // stderr in unbounded bytes.Buffers (shortcut.go:445-447), so a flooding
@@ -7,7 +7,7 @@
 // streams (base 6.5 → peak 521.0 MiB), with deadline classification otherwise
 // correct.
 //
-// Property pinned here (plans/subprocess-lifecycle-design.md §4, property 2):
+// Property:
 //
 //	BOUNDED CAPTURE — parent memory does not grow with child volume.
 //
@@ -19,7 +19,9 @@
 package runner
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"os"
 	"os/exec"
@@ -58,6 +60,109 @@ func TestSubprocFixture(t *testing.T) {
 			}
 			time.Sleep(floodRateDelay)
 		}
+	case "capture":
+		for _, stream := range []struct {
+			name string
+			file *os.File
+		}{
+			{"SUBPROCFIX_STDOUT_PATH", os.Stdout},
+			{"SUBPROCFIX_STDERR_PATH", os.Stderr},
+		} {
+			data, err := os.ReadFile(os.Getenv(stream.name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := stream.file.Write(data); err != nil {
+				t.Fatal(err)
+			}
+		}
+		code, err := strconv.Atoi(os.Getenv("SUBPROCFIX_EXIT"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Exit(code)
+	}
+}
+
+func captureRunFixture(t *testing.T, stdout, stderr []byte, exitCode int) *ShortcutRunner {
+	t.Helper()
+	dir := t.TempDir()
+	for name, data := range map[string][]byte{"stdout": stdout, "stderr": stderr} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("SUBPROCFIX_"+strings.ToUpper(name)+"_PATH", path)
+	}
+	t.Setenv("SUBPROCFIX_EXIT", strconv.Itoa(exitCode))
+	path := filepath.Join(dir, "capture-shortcuts")
+	script := "#!/bin/sh\nexport SUBPROCFIX_MODE=capture\nexec \"" + os.Args[0] + "\" -test.run='^TestSubprocFixture$'\n"
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return &ShortcutRunner{
+		ShortcutsPath: path,
+		BridgeRefs:    map[Model]string{ModelCloud: "capture-fixture"},
+		Timeout:       DefaultTimeout,
+	}
+}
+
+func TestRunCaptureRejectsCapPlusOne(t *testing.T) {
+	r := captureRunFixture(t, bytes.Repeat([]byte("x"), runCaptureCap+1), nil, 0)
+	response, _, err := r.Run(context.Background(), ModelCloud, "capture fixture")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindTransport {
+		t.Fatalf("cap+1 outcome = %v, want KindTransport", err)
+	}
+	if response != "" {
+		t.Errorf("truncated capture returned %d response bytes", len(response))
+	}
+	if re.ExitCode != 0 {
+		t.Errorf("child exit code = %d, want its successful exit status 0", re.ExitCode)
+	}
+}
+
+func TestRunCapturePreservesExactCapRandomBytes(t *testing.T) {
+	want := make([]byte, runCaptureCap)
+	if _, err := rand.Read(want); err != nil {
+		t.Fatal(err)
+	}
+	r := captureRunFixture(t, want, nil, 0)
+	response, _, err := r.Run(context.Background(), ModelCloud, "capture fixture")
+	if err != nil || !bytes.Equal([]byte(response), want) {
+		t.Fatalf("exact-cap output changed: got %d bytes, want %d bytes, err=%v", len(response), len(want), err)
+	}
+}
+
+func TestRunCaptureClassifiesStderrTailAfterCap(t *testing.T) {
+	for _, exitCode := range []int{0, 1} {
+		t.Run(strconv.Itoa(exitCode), func(t *testing.T) {
+			stderr := append([]byte("diagnostic beginning\n"), bytes.Repeat([]byte("x"), 3*runCaptureCap)...)
+			stderr = append(stderr, []byte("\nrate limit\n")...)
+			r := captureRunFixture(t, nil, stderr, exitCode)
+			response, _, err := r.Run(context.Background(), ModelCloud, "capture fixture")
+			var re *Error
+			if !errors.As(err, &re) {
+				t.Fatalf("stderr-tail error type = %T, want *Error", err)
+			}
+			if re.Kind != KindRateLimited {
+				t.Fatalf("stderr-tail kind = %v, want KindRateLimited", re.Kind)
+			}
+			if response != "" || re.ExitCode != exitCode {
+				t.Errorf("response bytes=%d exit=%d, want empty response and exit %d", len(response), re.ExitCode, exitCode)
+			}
+			for _, excerpt := range []string{"diagnostic beginning", "rate limit", "[stderr truncated]"} {
+				if !strings.Contains(re.Stderr, excerpt) {
+					t.Errorf("stderr excerpt does not contain %q", excerpt)
+				}
+			}
+			if !strings.Contains(re.Error(), "[stderr truncated]") {
+				t.Error("error does not surface stderr truncation")
+			}
+			if len(re.Stderr) > runCaptureCap+128 {
+				t.Errorf("stderr excerpt grew to %d bytes beyond capture bound", len(re.Stderr))
+			}
+		})
 	}
 }
 
