@@ -119,11 +119,11 @@ class DiscoveryBoundsTests(unittest.TestCase):
         self.assertIn("Listing Shortcuts did not complete within", payload["message"])
         self.assertEqual(payload["message"].rsplit("within ", 1)[1].split(" ", 1)[0], "10")
 
-    def test_script_interruption_kills_bound_group(self):
-        # Stopping the script mid-hang (TERM to the pid, then INT to its
-        # group) must not leak the hung child: it lives outside the caller's
-        # process group, so bound_run kills it from the composed traps.
-        self.fixture.install()
+    def _start_hung_listing(self):
+        # Shared setup for the interruption tests: a lister that records its
+        # process group, spawns a same-group member and never exits; the
+        # script is started detached. Captures the hung child's group and
+        # the reaper's own group (the only script child in another group).
         pglog_path = self.base / "bounds-pg"
         quoted_pglog = shlex.quote(str(pglog_path))
         self.replace_shortcuts(
@@ -147,25 +147,56 @@ class DiscoveryBoundsTests(unittest.TestCase):
                 self.fail('listing never started within 8s')
             time.sleep(0.2)
         child_pgid = int(pglog_path.read_text().split()[0])
+        listing = subprocess.run(["/bin/bash", "-c", "ps -axo pid=,ppid=,pgid="],
+                                 capture_output=True, text=True).stdout.splitlines()
+        children = [
+            (int(fields[0]), int(fields[1]), int(fields[2]))
+            for fields in (line.split() for line in listing)
+            if len(fields) == 3 and fields[1] == str(proc.pid)]
+        reapers = [pgid for _, _, pgid in children if pgid != child_pgid]
+        self.assertTrue(reapers, "reaper process not spawned beside the hung listing")
+        return proc, child_pgid, reapers[0]
 
-        os.kill(proc.pid, signal.SIGTERM)
-        self.assertEqual(proc.wait(timeout=5), 143)  # script's own TERM handler
-        try:
-            os.killpg(proc.pid, signal.SIGINT)
-        except ProcessLookupError:
-            pass  # the script's group is empty because it stopped correctly
+    def _assert_group_gone(self, pgid, label):
         deadline = time.monotonic() + 3
         while True:
             alive = subprocess.run(
                 ["/bin/bash", "-c",
-                 f"ps -axo pgid= | awk '$1=={child_pgid}{{c++}} END{{print c+0}}'"],
+                 f"ps -axo pgid= | awk '$1=={pgid}{{c++}} END{{print c+0}}'"],
                 capture_output=True, text=True).stdout.strip()
             if alive == "0":
-                break
+                return
             if time.monotonic() > deadline:
-                self.fail(
-                    f"hung child group {child_pgid} survived the stopped script")
+                self.fail(f"{label} {pgid} survived the stopped script")
             time.sleep(0.5)
+
+    def _signal_and_wait(self, how, expected_rc):
+        proc, child_pgid, reaper_pgid = self._start_hung_listing()
+        with proc:  # closes the pipes when done; silences ResourceWarning
+            if how == "term-pid":
+                os.kill(proc.pid, signal.SIGTERM)
+            else:
+                # Mid-hang INT at the script's group; the bound children are
+                # in their own groups and do not receive it themselves.
+                os.killpg(proc.pid, signal.SIGINT)
+            self.assertEqual(proc.wait(timeout=5), expected_rc)
+        # Both bound groups must be gone: the hung child's and the reaper's.
+        self._assert_group_gone(child_pgid, "hung child group")
+        self._assert_group_gone(reaper_pgid, "reaper group")
+
+    def test_script_term_pid_mid_hang_kills_bound_group(self):
+        # Stopping the script mid-hang with TERM at its pid must not leak the
+        # hung child: it lives outside the caller's process group, so
+        # bound_run kills it and the reaper from the composed traps.
+        self.fixture.install()
+        self._signal_and_wait("term-pid", 143)
+
+    def test_script_int_group_mid_hang_kills_bound_group(self):
+        # The PR body's cancellation claim, as its own case: INT at the
+        # script's group while the listing hangs must exit 130 and leave
+        # zero survivors in both bound groups.
+        self.fixture.install()
+        self._signal_and_wait("int-group", 130)
 
     def test_list_success_is_unchanged_and_quiet(self):
         self.fixture.install()

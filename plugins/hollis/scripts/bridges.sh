@@ -17,7 +17,7 @@ LIST_DEADLINE=10
 SIGN_DEADLINE=60
 OPEN_DEADLINE=30
 bound_run() {
-  local deadline=$1 child reaper bound_flag
+  local deadline=$1 child reaper bound_flag saved_exit saved_int saved_term
   shift
   # The reaper measures real seconds: a poll-tick counter would fire the
   # bound early, and a too-short bound must not impersonate its message.
@@ -26,10 +26,33 @@ bound_run() {
   # the caller stops the script; a failed write must never skip the kill.
   # The reaper keeps its own group, so it survives the caller stopping and
   # still enforces the deadline on an orphaned child.
+  # bound_run's children live outside the caller's process group, so a
+  # signal to the caller alone would not reach them; they die with the
+  # script. Empty guards keep a signal that arrives before the spawns
+  # (the only window where child or reaper is unset) harmless. The trap
+  # runs stopping twice (handler, then the composed EXIT trap during that
+  # exit), and the second run's kills fail while the leaders are unreaped
+  # zombies, so stopping must return 0 unconditionally: under set -e the
+  # caller's handler exits 143/130 must survive teardown.
+  stopping() {
+    if [[ -n "${child:-}" ]]; then kill -- -"$child" 2>/dev/null || true; fi
+    if [[ -n "${reaper:-}" ]]; then kill -- -"$reaper" 2>/dev/null || true; fi
+    return 0
+  }
   bound_flag="$WORK_DIR/bound.fired"
   BOUND_CODE=0 BOUND_DEADLINE_FIRED=no
   rm -f -- "$bound_flag"
   set -m
+  # Capture the caller's handlers and install the composed ones BEFORE
+  # spawning: a signal between spawn and trap installation used to run the
+  # old handler and let the child live until its deadline. With the traps
+  # up first, that window is closed by construction.
+  saved_exit=$(trap -p EXIT)
+  saved_int=$(trap -p INT)
+  saved_term=$(trap -p TERM)
+  trap 'stopping; cleanup' EXIT
+  trap 'stopping; exit 130' INT
+  trap 'stopping; exit 143' TERM
   "$@" & child=$!
   ( SECONDS=0
     while kill -0 "$child" 2>/dev/null; do
@@ -43,23 +66,16 @@ bound_run() {
       sleep 0.2
     done ) & reaper=$!
   set +m
-  stopping() {
-    # bound_run's children live outside the caller's process group, so a
-    # signal to the caller would not reach them; they die with the script.
-    kill -- -"$child" 2>/dev/null || true
-    kill -- -"$reaper" 2>/dev/null || true
-  }
-  # Compose with the script's own handlers: same exits, same cleanup, plus
-  # the bound children. Each flow installs these exact handler strings.
-  trap 'stopping; cleanup' EXIT
-  trap 'stopping; exit 130' INT
-  trap 'stopping; exit 143' TERM
   wait "$child" || BOUND_CODE=$?
   wait "$reaper" 2>/dev/null || true
   [[ ! -f "$bound_flag" ]] || BOUND_DEADLINE_FIRED=yes
-  trap cleanup EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
+  # Restore the caller's handlers exactly: trap -p prints eval-able trap
+  # commands, so acquire may change its handler text and bound_run keeps
+  # restoring it instead of reinstalling strings that silently drift. A
+  # captured default (empty capture) resets to the shell default.
+  if [[ -n "$saved_exit" ]]; then eval "$saved_exit"; else trap - EXIT; fi
+  if [[ -n "$saved_int" ]]; then eval "$saved_int"; else trap - INT; fi
+  if [[ -n "$saved_term" ]]; then eval "$saved_term"; else trap - TERM; fi
   return 0
 }
 safe_path "$PLUGIN_HOME"
