@@ -95,9 +95,6 @@ func nativeError(err error) (int, map[string]any) {
 
 func writeNativeError(w http.ResponseWriter, err error) {
 	status, detail := nativeError(err)
-	if status == http.StatusTooManyRequests {
-		w.Header().Set("Retry-After", "1")
-	}
 	writeJSON(w, status, map[string]any{"error": detail})
 }
 

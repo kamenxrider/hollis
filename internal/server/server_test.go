@@ -531,7 +531,7 @@ func TestRemoteErrorsAreStableAndSanitized(t *testing.T) {
 	secret := "private Apple stderr and prompt"
 	srv := NewUnauthenticated(&echoRunner{err: &runner.Error{Kind: runner.KindRateLimited, ExitCode: 1, Stderr: secret, Err: errors.New(secret)}})
 	res := post(t, srv.Handler(), "/v1/responses", `{"input":"quiet"}`)
-	if res.Code != http.StatusTooManyRequests || res.Header().Get("Retry-After") != "1" {
+	if res.Code != http.StatusTooManyRequests || res.Header().Get("Retry-After") != "" {
 		t.Fatalf("status=%d retry=%q", res.Code, res.Header().Get("Retry-After"))
 	}
 	assertAPIError(t, res, "rate_limit_error", "rate_limited")

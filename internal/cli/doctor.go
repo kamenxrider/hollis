@@ -127,7 +127,11 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 					errorBody := map[string]any{
 						"code": errorCode(diagnosticErr), "message": diagnosticErr.Error(), "exit_code": ExitCode(diagnosticErr),
 					}
-					data := filterFields(report, flags.selectFields)
+					projected, err := projectOutput(report, flags)
+					if err != nil {
+						return err
+					}
+					data := projected.(map[string]any)
 					payload := data
 					if flags.agent {
 						payload = map[string]any{"meta": agentMeta(), "results": data}

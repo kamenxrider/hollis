@@ -44,6 +44,16 @@ Port **1978**, not 1976 — `fm serve` uses 1976 throughout Apple's own examples
 
 Model work is serialized by default. `--max-concurrency` accepts 1–4; work beyond the limit is rejected immediately with HTTP 429 and `Retry-After: 1`. `/health` remains available independently of model capacity. Request headers have 5 seconds, reads 15 seconds, writes 125 seconds, idle connections 60 seconds, and shutdown gets five seconds to finish.
 
+Local capacity rejection has code `server_busy`. Provider throttling has code
+`rate_limited` and HTTP 429, for both Shortcuts and native local, but omits
+`Retry-After` because the provider reset time is unknown. Do not interpret
+that absence as permission to retry immediately. Stop the job and preserve
+its state; another attempt requires an explicit decision, not an automatic
+retry or model swap. Disable SDK/client automatic retries when configuring
+Hollis calls, since removing the header does not disable a client's own policy.
+After native SSE starts, a provider limit is a stream failure, not a new HTTP
+429 or a successful completion.
+
 ## Clients: listing is not the same as working
 
 Point an OpenAI-compatible client at `http://127.0.0.1:1978/v1` and it will usually **see** the models. That does not mean it can **call** them.

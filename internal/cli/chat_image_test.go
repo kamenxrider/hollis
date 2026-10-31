@@ -357,7 +357,7 @@ func TestChatGenerateImageJSONHonorsSelect(t *testing.T) {
 
 	generator := &recordingImageGenerator{dir: t.TempDir()}
 	output := filepath.Join(t.TempDir(), "selected.png")
-	flags := &rootFlags{asJSON: true, selectFields: "conversation_id,path,style,checksum,visual_content_observed"}
+	flags := &rootFlags{asJSON: true, selectFields: "conversation_id,path,style,checksum,visual_content_observed", resultSchema: commandResultSchemas["hollis chat"]}
 	cmd := newChatCmdWithImageGenerator(flags, func() runner.Runner { return &recordingRunner{response: "must not run"} }, generator)
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
