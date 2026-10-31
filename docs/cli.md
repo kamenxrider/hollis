@@ -139,6 +139,23 @@ Exit codes are stable and parseable:
 Runtime 0.3.2 adds specific JSON codes `request_declined` and `shortcut_failed`,
 both retaining exit 5. See [failure meanings and next actions](errors.md).
 
+## Shell completions
+
+Generate a completion script without reading configuration or invoking a runner:
+
+```bash
+hollis completion bash
+hollis completion zsh
+hollis completion fish
+hollis completion powershell
+```
+
+Redirect the output into the completion directory used by your shell. The
+prepared Homebrew formula generates Bash, Zsh and Fish completions during
+installation. It places the PowerShell script at
+`$(brew --prefix)/share/hollis/completion/hollis.ps1`. The template is preparation
+only; this does not announce a published tap.
+
 ## Your data
 
 Configuration, chat history and run diagnostics live in one directory:

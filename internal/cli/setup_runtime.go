@@ -39,6 +39,22 @@ func (w *recordOutput) Write(p []byte) (int, error) {
 
 // The local caller selects the trusted producer. This binds a fresh result to
 // this executable; it does not defend against a malicious local producer/user.
+// decodeRuntimeRecord is the strict record decoder shared by every consumer
+// path. Producer output must type-match RuntimeRecord exactly: unknown keys,
+// string-encoded numbers or trailing JSON fail closed.
+func decodeRuntimeRecord(data []byte) (setup.RuntimeRecord, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var record setup.RuntimeRecord
+	if err := decoder.Decode(&record); err != nil {
+		return setup.RuntimeRecord{}, err
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return setup.RuntimeRecord{}, errors.New("runtime record must contain one JSON object")
+	}
+	return record, nil
+}
+
 func readRuntimeRecord(ctx context.Context, producer string) (setup.RuntimeRecord, error) {
 	unknown := setup.RuntimeRecord{ContractVersion: 1, State: "unknown", ReasonCode: "runtime_unverified",
 		Runtime: setup.RuntimeIdentity{Owner: "external"}, Artifact: setup.Artifact{Verification: "unknown"}}
@@ -71,13 +87,8 @@ func readRuntimeRecord(ctx context.Context, producer string) (setup.RuntimeRecor
 	if ctx.Err() != nil || output.overflow || (exit != 0 && exit != 10) {
 		return fail()
 	}
-	decoder := json.NewDecoder(bytes.NewReader(output.Bytes()))
-	decoder.DisallowUnknownFields()
-	var record setup.RuntimeRecord
-	if err := decoder.Decode(&record); err != nil {
-		return fail()
-	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+	record, err := decodeRuntimeRecord(output.Bytes())
+	if err != nil {
 		return fail()
 	}
 	if record.ContractVersion != 1 ||

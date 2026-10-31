@@ -27,10 +27,23 @@ embedded source must match the reviewed files. Nested bridge ZIPs are inspected.
 Symlinks, duplicate members, unsafe paths and oversized inspection inputs fail.
 
 The release workflows also inspect the final asset directory, including standalone
-binaries, provenance JSON and the SBOM, before upload or attestation. Content
+binaries, `release-manifest.json`, provenance JSON and the SBOM, before upload or
+attestation. The release manifest is generated after final artifact bytes and the
+SBOM, excludes itself and `SHA256SUMS`, and is included in the checksum file. Content
 checks reject recognizable personal home paths, private task links and credential
 patterns without echoing matched data. Synthetic privacy-test canaries are
 explicitly distinguished from real data; tests receive no blanket exemption.
+
+The sidecar-based pin refresh requires a release that publishes this record.
+Do not synthesize metadata for older published assets or change existing pins
+as part of local distribution preparation.
+
+The no-install-time-effects contract applies to plugin runtime installation and
+the prepared Homebrew formula: neither runs inference or opens bridge import
+dialogs during installation. It does not apply universally to every installer.
+The legacy `scripts/install.sh` remains unchanged and is a known remaining
+side-effecting path: it can open bridge import dialogs and select an image
+default. It is outside this distribution-preparation scope.
 
 These automated checks supplement a human content review. They do not prove
 that arbitrary data is non-sensitive or erase previous commits and releases.

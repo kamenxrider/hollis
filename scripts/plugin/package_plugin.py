@@ -97,6 +97,9 @@ def validate_source(root=ROOT):
         native = lock.get("native", {})
         if (native.get("name") != "hollis-native-darwin-arm64"
                 or native.get("protocol_version") != 1
+                or ("version" in native and (
+                    not isinstance(native["version"], str)
+                    or not re.fullmatch(r"\d+\.\d+\.\d+", native["version"])))
                 or not re.fullmatch(r"[a-f0-9]{64}", native.get("sha256", ""))):
             raise ValueError("Invalid locked native helper")
     names = lock["bridge_files"]
