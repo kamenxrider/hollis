@@ -1,0 +1,126 @@
+// Copyright 2026 kamenxrider and contributors. Licensed under Apache-2.0. See LICENSE.
+
+package cli
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/kamenxrider/hollis/internal/setup"
+)
+
+const runtimeRecordLimit = 256 << 10
+
+var runtimeRecordTimeout = 20 * time.Second
+
+type recordOutput struct {
+	bytes.Buffer
+	overflow bool
+	cancel   context.CancelFunc
+}
+
+func (w *recordOutput) Write(p []byte) (int, error) {
+	if len(p) > runtimeRecordLimit-w.Len() {
+		w.overflow = true
+		w.cancel()
+		return 0, errors.New("runtime record exceeds limit")
+	}
+	return w.Buffer.Write(p)
+}
+
+// The local caller selects the trusted producer. This binds a fresh result to
+// this executable; it does not defend against a malicious local producer/user.
+func readRuntimeRecord(ctx context.Context, producer string) (setup.RuntimeRecord, error) {
+	unknown := setup.RuntimeRecord{ContractVersion: 1, State: "unknown", ReasonCode: "runtime_unverified",
+		Runtime: setup.RuntimeIdentity{Owner: "external"}, Artifact: setup.Artifact{Verification: "unknown"}}
+	fail := func() (setup.RuntimeRecord, error) {
+		return unknown, configErr(errors.New("runtime verification record could not be validated; no setup actions were executed"))
+	}
+	if !filepath.IsAbs(producer) {
+		return fail()
+	}
+	info, err := os.Stat(producer)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+		return fail()
+	}
+	ctx, cancel := context.WithTimeout(ctx, runtimeRecordTimeout)
+	defer cancel()
+	output := &recordOutput{cancel: cancel}
+	cmd := exec.CommandContext(ctx, producer, "runtime-record")
+	cmd.Stdout, cmd.Stderr = output, io.Discard
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = time.Second
+	exit := 0
+	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) {
+			return fail()
+		}
+		exit = ee.ExitCode()
+	}
+	if ctx.Err() != nil || output.overflow || (exit != 0 && exit != 10) {
+		return fail()
+	}
+	decoder := json.NewDecoder(bytes.NewReader(output.Bytes()))
+	decoder.DisallowUnknownFields()
+	var record setup.RuntimeRecord
+	if err := decoder.Decode(&record); err != nil {
+		return fail()
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return fail()
+	}
+	if record.ContractVersion != 1 ||
+		(record.State != "verified" && record.State != "action_required" && record.State != "unknown") ||
+		(exit == 0) != (record.State == "verified") {
+		return fail()
+	}
+	if record.State != "verified" {
+		if record.Artifact.Verification == "verified" || record.ReasonCode == "" {
+			return fail()
+		}
+		return record, nil
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return fail()
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil || !filepath.IsAbs(record.Runtime.ExecutablePath) {
+		return fail()
+	}
+	recordExecutable, err := filepath.EvalSymlinks(record.Runtime.ExecutablePath)
+	if err != nil || recordExecutable != executable || record.Runtime.ExecutablePath != recordExecutable ||
+		record.Runtime.Version != version || record.Artifact.Verification != "verified" ||
+		len(record.Artifact.SHA256) != 64 || strings.Trim(record.Artifact.SHA256, "0123456789abcdef") != "" ||
+		len(record.Runtime.SourceCommit) != 40 || strings.Trim(record.Runtime.SourceCommit, "0123456789abcdef") != "" ||
+		record.Receipt.SchemaVersion != 1 || record.Runtime.Owner != record.Receipt.Owner {
+		return fail()
+	}
+	switch record.Runtime.Owner {
+	case "plugin", "homebrew", "direct", "external":
+	default:
+		return fail()
+	}
+	switch record.Helper.Verification {
+	case "verified", "missing", "mismatch", "failed", "unknown":
+	default:
+		return fail()
+	}
+	switch record.Bridges.Verification {
+	case "verified", "missing", "mismatch", "failed", "unknown":
+	default:
+		return fail()
+	}
+	return record, nil
+}

@@ -40,6 +40,7 @@ SOURCE_ALLOWLIST = (
     'scripts/common.sh',
     'scripts/run.sh',
     'scripts/setup.sh',
+    'scripts/status-plan.sh',
     'skills/hollis-setup/SKILL.md',
     'skills/hollis/SKILL.md',
     'skills/hollis/references/gstack.md',

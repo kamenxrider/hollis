@@ -39,6 +39,7 @@ type bridgeCheck struct {
 var lookPath = exec.LookPath
 
 func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
+	var model string
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check transport health: shortcuts CLI, bridge shortcuts, settings",
@@ -47,6 +48,9 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
   hollis doctor --agent`,
 		Args: noExtraArgs("doctor"),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("model") {
+				return runSelectedDoctor(cmd, flags, model, newRunner)
+			}
 			localStatus, localErr := probeNativeStatus(cmd.Context(), newRunner())
 			report := map[string]any{"local": localModelRow(localStatus, localErr)}
 			var diagnosticErr error
@@ -188,5 +192,6 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 			return diagnosticErr
 		},
 	}
+	cmd.Flags().StringVar(&model, "model", "", "Check only local, cloud, cloud-pro, on-device, chatgpt or image")
 	return cmd
 }
