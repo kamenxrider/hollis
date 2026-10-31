@@ -43,7 +43,9 @@ const (
 // strategy, not a tier: it tries the default tier first and may fall back to
 // the on-device model for confirmed missing bridges or recognized rate limits, so
 // it is valid for selection but has no bridge of its own.
-var Models = []Model{ModelCloud, ModelCloudPro, ModelOnDevice, ModelChatGPT}
+//
+// Derived from the canonical route table (routespec.go); treat as read-only.
+var Models = routeOrderSnapshot()
 
 // ModelAuto selects the default tier (cloud) and falls back to the
 // on-device model only for a confirmed missing bridge or recognized rate limit.
@@ -51,16 +53,13 @@ var Models = []Model{ModelCloud, ModelCloudPro, ModelOnDevice, ModelChatGPT}
 const ModelAuto Model = "auto"
 
 // Valid reports whether m is selectable: any concrete tier or auto.
+// Single map lookup on the canonical route table.
 func (m Model) Valid() bool {
-	if m == ModelAuto || m == ModelLocal {
+	if m == ModelAuto {
 		return true
 	}
-	for _, v := range Models {
-		if m == v {
-			return true
-		}
-	}
-	return false
+	_, ok := routeSpecs[m]
+	return ok
 }
 
 // Bridge UUIDs measured from the installed signed shortcuts on the development
