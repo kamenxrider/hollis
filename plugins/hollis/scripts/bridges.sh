@@ -7,6 +7,41 @@ MODE=${1:-status}; ROUTE=${2:-all}
 [[ -z ${3:-} || ( "$MODE" == import && "$3" == --reopen ) ]] || fail 'Only import accepts --reopen.'
 case "$ROUTE" in local|cloud|cloud-pro|on-device|chatgpt|image|all) ;; *) fail 'Unknown bridge route.';; esac
 [[ "$MODE" != import || "$ROUTE" != all ]] || fail 'Import one selected bridge at a time.'
+# External Shortcuts interactions get hard time bounds. macOS has no
+# timeout(1), so the bound is pure bash 3.2: monitor mode gives the child its
+# own process group, and a polling reaper kills the GROUP — direct child and
+# descendants holding pipes — on expiry, escalating TERM to KILL. This is a
+# layer for the script path only; it does not cover the Go runner's own
+# Shortcut execution. Constants are the single tuning surface.
+LIST_DEADLINE=10
+SIGN_DEADLINE=60
+OPEN_DEADLINE=30
+bound_run() {
+  local deadline=$1 child reaper bound_flag
+  shift
+  # The reaper measures real seconds: a poll-tick counter would fire the
+  # bound early, and a too-short bound must not impersonate its message.
+  bound_flag="$WORK_DIR/bound.fired"
+  BOUND_CODE=0 BOUND_DEADLINE_FIRED=no
+  rm -f -- "$bound_flag"
+  set -m
+  "$@" & child=$!
+  ( SECONDS=0
+    while kill -0 "$child" 2>/dev/null; do
+      if [ "$SECONDS" -ge "$deadline" ]; then
+        : > "$bound_flag"
+        kill -- -"$child" 2>/dev/null || true
+        sleep 1
+        kill -9 -- -"$child" 2>/dev/null || true
+        exit 0
+      fi
+      sleep 0.2
+    done ) & reaper=$!
+  set +m
+  wait "$child" || BOUND_CODE=$?
+  wait "$reaper" 2>/dev/null || true
+  [[ ! -f "$bound_flag" ]] || BOUND_DEADLINE_FIRED=yes
+}
 safe_path "$PLUGIN_HOME"
 runtime_home_accessible() {
   local path=$PLUGIN_HOME parent
@@ -85,7 +120,14 @@ CONFIG_PATH=$(field "$WORK_DIR/config.json" path || true)
 # A failed listing is unknown. Only a completed listing can establish absence;
 # its exit status alone cannot identify sandbox, helper or session restrictions.
 discovery_code=0
-/usr/bin/shortcuts list > "$WORK_DIR/shortcuts.txt" 2> "$WORK_DIR/discovery-error.txt" || discovery_code=$?
+bound_run "$LIST_DEADLINE" /usr/bin/shortcuts list > "$WORK_DIR/shortcuts.txt" 2> "$WORK_DIR/discovery-error.txt"
+discovery_code=$BOUND_CODE
+if [[ "$discovery_code" != 0 && "$BOUND_DEADLINE_FIRED" == yes ]]; then
+  printf '{"status":"unknown","message":"Listing Shortcuts did not complete within %s seconds and was stopped; no bridge is proven missing. The underlying cause is unconfirmed.","inference_tested":false' "$LIST_DEADLINE"
+  context_fields
+  printf ',"discovery":{"status":"failed","exit_code":%s}}\n' "$discovery_code"
+  exit 5
+fi
 if [[ "$discovery_code" != 0 ]]; then
   printf '{"status":"unknown","message":"Could not list Shortcuts. Check local Mac host access; no bridge is proven missing. The underlying cause is unconfirmed.","inference_tested":false'
   context_fields
@@ -176,8 +218,12 @@ private_dir "$PLUGIN_HOME/imports"
 target="$PLUGIN_HOME/imports/$name.shortcut"
 [[ ! -L "$target" ]] || fail 'Refusing symlinked import output.'
 printf 'Hollis will open “%s”. Choose Add Shortcut. The first model call may then ask Allow.\n' "$name" >&2
-/usr/bin/shortcuts sign --mode anyone --input "$WORK_DIR/unsigned/$name.shortcut" --output "$WORK_DIR/signed.shortcut"
+bound_run "$SIGN_DEADLINE" /usr/bin/shortcuts sign --mode anyone --input "$WORK_DIR/unsigned/$name.shortcut" --output "$WORK_DIR/signed.shortcut"
+if [[ "$BOUND_DEADLINE_FIRED" == yes ]]; then fail "Signing did not complete within ${SIGN_DEADLINE} seconds; no import state changed."; fi
+(( $BOUND_CODE == 0 )) || exit "$BOUND_CODE"
 mv "$WORK_DIR/signed.shortcut" "$target"
 atomic_text "$PLUGIN_HOME/imports/pending" "$ROUTE"
-/usr/bin/open "$target"
+bound_run "$OPEN_DEADLINE" /usr/bin/open "$target"
+if [[ "$BOUND_DEADLINE_FIRED" == yes ]]; then fail "Hollis could not open the Shortcut. Allow the Shortcuts dialog to appear and retry with import $ROUTE --reopen."; fi
+(( $BOUND_CODE == 0 )) || exit "$BOUND_CODE"
 report permission_pending "Add $name in Shortcuts, then run import $ROUTE again to verify discovery."

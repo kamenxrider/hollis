@@ -1,0 +1,213 @@
+"""Time bounds for the legacy Shortcuts discovery and import path.
+
+These tests assert the bound itself, not merely that the script still runs.
+A stand-in `shortcuts` binary models the hang shape (a never-exiting child
+holding a same-group member); the tests prove the group is killed at the
+shipped deadline constants, that the discovery and import contracts answer
+honestly, that stdout stays machine-readable, and that a hung step inside
+the setup lock does not leave the lock behind. `/usr/bin/shortcuts` itself
+is never invoked.
+"""
+import json
+import shlex
+import subprocess
+import time
+import unittest
+from pathlib import Path
+
+import test_plugin as plugin_fixtures
+
+GUARD = 12  # seconds of slack above each shipped deadline
+
+
+class DiscoveryBoundsTests(unittest.TestCase):
+    """Drive setup.sh status/import through the InstallerTests fixture."""
+
+    def setUp(self):
+        self.fixture = plugin_fixtures.InstallerTests("runTest")
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.base = self.fixture.base
+
+    def call(self, *args, timeout=30):
+        # The stock fixture runner stops at 15 seconds; long-deadline cases
+        # need a guard that proves the bound rather than killing the test.
+        return subprocess.run(
+            ["/bin/bash", str(self.fixture.kit / "scripts" / "setup.sh"), *args],
+            env=self.fixture.env, input=None, text=True,
+            capture_output=True, timeout=timeout)
+
+    def replace_shortcuts(self, body):
+        helper = self.base / "shortcuts"
+        helper.write_text(body)
+        helper.chmod(0o700)
+        bridge = self.fixture.kit / "scripts/bridges.sh"
+        bridge.write_text(
+            bridge.read_text()
+            .replace("/usr/bin/shortcuts", str(helper))
+            # open is called with the target file as its first argument;
+            # tagging preserves the stand-in's subcommand dispatch.
+            .replace("/usr/bin/open", str(helper) + " open")
+        )
+        return helper
+
+    def test_list_deadline_stops_group_and_reports_unknown(self):
+        self.fixture.install()
+        pglog_path = self.base / "bounds-pg"
+        quoted_pglog = shlex.quote(str(pglog_path))
+        self.replace_shortcuts(
+            "#!/bin/bash\n"
+            "case \"${1:-}\" in\n"
+            "  list)\n"
+            f"    ps -o pgid= -p $$ | tr -d ' ' >> {quoted_pglog}\n"
+            f"    ( sleep 240 ) &\n"
+            "    exec sleep 240\n"
+            "    ;;\n"
+            "  *) exit 97;;\n"
+            "esac\n")
+        started = time.monotonic()
+        result = self.call("status", "cloud", timeout=10 + GUARD)
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 10 + 6, f'listing hung {elapsed:.1f}s past its 10s bound')
+        self.assertEqual(result.returncode, 5)
+        # Named assertion: the bash "Terminated: 15" job-notification line must
+        # never reach the machine-readable stream; stdout stays pure JSON.
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["discovery"]["status"], "failed")
+        self.assertEqual(payload["discovery"]["exit_code"], 143)
+        self.assertIn("Listing Shortcuts did not complete within", payload["message"])
+        self.assertIn("no bridge is proven missing", payload["message"])
+        self.assertNotIn("Could not list Shortcuts", payload["message"])
+
+        # The group kill took the same-group member, not only the direct child.
+        recorded = [int(line) for line in pglog_path.read_text().split() if line]
+        self.assertTrue(recorded, "stand-in never recorded its process group")
+        pgid = recorded[0]
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            alive = subprocess.run(
+                ["/bin/bash", "-c",
+                 f"ps -axo pgid= | awk '$1=={pgid}{{c++}} END{{print c+0}}'"],
+                capture_output=True, text=True).stdout.strip()
+            if alive == "0":
+                break
+            time.sleep(0.5)
+        self.assertEqual(
+            alive, "0", f"process group {pgid} survived the bound")
+
+    def test_list_success_is_unchanged_and_quiet(self):
+        self.fixture.install()
+        self.replace_shortcuts(
+            "#!/bin/bash\n"
+            "case \"${1:-}\" in\n"
+            "  list) printf 'AFM Bridge - Cloud\\nAFM Bridge - Cloud Pro\\nHollis Image - Reference Input v2\\n'; exit 0;;\n"
+            "  *) exit 97;;\n"
+            "esac\n")
+        result = self.call("status", "all")
+        self.assertEqual(result.returncode, 0)
+        payload = json.loads(result.stdout)  # stdout parseable despite no bound firing
+        self.assertEqual(payload["discovery"]["status"], "completed")
+        self.assertEqual(payload["discovery"]["exit_code"], 0)
+        self.assertEqual(payload["discovery"]["listed_shortcuts"], 3)
+        self.assertEqual(result.stderr, "")
+
+    def test_list_failure_keeps_existing_message(self):
+        self.fixture.install()
+        self.replace_shortcuts("#!/bin/bash\nexit 6\n")
+        result = self.call("status", "cloud")
+        self.assertEqual(result.returncode, 5)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["discovery"]["status"], "failed")
+        self.assertEqual(payload["discovery"]["exit_code"], 6)
+        self.assertIn("Could not list Shortcuts", payload["message"])
+        self.assertNotIn("did not complete within", payload["message"])
+
+    def test_list_empty_completed_establishes_absence(self):
+        self.fixture.install()
+        self.replace_shortcuts("#!/bin/bash\nexit 0\n")
+        result = self.call("status", "all")
+        self.assertEqual(result.returncode, 0)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["discovery"]["status"], "completed")
+        self.assertEqual(payload["discovery"]["listed_shortcuts"], 0)
+        self.assertNotIn("did not complete within", result.stdout)
+        self.assertNotIn("Could not list Shortcuts", result.stdout)
+
+    def test_sign_deadline_releases_setup_lock(self):
+        self.fixture.install()
+        self.replace_shortcuts(
+            "#!/bin/bash\n"
+            "case \"${1:-}\" in\n"
+            "  list) printf 'AFM Bridge - Cloud Pro\\n'; exit 0;;\n"
+            "  sign) sleep 240;;\n"
+            "  *) exit 97;;\n"
+            "esac\n")
+        started = time.monotonic()
+        result = self.call("import", "cloud-pro", timeout=60 + GUARD)
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 60 + 6, f'signing hung {elapsed:.1f}s past its 60s bound')
+        self.assertEqual(result.returncode, 10)
+        self.assertIn("Signing did not complete within", result.stderr)
+        # The point of bounding sign: the setup lock does not outlive a hang.
+        self.assertFalse((self.fixture.home / "setup.lock").exists())
+        self.assertFalse((self.fixture.home / "imports/pending").exists())
+
+    def test_sign_failure_keeps_passthrough(self):
+        self.fixture.install()
+        self.replace_shortcuts(
+            "#!/bin/bash\n"
+            "case \"${1:-}\" in\n"
+            "  list) exit 0;;\n"
+            "  sign) exit 9;;\n"
+            "  *) exit 97;;\n"
+            "esac\n")
+        result = self.call("import", "cloud-pro")
+        self.assertEqual(result.returncode, 9)  # real failure codes stay real
+        # The pre-sign user notice is longstanding; no bound text appears.
+        self.assertIn("Hollis will open", result.stderr)
+        self.assertNotIn("Signing did not complete within", result.stderr)
+        self.assertFalse((self.fixture.home / "setup.lock").exists())
+
+    def test_open_deadline_reports_failure_with_pending_parity(self):
+        self.fixture.install()
+        self.replace_shortcuts(
+            "#!/bin/bash\n"
+            "case \"${1:-}\" in\n"
+            "  list) exit 0;;\n"
+            "  sign) for arg; do case \"$prev\" in --output) printf signed > \"$arg\";; esac; prev=$arg; done; exit 0;;\n"
+            "  open) sleep 240;;\n"
+            "  *) exit 97;;\n"
+            "esac\n")
+        started = time.monotonic()
+        result = self.call("import", "cloud-pro", timeout=30 + GUARD)
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 30 + 6, f'open hung {elapsed:.1f}s past its 30s bound')
+        self.assertEqual(result.returncode, 10)
+        self.assertIn("could not open the Shortcut", result.stderr)
+        # Parity with today's failed-open semantics: pending stays written.
+        self.assertEqual((self.fixture.home / "imports/pending").read_text(), "cloud-pro\n")
+        self.assertFalse((self.fixture.home / "setup.lock").exists())
+
+    def test_open_success_reports_permission_pending(self):
+        self.fixture.install()
+        self.replace_shortcuts(
+            "#!/bin/bash\n"
+            "case \"${1:-}\" in\n"
+            "  list) exit 0;;\n"
+            "  sign) for arg; do case \"$prev\" in --output) printf signed > \"$arg\";; esac; prev=$arg; done; exit 0;;\n"
+            "  open) exit 0;;\n"
+            "  *) exit 97;;\n"
+            "esac\n")
+        result = self.call("import", "cloud-pro")
+        self.assertEqual(result.returncode, 0)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "permission_pending")
+        self.assertIn("Add AFM Bridge - Cloud Pro in Shortcuts", payload["message"])
+        self.assertEqual((self.fixture.home / "imports/pending").read_text(), "cloud-pro\n")
+
+
+if __name__ == "__main__":
+    unittest.main()
