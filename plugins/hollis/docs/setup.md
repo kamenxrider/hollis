@@ -114,5 +114,9 @@ reading the checkout you edited.
 
 Runtime updates keep the previous managed version. `setup.sh rollback` deliberately
 switches back to it without replacing configuration, conversations or bridges.
+This is executable rollback, not data rollback: it does not revert the database
+schema or restore an old backup. An older executable may refuse a database
+created by a newer runtime. Do not silently restore a pre-migration backup,
+because that can discard newer conversations.
 Removing a host plugin also leaves those files and generated images intact.
 No automatic downgrade, quarantine removal or privileged installation occurs.

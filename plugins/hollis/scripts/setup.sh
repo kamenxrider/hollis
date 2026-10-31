@@ -88,10 +88,11 @@ rollback() {
   version_ok "$current" || fail 'Invalid rollback version.'
   atomic_text "$PLUGIN_HOME/current" "$previous"
   atomic_text "$PLUGIN_HOME/previous" "$current"
-  managed_report runtime_installed "Restored runtime $previous. Configuration, bridges and conversations were preserved."
+  managed_report runtime_installed "Restored runtime $previous. This switches executables only; database schema, configuration, bridges and conversations were not rolled back."
 }
 
 case "${1:-help}" in
+  runtime-record) [[ $# == 1 ]] || fail 'Usage: setup.sh runtime-record'; runtime_record;;
   check)
     platform; read_lock
     safe_path "$PLUGIN_HOME"
@@ -102,5 +103,5 @@ case "${1:-help}" in
   rollback) [[ $# == 1 ]] || fail 'Usage: setup.sh rollback'; rollback;;
   import|status) exec /bin/bash "$PLUGIN_ROOT/scripts/bridges.sh" "$@";;
   path) platform; read_lock; if candidate=$(external_newer); then printf '%s\n' "$candidate"; else runtime_path; fi;;
-  *) printf 'Usage: setup.sh check | install | status [local|cloud|cloud-pro|on-device|chatgpt|image] | import <route> | path | rollback\n';;
+  *) printf 'Usage: setup.sh check | install | status [local|cloud|cloud-pro|on-device|chatgpt|image] | import <route> | path | runtime-record | rollback\n';;
 esac

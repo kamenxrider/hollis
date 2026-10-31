@@ -3,6 +3,8 @@ import json
 import importlib.util
 from pathlib import Path
 import shutil
+import stat
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -85,6 +87,15 @@ class NativeInstallerTests(unittest.TestCase):
         self.assertNotEqual(self.call('install').returncode, 0)
         self.assertFalse((self.home / 'current').exists())
 
+    def test_explicit_helper_version_is_pinned_independently(self):
+        self.helper.write_text(self.helper.read_text().replace('0.3.0', '0.4.0'))
+        self.lock['native']['version'] = '0.4.0'
+        self.lock['native']['sha256'] = packaging.digest(self.helper)
+        self.relock()
+        installed = self.install()
+        self.assertTrue((installed / 'hollis-native').exists())
+        self.assertEqual(self.call('path').returncode, 0)
+
     def test_rollback_corrupt_helper_leaves_current_unchanged(self):
         installed = self.install()
         previous = self.home / 'versions/0.2.0'
@@ -115,6 +126,29 @@ class NativeInstallerTests(unittest.TestCase):
 
 
 class NativeArchiveTests(unittest.TestCase):
+    def test_optional_native_version_preserves_schema_two_and_rejects_nonstring(self):
+        fixture = archive_fixture.PackageArchiveTests(methodName='runTest')
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.lock['schema_version'] = 2
+        fixture.lock['native'] = {'name': 'hollis-native-darwin-arm64', 'protocol_version': 1,
+                                  'sha256': 'a' * 64, 'version': 7}
+        path = fixture.kit / 'runtime.lock.json'
+        path.write_text(json.dumps(fixture.lock))
+        with self.assertRaisesRegex(ValueError, 'native helper'):
+            packaging.validate_source(fixture.fixture_root)
+        fixture.lock['native']['version'] = '0.4.0'
+        path.write_text(json.dumps(fixture.lock))
+        self.assertEqual(packaging.validate_source(fixture.fixture_root)[1]['schema_version'], 2)
+
+    def test_setup_producer_is_executable_in_the_repository(self):
+        setup = packaging.ROOT / 'plugins/hollis/scripts/setup.sh'
+        self.assertEqual(stat.S_IMODE(setup.stat().st_mode), 0o755)
+        entry = subprocess.check_output(
+            ['git', 'ls-files', '--stage', '--', 'plugins/hollis/scripts/setup.sh'],
+            cwd=packaging.ROOT, text=True)
+        self.assertTrue(entry.startswith('100755 '), entry)
+
     def test_pending_pin_prevents_releasing_old_runtime_under_new_plugin(self):
         fixture = archive_fixture.PackageArchiveTests(methodName='runTest')
         fixture.setUp()
@@ -175,6 +209,8 @@ class NativeArchiveTests(unittest.TestCase):
                 self.assertNotIn('private canary', archive.read(name).decode(errors='ignore'))
             entry = next(i for i in archive.infolist() if i.filename.endswith('/hollis-native-darwin-arm64'))
             self.assertEqual(entry.external_attr >> 16 & 0o777, 0o755)
+            producer = next(i for i in archive.infolist() if i.filename.endswith('/scripts/setup.sh'))
+            self.assertEqual(producer.external_attr >> 16 & 0o777, 0o755)
 
     def test_runtime_bundle_exact_members_hashes_and_no_checkout_walk(self):
         with tempfile.TemporaryDirectory() as temp:

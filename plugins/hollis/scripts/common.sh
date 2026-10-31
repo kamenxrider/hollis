@@ -215,9 +215,186 @@ verify_native() {
   [[ "$name" == hollis-native-darwin-arm64 ]] || fail 'Unexpected native helper asset.'
   protocol=$(field "$receipt" native.protocol_version)
   [[ "$protocol" == 1 ]] || fail 'Unsupported native helper protocol.'
-  version=$(field "$receipt" version)
+  version=$(field "$receipt" native.version || field "$receipt" version)
   verify "$dir/hollis-native" "$(field "$receipt" native.sha256)"
   [[ -x "$dir/hollis-native" ]] || fail 'Native helper is not executable.'
   [[ $("$dir/hollis-native" --version) == "hollis-native $version" ]] || fail 'Native helper version does not match runtime.'
   [[ $("$dir/hollis-native" --protocol-version) == "$protocol" ]] || fail 'Native helper protocol does not match runtime.'
+}
+
+canonical_executable() {
+  local path=$1 target count=0 parent
+  [[ "$path" == /* && "$path" != *$'\n'* && "$path" != *$'\r'* && "$path" != *$'\t'* ]] || return 1
+  while [[ -L "$path" ]]; do
+    count=$((count + 1)); [[ $count -le 40 ]] || return 1
+    target=$(/usr/bin/readlink "$path") || return 1
+    if [[ "$target" == /* ]]; then path=$target; else path="$(dirname "$path")/$target"; fi
+  done
+  parent=$(cd "$(dirname "$path")" && pwd -P) || return 1
+  printf '%s/%s\n' "$parent" "$(basename "$path")"
+}
+
+emit_runtime_record() {
+  printf '{"contract_version":1,"state":'; json_string "$RR_STATE"
+  printf ',"reason_code":'; json_string "$RR_REASON"
+  printf ',"runtime":{"owner":'; json_string "$RR_OWNER"
+  [[ -z "$RR_VERSION" ]] || { printf ',"version":'; json_string "$RR_VERSION"; }
+  [[ -z "$RR_COMMIT" ]] || { printf ',"source_commit":'; json_string "$RR_COMMIT"; }
+  [[ -z "$RR_CLI" ]] || { printf ',"executable_path":'; json_string "$RR_CLI"; }
+  [[ -z "$RR_ROOT" ]] || { printf ',"install_root":'; json_string "$RR_ROOT"; }
+  printf '},"artifact":{"verification":'; json_string "$RR_ARTIFACT"
+  [[ -z "$RR_NAME" ]] || { printf ',"name":'; json_string "$RR_NAME"; }
+  [[ -z "$RR_HASH" ]] || { printf ',"sha256":'; json_string "$RR_HASH"; }
+  printf '},"helper":{"verification":'; json_string "$RR_HELPER_STATE"
+  printf ',"reason_code":'; json_string "$RR_HELPER_REASON"
+  [[ -z "$RR_HELPER_PATH" ]] || { printf ',"path":'; json_string "$RR_HELPER_PATH"; }
+  [[ -z "$RR_HELPER_VERSION" ]] || { printf ',"version":'; json_string "$RR_HELPER_VERSION"; }
+  [[ -z "$RR_HELPER_PROTOCOL" ]] || printf ',"protocol":%s' "$RR_HELPER_PROTOCOL"
+  printf '},"platform":'
+  if [[ "$RR_OWNER" == plugin ]]; then
+    printf '{"os":"darwin","architecture":"arm64","minimum_macos":"27.0"}'
+  else printf '{}'; fi
+  printf ',"bridges":{"verification":'; json_string "$RR_BRIDGES_STATE"
+  [[ -z "$RR_BRIDGES_PATH" ]] || { printf ',"archive_path":'; json_string "$RR_BRIDGES_PATH"; }
+  [[ -z "$RR_BRIDGES_HASH" ]] || { printf ',"archive_sha256":'; json_string "$RR_BRIDGES_HASH"; }
+  printf ',"members":%s},"receipt":{"schema_version":1,"owner":' "$RR_MEMBERS"; json_string "$RR_OWNER"
+  [[ -z "$RR_CURRENT" ]] || { printf ',"current_version":'; json_string "$RR_CURRENT"; }
+  [[ -z "$RR_PREVIOUS" ]] || { printf ',"previous_version":'; json_string "$RR_PREVIOUS"; }
+  printf '}}\n'
+}
+
+runtime_record() {
+  # This read-only child may run while its parent holds setup.lock. Never
+  # acquire that lock or call setup recursively here.
+  RR_STATE=action_required RR_REASON=runtime_integrity_failed RR_OWNER=plugin
+  RR_VERSION= RR_COMMIT= RR_CLI= RR_ROOT= RR_HASH= RR_CURRENT= RR_PREVIOUS=
+  RR_NAME=hollis-darwin-arm64 RR_ARTIFACT=failed
+  RR_HELPER_STATE=unknown RR_HELPER_REASON=helper_unverified
+  RR_HELPER_PATH= RR_HELPER_VERSION= RR_HELPER_PROTOCOL=
+  RR_BRIDGES_STATE=unknown RR_BRIDGES_PATH= RR_BRIDGES_HASH= RR_MEMBERS='[]'
+  local candidate out ver dir receipt schema expected actual native_name native_hash
+  local bridge_hash i name expected_names actual_names members= separator= member_hash previous
+  local bridge_names=()
+  if ! (read_lock; safe_path "$PLUGIN_HOME") >/dev/null 2>&1; then
+    emit_runtime_record; return 10
+  fi
+  VERSION=$(field "$RUNTIME_LOCK" version)
+  if candidate=$(external_newer); then
+    RR_OWNER=external RR_NAME= RR_ARTIFACT=unknown
+    RR_STATE=unknown RR_REASON=external_runtime_unverified
+    RR_CLI=$(canonical_executable "$candidate" 2>/dev/null || true)
+    out=$("$candidate" --version 2>/dev/null || true); RR_VERSION=${out##* }
+    version_ok "$RR_VERSION" || RR_VERSION=
+    emit_runtime_record; return 10
+  fi
+  if [[ ! -e "$PLUGIN_HOME/current" && ! -L "$PLUGIN_HOME/current" ]]; then
+    RR_REASON=runtime_not_installed RR_ARTIFACT=unknown
+    emit_runtime_record; return 10
+  fi
+  if [[ ! -f "$PLUGIN_HOME/current" || -L "$PLUGIN_HOME/current" ]]; then
+    emit_runtime_record; return 10
+  fi
+  ver=$(cat "$PLUGIN_HOME/current")
+  if ! version_ok "$ver"; then emit_runtime_record; return 10; fi
+  RR_CURRENT=$ver
+  dir="$PLUGIN_HOME/versions/$ver"; receipt="$dir/runtime.lock.json"
+  if ! (safe_path "$dir") >/dev/null 2>&1 || [[ ! -f "$receipt" || -L "$receipt" ]]; then
+    emit_runtime_record; return 10
+  fi
+  schema=$(field "$receipt" schema_version || true)
+  expected=$(field "$receipt" binary.sha256 || true)
+  RR_COMMIT=$(field "$receipt" source_commit || true)
+  bridge_hash=$(field "$receipt" bridges.sha256 || true)
+  if [[ ( "$schema" != 1 && "$schema" != 2 ) ||
+        $(field "$receipt" version || true) != "$ver" ||
+        $(field "$receipt" repository || true) != kamenxrider/hollis ||
+        $(field "$receipt" source_ref || true) != "refs/tags/v$ver" ||
+        ! "$RR_COMMIT" =~ ^[0-9a-f]{40}$ ||
+        $(field "$receipt" binary.name || true) != hollis-darwin-arm64 ||
+        ! "$expected" =~ ^[0-9a-f]{64}$ ||
+        $(field "$receipt" bridges.name || true) != hollis-bridges.zip ||
+        ! "$bridge_hash" =~ ^[0-9a-f]{64}$ ]]; then
+    RR_COMMIT=; emit_runtime_record; return 10
+  fi
+  for i in 0 1 2 3 4; do
+    name=$(field "$receipt" "bridge_files.$i" || true)
+    if [[ -z "$name" || "$name" == */* || "$name" == *\\* ||
+          "$name" == *'*'* || "$name" == *'?'* || "$name" == *'['* || "$name" == *']'* || "$name" == *$'\n'* ||
+          "$name" == *$'\r'* || "$name" == *$'\t'* || "$name" != *.shortcut ]]; then
+      emit_runtime_record; return 10
+    fi
+    bridge_names[$i]=$name
+  done
+  expected_names=$(printf '%s\n' "${bridge_names[@]}" | LC_ALL=C sort)
+  if [[ $(printf '%s\n' "${bridge_names[@]}" | LC_ALL=C sort -u | wc -l | tr -d ' ') != 5 ]] ||
+      field "$receipt" bridge_files.5 >/dev/null 2>&1; then
+    emit_runtime_record; return 10
+  fi
+  native_name=$(field "$receipt" native.name || true)
+  if [[ -n "$native_name" ]]; then
+    native_hash=$(field "$receipt" native.sha256 || true)
+    RR_HELPER_VERSION=$(field "$receipt" native.version || field "$receipt" version)
+    RR_HELPER_PROTOCOL=$(field "$receipt" native.protocol_version || true)
+    if [[ "$native_name" != hollis-native-darwin-arm64 || ! "$native_hash" =~ ^[0-9a-f]{64}$ ||
+          "$RR_HELPER_PROTOCOL" != 1 ]] || ! version_ok "$RR_HELPER_VERSION"; then
+      RR_HELPER_VERSION= RR_HELPER_PROTOCOL=
+      emit_runtime_record; return 10
+    fi
+  elif [[ "$schema" == 2 ]]; then
+    emit_runtime_record; return 10
+  fi
+  RR_VERSION=$ver RR_ROOT=$dir RR_CLI="$dir/hollis" RR_HASH=$expected
+  if [[ ! -f "$RR_CLI" || -L "$RR_CLI" || ! -x "$RR_CLI" ]] ||
+      ! actual=$(digest "$RR_CLI" 2>/dev/null) || [[ "$actual" != "$expected" ]]; then
+    emit_runtime_record; return 10
+  fi
+  if ! out=$("$RR_CLI" --version 2>/dev/null) || [[ "$out" != "hollis $ver" ]]; then
+    emit_runtime_record; return 10
+  fi
+  RR_STATE=verified RR_REASON=runtime_verified RR_ARTIFACT=verified
+  if [[ -f "$PLUGIN_HOME/previous" && ! -L "$PLUGIN_HOME/previous" ]]; then
+    previous=$(cat "$PLUGIN_HOME/previous")
+    if version_ok "$previous"; then RR_PREVIOUS=$previous; fi
+  fi
+  if [[ -z "$native_name" ]]; then
+    RR_HELPER_STATE=missing RR_HELPER_REASON=helper_not_pinned
+  else
+    RR_HELPER_PATH="$dir/hollis-native"
+    if [[ ! -f "$RR_HELPER_PATH" || -L "$RR_HELPER_PATH" ]]; then
+      RR_HELPER_STATE=missing RR_HELPER_REASON=helper_missing
+    elif [[ ! -x "$RR_HELPER_PATH" ]] ||
+        ! actual=$(digest "$RR_HELPER_PATH" 2>/dev/null) || [[ "$actual" != "$native_hash" ]]; then
+      RR_HELPER_STATE=failed RR_HELPER_REASON=helper_integrity_failed
+    elif ! out=$("$RR_HELPER_PATH" --version 2>/dev/null); then
+      RR_HELPER_STATE=failed RR_HELPER_REASON=helper_check_failed
+    elif [[ "$out" != "hollis-native $RR_HELPER_VERSION" ]]; then
+      RR_HELPER_STATE=mismatch RR_HELPER_REASON=helper_version_mismatch
+    elif ! out=$("$RR_HELPER_PATH" --protocol-version 2>/dev/null); then
+      RR_HELPER_STATE=failed RR_HELPER_REASON=helper_check_failed
+    elif [[ "$out" != "$RR_HELPER_PROTOCOL" ]]; then
+      RR_HELPER_STATE=mismatch RR_HELPER_REASON=helper_protocol_mismatch
+    else RR_HELPER_STATE=verified RR_HELPER_REASON=helper_verified; fi
+  fi
+  RR_BRIDGES_PATH="$dir/hollis-bridges.zip" RR_BRIDGES_HASH=$bridge_hash
+  if [[ ! -f "$RR_BRIDGES_PATH" || -L "$RR_BRIDGES_PATH" ]]; then
+    RR_BRIDGES_STATE=missing
+  elif ! actual=$(digest "$RR_BRIDGES_PATH" 2>/dev/null) || [[ "$actual" != "$bridge_hash" ]]; then
+    RR_BRIDGES_STATE=failed
+  elif ! actual_names=$(/usr/bin/unzip -Z1 "$RR_BRIDGES_PATH" 2>/dev/null | LC_ALL=C sort) ||
+      [[ "$actual_names" != "$expected_names" ]]; then
+    RR_BRIDGES_STATE=mismatch
+  else
+    RR_BRIDGES_STATE=verified
+    while IFS= read -r name; do
+      if ! member_hash=$(/usr/bin/unzip -p "$RR_BRIDGES_PATH" "$name" 2>/dev/null |
+          /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}'); then
+        RR_BRIDGES_STATE=failed; break
+      fi
+      members="$members$separator{\"name\":$(json_string "$name"),\"sha256\":$(json_string "$member_hash")}"
+      separator=,
+    done <<< "$expected_names"
+    if [[ "$RR_BRIDGES_STATE" == verified ]]; then RR_MEMBERS="[$members]"; fi
+  fi
+  emit_runtime_record
+  return 0
 }

@@ -1,0 +1,84 @@
+require "digest"
+require "json"
+
+class Hollis < Formula
+  desc "Local CLI for Apple Intelligence and Shortcuts"
+  homepage "https://github.com/kamenxrider/hollis"
+  url "https://github.com/kamenxrider/hollis/releases/download/v{{VERSION}}/{{BUNDLE_NAME}}"
+  sha256 "{{BUNDLE_SHA256}}"
+  version "{{VERSION}}"
+  license "Apache-2.0"
+  depends_on :macos
+
+  def install
+    odie "Hollis requires macOS 27 or later" if MacOS.version < MacOS::Version.new("27")
+    odie "Hollis requires Apple silicon" unless Hardware::CPU.arm?
+
+    extracted = buildpath / "runtime"
+    expected = %w[LICENSE hollis hollis-bridges.zip hollis-native manifest.json]
+    names = Utils.safe_popen_read("unzip", "-Z1", cached_download).lines.map(&:chomp)
+    odie "Runtime bundle members changed" unless names.length == expected.length && names.sort == expected
+    extracted.mkpath
+    system "unzip", "-q", cached_download, "-d", extracted
+    expected.each do |name|
+      path = extracted / name
+      odie "Unsafe runtime bundle member: #{name}" unless path.file? && !path.symlink?
+    end
+
+    metadata = JSON.parse((extracted / "manifest.json").read)
+    odie "Runtime bundle identity changed" unless metadata["version"] == version.to_s
+    odie "Runtime helper protocol changed" unless metadata["native_protocol_version"] == 1
+    odie "Runtime platform changed" unless metadata["native_minimum_macos"] == "27.0" && metadata["architecture"] == "arm64"
+    hashes = metadata.fetch("sha256")
+    expected_hashed = %w[LICENSE hollis hollis-bridges.zip hollis-native]
+    odie "Runtime hash manifest changed" unless hashes.keys.sort == expected_hashed
+    expected_hashed.each do |name|
+      actual = Digest::SHA256.file(extracted / name).hexdigest
+      odie "Runtime member hash mismatch: #{name}" unless actual == hashes.fetch(name)
+    end
+
+    runtime = libexec / version.to_s
+    runtime.mkpath
+    expected_hashed.each { |name| runtime.install extracted / name }
+    runtime.install extracted / "manifest.json"
+    chmod 0755, [runtime / "hollis", runtime / "hollis-native"]
+    bin.install_symlink runtime / "hollis" => "hollis"
+    bin.install_symlink runtime / "hollis-native" => "hollis-native"
+
+    {
+      "bash" => bash_completion / "hollis",
+      "zsh" => zsh_completion / "_hollis",
+      "fish" => fish_completion / "hollis.fish",
+    }.each do |shell, path|
+      path.dirname.mkpath
+      path.write(Utils.safe_popen_read(bin / "hollis", "completion", shell))
+    end
+    powershell = share / "hollis" / "completion" / "hollis.ps1"
+    powershell.dirname.mkpath
+    powershell.write(Utils.safe_popen_read(bin / "hollis", "completion", "powershell"))
+  end
+
+  test do
+    assert_match "hollis #{version}", shell_output("#{bin}/hollis --version")
+    assert_equal "hollis-native {{HELPER_VERSION}}\n", shell_output("#{libexec}/#{version}/hollis-native --version")
+    assert_equal "1\n", shell_output("#{libexec}/#{version}/hollis-native --protocol-version")
+    assert_predicate libexec / version.to_s / "hollis-bridges.zip", :exist?
+    assert_predicate libexec / version.to_s / "manifest.json", :exist?
+    assert_predicate bash_completion / "hollis", :exist?
+    assert_predicate zsh_completion / "_hollis", :exist?
+    assert_predicate fish_completion / "hollis.fish", :exist?
+    assert_predicate share / "hollis" / "completion" / "hollis.ps1", :exist?
+  end
+
+  def caveats
+    <<~EOS
+      Hollis and its native helper are installed together in a versioned libexec directory.
+      The install and formula test generate completions and check versions only. They do not
+      invoke inference, import Shortcuts, change Apple settings, or modify Hollis user data.
+      The native helper is ad-hoc signed; it is not Developer ID signed or notarized.
+
+      PowerShell completion is installed at:
+        #{share}/hollis/completion/hollis.ps1
+    EOS
+  end
+end
