@@ -247,6 +247,7 @@ canonical_executable() {
 emit_runtime_record() {
   printf '{"contract_version":1,"state":'; json_string "$RR_STATE"
   printf ',"reason_code":'; json_string "$RR_REASON"
+  printf ',"detail_message":'; json_string "${RR_DETAIL:-}"
   printf ',"runtime":{"owner":'; json_string "$RR_OWNER"
   [[ -z "$RR_VERSION" ]] || { printf ',"version":'; json_string "$RR_VERSION"; }
   [[ -z "$RR_COMMIT" ]] || { printf ',"source_commit":'; json_string "$RR_COMMIT"; }
@@ -293,6 +294,7 @@ runtime_record() {
   RR_HELPER_STATE=unknown RR_HELPER_REASON=helper_unverified
   RR_HELPER_PATH= RR_HELPER_VERSION= RR_HELPER_PROTOCOL=
   RR_BRIDGES_STATE=unknown RR_BRIDGES_PATH= RR_BRIDGES_HASH= RR_MEMBERS='[]'
+  RR_DETAIL=
   local candidate out ver dir receipt schema expected actual native_name native_hash
   local bridge_hash i name expected_names actual_names members= separator= member_hash previous
   local bridge_names=()
@@ -336,7 +338,8 @@ runtime_record() {
         ! "$expected" =~ ^[0-9a-f]{64}$ ||
         $(field "$receipt" bridges.name || true) != hollis-bridges.zip ||
         ! "$bridge_hash" =~ ^[0-9a-f]{64}$ ]]; then
-    RR_COMMIT=; emit_runtime_record; return 10
+    RR_COMMIT= RR_DETAIL='Installed runtime receipt does not match its version.'
+    emit_runtime_record; return 10
   fi
   for i in 0 1 2 3 4; do
     name=$(field "$receipt" "bridge_files.$i" || true)
@@ -368,6 +371,7 @@ runtime_record() {
   RR_VERSION=$ver RR_ROOT=$dir RR_CLI="$dir/hollis" RR_HASH=$expected
   if [[ ! -f "$RR_CLI" || -L "$RR_CLI" || ! -x "$RR_CLI" ]] ||
       ! actual=$(digest "$RR_CLI" 2>/dev/null) || [[ "$actual" != "$expected" ]]; then
+    RR_DETAIL="Integrity check failed for $(basename "$RR_CLI"); nothing will be installed or run."
     emit_runtime_record; return 10
   fi
   if ! out=$("$RR_CLI" --version 2>/dev/null) || [[ "$out" != "hollis $ver" ]]; then
