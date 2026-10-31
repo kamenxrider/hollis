@@ -40,10 +40,8 @@ import (
 // against a broken process-group kill. The list call must not wait for it.
 const listGrandchildSleep = 16 * time.Second
 
-// listReturnBound is the context deadline plus scheduler slack. WaitDelay is
-// also set to the deadline as a fallback, but a separate group killer must
-// stop descendants at the context deadline instead of waiting another
-// deadline-sized interval after the leader exits.
+// listReturnBound is the context deadline plus scheduler slack, not another
+// timeout interval after the leader exits.
 const listReturnBound = listDeadline + 2*time.Second
 
 func listFixturePath(t *testing.T) string {
@@ -68,8 +66,8 @@ func TestListFixture(t *testing.T) {
 		spawnListGrandchild(t, "list-grandchild", false, listGrandchildSleep)
 		os.Exit(0)
 	case "list-late-leader":
-		// The leader stays alive for 8s, then exits 0. WaitDelay starts
-		// only after that exit; the descendant keeps stdout open longer.
+		// The leader stays alive for 8s, then exits 0; the descendant
+		// keeps stdout open beyond the deadline.
 		spawnListGrandchild(t, "list-grandchild", false, 30*time.Second)
 		time.Sleep(8 * time.Second)
 		os.Exit(0)
@@ -85,10 +83,12 @@ func TestListFixture(t *testing.T) {
 		spawnListGrandchild(t, "list-fake-grandchild", true, 11*time.Second)
 		time.Sleep(3 * time.Second)
 		os.Exit(0)
-	case "list-detached-hold":
-		// A detached pipe-holder exercises WaitDelay itself. It is
-		// deliberately outside the group, and exits after a finite time.
+	case "list-detached-hold", "list-detached-late-leader":
+		// A detached pipe-holder cannot be stopped by group cancellation.
 		spawnListGrandchild(t, "list-grandchild", true, listGrandchildSleep)
+		if os.Getenv("GAPFIX_MODE") == "list-detached-late-leader" {
+			time.Sleep(8 * time.Second)
+		}
 		os.Exit(0)
 	case "list-grandchild":
 		writeFixturePID(t, os.Getenv("GAPFIX_PIDFILE"), os.Getpid())
@@ -360,20 +360,63 @@ func TestListDeadlineErrorSetsListTimeoutMarker(t *testing.T) {
 	}
 }
 
-func TestListShortcutsWaitDelayBoundsDetachedPipeHolder(t *testing.T) {
-	pf := filepath.Join(t.TempDir(), "grandchild.pid")
-	t.Setenv("GAPFIX_MODE", "list-detached-hold")
-	t.Setenv("GAPFIX_PIDFILE", pf)
-	cleanupFixturePID(t, pf)
-	start := time.Now()
-	names, err := (&ShortcutRunner{ShortcutsPath: listFixturePath(t)}).ListShortcuts(context.Background())
-	elapsed := time.Since(start)
-	t.Logf("detached pipe-holder returned after %v (deadline %v; holder exits at %v), names=%v err=%v", elapsed, listDeadline, listGrandchildSleep, names, err)
-	if elapsed > listReturnBound {
-		t.Errorf("WaitDelay failed to bound detached pipe-holder: elapsed=%v bound=%v", elapsed, listReturnBound)
+func TestListShortcutsDeadlineBoundsDetachedPipeHolder(t *testing.T) {
+	for _, mode := range []string{"list-detached-hold", "list-detached-late-leader"} {
+		t.Run(mode, func(t *testing.T) {
+			pf := filepath.Join(t.TempDir(), "grandchild.pid")
+			t.Setenv("GAPFIX_MODE", mode)
+			t.Setenv("GAPFIX_PIDFILE", pf)
+			cleanupFixturePID(t, pf)
+			start := time.Now()
+			names, err := (&ShortcutRunner{ShortcutsPath: listFixturePath(t)}).ListShortcuts(context.Background())
+			elapsed := time.Since(start)
+			t.Logf("detached pipe-holder returned after %v (deadline %v; holder exits at %v), names=%v err=%v", elapsed, listDeadline, listGrandchildSleep, names, err)
+			if elapsed > listReturnBound {
+				t.Errorf("deadline failed to bound detached pipe-holder: elapsed=%v bound=%v", elapsed, listReturnBound)
+			}
+			var re *Error
+			if !errors.As(err, &re) || re.Kind != KindTimeout {
+				t.Errorf("detached pipe-holder outcome=%v, want KindTimeout", err)
+			}
+		})
 	}
+}
+
+func TestListShortcutsCancellationRetainsSignal(t *testing.T) {
+	pf := filepath.Join(t.TempDir(), "leader.pid")
+	t.Setenv("GAPFIX_MODE", "list-hang-group")
+	t.Setenv("GAPFIX_LEADER_PIDFILE", pf)
+	cleanupFixturePID(t, pf)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := &ShortcutRunner{ShortcutsPath: listFixturePath(t)}
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.ListShortcuts(ctx)
+		done <- err
+	}()
+	fixturePID(t, pf)
+	cancel()
+	select {
+	case err := <-done:
+		var re *Error
+		if !errors.As(err, &re) || re.Kind != KindContextCanceled || re.Signal != syscall.SIGKILL {
+			t.Fatalf("cancel outcome=%+v, want KindContextCanceled and SIGKILL", err)
+		}
+		if got, want := re.Error(), "signal: killed (SIGkilled)"; got != want {
+			t.Errorf("cancellation message=%q, want %q", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancellation did not return within 2 seconds")
+	}
+}
+
+func TestListShortcutsResultRejectsSuccessAfterDeadline(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	names, err := listShortcutsResult(ctx, listDeadline, nil, nil, "FAKE\n")
 	var re *Error
-	if !errors.As(err, &re) || re.Kind != KindTimeout {
-		t.Errorf("detached pipe-holder outcome=%v, want KindTimeout", err)
+	if names != nil || !errors.As(err, &re) || re.Kind != KindTimeout || !re.ListTimeout {
+		t.Fatalf("expired successful wait returned names=%v err=%v, want no names and marked KindTimeout", names, err)
 	}
 }
