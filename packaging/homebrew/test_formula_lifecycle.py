@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -53,6 +54,17 @@ def snapshot(root):
         for path in root.rglob('*')}
 
 
+class FixtureServer(http.server.ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        # brew aborts a bundle download whenever a check fails. The resulting
+        # client disconnect reaches this handler thread as a ConnectionError;
+        # it is expected there and must not leak as a traceback. Every other
+        # error keeps the default loud report so real bugs still fail tests.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
+
+
 class LoopbackServer:
     """Serves fixture bundles from localhost only and records every request."""
 
@@ -60,7 +72,7 @@ class LoopbackServer:
         self.requests = []
         handler = functools.partial(
             LoggingHandler, directory=str(directory), requests=self.requests)
-        self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
+        self.server = FixtureServer(('127.0.0.1', 0), handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
