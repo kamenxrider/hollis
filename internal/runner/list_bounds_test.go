@@ -42,7 +42,7 @@ const listGrandchildSleep = 16 * time.Second
 
 // listReturnBound is the context deadline plus scheduler slack, not another
 // timeout interval after the leader exits.
-const listReturnBound = listDeadline + 2*time.Second
+const listReturnBound = listDeadline + 500*time.Millisecond
 
 func listFixturePath(t *testing.T) string {
 	t.Helper()
