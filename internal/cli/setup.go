@@ -112,21 +112,28 @@ func setupPlanError(p setup.Plan) error {
 }
 
 func printRouteDiagnostic(cmd *cobra.Command, flags *rootFlags, report map[string]any, diagnosticErr error) error {
-	data := filterFields(report, flags.selectFields)
+	if diagnosticErr == nil {
+		return printJSONFilteredTo(cmd.OutOrStdout(), report, flags)
+	}
+	errorBody := map[string]any{
+		"code": errorCode(diagnosticErr), "message": diagnosticErr.Error(), "exit_code": ExitCode(diagnosticErr),
+	}
+	projected, err := projectOutput(report, flags)
+	if err != nil {
+		return err
+	}
+	data := projected.(map[string]any)
 	payload := data
 	if flags.agent {
 		payload = map[string]any{"meta": agentMeta(), "results": data}
 	}
-	if diagnosticErr != nil {
-		payload["error"] = map[string]any{"code": errorCode(diagnosticErr), "message": diagnosticErr.Error(), "exit_code": ExitCode(diagnosticErr)}
-	}
+	// Error metadata is never filtered out: callers must not receive a
+	// nonzero exit with an apparently successful body.
+	payload["error"] = errorBody
 	if err := encodeJSON(cmd.OutOrStdout(), payload); err != nil {
 		return err
 	}
-	if diagnosticErr != nil {
-		return &reportedError{err: diagnosticErr}
-	}
-	return nil
+	return &reportedError{err: diagnosticErr}
 }
 
 func runSelectedDoctor(cmd *cobra.Command, flags *rootFlags, route string, newRunner newRunnerFunc) error {

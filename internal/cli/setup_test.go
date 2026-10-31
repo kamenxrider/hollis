@@ -56,6 +56,53 @@ func runSetupHumanFixture(t *testing.T, r runner.Runner, args ...string) (string
 	return out.String(), err
 }
 
+func TestSetupPlanFieldsRemainSelectable(t *testing.T) {
+	stubConfigPath(t)
+	stubResolution(t, []string{"AFM Bridge - Cloud Pro"}, true, 27)
+	producer := producerFixture(t, verifiedRecordFixture(t), 0)
+	got, err := runSetupFixture(t, &setupStatusRunner{}, "setup", "--model", "cloud-pro",
+		"--runtime-record-command", producer, "--json", "--select", "route,status,bridge.reference,actions.code,inference_tested")
+	if err != nil || got["route"] != "cloud-pro" || got["status"] != "ready" || got["inference_tested"] != false {
+		t.Fatalf("got=%v err=%v", got, err)
+	}
+	bridge := got["bridge"].(map[string]any)
+	if len(bridge) != 1 || bridge["reference"] != "AFM Bridge - Cloud Pro" || got["message"] != nil {
+		t.Fatalf("projection leaked unselected fields: %v", got)
+	}
+}
+
+func TestSetupAndSelectedDoctorSelectionSchemas(t *testing.T) {
+	for _, path := range []string{"hollis setup", "hollis doctor"} {
+		schema := commandResultSchemas[path]
+		for _, selection := range []string{
+			"schema_version", "source", "route", "status", "reason_code", "message",
+			"artifact_verification", "inference_tested", "actions", "actions.code",
+			"actions.message", "bridge", "bridge.discovery", "bridge.configured",
+			"bridge.reference", "bridge.discovered",
+		} {
+			if _, err := selectionPaths(selection, schema); err != nil {
+				t.Fatalf("%s %q: %v", path, selection, err)
+			}
+		}
+	}
+	for _, args := range [][]string{
+		{"setup", "--model", "local", "--json", "--select", "bogus"},
+		{"setup", "--model", "cloud", "--agent", "--select", "bridge.bogus"},
+		{"doctor", "--model", "local", "--json", "--select", "bogus"},
+		{"doctor", "--json", "--select", "bogus"},
+	} {
+		cmd := NewRootCmd(func() runner.Runner {
+			t.Fatal("selection must be validated before runner use")
+			return &setupStatusRunner{}
+		})
+		cmd.SetArgs(args)
+		cmd.SetOut(&bytes.Buffer{})
+		if err := cmd.Execute(); ExitCode(err) != 2 {
+			t.Fatalf("args=%v err=%v", args, err)
+		}
+	}
+}
+
 func TestSelectedDoctorHumanOutputIncludesPlanGuidance(t *testing.T) {
 	stubResolution(t, nil, true, 27)
 	unavailable := &setupStatusRunner{status: runner.LocalStatus{Available: false}}

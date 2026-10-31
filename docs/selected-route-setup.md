@@ -17,6 +17,8 @@ is not a setup route. Image is a setup capability, not a text model ID.
 Shortcuts or read bridge configuration. A selected Shortcut route does not
 check the native helper or fail because unrelated bridges are absent.
 Unscoped `hollis doctor` retains its existing full-report exit behavior.
+Selected doctor and setup JSON support `--select` under the same declared
+result schemas and strict unknown-field rules as other data commands.
 
 ## Evidence and verification
 

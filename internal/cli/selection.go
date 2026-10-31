@@ -102,6 +102,14 @@ func buildResultSchemas() map[string]*fieldSchema {
 	doctor.fields["local"] = local
 	doctor.fields["bridges"] = resultType(reflect.TypeFor[[]bridgeCheck]())
 	doctor.fields["exit_codes"] = resultFields("success", "unexpected", "usage", "missing", "transport", "timeout", "config")
+	// Selected-route readiness (doctor --model and setup) shares one plan shape.
+	readiness := resultFields("schema_version", "source", "route", "status", "reason_code",
+		"message", "artifact_verification", "inference_tested")
+	readiness.fields["actions"] = resultArray(resultFields("code", "message"))
+	readiness.fields["bridge"] = resultFields("discovery", "configured", "reference", "discovered")
+	for name, field := range readiness.fields {
+		doctor.fields[name] = field
+	}
 	config := resultFields("path", "default_model", "image_bridge")
 	config.fields["bridges"] = resultFields("cloud", "cloud-pro", "on-device", "chatgpt")
 	config.fields["image_bridges"] = resultFields(imageStyles...)
@@ -135,6 +143,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 		"hollis image generate":          image,
 		"hollis models":                  resultArray(models),
 		"hollis doctor":                  doctor,
+		"hollis setup":                   readiness,
 		"hollis batch plan":              plan,
 		"hollis batch run":               invocation,
 		"hollis batch resume":            invocation,
