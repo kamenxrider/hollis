@@ -247,7 +247,8 @@ canonical_executable() {
 emit_runtime_record() {
   printf '{"contract_version":1,"state":'; json_string "$RR_STATE"
   printf ',"reason_code":'; json_string "$RR_REASON"
-  printf ',"detail_message":'; json_string "${RR_DETAIL:-}"
+  # Frozen contract key: optional message, no raw subprocess output.
+  [[ -z "$RR_DETAIL" ]] || { printf ',"message":'; json_string "$RR_DETAIL"; }
   printf ',"runtime":{"owner":'; json_string "$RR_OWNER"
   [[ -z "$RR_VERSION" ]] || { printf ',"version":'; json_string "$RR_VERSION"; }
   [[ -z "$RR_COMMIT" ]] || { printf ',"source_commit":'; json_string "$RR_COMMIT"; }

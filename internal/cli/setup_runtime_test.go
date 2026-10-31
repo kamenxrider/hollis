@@ -63,6 +63,10 @@ func TestRuntimeRecordProducer(t *testing.T) {
 		{"action needed", func(r *setup.RuntimeRecord) {
 			r.State, r.ReasonCode, r.Artifact.Verification = "action_required", "runtime_integrity_failed", "failed"
 		}, 10, true},
+		{"action needed with message", func(r *setup.RuntimeRecord) {
+			r.State, r.ReasonCode, r.Artifact.Verification = "action_required", "runtime_integrity_failed", "failed"
+			r.Message = "Integrity check failed for hollis; nothing will be installed or run."
+		}, 10, true},
 		{"helper missing does not invalidate CLI", func(r *setup.RuntimeRecord) { r.Helper.Verification = "missing" }, 0, true},
 		{"path mismatch", func(r *setup.RuntimeRecord) { r.Runtime.ExecutablePath = "/bin/sh" }, 0, false},
 		{"version mismatch", func(r *setup.RuntimeRecord) { r.Runtime.Version = "future" }, 0, false},
@@ -98,6 +102,7 @@ func TestRuntimeRecordProducerBoundaries(t *testing.T) {
 		{"timeout", "sleep 30"},
 		{"unexpected exit", "echo '{}'; exit 3"},
 		{"stderr private", "echo 'private fixture diagnostic' >&2; echo 'bad'"},
+		{"unknown record key", `printf '{"contract_version":1,"state":"unknown","reason_code":"x","detail_message":"x"}'`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := readRuntimeRecord(context.Background(), producerScriptFixture(t, tc.body))

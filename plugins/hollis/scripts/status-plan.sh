@@ -26,8 +26,9 @@ if [[ "$state" != verified ]]; then
   if [[ "$state" == unknown && $(field "$WORK_DIR/runtime.json" reason_code || true) == external_runtime_unverified ]]; then exit 64; fi
   # Surface the concrete producer failure (for example an integrity fail on a
   # corrupt installed binary) on stderr for readiness callers; the generic
-  # bootstrap record stays on stdout.
-  detail=$(field "$WORK_DIR/runtime.json" detail_message || true)
+  # bootstrap record stays on stdout. The detail travels in the record's
+  # frozen optional message key.
+  detail=$(field "$WORK_DIR/runtime.json" message || true)
   if [[ "$state" == action_required && -n "$detail" ]]; then
     printf '%s\n' "$detail" >&2
   fi
