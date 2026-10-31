@@ -664,28 +664,76 @@ const listDeadline = 10 * time.Second
 // claims only what is known — the listing was stopped, and no bridge is
 // proven missing. ListTimeout keeps the CLI from appending the model-centric
 // timeout hint.
-func listDeadlineError() *Error {
+func listDeadlineError(budget time.Duration) *Error {
+	deadlineText := "before the command started"
+	if budget > 0 {
+		// Round only the display value, not the enforced deadline. The
+		// normal 10s bound remains exactly "10 seconds"; shorter caller
+		// deadlines are reported using their actual (rounded) budget.
+		budget = budget.Round(time.Millisecond)
+		if budget <= 0 {
+			budget = time.Millisecond
+		}
+		if budget%time.Second == 0 {
+			deadlineText = fmt.Sprintf("%d seconds", int64(budget/time.Second))
+		} else {
+			deadlineText = budget.String()
+		}
+		return &Error{
+			Kind:        KindTimeout,
+			ExitCode:    -1,
+			ListTimeout: true,
+			Err: fmt.Errorf("Listing Shortcuts did not complete within %s and was stopped; no bridge is proven missing. The underlying cause is unconfirmed.",
+				deadlineText),
+		}
+	}
 	return &Error{
 		Kind:        KindTimeout,
 		ExitCode:    -1,
 		ListTimeout: true,
-		Err: fmt.Errorf("Listing Shortcuts did not complete within %d seconds and was stopped; no bridge is proven missing. The underlying cause is unconfirmed.",
-			int64(listDeadline/time.Second)),
+		Err: fmt.Errorf("Listing Shortcuts deadline expired %s; no bridge is proven missing. The underlying cause is unconfirmed.",
+			deadlineText),
 	}
+}
+
+// listStderrCapture keeps a bounded prefix while continuing to drain the
+// child pipe. Cmd.Output normally stores a bounded stderr excerpt on
+// ExitError; the explicit Start/Wait lifecycle needs to retain that behavior
+// without letting stderr grow the parent heap.
+type listStderrCapture struct {
+	data []byte
+}
+
+func (b *listStderrCapture) Write(p []byte) (int, error) {
+	const limit = 32 << 10
+	if room := limit - len(b.data); room > 0 {
+		if len(p) > room {
+			b.data = append(b.data, p[:room]...)
+		} else {
+			b.data = append(b.data, p...)
+		}
+	}
+	return len(p), nil
 }
 
 func (r *ShortcutRunner) ListShortcuts(ctx context.Context) ([]string, error) {
 	if err := ctx.Err(); err != nil {
-		kind := KindTransport
-		switch err {
-		case context.Canceled:
-			kind = KindContextCanceled
-		case context.DeadlineExceeded:
-			kind = KindTimeout
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, listDeadlineError(0)
 		}
-		return nil, &Error{Kind: kind, ExitCode: -1, Err: err}
+		return nil, &Error{Kind: KindContextCanceled, ExitCode: -1, Err: err}
 	}
-	cctx, cancel := context.WithTimeout(ctx, listDeadline)
+	budget := listDeadline
+	if callerDeadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(callerDeadline)
+		if remaining <= 0 {
+			return nil, listDeadlineError(0)
+		}
+		if remaining < budget {
+			budget = remaining
+		}
+	}
+	cctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, r.ShortcutsPath, "list")
 	// Rule 3, list edition: the deadline must kill the whole process group.
@@ -697,37 +745,79 @@ func (r *ShortcutRunner) ListShortcuts(ctx context.Context) ([]string, error) {
 	cmd.Cancel = func() error {
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
-	// WaitDelay matches the deadline: a listing that has not reached EOF by
-	// listDeadline is stopped and reported by the same approved sentence.
-	// This is what classifies the reproduced defect case — a direct child
-	// that exits 0 while a pipe-holding descendant keeps .Output() blocked —
-	// as a deadline outcome instead of a fabricated success: the deadline
-	// fires first, the group is killed, and the captured bytes are never
-	// treated as a listing.
-	cmd.WaitDelay = listDeadline
-	out, err := cmd.Output()
-	if err != nil {
-		signal, _ := processSignal(err)
-		switch cctx.Err() {
-		case context.Canceled:
-			return nil, &Error{Kind: KindContextCanceled, ExitCode: exitOf(err), Signal: signal, Err: err}
-		case context.DeadlineExceeded:
-			// Discard the captured bytes: nothing past the deadline is a
-			// listing.
-			return nil, listDeadlineError()
+	// WaitDelay is a fallback for inherited pipes. It starts when Wait sees
+	// the leader exit, so it can otherwise extend the wall time by almost
+	// another full budget. The independent group killer below stops group
+	// members at the deadline, even after the leader exits. A pipe holder
+	// outside that group is bounded separately by WaitDelay.
+	cmd.WaitDelay = budget
+	var stdout bytes.Buffer
+	var stderr listStderrCapture
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		switch {
+		case errors.Is(cctx.Err(), context.DeadlineExceeded):
+			return nil, listDeadlineError(budget)
+		case errors.Is(cctx.Err(), context.Canceled):
+			return nil, &Error{Kind: KindContextCanceled, ExitCode: -1, Err: err}
+		default:
+			return nil, &Error{Kind: KindListFailure, ExitCode: exitOf(err), Err: err}
 		}
-		return nil, &Error{Kind: KindListFailure, ExitCode: exitOf(err), Signal: signal, Err: err}
+	}
+
+	pgid := cmd.Process.Pid
+	stopGroupKiller := make(chan struct{})
+	groupKillerDone := make(chan struct{})
+	go func() {
+		defer close(groupKillerDone)
+		select {
+		case <-cctx.Done():
+			// Do not rely on exec.Cmd's watchCtx Cancel: in Go 1.27 it
+			// may never call Cancel if Wait observes the leader exit
+			// before the context expires.
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		case <-stopGroupKiller:
+		}
+	}()
+
+	waitErr := cmd.Wait()
+	close(stopGroupKiller)
+	<-groupKillerDone
+	if exitErr, ok := waitErr.(*exec.ExitError); ok {
+		exitErr.Stderr = append([]byte(nil), stderr.data...)
+	}
+	ctxErr := cctx.Err()
+	// Belt-and-suspenders cleanup after Wait: the watcher can race the
+	// context and Wait completion, and WaitDelay may return while a
+	// descendant still holds an inherited descriptor. A live group keeps
+	// its pgid reserved; an empty group returns ESRCH.
+	if ctxErr != nil || errors.Is(waitErr, exec.ErrWaitDelay) {
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	}
+	if waitErr != nil {
+		switch {
+		case errors.Is(ctxErr, context.DeadlineExceeded):
+			return nil, listDeadlineError(budget)
+		case errors.Is(ctxErr, context.Canceled):
+			return nil, &Error{Kind: KindContextCanceled, ExitCode: exitOf(waitErr), Err: waitErr}
+		case errors.Is(waitErr, exec.ErrWaitDelay):
+			return nil, &Error{Kind: KindListFailure, ExitCode: exitOf(waitErr), Err: waitErr}
+		}
+		signal, _ := processSignal(waitErr)
+		return nil, &Error{Kind: KindListFailure, ExitCode: exitOf(waitErr), Signal: signal, Err: waitErr}
 	}
 	// Classification must not live only in the error branch. The direct
-	// child can exit 0 while a pipe-holding descendant keeps .Output()
-	// blocked past the deadline; exec then returns err == nil with bytes
-	// the descendant wrote after the deadline. Success is impossible after
-	// the deadline expired: check the context on the success path too and
-	// discard the captured bytes. (WaitDelay's ErrWaitDelay is the belt;
-	// this check is the property, asserted directly.)
+	// child can exit 0 while a pipe-holding descendant keeps stdout open;
+	// success is impossible after the deadline expired, regardless of
+	// whether Wait returned nil or ErrWaitDelay. Discard all captured bytes.
 	if cctx.Err() != nil {
-		return nil, listDeadlineError()
+		if errors.Is(cctx.Err(), context.DeadlineExceeded) {
+			return nil, listDeadlineError(budget)
+		}
+		return nil, &Error{Kind: KindContextCanceled, ExitCode: -1, Err: cctx.Err()}
 	}
+	out := stdout.String()
 	var names []string
 	for _, line := range strings.Split(string(out), "\n") {
 		if line = strings.TrimRight(line, "\r"); line != "" {

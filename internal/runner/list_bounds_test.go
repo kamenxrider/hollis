@@ -245,7 +245,7 @@ func TestListShortcutsDeadlineBoundsDescendants(t *testing.T) {
 		t.Errorf("NO ABSENCE CLAIM violated: deadline returned names=%v; a timed-out listing must not look like a completed one", names)
 	}
 
-	// F1: assert before cleanup that the early-exit leader did not leave its
+	// Assert before cleanup that the early-exit leader did not leave its
 	// pipe-holding grandchild alive. The cleanup is only a safety net after
 	// this assertion, not a substitute for it.
 	pid := fixturePID(t, pf)
@@ -290,6 +290,10 @@ func TestListShortcutsKillsGroupWhenLeaderAlsoHangs(t *testing.T) {
 	if elapsed > listReturnBound {
 		t.Errorf("hanging process group exceeded deadline bound: elapsed=%v bound=%v", elapsed, listReturnBound)
 	}
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindTimeout || !re.ListTimeout || names != nil {
+		t.Errorf("hanging group outcome names=%v err=%v, want no names and marked KindTimeout", names, err)
+	}
 	grandchildPID := fixturePID(t, grandchildPath)
 	leaderPID := fixturePID(t, leaderPath)
 	assertProcessExited(t, grandchildPID)
@@ -316,21 +320,39 @@ func TestListShortcutsDiscardsOutputWrittenAfterDeadline(t *testing.T) {
 
 func TestListShortcutsCallerDeadlineIsReflectedInMessage(t *testing.T) {
 	t.Setenv("GAPFIX_MODE", "list-hang-group")
+	r := &ShortcutRunner{ShortcutsPath: listFixturePath(t)}
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	names, err := (&ShortcutRunner{ShortcutsPath: listFixturePath(t)}).ListShortcuts(ctx)
+	names, err := r.ListShortcuts(ctx)
 	elapsed := time.Since(start)
 	t.Logf("short caller deadline returned after %v, names=%v err=%v", elapsed, names, err)
 	var re *Error
 	if !errors.As(err, &re) || re.Kind != KindTimeout || !re.ListTimeout {
 		t.Fatalf("caller deadline outcome=%v, want marked KindTimeout", err)
 	}
-	if !strings.Contains(re.Error(), "within 300ms") {
+	// Time spent entering ListShortcuts can reduce the remaining budget.
+	// Require a subsecond message, rather than an exact scheduling-dependent
+	// duration, and verify the fixed 300ms rendering directly below.
+	if !strings.Contains(re.Error(), "ms and was stopped") || strings.Contains(re.Error(), "10 seconds") {
 		t.Errorf("message does not reflect the shorter caller deadline: %q", re.Error())
 	}
 	if names != nil {
 		t.Errorf("short-deadline listing returned names: %v", names)
+	}
+}
+
+func TestListDeadlineErrorSetsListTimeoutMarker(t *testing.T) {
+	re := listDeadlineError(listDeadline)
+	if re.Kind != KindTimeout || !re.ListTimeout {
+		t.Fatalf("deadline error = %+v, want KindTimeout with ListTimeout marker", re)
+	}
+	const want = "Listing Shortcuts did not complete within 10 seconds and was stopped; no bridge is proven missing. The underlying cause is unconfirmed."
+	if got := re.Error(); got != want {
+		t.Fatalf("deadline message = %q, want exactly %q", got, want)
+	}
+	if got := listDeadlineError(300 * time.Millisecond).Error(); !strings.Contains(got, "within 300ms") {
+		t.Fatalf("short deadline message = %q, want 300ms budget", got)
 	}
 }
 
