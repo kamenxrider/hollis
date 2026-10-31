@@ -25,6 +25,8 @@ type rootFlags struct {
 	agent        bool
 	noInput      bool
 	selectFields string
+	resultSchema *fieldSchema
+	helpError    error
 }
 
 // newRunnerFunc lets tests substitute a fake runner.
@@ -41,6 +43,9 @@ func Execute() error {
 
 func executeCommand(cmd *cobra.Command, flags *rootFlags) error {
 	err := cmd.Execute()
+	if err == nil {
+		err = flags.helpError
+	}
 	if err == nil {
 		return nil
 	}
@@ -144,12 +149,16 @@ See README.md for recipes.`,
 	defaultHelp := rootCmd.HelpFunc()
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		if flags.asJSON || flags.agent {
-			_ = printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
+			// Cobra's help callback cannot return an error. Preserve it for
+			// executeCommand rather than silently succeeding without output.
+			helpFlags := flags
+			helpFlags.resultSchema = helpResultSchema
+			flags.helpError = printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
 				"command": cmd.CommandPath(),
 				"use":     cmd.UseLine(),
 				"short":   cmd.Short,
 				"long":    cmd.Long,
-			}, &flags)
+			}, &helpFlags)
 			return
 		}
 		defaultHelp(cmd, args)
@@ -179,6 +188,15 @@ See README.md for recipes.`,
 		if flags.asJSON && (path == "hollis serve" || strings.HasPrefix(path, "hollis completion")) {
 			return usageErr(fmt.Errorf("%s supports human output only; remove --json/--agent", path))
 		}
+		flags.resultSchema = commandResultSchemas[path]
+		if helpRequested || path == "hollis help" {
+			flags.resultSchema = helpResultSchema
+		} else if cmd == rootCmd && showVersion {
+			flags.resultSchema = versionResultSchema
+		}
+		if _, err := selectionPaths(flags.selectFields, flags.resultSchema); err != nil {
+			return err
+		}
 		if helpRequested {
 			// Hollis installs a deferred help flag so all global contract
 			// validation above runs before Cobra renders help.
@@ -196,12 +214,12 @@ See README.md for recipes.`,
 	rootCmd.AddCommand(newConfigCmd(&flags, newRunner))
 	rootCmd.AddCommand(newServeCmdWithImages(&flags, newRunner, generator))
 	rootCmd.AddCommand(newDoctorCmd(&flags, newRunner))
-	rootCmd.AddCommand(newAgentContextCmd(rootCmd))
+	rootCmd.AddCommand(newAgentContextCmd(rootCmd, &flags))
 	rootCmd.AddCommand(newVersionCmd(&flags))
 	rootCmd.SetHelpCommand(newStrictHelpCommand(rootCmd))
 	rootCmd.InitDefaultHelpCmd()
 	rootCmd.InitDefaultCompletionCmd()
-	makeCompletionParentStrict(rootCmd)
+	makeGroupParentsStrict(rootCmd, &flags)
 	installDeferredHelpFlags(rootCmd, &helpRequested)
 	wrapArgErrors(rootCmd)
 	return rootCmd, &flags
@@ -234,15 +252,18 @@ func installDeferredHelpFlags(command *cobra.Command, requested *bool) {
 	}
 }
 
-func makeCompletionParentStrict(root *cobra.Command) {
-	for _, child := range root.Commands() {
-		if child.Name() != "completion" {
-			continue
-		}
-		child.RunE = func(cmd *cobra.Command, _ []string) error {
+func makeGroupParentsStrict(command *cobra.Command, flags *rootFlags) {
+	if !command.Runnable() && command.HasSubCommands() {
+		// Cobra skips pre-run validation for non-runnable group commands.
+		command.RunE = func(cmd *cobra.Command, _ []string) error {
+			if flags.asJSON || flags.agent {
+				return usageErr(fmt.Errorf("%s requires a subcommand in JSON or agent mode", cmd.CommandPath()))
+			}
 			return cmd.Help()
 		}
-		return
+	}
+	for _, child := range command.Commands() {
+		makeGroupParentsStrict(child, flags)
 	}
 }
 
@@ -358,7 +379,7 @@ func toCLIError(err error) error {
 	case runner.KindRateLimited:
 		return transportErr(err)
 	case runner.KindTimeout:
-		return timeoutErr(fmt.Errorf("%s\nhint: raise --timeout (up to the 120s ceiling); empty prompts are rejected before spawn, so a hang here is Apple-side", err))
+		return timeoutErr(fmt.Errorf("%s\nhint: the model request exceeded its deadline; this alone does not identify the cause or confirm whether it completed. Do not automatically retry; choose a larger --timeout (up to the 120s ceiling) for a future request if needed", err))
 	case runner.KindNoOutput:
 		return transportErr(fmt.Errorf("%s\nhint: run 'hollis doctor'; exit 0 with empty output is always treated as failure", err))
 	case runner.KindSIGABRT:
@@ -381,27 +402,29 @@ func encodeJSON(w io.Writer, data any) error {
 // printJSONFilteredTo emits JSON with --select applied through the caller's
 // Cobra writer, matching the house agent contract.
 func printJSONFilteredTo(w io.Writer, data map[string]any, flags *rootFlags) error {
-	data = filterFields(data, flags.selectFields)
+	projected, err := projectOutput(data, flags)
+	if err != nil {
+		return err
+	}
 	if flags.agent {
-		wrapped := map[string]any{"meta": agentMeta(), "results": data}
+		wrapped := map[string]any{"meta": agentMeta(), "results": projected}
 		return encodeJSON(w, wrapped)
 	}
-	return encodeJSON(w, data)
+	return encodeJSON(w, projected)
 }
 
 // printJSONArrayFilteredTo emits a JSON array with --select applied per
 // element through the caller's Cobra writer.
 func printJSONArrayFilteredTo(w io.Writer, items []map[string]any, flags *rootFlags) error {
+	projected, err := projectOutput(items, flags)
+	if err != nil {
+		return err
+	}
 	if flags.agent {
-		if strings.TrimSpace(flags.selectFields) != "" {
-			for i := range items {
-				items[i] = filterFields(items[i], flags.selectFields)
-			}
-		}
-		wrapped := map[string]any{"meta": agentMeta(), "results": items}
+		wrapped := map[string]any{"meta": agentMeta(), "results": projected}
 		return encodeJSON(w, wrapped)
 	}
-	return encodeJSON(w, items)
+	return encodeJSON(w, projected)
 }
 
 func errorCode(err error) string {
@@ -442,50 +465,4 @@ func validateTimeout(cmd *cobra.Command, timeout time.Duration) error {
 		return usageErr(fmt.Errorf("invalid --timeout %s: choose a duration greater than zero and no more than %s", timeout, runner.MaxTimeout))
 	}
 	return nil
-}
-
-// filterFields keeps only the specified fields (comma-separated) from a
-// JSON object. Supports dotted paths for nested structures.
-func filterFields(data map[string]any, fields string) map[string]any {
-	if strings.TrimSpace(fields) == "" {
-		return data
-	}
-	var paths [][]string
-	for _, f := range strings.Split(fields, ",") {
-		f = strings.TrimSpace(f)
-		if f == "" {
-			continue
-		}
-		paths = append(paths, strings.Split(strings.ToLower(f), "."))
-	}
-	return filterFieldsRec(data, paths)
-}
-
-func filterFieldsRec(obj map[string]any, paths [][]string) map[string]any {
-	keepWhole := map[string]bool{}
-	subPaths := map[string][][]string{}
-	for _, p := range paths {
-		if len(p) == 0 {
-			continue
-		}
-		if len(p) == 1 {
-			keepWhole[p[0]] = true
-		} else {
-			subPaths[p[0]] = append(subPaths[p[0]], p[1:])
-		}
-	}
-	out := map[string]any{}
-	for k, v := range obj {
-		lower := strings.ToLower(k)
-		if keepWhole[lower] {
-			out[k] = v
-			continue
-		}
-		if subs := subPaths[lower]; subs != nil {
-			if nested, ok := v.(map[string]any); ok {
-				out[k] = filterFieldsRec(nested, subs)
-			}
-		}
-	}
-	return out
 }

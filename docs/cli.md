@@ -106,6 +106,24 @@ OpenAI does.
 
 `--agent` is shorthand for `--json --no-input` on data commands. In `--no-input` mode hollis never waits on a terminal, and destructive commands require explicit confirmation flags (`hollis chats delete <id> --yes`). Long-running `serve` and shell `completion` support human output only and reject JSON/agent mode clearly.
 
+`--select` projects declared result fields in both `--json` and `--agent`
+output, including each row of an array. Use comma-separated names or dotted
+paths, for example `--select model,capabilities.streaming` on `models`.
+Names are case-insensitive; spaces around comma-separated names are ignored.
+Nested array paths project each element, not a numeric index. Selecting a
+parent includes its whole value. Agent `meta` and diagnostic `error` payloads
+are never removed by projection. `agent-context` keeps its intrinsic JSON
+shape and supports selection with `--json` or `--agent`.
+
+**Intentional compatibility correction:** unknown fields, malformed paths and
+paths through scalar values now fail with a clear usage error (exit 2), rather
+than being silently omitted. Validation uses the command's declared schema
+before model calls or other command work, not the first result row. Fields that
+occur only in later rows are valid. Valid optional fields may be absent, and
+valid empty results stay empty; empty arrays still reject unknown fields.
+For commands with multiple result forms, the schema includes their declared
+fields, whether or not this invocation emits each optional field.
+
 Exit codes are stable and parseable:
 
 | Code | Meaning |

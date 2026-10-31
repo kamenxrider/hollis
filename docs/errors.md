@@ -22,6 +22,19 @@ chat, Responses and image HTTP endpoints. Existing timeout, missing-resource,
 rate-limit and validation codes retain their existing numeric mappings.
 `hollis agent-context` lists semantic codes independently of numeric exits.
 
+HTTP `server_busy` means Hollis's local capacity is occupied and carries
+`Retry-After: 1`. Provider `rate_limited` remains distinct and has no retry
+timing hint when the reset is unknown. Stop rather than tight-looping on a
+provider limit; neither a one-second recovery nor another model is implied.
+
+A timeout reports that the model request exceeded its deadline. It does not
+locate the cause among approval, execution context, transport and provider,
+or prove whether the provider completed the request. Keep any known execution
+stage from the error, but do not diagnose the timeout as “Apple-side” from the
+deadline alone. Preserve the uncertain result and do not automatically retry.
+For a future request, `--timeout` can be raised up to the 120-second ceiling.
+CLI timeout remains exit 7 with machine code `timeout`.
+
 Runtime `auto` tries Cloud once and can try On-Device once **only** after a
 confirmed missing bridge or recognized rate limit. Declines, unknown failures,
 empty output, timeouts, cancellations and crashes stop without a second model
