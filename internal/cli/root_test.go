@@ -214,6 +214,25 @@ func TestExitCodeMapping(t *testing.T) {
 	}
 }
 
+func TestListTimeoutMarkerSkipsModelTimeoutHint(t *testing.T) {
+	const message = "Listing Shortcuts did not complete within 10 seconds and was stopped; no bridge is proven missing. The underlying cause is unconfirmed."
+	err := toCLIError(&runner.Error{
+		Kind:        runner.KindTimeout,
+		ExitCode:    -1,
+		ListTimeout: true,
+		Err:         errors.New(message),
+	})
+	if got := ExitCode(err); got != 7 {
+		t.Fatalf("list timeout exit code = %d, want 7", got)
+	}
+	if got := err.Error(); got != message {
+		t.Fatalf("list timeout message = %q, want exactly %q", got, message)
+	}
+	if strings.Contains(err.Error(), "model request exceeded its deadline") {
+		t.Fatalf("list timeout acquired model-centric hint: %v", err)
+	}
+}
+
 func TestUnknownModelFlagExitsUsage(t *testing.T) {
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"respond", "--model", "nope", "hello"})

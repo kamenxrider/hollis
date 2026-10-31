@@ -120,6 +120,12 @@ type Error struct {
 	// Stderr carries the child's stderr verbatim (Apple prints useful hints).
 	Stderr string
 	Err    error
+	// ListTimeout marks a KindTimeout raised by ListShortcuts' own deadline.
+	// The CLI must not append the model-centric timeout hint ("the model
+	// request exceeded its deadline…"): a listing has nothing to do with
+	// the model request deadline, and the error already carries the
+	// approved fixed sentence shared with the bounded shell path.
+	ListTimeout bool
 }
 
 func (e *Error) Error() string {
