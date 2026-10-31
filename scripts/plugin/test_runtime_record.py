@@ -182,9 +182,16 @@ class RuntimeRecordTests(unittest.TestCase):
                 self.assertFalse(self.fixture.home.exists())
                 self.assertTrue(binary.exists())
 
+    def test_unparseable_external_version_is_still_unverified_external(self):
+        # A CLI whose --version does not end in an x.y.z token is still an
+        # external runtime, never a missing managed installation.
+        binary = self.external_runtime_fixture('dev-build')
+        self.assert_external_unverified(self.record(), binary, 'dev-build')
+        self.assertFalse(self.fixture.home.exists())
+
     def test_verified_plugin_install_is_preserved_over_same_or_older_external(self):
         installed = self.fixture.install()
-        for version in ('0.2.0', '0.3.0'):
+        for version in ('0.2.0', '0.3.0', 'dev-build'):
             with self.subTest(version=version):
                 self.external_runtime_fixture(version)
                 payload = self.record()

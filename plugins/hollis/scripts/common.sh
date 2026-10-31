@@ -200,17 +200,18 @@ external_newer() {
 }
 external_cli() {
   # Any standalone hollis on the caller's PATH (Homebrew, direct, source or go
-  # install) is an external runtime. Every reported version qualifies here;
-  # callers decide the version relation to the managed runtime.
+  # install) is an external runtime. A successful --version identifies the
+  # candidate even when its last token is not an x.y.z version: callers treat
+  # it as neither newer than the managed runtime nor a missing installation.
   EXTERNAL_CANDIDATE= EXTERNAL_VERSION=
   local candidate out ver
   candidate=$(PATH="$HOLLIS_CALLER_PATH" command -v hollis || true)
   [[ "$candidate" == /* && -x "$candidate" ]] || return 1
   out=$("$candidate" --version 2>/dev/null) || return 1
   ver=${out##* }
-  version_ok "$ver" || return 1
   EXTERNAL_CANDIDATE=$candidate
   EXTERNAL_VERSION=$ver
+  version_ok "$ver" || return 1
 }
 
 # The helper belongs to the selected runtime directory, never to PATH. Older
@@ -264,7 +265,10 @@ emit_runtime_record() {
   [[ -z "$RR_HELPER_PROTOCOL" ]] || printf ',"protocol":%s' "$RR_HELPER_PROTOCOL"
   printf '},"platform":'
   if [[ "$RR_OWNER" == plugin ]]; then
-    printf '{"os":"darwin","architecture":"arm64","minimum_macos":"27.0"}'
+    # minimum_macos is an unquoted JSON integer (the tested macOS major
+    # version, matching runner.MeasuredOSMajor); the Go record decoder
+    # rejects a string.
+    printf '{"os":"darwin","architecture":"arm64","minimum_macos":27}'
   else printf '{}'; fi
   printf ',"bridges":{"verification":'; json_string "$RR_BRIDGES_STATE"
   [[ -z "$RR_BRIDGES_PATH" ]] || { printf ',"archive_path":'; json_string "$RR_BRIDGES_PATH"; }
