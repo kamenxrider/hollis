@@ -194,13 +194,23 @@ runtime_path() {
   printf '%s\n' "$dir/hollis"
 }
 external_newer() {
+  external_cli || return 1
+  newer "$EXTERNAL_VERSION" "$VERSION" || return 1
+  printf '%s\n' "$EXTERNAL_CANDIDATE"
+}
+external_cli() {
+  # Any standalone hollis on the caller's PATH (Homebrew, direct, source or go
+  # install) is an external runtime. Every reported version qualifies here;
+  # callers decide the version relation to the managed runtime.
+  EXTERNAL_CANDIDATE= EXTERNAL_VERSION=
   local candidate out ver
   candidate=$(PATH="$HOLLIS_CALLER_PATH" command -v hollis || true)
   [[ "$candidate" == /* && -x "$candidate" ]] || return 1
   out=$("$candidate" --version 2>/dev/null) || return 1
   ver=${out##* }
-  newer "$ver" "$VERSION" || return 1
-  printf '%s\n' "$candidate"
+  version_ok "$ver" || return 1
+  EXTERNAL_CANDIDATE=$candidate
+  EXTERNAL_VERSION=$ver
 }
 
 # The helper belongs to the selected runtime directory, never to PATH. Older
@@ -263,6 +273,17 @@ emit_runtime_record() {
   printf '}}\n'
 }
 
+emit_external_unverified() {
+  # Contract: a standalone, source, go-install, direct or Homebrew runtime
+  # without plugin verification is unknown/external_runtime_unverified with
+  # owner external, whatever its version relation to the managed runtime.
+  RR_OWNER=external RR_NAME= RR_ARTIFACT=unknown
+  RR_STATE=unknown RR_REASON=external_runtime_unverified
+  RR_CLI=$(canonical_executable "$EXTERNAL_CANDIDATE" 2>/dev/null || true)
+  RR_VERSION=$EXTERNAL_VERSION
+  emit_runtime_record
+}
+
 runtime_record() {
   # This read-only child may run while its parent holds setup.lock. Never
   # acquire that lock or call setup recursively here.
@@ -279,15 +300,16 @@ runtime_record() {
     emit_runtime_record; return 10
   fi
   VERSION=$(field "$RUNTIME_LOCK" version)
-  if candidate=$(external_newer); then
-    RR_OWNER=external RR_NAME= RR_ARTIFACT=unknown
-    RR_STATE=unknown RR_REASON=external_runtime_unverified
-    RR_CLI=$(canonical_executable "$candidate" 2>/dev/null || true)
-    out=$("$candidate" --version 2>/dev/null || true); RR_VERSION=${out##* }
-    version_ok "$RR_VERSION" || RR_VERSION=
-    emit_runtime_record; return 10
+  external_cli || true
+  if [[ -n "$EXTERNAL_CANDIDATE" ]] && newer "$EXTERNAL_VERSION" "$VERSION"; then
+    emit_external_unverified; return 10
   fi
   if [[ ! -e "$PLUGIN_HOME/current" && ! -L "$PLUGIN_HOME/current" ]]; then
+    if [[ -n "$EXTERNAL_CANDIDATE" ]]; then
+      # No plugin receipt: a same-version or older standalone CLI is still an
+      # unverified external runtime, never a missing managed installation.
+      emit_external_unverified; return 10
+    fi
     RR_REASON=runtime_not_installed RR_ARTIFACT=unknown
     emit_runtime_record; return 10
   fi

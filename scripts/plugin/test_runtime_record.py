@@ -145,19 +145,58 @@ class RuntimeRecordTests(unittest.TestCase):
         self.assertEqual(payload['state'], 'action_required')
         self.assertEqual(payload['reason_code'], 'runtime_integrity_failed')
 
-    def test_newer_external_symlink_is_unknown_and_preserved(self):
+    def external_runtime_fixture(self, version):
         external = self.fixture.base / 'external with spaces'
-        external.mkdir()
+        external.mkdir(exist_ok=True)
         binary = external / 'caller-runtime'
-        binary.write_text('#!/bin/bash\n[[ "$1" == --version ]] && echo "hollis 9.0.0"\n')
+        binary.write_text('#!/bin/bash\n[[ "$1" == --version ]] && echo "hollis %s"\n' % version)
         binary.chmod(0o700)
-        (external / 'hollis').symlink_to(binary.name)
+        link = external / 'hollis'
+        if not link.is_symlink():
+            link.symlink_to(binary.name)
         self.fixture.env['HOLLIS_CALLER_PATH'] = str(external)
-        payload = self.record()
+        return binary
+
+    def assert_external_unverified(self, payload, binary, version):
         self.assertEqual(payload['state'], 'unknown')
         self.assertEqual(payload['reason_code'], 'external_runtime_unverified')
         self.assertEqual(payload['runtime']['owner'], 'external')
+        self.assertEqual(payload['runtime']['version'], version)
         self.assertEqual(payload['runtime']['executable_path'], str(binary))
+        self.assertNotIn('name', payload['runtime'])
+        self.assertNotIn('install_root', payload['runtime'])
+        self.assertEqual(payload['platform'], {})
+        self.assertEqual(payload['artifact']['verification'], 'unknown')
+        self.assertNotIn('sha256', payload['artifact'])
+        self.assertEqual(payload['helper']['verification'], 'unknown')
+        self.assertEqual(payload['helper']['reason_code'], 'helper_unverified')
+        self.assertEqual(payload['bridges']['verification'], 'unknown')
+        self.assertEqual(payload['receipt']['owner'], 'external')
+        self.assertNotIn('current_version', payload['receipt'])
+
+    def test_external_without_receipt_is_unverified_at_same_or_older_version(self):
+        for version in ('0.2.0', '0.3.0'):
+            with self.subTest(version=version):
+                binary = self.external_runtime_fixture(version)
+                self.assert_external_unverified(self.record(), binary, version)
+                self.assertFalse(self.fixture.home.exists())
+                self.assertTrue(binary.exists())
+
+    def test_verified_plugin_install_is_preserved_over_same_or_older_external(self):
+        installed = self.fixture.install()
+        for version in ('0.2.0', '0.3.0'):
+            with self.subTest(version=version):
+                self.external_runtime_fixture(version)
+                payload = self.record()
+                self.assertEqual(payload['state'], 'verified')
+                self.assertEqual(payload['runtime']['owner'], 'plugin')
+                self.assertEqual(payload['runtime']['executable_path'], str(installed / 'hollis'))
+                self.assertEqual(payload['artifact']['verification'], 'verified')
+                self.assertEqual(payload['helper']['verification'], 'verified')
+
+    def test_newer_external_symlink_is_unknown_and_preserved(self):
+        binary = self.external_runtime_fixture('9.0.0')
+        self.assert_external_unverified(self.record(), binary, '9.0.0')
         self.assertFalse(self.fixture.home.exists())
         self.assertTrue(binary.exists())
 
