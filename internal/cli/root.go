@@ -380,6 +380,12 @@ func toCLIError(err error) error {
 	case runner.KindRateLimited:
 		return transportErr(err)
 	case runner.KindTimeout:
+		if re.ListTimeout {
+			// The list deadline already carries its own approved fixed
+			// sentence; the model-centric hint below would tell a user to
+			// raise a model timeout for a listing.
+			return timeoutErr(err)
+		}
 		return timeoutErr(fmt.Errorf("%s\nhint: the model request exceeded its deadline; this alone does not identify the cause or confirm whether it completed. Do not automatically retry; choose a larger --timeout (up to the 120s ceiling) for a future request if needed", err))
 	case runner.KindNoOutput:
 		return transportErr(fmt.Errorf("%s\nhint: run 'hollis doctor'; exit 0 with empty output is always treated as failure", err))

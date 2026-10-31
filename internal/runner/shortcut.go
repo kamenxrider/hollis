@@ -653,6 +653,27 @@ func writePromptFile(prompt string) (string, func(), error) {
 	return path, cleanup, nil
 }
 
+// listDeadline bounds a single `shortcuts list`. The approved user-facing
+// deadline message derives its number from this constant — never hardcode
+// the duration twice, so the number in the message cannot drift from the
+// number enforced. It matches the bounded shell path's LIST_DEADLINE=10.
+const listDeadline = 10 * time.Second
+
+// listDeadlineError classifies an expired list deadline. The message is the
+// approved fixed sentence, byte-identical to the bounded shell path's: it
+// claims only what is known — the listing was stopped, and no bridge is
+// proven missing. ListTimeout keeps the CLI from appending the model-centric
+// timeout hint.
+func listDeadlineError() *Error {
+	return &Error{
+		Kind:        KindTimeout,
+		ExitCode:    -1,
+		ListTimeout: true,
+		Err: fmt.Errorf("Listing Shortcuts did not complete within %d seconds and was stopped; no bridge is proven missing. The underlying cause is unconfirmed.",
+			int64(listDeadline/time.Second)),
+	}
+}
+
 func (r *ShortcutRunner) ListShortcuts(ctx context.Context) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		kind := KindTransport
@@ -664,19 +685,48 @@ func (r *ShortcutRunner) ListShortcuts(ctx context.Context) ([]string, error) {
 		}
 		return nil, &Error{Kind: kind, ExitCode: -1, Err: err}
 	}
-	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, listDeadline)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, r.ShortcutsPath, "list").Output()
+	cmd := exec.CommandContext(cctx, r.ShortcutsPath, "list")
+	// Rule 3, list edition: the deadline must kill the whole process group.
+	// A descendant that inherits the stdout pipe and outlives the direct
+	// child would otherwise keep .Output() blocked past the deadline —
+	// reproduced as "deadline exceeded yet reported success, with
+	// descendant-written bytes treated as results".
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	// WaitDelay matches the deadline: a listing that has not reached EOF by
+	// listDeadline is stopped and reported by the same approved sentence.
+	// This is what classifies the reproduced defect case — a direct child
+	// that exits 0 while a pipe-holding descendant keeps .Output() blocked —
+	// as a deadline outcome instead of a fabricated success: the deadline
+	// fires first, the group is killed, and the captured bytes are never
+	// treated as a listing.
+	cmd.WaitDelay = listDeadline
+	out, err := cmd.Output()
 	if err != nil {
-		kind := KindListFailure
 		signal, _ := processSignal(err)
 		switch cctx.Err() {
 		case context.Canceled:
-			kind = KindContextCanceled
+			return nil, &Error{Kind: KindContextCanceled, ExitCode: exitOf(err), Signal: signal, Err: err}
 		case context.DeadlineExceeded:
-			kind = KindTimeout
+			// Discard the captured bytes: nothing past the deadline is a
+			// listing.
+			return nil, listDeadlineError()
 		}
-		return nil, &Error{Kind: kind, ExitCode: exitOf(err), Signal: signal, Err: err}
+		return nil, &Error{Kind: KindListFailure, ExitCode: exitOf(err), Signal: signal, Err: err}
+	}
+	// Classification must not live only in the error branch. The direct
+	// child can exit 0 while a pipe-holding descendant keeps .Output()
+	// blocked past the deadline; exec then returns err == nil with bytes
+	// the descendant wrote after the deadline. Success is impossible after
+	// the deadline expired: check the context on the success path too and
+	// discard the captured bytes. (WaitDelay's ErrWaitDelay is the belt;
+	// this check is the property, asserted directly.)
+	if cctx.Err() != nil {
+		return nil, listDeadlineError()
 	}
 	var names []string
 	for _, line := range strings.Split(string(out), "\n") {
