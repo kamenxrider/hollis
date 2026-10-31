@@ -21,6 +21,11 @@ bound_run() {
   shift
   # The reaper measures real seconds: a poll-tick counter would fire the
   # bound early, and a too-short bound must not impersonate its message.
+  # It kills the group FIRST and writes the provenance flag second, because
+  # the flag lives in WORK_DIR which the script's cleanup trap deletes when
+  # the caller stops the script; a failed write must never skip the kill.
+  # The reaper keeps its own group, so it survives the caller stopping and
+  # still enforces the deadline on an orphaned child.
   bound_flag="$WORK_DIR/bound.fired"
   BOUND_CODE=0 BOUND_DEADLINE_FIRED=no
   rm -f -- "$bound_flag"
@@ -29,18 +34,33 @@ bound_run() {
   ( SECONDS=0
     while kill -0 "$child" 2>/dev/null; do
       if [ "$SECONDS" -ge "$deadline" ]; then
-        : > "$bound_flag"
         kill -- -"$child" 2>/dev/null || true
         sleep 1
         kill -9 -- -"$child" 2>/dev/null || true
+        { : > "$bound_flag"; } 2>/dev/null || true
         exit 0
       fi
       sleep 0.2
     done ) & reaper=$!
   set +m
+  stopping() {
+    # bound_run's children live outside the caller's process group, so a
+    # signal to the caller would not reach them; they die with the script.
+    kill -- -"$child" 2>/dev/null || true
+    kill -- -"$reaper" 2>/dev/null || true
+  }
+  # Compose with the script's own handlers: same exits, same cleanup, plus
+  # the bound children. Each flow installs these exact handler strings.
+  trap 'stopping; cleanup' EXIT
+  trap 'stopping; exit 130' INT
+  trap 'stopping; exit 143' TERM
   wait "$child" || BOUND_CODE=$?
   wait "$reaper" 2>/dev/null || true
   [[ ! -f "$bound_flag" ]] || BOUND_DEADLINE_FIRED=yes
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  return 0
 }
 safe_path "$PLUGIN_HOME"
 runtime_home_accessible() {
@@ -122,7 +142,10 @@ CONFIG_PATH=$(field "$WORK_DIR/config.json" path || true)
 discovery_code=0
 bound_run "$LIST_DEADLINE" /usr/bin/shortcuts list > "$WORK_DIR/shortcuts.txt" 2> "$WORK_DIR/discovery-error.txt"
 discovery_code=$BOUND_CODE
-if [[ "$discovery_code" != 0 && "$BOUND_DEADLINE_FIRED" == yes ]]; then
+# Expiry answers unknown no matter how the stopped lister exited: a lister
+# that traps TERM and completes without finishing must never establish
+# absence from a partial listing.
+if [[ "$BOUND_DEADLINE_FIRED" == yes ]]; then
   printf '{"status":"unknown","message":"Listing Shortcuts did not complete within %s seconds and was stopped; no bridge is proven missing. The underlying cause is unconfirmed.","inference_tested":false' "$LIST_DEADLINE"
   context_fields
   printf ',"discovery":{"status":"failed","exit_code":%s}}\n' "$discovery_code"

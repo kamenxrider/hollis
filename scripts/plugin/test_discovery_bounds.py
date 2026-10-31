@@ -9,7 +9,9 @@ the setup lock does not leave the lock behind. `/usr/bin/shortcuts` itself
 is never invoked.
 """
 import json
+import os
 import shlex
+import signal
 import subprocess
 import time
 import unittest
@@ -70,6 +72,8 @@ class DiscoveryBoundsTests(unittest.TestCase):
         elapsed = time.monotonic() - started
 
         self.assertLess(elapsed, 10 + 6, f'listing hung {elapsed:.1f}s past its 10s bound')
+        # Lower bound: the bound must measure real seconds, not poll ticks.
+        self.assertGreaterEqual(elapsed, 10 - 1)
         self.assertEqual(result.returncode, 5)
         # Named assertion: the bash "Terminated: 15" job-notification line must
         # never reach the machine-readable stream; stdout stays pure JSON.
@@ -95,6 +99,73 @@ class DiscoveryBoundsTests(unittest.TestCase):
             time.sleep(0.5)
         self.assertEqual(
             alive, "0", f"process group {pgid} survived the bound")
+
+    def test_list_trapping_term_reports_deadline_not_completed(self):
+        # A lister that traps TERM and completes without finishing must not
+        # fall through to the completed shape: expiry answers unknown even at
+        # exit code 0, and absence stays a completed-listing fact only.
+        self.fixture.install()
+        self.replace_shortcuts(
+            "#!/bin/bash\n"
+            "case \"${1:-}\" in\n"
+            "  list) trap 'echo partial; exit 0' TERM; sleep 240;;\n"
+            "  *) exit 97;;\n"
+            "esac\n")
+        result = self.call("status", "cloud", timeout=10 + GUARD)
+        self.assertEqual(result.returncode, 5)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["discovery"]["status"], "failed")
+        self.assertEqual(payload["discovery"]["exit_code"], 0)  # the trapped lister's real code
+        self.assertIn("Listing Shortcuts did not complete within", payload["message"])
+        self.assertEqual(payload["message"].rsplit("within ", 1)[1].split(" ", 1)[0], "10")
+
+    def test_script_interruption_kills_bound_group(self):
+        # Stopping the script mid-hang (TERM to the pid, then INT to its
+        # group) must not leak the hung child: it lives outside the caller's
+        # process group, so bound_run kills it from the composed traps.
+        self.fixture.install()
+        pglog_path = self.base / "bounds-pg"
+        quoted_pglog = shlex.quote(str(pglog_path))
+        self.replace_shortcuts(
+            "#!/bin/bash\n"
+            "case \"${1:-}\" in\n"
+            "  list)\n"
+            f"    ps -o pgid= -p $$ | tr -d ' ' >> {quoted_pglog}\n"
+            f"    ( sleep 240 ) &\n"
+            "    exec sleep 240\n"
+            "    ;;\n"
+            "  *) exit 97;;\n"
+            "esac\n")
+        proc = subprocess.Popen(
+            ["/bin/bash", str(self.fixture.kit / "scripts" / "setup.sh"), "status", "cloud"],
+            env=self.fixture.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, start_new_session=True)
+        deadline = time.monotonic() + 8
+        while not pglog_path.exists() or not pglog_path.read_text().strip():
+            self.assertIsNone(proc.poll(), 'script exited before the listing started')
+            if time.monotonic() > deadline:
+                self.fail('listing never started within 8s')
+            time.sleep(0.2)
+        child_pgid = int(pglog_path.read_text().split()[0])
+
+        os.kill(proc.pid, signal.SIGTERM)
+        self.assertEqual(proc.wait(timeout=5), 143)  # script's own TERM handler
+        try:
+            os.killpg(proc.pid, signal.SIGINT)
+        except ProcessLookupError:
+            pass  # the script's group is empty because it stopped correctly
+        deadline = time.monotonic() + 3
+        while True:
+            alive = subprocess.run(
+                ["/bin/bash", "-c",
+                 f"ps -axo pgid= | awk '$1=={child_pgid}{{c++}} END{{print c+0}}'"],
+                capture_output=True, text=True).stdout.strip()
+            if alive == "0":
+                break
+            if time.monotonic() > deadline:
+                self.fail(
+                    f"hung child group {child_pgid} survived the stopped script")
+            time.sleep(0.5)
 
     def test_list_success_is_unchanged_and_quiet(self):
         self.fixture.install()
@@ -148,6 +219,7 @@ class DiscoveryBoundsTests(unittest.TestCase):
         elapsed = time.monotonic() - started
 
         self.assertLess(elapsed, 60 + 6, f'signing hung {elapsed:.1f}s past its 60s bound')
+        self.assertGreaterEqual(elapsed, 60 - 1)
         self.assertEqual(result.returncode, 10)
         self.assertIn("Signing did not complete within", result.stderr)
         # The point of bounding sign: the setup lock does not outlive a hang.
@@ -185,6 +257,7 @@ class DiscoveryBoundsTests(unittest.TestCase):
         elapsed = time.monotonic() - started
 
         self.assertLess(elapsed, 30 + 6, f'open hung {elapsed:.1f}s past its 30s bound')
+        self.assertGreaterEqual(elapsed, 30 - 1)
         self.assertEqual(result.returncode, 10)
         self.assertIn("could not open the Shortcut", result.stderr)
         # Parity with today's failed-open semantics: pending stays written.
