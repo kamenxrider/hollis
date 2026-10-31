@@ -67,7 +67,7 @@ type agentContextFlag struct {
 	Default string `json:"default,omitempty"`
 }
 
-func newAgentContextCmd(rootCmd *cobra.Command) *cobra.Command {
+func newAgentContextCmd(rootCmd *cobra.Command, flags *rootFlags) *cobra.Command {
 	var pretty bool
 	cmd := &cobra.Command{
 		Use:         "agent-context",
@@ -78,11 +78,15 @@ agents can introspect this CLI at runtime without parsing --help or
 reading source. Schema is versioned via schema_version.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := buildAgentContext(rootCmd)
+			projected, err := projectOutput(ctx, flags)
+			if err != nil {
+				return err
+			}
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			if pretty {
 				enc.SetIndent("", "  ")
 			}
-			return enc.Encode(ctx)
+			return enc.Encode(projected)
 		},
 		Args: noExtraArgs("agent-context"),
 	}
@@ -110,7 +114,7 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 				"timeout": 7, "config": 10,
 				"request_declined": 5, "shortcut_failed": 5,
 			},
-			JSONSchema:    "agent meta schema_version=2; data under results; --select filters results",
+			JSONSchema:    "agent meta schema_version=2; data under results; --select filters declared result fields; unknown field paths are usage errors (exit 2), including for empty results",
 			ErrorSchema:   "{meta:{source,schema_version},error:{code,message,exit_code}}",
 			ModelDefaults: "positional model <tier> > explicit --model flag > config model > built-in default; text defaults to auto, --image defaults directly to cloud",
 			Fallback:      "auto tries cloud once, then on-device once, only for confirmed missing bridges or recognized rate limits; all other failures stop without another model call",
