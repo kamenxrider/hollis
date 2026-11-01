@@ -105,7 +105,7 @@ func TestRespondSchemaRejectionsHappenBeforeTheRunner(t *testing.T) {
 		{"pattern keyword", []string{"respond", "--model", "local", "--schema", badPointer, "hi"}, "/properties/p/pattern", 2},
 		{"integer enum", []string{"respond", "--model", "local", "--schema", intEnum, "hi"}, "/properties/p/enum", 2},
 		{"depth four", []string{"respond", "--model", "local", "--schema", deep, "hi"}, "object nesting exceeds depth 3", 2},
-		{"600 nested arrays", []string{"respond", "--model", "local", "--schema", deepArrays, "hi"}, "schema nesting exceeds depth 8", 2},
+		{"600 nested arrays", []string{"respond", "--model", "local", "--schema", deepArrays, "hi"}, "schema nesting exceeds depth 16", 2},
 		{"non-ascii property name", []string{"respond", "--model", "local", "--schema", unicodeName, "hi"}, "property names must be printable ASCII", 2},
 		{"not json", []string{"respond", "--model", "local", "--schema", notJSON, "hi"}, "schema is not valid JSON", 2},
 		{"missing file", []string{"respond", "--model", "local", "--schema", filepath.Join(t.TempDir(), "absent.json"), "hi"}, "schema file \"absent.json\"", 2},

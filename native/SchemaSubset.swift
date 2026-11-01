@@ -49,7 +49,7 @@ indirect enum JSONValue: Decodable {
 /// The bounds are the design's: root object, depth 3 (the root counts as
 /// depth 1, and every child schema node adds a level), 32 declared properties
 /// across the whole tree, 64 KiB of normalized encoding, array bounds no
-/// greater than 100, and at most 8 schema nodes on one path counting the root.
+/// greater than 100, and at most 16 schema nodes on one path counting the root.
 /// Anything outside the subset is rejected, never guessed.
 enum SchemaSubset {
     static let maxEncodedBytes = 64 * 1024
@@ -60,7 +60,7 @@ enum SchemaSubset {
     /// more tightly; this bound also covers array chains, whose `items` can be
     /// another array. Kept equal to the Go consumer's SchemaMaxNesting so both
     /// sides reject the same documents with the same pointer.
-    static let maxNesting = 8
+    static let maxNesting = 16
     static let rootName = "HollisResponse"
 
     indirect enum Node {
@@ -115,7 +115,7 @@ enum SchemaSubset {
         // chains unbounded, and a deeply nested document fails in this file's
         // decoder instead of as a clean rejection.
         guard nesting <= maxNesting else {
-            throw Failure(pointer: path, reason: "schema nesting exceeds depth 8")
+            throw Failure(pointer: path, reason: "schema nesting exceeds depth 16")
         }
         guard let fields = value.fields else {
             throw Failure(pointer: path, reason: "schema node must be an object")

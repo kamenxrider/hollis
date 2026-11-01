@@ -56,7 +56,7 @@ offending JSON pointer instead of being approximated:
 
 - the root is an object with `"additionalProperties": false`, as is every
   nested object; nesting stops at three object levels, with arrays adding none
-  object level. On top of that, at most eight schema nodes fit on one path,
+  object level. On top of that, at most sixteen schema nodes fit on one path,
   root included, so an array chain (`items` inside `items`) cannot nest without
   bound;
 - properties are `string`, `integer`, `number` or `boolean`; `required` names

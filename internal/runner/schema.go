@@ -34,7 +34,7 @@ const (
 	// SchemaMaxNesting counts schema nodes on one path, root included, so an
 	// array chain cannot nest without bound. Objects are bounded more tightly
 	// by SchemaMaxDepth; this bound applies to every node kind.
-	SchemaMaxNesting = 8
+	SchemaMaxNesting = 16
 	// SchemaMaxItems is the largest accepted minItems/maxItems value.
 	SchemaMaxItems = 100
 	// schemaMaxInteger is the largest integer bound exactly representable as a
@@ -307,7 +307,7 @@ func parseSchemaNode(value schemaValue, path string, objectDepth, nesting int, b
 	// decoder after the request has already spawned. Rejecting here keeps the
 	// pre-spawn promise and gives Go and Swift the same pointer.
 	if nesting > SchemaMaxNesting {
-		return nil, &SchemaError{Pointer: path, Reason: "schema nesting exceeds depth 8"}
+		return nil, &SchemaError{Pointer: path, Reason: "schema nesting exceeds depth 16"}
 	}
 	if value.kind != schemaObject {
 		return nil, &SchemaError{Pointer: path, Reason: "schema node must be an object"}

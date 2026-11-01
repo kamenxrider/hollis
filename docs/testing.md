@@ -52,13 +52,13 @@ are identical, so the rule removes the divergence instead of documenting it,
 and both parity directions are exercised by the precomposed/decomposed cases in
 the table.
 
-The same table bounds nesting: three object levels as before, plus at most eight
-schema nodes on one path counting the root. Object depth alone left array chains
-(`items` inside `items`) unbounded, and a document deep enough failed in the
-helper's decoder after the request had spawned. `array nesting 6` is accepted,
-`array nesting 7` and `array nesting 12` are rejected, and a Go-only case drives
-600 levels through `ParseSchema` and the CLI to prove the rejection happens
-before any process exists.
+The same table bounds nesting: three object levels as before, plus at most
+sixteen schema nodes on one path counting the root. Object depth alone left array
+chains (`items` inside `items`) unbounded, and a document deep enough failed in
+the helper's decoder after the request had spawned. `array nesting 14` is
+accepted, `array nesting 15` and `array nesting 20` are rejected, and a Go-only
+case drives 600 levels through `ParseSchema` and the CLI to prove the rejection
+happens before any process exists.
 
 ## SQLite migration gates
 

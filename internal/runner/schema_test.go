@@ -337,20 +337,20 @@ func TestParseSchemaBoundsTotalNesting(t *testing.T) {
 	// enough then failed in the helper's decoder after the request had already
 	// spawned, which contradicts the pre-spawn rejection.
 	//
-	// Root object (1) plus k arrays puts the leaf at k+2, so k=6 reaches the
-	// bound of 8 and k=7 exceeds it.
-	if _, err := ParseSchema([]byte(arrayChain(6))); err != nil {
-		t.Fatalf("nesting 8 rejected: %v", err)
+	// Root object (1) plus k arrays puts the leaf at k+2, so k=14 reaches the
+	// bound of 16 and k=15 exceeds it.
+	if _, err := ParseSchema([]byte(arrayChain(14))); err != nil {
+		t.Fatalf("nesting 16 rejected: %v", err)
 	}
-	_, err := ParseSchema([]byte(arrayChain(7)))
+	_, err := ParseSchema([]byte(arrayChain(15)))
 	var failure *SchemaError
 	if !asSchemaError(err, &failure) {
 		t.Fatalf("error = %v; want *SchemaError", err)
 	}
-	if failure.Reason != "schema nesting exceeds depth 8" {
+	if failure.Reason != "schema nesting exceeds depth 16" {
 		t.Fatalf("reason = %q; want the nesting sentence", failure.Reason)
 	}
-	if want := "/properties/p" + strings.Repeat("/items", 7); failure.Pointer != want {
+	if want := "/properties/p" + strings.Repeat("/items", 15); failure.Pointer != want {
 		t.Fatalf("pointer = %q; want %q", failure.Pointer, want)
 	}
 	// The reviewer's probe: hundreds of levels were accepted by both parsers

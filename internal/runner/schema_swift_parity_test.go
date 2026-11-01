@@ -268,9 +268,9 @@ func swiftParityCases() []swiftParityCase {
 		now("decomposed enum choice", typed(`{"type":"string","enum":["cafe\u0301"]}`)),
 		// Object depth stops objects at three levels; this bound also covers
 		// array chains, whose items can be another array.
-		now("array nesting 6", arrays(6)),
-		now("array nesting 7", arrays(7)),
-		now("array nesting 12", arrays(12)),
+		now("array nesting 14", arrays(14)),
+		now("array nesting 15", arrays(15)),
+		now("array nesting 20", arrays(20)),
 		solidus,
 
 		// Payload cases carry the value inside the declared property. A bare
