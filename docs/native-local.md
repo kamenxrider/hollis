@@ -38,6 +38,12 @@ not add image input, image generation or tool/function calls to this route.
 
 ## Guided output
 
+This section describes current source, checked at commit `8a2e4bd` on
+2026-11-01 with helper 0.5.0/protocol 2. Runtime 0.4.0 and plugin 0.2.0's pinned
+runtime use protocol 1 and do not include `--schema` or protocol-2 context
+diagnostics. Build the CLI and helper from the same source revision for these
+features; do not mix the current CLI with a released 0.4.0 helper.
+
 `--schema` asks the native model for an object that follows a supported subset
 of JSON Schema. The schema is validated before the helper is spawned, so an
 unsupported schema costs no inference:
@@ -124,14 +130,17 @@ Structural validity is all this feature establishes. A conforming object is not
 a claim that its content is correct. See [the API guide](api.md) for the
 OpenAI-shaped endpoints, which keep `content` as a JSON string.
 
-Guided output arrives with helper 0.5.0, so it needs the bundle from the same
-release as the CLI. The helper is asked which protocol it speaks before a schema
-request spawns, so an older helper costs no inference: it is refused, pointing
-at the matching bundle. Pairing the CLI with any other helper release is a
+Guided output requires helper 0.5.0/protocol 2 matched to the CLI. The helper is
+asked which protocol it speaks before a schema request spawns, so an older helper
+costs no inference: it is refused, pointing at the matching bundle.
+Pairing the CLI with any other helper release is a
 mismatch for every operation, guided or not; the refusal names the cause instead
 of degrading to plain text.
 
 ## Install the matching helper
+
+The commands below install released 0.4.0 native text/streaming support, not the
+current-source guided-output and context-diagnostic additions described above.
 
 The Apple Silicon release bundle contains `hollis`, `hollis-native`, the existing
 bridge archive, a file-hash manifest and the licence. The native helper is
@@ -168,6 +177,11 @@ material. Updating it preserves configuration, bridges and conversations.
 `hollis models --json` and `hollis doctor --json` describe availability. A successful
 availability check is not proof of successful inference or first-use consent.
 Missing Shortcuts do not prevent selecting `local`.
+
+With protocol 2, native availability results also expose measured `context_size`
+when available. On 2026-11-01, the checked macOS 27.2 build reported 8,192 tokens;
+this is an observation, not a fixed capacity guarantee. The 128 KiB prompt-byte
+limit remains separate. See the [dated qualification summary](../EVIDENCE.md#dated-qualification-summary).
 
 ## API clients
 
