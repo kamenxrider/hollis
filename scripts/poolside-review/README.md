@@ -27,12 +27,17 @@ top-level `message`, `detail`, or `code`, or otherwise one excerpt of the
 decoded document. When the body is not JSON, one excerpt of the text is used.
 On `401` and `403` only the status and the `type`/`code` identifiers are
 reported; free-text messages and excerpts are dropped. Redirects are refused
-without reading their body. Every diagnostic is limited to 500 bytes and
-collapses control and format characters onto one line before pattern matching.
-What remains has any `Bearer`, `sk-`, `gh[pousr]_`, or `github_pat_` value
-replaced with `[redacted]`, and any run of 8 or more consecutive characters of
-the configured credential replaced the same way. Request bodies and response
-headers are never printed.
+without reading their body. Every diagnostic is limited to 500 bytes. Before
+pattern matching, every whitespace character is replaced with a space and every
+other non-printable character, including format characters, is removed; runs of
+spaces then collapse to one. What remains has any `Bearer`, `sk-`, `gh[pousr]_`,
+or `github_pat_` value replaced with `[redacted]`, and any run of 8 or more
+consecutive characters of the configured credential replaced the same way.
+Request bodies and response headers are never printed.
+
+Known limit: run redaction matches contiguous characters of the credential, so a
+key echoed with a separator inserted every 7 characters or fewer never forms a
+long enough run and is not redacted. The pattern-based rules still apply.
 
 The review and comment jobs use clean runners. Only the fetch step receives a
 read-only GitHub token, only the inference step receives `POOLSIDE_API_KEY`, and

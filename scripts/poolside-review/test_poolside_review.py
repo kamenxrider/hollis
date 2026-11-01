@@ -7,6 +7,7 @@ import socket
 import ssl
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 from contextlib import redirect_stderr, redirect_stdout
@@ -479,6 +480,46 @@ class PoolsideResponseTests(unittest.TestCase):
         self.assertIn("[redacted]", message)
         self.assertNotIn(tail, message)
         self.assertNotIn("\u200b", message)
+
+    def test_whitespace_separators_keep_the_bearer_pattern_matching(self):
+        token = "abcdefghijklmnopqrstuvwxyz0123"
+        for separator, label in [
+            ("\u00a0", "no-break space"),
+            ("\u2028", "line separator"),
+            ("\u3000", "ideographic space"),
+            ("\u0085", "next line"),
+            ("\t", "tab"),
+        ]:
+            with self.subTest(separator=label):
+                body = encoded(
+                    {"error": {"message": f"auth Bearer{separator}{token}"}}
+                )
+                with self.assertRaises(poolside_review.ReviewError) as raised:
+                    poolside_review.create_review(
+                        diff_artifact(),
+                        poolside_api_key="placeholder",
+                        transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+                    )
+                message = str(raised.exception)
+                self.assertIn(poolside_review.REDACTED, message)
+                self.assertNotIn(token, message)
+                self.assertNotIn("Bearer" + token, message)
+
+    def test_credential_run_redaction_handles_a_long_key_quickly(self):
+        secret = "q" * 1024
+        text = ("a" * 7 + secret[:300]) * 8
+        started = time.monotonic()
+        redacted = poolside_review._redact_credential_runs(text, secret)
+        elapsed = time.monotonic() - started
+        self.assertNotIn(secret[:8], redacted)
+        self.assertLess(elapsed, 2.0)
+
+        # A run shorter than the minimum and a run of another key stay intact.
+        self.assertEqual(
+            poolside_review._redact_credential_runs("abc" + "q" * 7, secret),
+            "abc" + "q" * 7,
+        )
+        self.assertEqual(poolside_review._redact_credential_runs("z" * 8, secret), "z" * 8)
 
     def test_http_error_detail_redacts_credentials_and_control_characters(self):
         # Built at runtime so the repository never carries a credential-shaped literal.

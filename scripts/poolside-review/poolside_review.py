@@ -206,10 +206,10 @@ def _credential_from_headers(headers: Mapping[str, str]) -> str:
 
 
 def _normalize_error_text(text: str) -> str:
-    """Collapse whitespace and drop control and format characters early."""
+    """Map every whitespace character to a space and drop other non-printables."""
     characters = []
     for character in text:
-        if character in "\t\n\r\v\f":
+        if character.isspace():
             characters.append(" ")
         elif character.isprintable():
             characters.append(character)
@@ -220,18 +220,24 @@ def _redact_credential_runs(text: str, secret: str) -> str:
     """Remove every run of at least MIN_CREDENTIAL_RUN characters of the key."""
     if len(secret) < MIN_CREDENTIAL_RUN or not text:
         return text
+    windows = {
+        secret[start:start + MIN_CREDENTIAL_RUN]
+        for start in range(len(secret) - MIN_CREDENTIAL_RUN + 1)
+    }
     pieces = []
     index = 0
-    while index < len(text):
-        length = min(len(secret), len(text) - index)
-        while length >= MIN_CREDENTIAL_RUN and text[index:index + length] not in secret:
-            length -= 1
-        if length >= MIN_CREDENTIAL_RUN:
-            pieces.append(REDACTED)
-            index += length
-        else:
+    total = len(text)
+    while index < total:
+        if text[index:index + MIN_CREDENTIAL_RUN] not in windows:
             pieces.append(text[index])
             index += 1
+            continue
+        # Extend greedily so the longest run of key characters is covered.
+        end = index + MIN_CREDENTIAL_RUN
+        while end < total and text[index:end + 1] in secret:
+            end += 1
+        pieces.append(REDACTED)
+        index = end
     return "".join(pieces)
 
 
