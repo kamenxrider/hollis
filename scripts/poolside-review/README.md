@@ -19,6 +19,14 @@ request a tool or function call, do not finish with `stop`, or exceed the
 60,000-byte review limit. Model output is stored and posted only as Markdown
 text. The reviewer analyzes the diff only and does not run tests.
 
+A refused request fails with the HTTP status plus a bounded diagnostic: the
+first 16 KiB of the error body is kept, and only the provider's structured
+`type`, `code`, `param`, and `message` fields are reported, or a single-line
+excerpt when the body is not JSON. That text is cut to 500 bytes, stripped of
+control characters, and has the credential and any `Bearer`, `sk-`, `ghp_`, or
+`github_pat_` value replaced with `[redacted]`. The request body, response
+headers, and secret are never printed.
+
 The review and comment jobs use clean runners. Only the fetch step receives a
 read-only GitHub token, only the inference step receives `POOLSIDE_API_KEY`, and
 only the final posting step receives a GitHub token with `issues: write`.

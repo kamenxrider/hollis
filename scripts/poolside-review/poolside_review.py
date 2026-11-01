@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -32,9 +33,17 @@ MAX_MODEL_RESPONSE_BYTES = 1024 * 1024
 MAX_REVIEW_BYTES = 60_000
 MAX_REVIEW_ARTIFACT_BYTES = MAX_REVIEW_BYTES * 6 + 4096
 MAX_TOKENS = 4000
+MAX_ERROR_BODY_BYTES = 16 * 1024
+MAX_ERROR_DETAIL_BYTES = 500
 
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+CREDENTIAL_PATTERN = re.compile(
+    r"Bearer\s+[^\s\"']+|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}"
+    r"|sk-[A-Za-z0-9_-]{16,}"
+)
+ERROR_FIELDS = ("type", "code", "param", "message")
+DETAIL_FIELDS = ("message", "detail", "code")
 
 DIFF_KEYS = {
     "schema_version",
@@ -83,6 +92,27 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _error_response_body(error: urllib.error.HTTPError) -> bytes:
+    """Read a bounded, non-fatal copy of an error response body."""
+    try:
+        status = int(error.code)
+    except (TypeError, ValueError):
+        status = 0
+    raw = b""
+    if not 300 <= status < 400:
+        try:
+            candidate = error.read(MAX_ERROR_BODY_BYTES + 1)
+        except (OSError, ValueError, http.client.HTTPException):
+            candidate = b""
+        if isinstance(candidate, bytes):
+            raw = candidate[:MAX_ERROR_BODY_BYTES]
+    try:
+        error.close()
+    except (OSError, ValueError, http.client.HTTPException):
+        pass
+    return raw
+
+
 def urllib_transport(
     method: str,
     url: str,
@@ -120,7 +150,7 @@ def urllib_transport(
                 raise
             phase = "close"
     except urllib.error.HTTPError as error:
-        return HttpResponse(status=int(error.code), body=b"")
+        return HttpResponse(status=int(error.code), body=_error_response_body(error))
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         if error is response_error:
             phase = failed_phase
@@ -163,6 +193,61 @@ def _validate_fixed_url(url: str, expected_host: str) -> None:
         raise ReviewError("refused an unexpected HTTP destination")
 
 
+def _credential_from_headers(headers: Mapping[str, str]) -> str:
+    authorization = headers.get("Authorization", "")
+    if authorization.startswith("Bearer "):
+        return authorization[len("Bearer "):].strip()
+    return ""
+
+
+def _sanitize_error_text(text: str, secret: str) -> str:
+    """Reduce provider error text to one bounded, credential-free line."""
+    if secret:
+        text = text.replace(secret, "[redacted]")
+    text = CREDENTIAL_PATTERN.sub("[redacted]", text)
+    text = "".join(character if character.isprintable() else " " for character in text)
+    text = " ".join(text.split())
+    encoded = text.encode("utf-8", "replace")
+    if len(encoded) > MAX_ERROR_DETAIL_BYTES:
+        text = encoded[:MAX_ERROR_DETAIL_BYTES].decode("utf-8", "ignore").rstrip() + "..."
+    return text
+
+
+def _scalar_text(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return ""
+    return str(value).strip()
+
+
+def _error_detail(body: bytes, secret: str) -> str:
+    """Describe a failed response without echoing the request or credentials."""
+    if not body:
+        return "empty response body"
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        data = None
+    if isinstance(data, dict):
+        parts = []
+        error = data.get("error")
+        if isinstance(error, dict):
+            parts.extend(
+                f"{key}={_scalar_text(error.get(key))}"
+                for key in ERROR_FIELDS
+                if _scalar_text(error.get(key))
+            )
+        elif _scalar_text(error):
+            parts.append(f"error={_scalar_text(error)}")
+        parts.extend(
+            f"{key}={_scalar_text(data.get(key))}"
+            for key in DETAIL_FIELDS
+            if _scalar_text(data.get(key))
+        )
+        if parts:
+            return _sanitize_error_text("; ".join(parts), secret)
+    return _sanitize_error_text(body.decode("utf-8", "replace"), secret)
+
+
 def _request_json(
     *,
     transport: Transport,
@@ -182,7 +267,8 @@ def _request_json(
     if 300 <= response.status < 400:
         raise ReviewError(f"{service} redirect refused")
     if not 200 <= response.status < 300:
-        raise ReviewError(f"{service} returned HTTP {response.status}")
+        detail = _error_detail(response.body, _credential_from_headers(headers))
+        raise ReviewError(f"{service} returned HTTP {response.status}: {detail}")
     if len(response.body) > max_bytes:
         raise ReviewError(f"{service} response exceeded the configured size limit")
     try:

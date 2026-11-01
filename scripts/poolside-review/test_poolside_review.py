@@ -275,7 +275,7 @@ class PoolsideResponseTests(unittest.TestCase):
         self.assertEqual(len(transport.calls), 1)
         self.assertEqual(transport.calls[0]["url"], poolside_review.POOLSIDE_URL)
 
-    def test_http_error_does_not_expose_response_or_secret(self):
+    def test_http_error_detail_is_bounded_and_never_includes_the_secret(self):
         transport = FakeTransport(
             poolside_review.HttpResponse(500, b"poolside-secret internal-header-value")
         )
@@ -284,9 +284,81 @@ class PoolsideResponseTests(unittest.TestCase):
                 diff_artifact(), poolside_api_key="poolside-secret", transport=transport
             )
         message = str(raised.exception)
-        self.assertEqual(message, "Poolside returned HTTP 500")
+        self.assertTrue(message.startswith("Poolside returned HTTP 500: "))
+        self.assertIn("[redacted]", message)
         self.assertNotIn("poolside-secret", message)
-        self.assertNotIn("internal-header-value", message)
+
+    def test_http_error_reports_provider_type_code_and_message(self):
+        body = encoded(
+            {
+                "error": {
+                    "type": "invalid_request_error",
+                    "code": "model_not_found",
+                    "param": "model",
+                    "message": "Model poolside/laguna-s-2.1 is unavailable.",
+                }
+            }
+        )
+        with self.assertRaises(poolside_review.ReviewError) as raised:
+            poolside_review.create_review(
+                diff_artifact(),
+                poolside_api_key="placeholder",
+                transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+            )
+        self.assertEqual(
+            str(raised.exception),
+            "Poolside returned HTTP 400: type=invalid_request_error; code=model_not_found; "
+            "param=model; message=Model poolside/laguna-s-2.1 is unavailable.",
+        )
+
+    def test_http_error_without_a_body_reports_the_status_only(self):
+        with self.assertRaises(poolside_review.ReviewError) as raised:
+            poolside_review.create_review(
+                diff_artifact(),
+                poolside_api_key="placeholder",
+                transport=FakeTransport(poolside_review.HttpResponse(503, b"")),
+            )
+        self.assertEqual(
+            str(raised.exception), "Poolside returned HTTP 503: empty response body"
+        )
+
+    def test_http_error_detail_truncates_unstructured_bodies(self):
+        body = b"<html>" + b"x" * (poolside_review.MAX_ERROR_DETAIL_BYTES * 4) + b"</html>"
+        with self.assertRaises(poolside_review.ReviewError) as raised:
+            poolside_review.create_review(
+                diff_artifact(),
+                poolside_api_key="placeholder",
+                transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+            )
+        message = str(raised.exception)
+        detail = message.split(": ", 1)[1]
+        self.assertTrue(detail.startswith("<html>"))
+        self.assertTrue(detail.endswith("..."))
+        self.assertLessEqual(
+            len(detail.encode("utf-8")), poolside_review.MAX_ERROR_DETAIL_BYTES + 3
+        )
+
+    def test_http_error_detail_redacts_credentials_and_control_characters(self):
+        # Built at runtime so the repository never carries a credential-shaped literal.
+        provider_key = "sk-" + "synthetic" + "-" + "k" * 24
+        body = encoded(
+            {
+                "error": {
+                    "message": f"invalid key {provider_key}\nBearer another-token-value"
+                }
+            }
+        )
+        with self.assertRaises(poolside_review.ReviewError) as raised:
+            poolside_review.create_review(
+                diff_artifact(),
+                poolside_api_key="placeholder",
+                transport=FakeTransport(poolside_review.HttpResponse(401, body)),
+            )
+        message = str(raised.exception)
+        self.assertNotIn(provider_key, message)
+        self.assertNotIn("another-token-value", message)
+        self.assertNotIn("\n", message)
+        self.assertEqual(message.count("[redacted]"), 2)
 
     def test_refuses_diff_and_review_size_overflow(self):
         transport = FakeTransport()
@@ -446,7 +518,7 @@ class UrllibTransportTests(unittest.TestCase):
         self.assertIsInstance(build.call_args.args[0], poolside_review._NoRedirect)
         self.assertIsNone(build.call_args.args[0].redirect_request(None, None, 302, self.canary, {}, self.canary))
 
-    def test_http_errors_keep_status_only_behavior_and_redirect_refusal(self):
+    def test_http_errors_report_status_and_bounded_body_with_redirect_refusal(self):
         for status in [301, 307, 401, 403, 404, 429, 500, 503]:
             with self.subTest(status=status):
                 opener, _ = self.opener()
@@ -461,6 +533,12 @@ class UrllibTransportTests(unittest.TestCase):
                 with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
                     result = self.request()
                     self.assertEqual(result, poolside_review.HttpResponse(status, b""))
+                    if 300 <= status < 400:
+                        body.read.assert_not_called()
+                    else:
+                        body.read.assert_called_once_with(
+                            poolside_review.MAX_ERROR_BODY_BYTES + 1
+                        )
                     with self.assertRaises(poolside_review.ReviewError) as caught:
                         poolside_review._request_json(
                             transport=poolside_review.urllib_transport,
@@ -468,9 +546,28 @@ class UrllibTransportTests(unittest.TestCase):
                             expected_host="inference.poolside.ai", headers={}, payload={},
                             max_bytes=32, service="Poolside",
                         )
-                expected = "Poolside redirect refused" if status < 400 else f"Poolside returned HTTP {status}"
+                expected = (
+                    "Poolside redirect refused"
+                    if status < 400
+                    else f"Poolside returned HTTP {status}: empty response body"
+                )
                 self.assertEqual(str(caught.exception), expected)
-                body.read.assert_not_called()
+
+    def test_http_error_body_is_bounded_and_never_surfaces_read_failures(self):
+        def response_for(payload):
+            opener, _ = self.opener()
+            opener.open.side_effect = urllib.error.HTTPError(
+                "https://transport.invalid/" + self.canary, 400, self.canary, {}, io.BytesIO(payload)
+            )
+            with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
+                return self.request()
+
+        self.assertEqual(
+            response_for(b'{"error": {"message": "rejected"}}').body,
+            b'{"error": {"message": "rejected"}}',
+        )
+        bounded = response_for(b"x" * (poolside_review.MAX_ERROR_BODY_BYTES * 2))
+        self.assertEqual(len(bounded.body), poolside_review.MAX_ERROR_BODY_BYTES)
 
     def test_declared_and_actual_response_bounds_and_invalid_lengths_remain(self):
         for declared, actual, message, reads in [
