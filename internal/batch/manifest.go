@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -480,8 +479,12 @@ func validateConcreteModel(model runner.Model) error {
 	return nil
 }
 
+// concreteModel accepts every route with a table row: the Shortcut tiers and
+// the native local route. auto is a routing policy with no row and stays
+// rejected.
 func concreteModel(model runner.Model) bool {
-	return model == runner.ModelLocal || slices.Contains(runner.Models, model)
+	_, ok := runner.Spec(model)
+	return ok
 }
 
 func validateModelItems(model runner.Model, items []Item) error {

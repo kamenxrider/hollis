@@ -141,19 +141,22 @@ func validateImageRequestShape(model Model, prompt string, imagePaths []string) 
 	if len(imagePaths) == 0 {
 		return usage(errors.New("image request requires at least one --image path"))
 	}
-	switch model {
-	case ModelCloud, ModelCloudPro:
-		// Multiple images were measured successfully on both Apple cloud tiers.
-	case ModelChatGPT:
-		if len(imagePaths) != 1 {
-			return usage(errors.New("chatgpt accepts exactly one --image; multiple image paths were unreliable in testing"))
-		}
-	case ModelOnDevice:
-		return usage(errors.New("--image is unavailable with on-device: the tested Shortcut ignored the pixels"))
-	case ModelAuto:
+	// Route facts come from the table; auto, a routing policy rather than a
+	// route, keeps its own arm. This is an if chain rather than a switch so
+	// that no production code dispatches on a model value — routespec_guard
+	// enforces that, and the table is the only place such a decision belongs.
+	spec, ok := routeSpecs[model]
+	if model == ModelAuto {
 		return usage(errors.New("--image is unavailable with auto because auto can fall back to on-device"))
-	default:
+	}
+	if !ok || spec.Transport != TransportShortcuts {
 		return usage(fmt.Errorf("%w: %q", ErrUnknownModel, model))
+	}
+	if !spec.Capabilities.Images {
+		return usage(errors.New(spec.ImageRestriction))
+	}
+	if spec.Capabilities.MaxImages == 1 && len(imagePaths) != 1 {
+		return usage(fmt.Errorf("%s accepts exactly one --image; multiple image paths were unreliable in testing", model))
 	}
 
 	for _, path := range imagePaths {

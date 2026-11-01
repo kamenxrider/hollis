@@ -38,12 +38,12 @@ const (
 	ModelLocal    Model = "local"
 )
 
-// Models contains Shortcut-backed tiers only; native ModelLocal has no bridge.
-// ModelAuto is a
-// strategy, not a tier: it tries the default tier first and may fall back to
-// the on-device model for confirmed missing bridges or recognized rate limits, so
-// it is valid for selection but has no bridge of its own.
-var Models = []Model{ModelCloud, ModelCloudPro, ModelOnDevice, ModelChatGPT}
+// Models returns Shortcut-backed tier IDs in canonical table order; native
+// ModelLocal has no bridge. ModelAuto is a strategy, not a tier: it tries the
+// default tier first and may fall back to the on-device model for confirmed
+// missing bridges or recognized rate limits, so it is valid for selection but
+// has no bridge of its own.
+func Models() []Model { return routeOrderSnapshot() }
 
 // ModelAuto selects the default tier (cloud) and falls back to the
 // on-device model only for a confirmed missing bridge or recognized rate limit.
@@ -51,16 +51,13 @@ var Models = []Model{ModelCloud, ModelCloudPro, ModelOnDevice, ModelChatGPT}
 const ModelAuto Model = "auto"
 
 // Valid reports whether m is selectable: any concrete tier or auto.
+// Single map lookup on the canonical route table.
 func (m Model) Valid() bool {
-	if m == ModelAuto || m == ModelLocal {
+	if m == ModelAuto {
 		return true
 	}
-	for _, v := range Models {
-		if m == v {
-			return true
-		}
-	}
-	return false
+	_, ok := routeSpecs[m]
+	return ok
 }
 
 // Bridge UUIDs measured from the installed signed shortcuts on the development
@@ -148,7 +145,7 @@ func (e *Error) Unwrap() error { return e.Err }
 // We refuse to spawn: empty input makes `shortcuts run` hang forever.
 var ErrEmptyPrompt = errors.New("empty prompt")
 
-// ErrUnknownModel is returned for a Model outside runner.Models.
+// ErrUnknownModel is returned for a Model with no route-table row.
 var ErrUnknownModel = errors.New("unknown model")
 
 // Runner sends one prompt to Apple Intelligence and returns the plain-text

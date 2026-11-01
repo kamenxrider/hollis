@@ -131,7 +131,7 @@ func TestRunRecoversCommittedResultAfterFinalSaveFailureWithoutRecall(t *testing
 	if stored.Items[0].Status != StatusSucceeded || stored.Items[0].Result == nil {
 		t.Fatalf("recovered item = %+v, want succeeded result", stored.Items[0])
 	}
-	if want := clock.Now().Add(cloudCallSpacing); !stored.NextCallNotBefore.Equal(want) {
+	if want := clock.Now().Add(mustCloudSpacing()); !stored.NextCallNotBefore.Equal(want) {
 		t.Fatalf("next call = %s, want conservative recovered spacing %s", stored.NextCallNotBefore, want)
 	}
 
@@ -160,7 +160,7 @@ func TestRunInterruptedAttemptBecomesUncertainAndRequiresChoice(t *testing.T) {
 	if got := store.snapshot().Items[0].Status; got != StatusUncertain {
 		t.Fatalf("stored status = %q, want uncertain", got)
 	}
-	if got := store.snapshot().NextCallNotBefore; !got.Equal(newFakeClock().Now().Add(cloudCallSpacing)) {
+	if got := store.snapshot().NextCallNotBefore; !got.Equal(newFakeClock().Now().Add(mustCloudSpacing())) {
 		t.Fatalf("recovery pacing = %s, want conservative restart spacing", got)
 	}
 	if len(executor.requests) != 0 {
@@ -185,8 +185,9 @@ func TestRunExplicitUncertainRetryWaitsAndUsesNextAttempt(t *testing.T) {
 	if result.Attempted != 1 || result.Succeeded != 1 || len(executor.requests) != 1 {
 		t.Fatalf("summary=%+v requests=%+v", result, executor.requests)
 	}
-	if executor.requests[0].Attempt != 2 || len(clock.waits) != 1 || clock.waits[0] != cloudCallSpacing {
-		t.Fatalf("request=%+v waits=%v, want attempt 2 after %s", executor.requests[0], clock.waits, cloudCallSpacing)
+	spacing := mustCloudSpacing()
+	if executor.requests[0].Attempt != 2 || len(clock.waits) != 1 || clock.waits[0] != spacing {
+		t.Fatalf("request=%+v waits=%v, want attempt 2 after %s", executor.requests[0], clock.waits, spacing)
 	}
 }
 
@@ -615,4 +616,14 @@ func cloneEngineJob(job *Job) *Job {
 		}
 	}
 	return &copy
+}
+
+// mustCloudSpacing is the table's measured gap for the cloud tier; the
+// table's own values are pinned in internal/runner.
+func mustCloudSpacing() time.Duration {
+	spec, ok := runner.Spec(runner.ModelCloud)
+	if !ok {
+		panic("cloud missing from route table")
+	}
+	return spec.BatchSpacing
 }
