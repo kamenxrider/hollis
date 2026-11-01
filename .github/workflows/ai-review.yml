@@ -1,4 +1,4 @@
-name: Poolside code review
+name: AI code review
 
 on:
   pull_request_target:
@@ -8,13 +8,13 @@ on:
 permissions: {}
 
 concurrency:
-  group: poolside-review-${{ github.event.pull_request.number }}
+  group: ai-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   review:
     # Only the protected default branch is trusted. Forks are rejected before
-    # the Poolside secret is exposed, and drafts wait until they are ready.
+    # the AI review secret is exposed, and drafts wait until they are ready.
     if: >-
       github.event.pull_request.base.ref == github.event.repository.default_branch &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -39,31 +39,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          REVIEW_OUTPUT_DIR: ${{ runner.temp }}/poolside-review
+          REVIEW_OUTPUT_DIR: ${{ runner.temp }}/ai-review
           REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
           REVIEW_REPOSITORY: ${{ github.repository }}
         run: |
-          python3 trusted-source/scripts/poolside-review/poolside_review.py fetch-diff \
+          python3 trusted-source/scripts/ai-review/ai_review.py fetch-diff \
             --repository "$REVIEW_REPOSITORY" \
             --pull-request "$REVIEW_PR_NUMBER" \
             --base-sha "$REVIEW_BASE_SHA" \
             --head-sha "$REVIEW_HEAD_SHA" \
             --output "$REVIEW_OUTPUT_DIR/diff.json"
 
-      - name: Request a text-only Poolside review
+      - name: Request a text-only AI review
         env:
-          POOLSIDE_API_KEY: ${{ secrets.POOLSIDE_API_KEY }}
-          REVIEW_OUTPUT_DIR: ${{ runner.temp }}/poolside-review
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          REVIEW_OUTPUT_DIR: ${{ runner.temp }}/ai-review
         run: |
-          python3 trusted-source/scripts/poolside-review/poolside_review.py create-review \
+          python3 trusted-source/scripts/ai-review/ai_review.py create-review \
             --input "$REVIEW_OUTPUT_DIR/diff.json" \
             --output "$REVIEW_OUTPUT_DIR/review.json"
 
       - name: Upload the bounded review artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: poolside-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
-          path: ${{ runner.temp }}/poolside-review/review.json
+          name: ai-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/ai-review/review.json
           if-no-files-found: error
           retention-days: 1
 
@@ -83,8 +83,8 @@ jobs:
       - name: Download the review artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: poolside-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
-          path: ${{ runner.temp }}/poolside-review-artifact
+          name: ai-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/ai-review-artifact
 
       - name: Validate the artifact as inert data
         env:
@@ -92,8 +92,8 @@ jobs:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EXPECTED_PR_NUMBER: ${{ github.event.pull_request.number }}
           EXPECTED_REPOSITORY: ${{ github.repository }}
-          REVIEW_ARTIFACT_DIR: ${{ runner.temp }}/poolside-review-artifact
-          REVIEW_REQUEST_DIR: ${{ runner.temp }}/poolside-review-post
+          REVIEW_ARTIFACT_DIR: ${{ runner.temp }}/ai-review-artifact
+          REVIEW_REQUEST_DIR: ${{ runner.temp }}/ai-review-post
         run: |
           set -eu
           test -f "$REVIEW_ARTIFACT_DIR/review.json"
@@ -125,7 +125,7 @@ jobs:
           EXPECTED_PR_NUMBER: ${{ github.event.pull_request.number }}
           EXPECTED_REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-          REVIEW_REQUEST: ${{ runner.temp }}/poolside-review-post/request.json
+          REVIEW_REQUEST: ${{ runner.temp }}/ai-review-post/request.json
         run: |
           /usr/bin/gh api --silent --method POST \
             "repos/$EXPECTED_REPOSITORY/issues/$EXPECTED_PR_NUMBER/comments" \

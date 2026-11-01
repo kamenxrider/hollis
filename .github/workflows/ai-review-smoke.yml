@@ -1,10 +1,10 @@
-name: Poolside smoke test
+name: AI smoke test
 
-# Manual, single-call check that the Poolside review credential works and that
+# Manual, single-call check that the AI review credential works and that
 # one review response has the shape the review workflow expects. It builds a
 # fixed synthetic diff in the runner, sends it once, keeps the response as an
 # artifact, and never touches a pull request. Only a dispatch of the default
-# branch runs the job. Provider-free checks live in scripts/poolside-review;
+# branch runs the job. Provider-free checks live in scripts/ai-review;
 # this workflow only needs the repository secret.
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: poolside-smoke-test
+  group: ai-review-smoke-test
   cancel-in-progress: false
 
 env:
@@ -48,7 +48,7 @@ jobs:
 
       - name: Build the fixed synthetic review request
         env:
-          SMOKE_DIR: ${{ runner.temp }}/poolside-smoke
+          SMOKE_DIR: ${{ runner.temp }}/ai-review-smoke
           SMOKE_REPOSITORY: ${{ github.repository }}
         run: |
           set -eu
@@ -95,23 +95,23 @@ jobs:
           print(f"synthetic request bytes: {path.stat().st_size}")
           PY
 
-      - name: Request exactly one Poolside review
+      - name: Request exactly one AI review
         env:
-          POOLSIDE_API_KEY: ${{ secrets.POOLSIDE_API_KEY }}
-          SMOKE_DIR: ${{ runner.temp }}/poolside-smoke
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SMOKE_DIR: ${{ runner.temp }}/ai-review-smoke
         run: |
           set -eu
-          if [ -z "${POOLSIDE_API_KEY:-}" ]; then
-            echo "POOLSIDE_API_KEY is not configured for this repository; add the secret and dispatch again." >&2
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "OPENAI_API_KEY is not configured for this repository; add the secret and dispatch again." >&2
             exit 1
           fi
-          python3 trusted-source/scripts/poolside-review/poolside_review.py create-review \
+          python3 trusted-source/scripts/ai-review/ai_review.py create-review \
             --input "$SMOKE_DIR/diff.json" \
             --output "$SMOKE_DIR/review.json"
 
       - name: Validate the response shape
         env:
-          SMOKE_DIR: ${{ runner.temp }}/poolside-smoke
+          SMOKE_DIR: ${{ runner.temp }}/ai-review-smoke
           SMOKE_REPOSITORY: ${{ github.repository }}
           HELPER_COMMIT: ${{ steps.helper.outputs.commit }}
         run: |
@@ -140,14 +140,14 @@ jobs:
           import re
           from pathlib import Path
 
-          helper = Path("trusted-source/scripts/poolside-review/poolside_review.py")
+          helper = Path("trusted-source/scripts/ai-review/ai_review.py")
           model = re.search(
-              r'^POOLSIDE_MODEL = "([^"]+)"$',
+              r'^OPENAI_MODEL = "([^"]+)"$',
               helper.read_text(encoding="utf-8"),
               re.MULTILINE,
           )
           if model is None:
-              raise SystemExit("could not read POOLSIDE_MODEL from the reviewed helper")
+              raise SystemExit("could not read OPENAI_MODEL from the reviewed helper")
 
           directory = Path(os.environ["SMOKE_DIR"])
           review = json.loads((directory / "review.json").read_text(encoding="utf-8"))
@@ -166,7 +166,7 @@ jobs:
               encoding="utf-8",
           )
           print(
-              "Poolside smoke test passed: "
+              "AI smoke test passed: "
               f"model={summary['model']} review_bytes={summary['review_bytes']} "
               f"helper={summary['helper_commit']}"
           )
@@ -175,9 +175,9 @@ jobs:
       - name: Upload the response and summary evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: poolside-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ai-review-smoke-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/poolside-smoke/review.json
-            ${{ runner.temp }}/poolside-smoke/smoke-summary.json
+            ${{ runner.temp }}/ai-review-smoke/review.json
+            ${{ runner.temp }}/ai-review-smoke/smoke-summary.json
           if-no-files-found: error
           retention-days: 1

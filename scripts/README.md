@@ -10,7 +10,7 @@ harnesses, recorded conversations or machine-specific run evidence.
   Its tests use synthetic assets and isolated state.
 - `image-install-check/` checks generated image bridge wiring without inference.
 - `release/` enforces reviewed file membership and publication privacy.
-- `poolside-review/` implements the bounded PR-review workflow and fake-HTTP tests.
+- `ai-review/` implements the bounded AI PR-review workflow and fake-HTTP tests.
 
 See [Testing Hollis](../docs/testing.md) for the standard provider-free checks
 and the [plugin package guide](../plugins/hollis/docs/package.md) for packaging.
