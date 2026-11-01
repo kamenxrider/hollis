@@ -127,8 +127,16 @@ bundle; that refusal is a component mismatch, so it reports `native_protocol`
 with exit 5, the same class as a helper that speaks too new a protocol.
 
 Structural validity is all this feature establishes. A conforming object is not
-a claim that its content is correct. See [the API guide](api.md) for the
-OpenAI-shaped endpoints, which keep `content` as a JSON string.
+a claim that its content is correct.
+
+The same guided-output path is reachable over HTTP: `/v1/chat/completions`
+accepts `response_format` and `/v1/responses` accepts `text.format`, both with
+OpenAI's `json_schema` shape. The HTTP surface validates the schema before
+capacity or spawn, refuses every route but `local`, refuses `stream:true` and
+image input alongside a schema, re-validates the returned object, and returns
+the object as a JSON string. An old helper maps to HTTP 502 `native_protocol`,
+the same class as the CLI's exit 5. Field handling, error codes and examples are
+in [the API guide](api.md#guided-json-output).
 
 Guided output requires helper 0.5.0/protocol 2 matched to the CLI. The helper is
 asked which protocol it speaks before a schema request spawns, so an older helper
