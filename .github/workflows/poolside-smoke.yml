@@ -1,0 +1,178 @@
+name: Poolside smoke test
+
+# Manual, single-call check that the Poolside review credential works and that
+# one review response has the shape the review workflow expects. It builds a
+# fixed synthetic diff in the runner, sends it once, keeps the response as an
+# artifact, and never touches a pull request. Provider-free checks live in
+# scripts/poolside-review; this workflow only needs the repository secret.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: poolside-smoke-test
+  cancel-in-progress: false
+
+env:
+  SYNTHETIC_PR_NUMBER: "1"
+  SYNTHETIC_BASE_SHA: "0000000000000000000000000000000000000000"
+  SYNTHETIC_HEAD_SHA: "1111111111111111111111111111111111111111"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      # Only the default branch is reviewed and trusted, so a dispatch from any
+      # other ref still runs this helper from the default branch.
+      - name: Check out the reviewed default-branch helper
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: trusted-source
+
+      - name: Record the helper commit
+        id: helper
+        run: echo "commit=$(git -C trusted-source rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+
+      - name: Build the fixed synthetic review request
+        env:
+          SMOKE_DIR: ${{ runner.temp }}/poolside-smoke
+          SMOKE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -eu
+          python3 - <<'PY'
+          import json
+          import os
+          import textwrap
+          from pathlib import Path
+
+          # One tiny invented diff with a deliberate off-by-one, so a real
+          # review has something to report. It is not read from the repository.
+          diff_text = textwrap.dedent(
+              """\
+              diff --git a/smoke/latest.py b/smoke/latest.py
+              new file mode 100644
+              index 0000000..9f2c1ab
+              --- /dev/null
+              +++ b/smoke/latest.py
+              @@ -0,0 +1,7 @@
+              +def latest(items, count):
+              +    \"\"\"Return the newest count items.\"\"\"
+              +    return items[:count - 1]
+              +
+              +
+              +def newest_item(items):
+              +    return latest(items, 1)[0]
+              """
+          )
+
+          request = {
+              "schema_version": 1,
+              "repository": os.environ["SMOKE_REPOSITORY"],
+              "pull_request": int(os.environ["SYNTHETIC_PR_NUMBER"]),
+              "base_sha": os.environ["SYNTHETIC_BASE_SHA"],
+              "head_sha": os.environ["SYNTHETIC_HEAD_SHA"],
+              "diff_text": diff_text,
+          }
+          path = Path(os.environ["SMOKE_DIR"]) / "diff.json"
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(
+              json.dumps(request, ensure_ascii=False, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          print(f"synthetic request bytes: {path.stat().st_size}")
+          PY
+
+      - name: Request exactly one Poolside review
+        env:
+          POOLSIDE_API_KEY: ${{ secrets.POOLSIDE_API_KEY }}
+          SMOKE_DIR: ${{ runner.temp }}/poolside-smoke
+        run: |
+          set -eu
+          if [ -z "${POOLSIDE_API_KEY:-}" ]; then
+            echo "POOLSIDE_API_KEY is not configured for this repository; add the secret and dispatch again." >&2
+            exit 1
+          fi
+          python3 trusted-source/scripts/poolside-review/poolside_review.py create-review \
+            --input "$SMOKE_DIR/diff.json" \
+            --output "$SMOKE_DIR/review.json"
+
+      - name: Validate the response shape
+        env:
+          SMOKE_DIR: ${{ runner.temp }}/poolside-smoke
+          SMOKE_REPOSITORY: ${{ github.repository }}
+          HELPER_COMMIT: ${{ steps.helper.outputs.commit }}
+        run: |
+          set -eu
+          test -f "$SMOKE_DIR/review.json"
+          test ! -L "$SMOKE_DIR/review.json"
+          test "$(stat -c %s "$SMOKE_DIR/review.json")" -le 364096
+          /usr/bin/jq -e \
+            --arg repository "$SMOKE_REPOSITORY" \
+            --arg pr "$SYNTHETIC_PR_NUMBER" \
+            --arg base "$SYNTHETIC_BASE_SHA" \
+            --arg head "$SYNTHETIC_HEAD_SHA" \
+            'type == "object" and
+             keys == ["base_sha", "head_sha", "pull_request", "repository", "review_markdown", "schema_version"] and
+             .schema_version == 1 and
+             .repository == $repository and
+             .pull_request == ($pr | tonumber) and
+             .base_sha == $base and .head_sha == $head and
+             (.review_markdown | type == "string") and
+             (.review_markdown | utf8bytelength > 0 and utf8bytelength <= 60000)' \
+            "$SMOKE_DIR/review.json" >/dev/null
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          helper = Path("trusted-source/scripts/poolside-review/poolside_review.py")
+          model = re.search(
+              r'^POOLSIDE_MODEL = "([^"]+)"$',
+              helper.read_text(encoding="utf-8"),
+              re.MULTILINE,
+          )
+          if model is None:
+              raise SystemExit("could not read POOLSIDE_MODEL from the reviewed helper")
+
+          directory = Path(os.environ["SMOKE_DIR"])
+          review = json.loads((directory / "review.json").read_text(encoding="utf-8"))
+          text = review["review_markdown"].encode("utf-8")
+          summary = {
+              "schema_version": 1,
+              "model": model.group(1),
+              "repository": review["repository"],
+              "helper_commit": os.environ["HELPER_COMMIT"],
+              "review_bytes": len(text),
+              "review_sha256": hashlib.sha256(text).hexdigest(),
+              "validation": "passed",
+          }
+          (directory / "smoke-summary.json").write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(
+              "Poolside smoke test passed: "
+              f"model={summary['model']} review_bytes={summary['review_bytes']} "
+              f"helper={summary['helper_commit']}"
+          )
+          PY
+
+      - name: Upload the response and summary evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: poolside-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/poolside-smoke/review.json
+            ${{ runner.temp }}/poolside-smoke/smoke-summary.json
+          if-no-files-found: error
+          retention-days: 1

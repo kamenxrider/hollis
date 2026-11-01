@@ -6,6 +6,7 @@
     ".github/workflows/ci.yml": "638f612ca993e9f8b343fd9a897a311c60dc77de57a51c439ac1e385bdef6d94",
     ".github/workflows/plugin-release.yml": "24859b831de1dad35fdd760abf53368b95fc787a52fdf649a01ed2cfbf77fffd",
     ".github/workflows/poolside-review.yml": "9e3358301d070f8efa312a6fe10e5dc2f28f66a01f02a5b43b664b9036c7d242",
+    ".github/workflows/poolside-smoke.yml": "6833116e2d3ccba261e220f00523fa97e725671c2dc2fab73305aa93e0361362",
     ".github/workflows/release.yml": "5d1a68ef4c9ec9b5506e6fd62a35d9e09a6fec5d1f283997dba6009f44c46b48",
     ".gitignore": "54b9b790f433194cc7fded4d6d7f4710af7fd4909566f093678521877ce150a8",
     "EVIDENCE.md": "2f7d48844f99714ed9ef944646707352322d39198c3d707c730568c2dfe19e6a",
