@@ -233,6 +233,34 @@ func TestListTimeoutMarkerSkipsModelTimeoutHint(t *testing.T) {
 	}
 }
 
+func TestProbeTimeoutMarkerSkipsTheModelTimeoutHint(t *testing.T) {
+	const message = "native helper did not answer --protocol-version within the probe deadline"
+	err := toCLIError(&runner.Error{
+		Kind:         runner.KindTimeout,
+		ExitCode:     -1,
+		ProbeTimeout: true,
+		Err:          errors.New(message),
+	})
+	if got := ExitCode(err); got != 7 {
+		t.Fatalf("probe timeout exit code = %d, want 7", got)
+	}
+	text := err.Error()
+	if !strings.Contains(text, message) {
+		t.Fatalf("message = %q; want the probe sentence", text)
+	}
+	for _, unwanted := range []string{
+		"model request exceeded its deadline",
+		"larger --timeout (up to the 120s ceiling)",
+	} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("probe timeout acquired %q: %v", unwanted, err)
+		}
+	}
+	if !strings.Contains(text, "probe deadline is 5s") {
+		t.Fatalf("message = %q; want the truthful fixed-deadline hint", text)
+	}
+}
+
 func TestUnknownModelFlagExitsUsage(t *testing.T) {
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
 	cmd.SetArgs([]string{"respond", "--model", "nope", "hello"})

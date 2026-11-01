@@ -21,6 +21,32 @@ and historical run receipts are maintained separately and are not distributed.
 Synthetic privacy canaries in tests are fabricated values used to verify that
 errors do not disclose request data.
 
+## Cross-language schema parity
+
+Guided output (see [native local](native-local.md#guided-output)) validates a
+schema subset twice: the shipped Swift helper (`native/SchemaSubset.swift`)
+parses it before generation, and Hollis re-checks the returned object against
+the same subset. Both parsers are compiled and compared over one case table, so
+a divergence in acceptance, JSON pointer or rejection reason fails a test:
+
+```sh
+HOLLIS_SCHEMA_PARITY=1 go test ./internal/runner -run TestSchemaSwiftParity -count=1 -v
+```
+
+The test skips without `HOLLIS_SCHEMA_PARITY=1` because it compiles Swift, and
+it skips on hosts without the macOS 27 SDK or on a non-arm64 machine. It is
+offline: it builds the checked-in subset parser and a harness from the same
+source tree, runs them locally, and calls no model. The payload cases carry the
+value inside a declared property so the per-node checks are actually compared,
+and one case straddles the 64 KiB gate with solidus characters, because
+Foundation escapes `/` and that decision moves the measured size.
+
+Accepted limitation: the two runtimes normalise Unicode differently, so a
+schema whose enum choice is precomposed `é` and a returned value in decomposed
+`e` + combining acute agrees in Swift but is rejected in Go. Rejecting is the
+safe direction: Hollis refuses an object the helper would have accepted, never
+the reverse.
+
 ## SQLite migration gates
 
 Storage tests use temporary SQLite fixtures, not user databases. Run the two

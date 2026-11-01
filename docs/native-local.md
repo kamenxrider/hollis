@@ -64,7 +64,12 @@ offending JSON pointer instead of being approximated:
 - `minimum`/`maximum` are integral for integers and finite for numbers;
 - rejections include references, `anyOf`/`oneOf`/`allOf`/`not`, patterns,
   formats, string bounds, defaults, descriptions and contradictions such as
-  `maxItems < minItems`. The normalized schema is capped at 64 KiB.
+  `maxItems < minItems`. The normalized schema is capped at 64 KiB, measured
+  the way the helper measures it: sorted keys, `/` escaped, 17 significant
+  digits.
+- an object that repeats a key is rejected rather than resolved. Foundation
+  keeps the first value of a duplicate key and Go keeps the last, so an
+  ambiguous schema would be measured and enforced differently on each side.
 
 Guided output is complete-only: `--schema` refuses `--stream`, `--image` and
 every route except `local` before generation. The returned object is re-checked
@@ -77,8 +82,13 @@ bundle.
 Structural validity is all this feature establishes. A conforming object is not
 a claim that its content is correct. See [the API guide](api.md) for the
 OpenAI-shaped endpoints, which keep `content` as a JSON string.
-local supports text, including the existing TXT/MD document preparation. It does
-not add image input, image generation or tool/function calls to this route.
+
+Guided output arrives with helper 0.5.0, so it needs the bundle from the same
+release as the CLI. The helper is asked which protocol it speaks before a schema
+request spawns, so an older helper costs no inference: it is refused, pointing
+at the matching bundle. Pairing the CLI with any other helper release is a
+mismatch for every operation, guided or not; the refusal names the cause instead
+of degrading to plain text.
 
 ## Install the matching helper
 

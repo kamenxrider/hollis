@@ -187,8 +187,17 @@ func (r *NativeRunner) requireGuidedSupport(ctx context.Context, path string) er
 		StdoutCap: 4096,
 		StderrCap: -1,
 	})
-	if ctxErr := nativeContextError(probeCtx); ctxErr != nil {
-		return ctxErr
+	if errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+		// No model request happened, so the generic "native local request
+		// timed out" wording (and the CLI's raise-your-timeout hint) would
+		// describe something that never occurred. The probe has its own
+		// deadline and its own sentence.
+		re := nativeError(KindTimeout, "native helper did not answer --protocol-version within the probe deadline")
+		re.ProbeTimeout = true
+		return re
+	}
+	if probeCtx.Err() != nil {
+		return nativeError(KindContextCanceled, "native local request canceled")
 	}
 	if runErr != nil || !res.Started || res.WaitErr != nil {
 		return nativeError(KindNativeFailed, "native helper could not report its supported protocol")
@@ -199,7 +208,7 @@ func (r *NativeRunner) requireGuidedSupport(ctx context.Context, path string) er
 	}
 	switch {
 	case reported < NativeProtocol:
-		return nativeError(KindUsage, "native helper does not support guided output; update the matched bundle")
+		return nativeError(KindUsage, "native helper does not support guided output; install the matching bundle")
 	case reported > NativeProtocol:
 		return nativeError(KindNativeProtocol, "native helper version, protocol or model mismatch; install the matching bundle")
 	default:
@@ -347,14 +356,19 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 			if ready || event.Available == nil {
 				return nativeError(KindNativeProtocol, "invalid native status sequence")
 			}
-			ready = true
-			status = LocalStatus{Available: *event.Available, Reason: event.Reason, Protocol: event.Protocol, Version: event.Version}
+			// Build and fully validate the candidate before it becomes the
+			// reported status. A rejected event must not leave a half-filled
+			// status behind: the failure result carries it, and a diagnostic
+			// caller must never see available:true from an event we refused.
+			candidate := LocalStatus{Available: *event.Available, Reason: event.Reason, Protocol: event.Protocol, Version: event.Version}
 			if event.ContextSize != nil {
 				if *event.ContextSize <= 0 {
 					return nativeError(KindNativeProtocol, "invalid native context size")
 				}
-				status.ContextSize = *event.ContextSize
+				candidate.ContextSize = *event.ContextSize
 			}
+			ready = true
+			status = candidate
 			if operation == "status" {
 				terminal = true
 			} else if !status.Available {

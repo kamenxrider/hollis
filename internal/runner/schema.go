@@ -41,6 +41,11 @@ const (
 // SchemaError rejects a schema or a returned payload. Pointer is a JSON
 // pointer into the offending document (empty for the document root); Reason is
 // a fixed sentence that never contains caller content.
+//
+// Pointer keeps the document's property names verbatim so it can be compared
+// with the helper's own pointer for the same fault. Those names are caller
+// input, so Error escapes control characters: a property name containing ESC or
+// BEL must not reach a terminal as a live escape sequence.
 type SchemaError struct {
 	Pointer string
 	Reason  string
@@ -50,7 +55,29 @@ func (e *SchemaError) Error() string {
 	if e.Pointer == "" {
 		return e.Reason
 	}
-	return "schema at " + e.Pointer + ": " + e.Reason
+	return "schema at " + sanitizeSchemaPointer(e.Pointer) + ": " + e.Reason
+}
+
+// sanitizeSchemaPointer renders control characters as escapes. It mirrors the
+// terminal policy used for model output, but applies unconditionally: an error
+// message may be written to a terminal the caller has not identified, and no
+// control byte in a JSON pointer carries meaning.
+func sanitizeSchemaPointer(pointer string) string {
+	if !strings.ContainsFunc(pointer, func(r rune) bool {
+		return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f)
+	}) {
+		return pointer
+	}
+	var safe strings.Builder
+	for _, character := range pointer {
+		switch {
+		case character < 0x20 || character == 0x7f || (character >= 0x80 && character <= 0x9f):
+			fmt.Fprintf(&safe, "\\u%04x", character)
+		default:
+			safe.WriteRune(character)
+		}
+	}
+	return safe.String()
 }
 
 // Schema is a parsed, validated request schema. It is immutable and safe to
@@ -109,21 +136,18 @@ type schemaNode struct {
 // ParseSchema validates data against the supported subset and returns the
 // schema plus its normalized encoding. Rejections carry a JSON pointer.
 func ParseSchema(data []byte) (*Schema, error) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	var raw any
-	if err := decoder.Decode(&raw); err != nil {
-		return nil, &SchemaError{Reason: "schema is not valid JSON"}
-	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return nil, &SchemaError{Reason: "schema must be one JSON value"}
-	}
-	value, ok := schemaValueOf(raw)
-	if !ok {
-		return nil, &SchemaError{Reason: "schema is not valid JSON"}
+	value, err := decodeSchemaDocument(data, "schema")
+	if err != nil {
+		return nil, err
 	}
 	normalized, ok := value.encode()
-	if !ok || len(normalized) > SchemaMaxBytes {
+	if !ok {
+		// Decoding already rejects numbers that cannot be re-encoded, so this
+		// is defensive: report it as its own fault rather than as a size
+		// failure, which would be false.
+		return nil, &SchemaError{Reason: "schema contains a value that cannot be encoded"}
+	}
+	if len(normalized) > SchemaMaxBytes {
 		return nil, &SchemaError{Reason: "schema is larger than 64 KiB"}
 	}
 	if kind, present := value.object["type"]; value.kind != schemaObject || !present ||
@@ -141,62 +165,122 @@ func ParseSchema(data []byte) (*Schema, error) {
 	return &Schema{root: root, raw: normalized}, nil
 }
 
+// decodeSchemaDocument decodes one JSON document into the generic tree,
+// rejecting duplicate object keys and numbers that cannot be re-encoded.
+//
+// Duplicate keys are refused rather than resolved. Foundation's decoder keeps
+// the first value where encoding/json keeps the last, so a schema with a
+// repeated key would be measured and enforced differently on each side; failing
+// closed here means the helper never sees an ambiguous schema. Numbers outside
+// the finite double range are refused with their own reason: they cannot be
+// measured or re-encoded, and reporting them as an oversized schema would be
+// false.
+func decodeSchemaDocument(data []byte, subject string) (schemaValue, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	value, err := decodeSchemaValue(decoder, subject, "")
+	if err != nil {
+		return schemaValue{}, documentError(err, subject, " is not valid JSON")
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return schemaValue{}, documentError(err, subject, " must be one JSON value")
+	}
+	return value, nil
+}
+
+// documentError keeps a specific rejection (duplicate key, number range) and
+// otherwise reports the document-level failure for this subject.
+func documentError(err error, subject, fallback string) error {
+	var failure *SchemaError
+	if errors.As(err, &failure) {
+		return failure
+	}
+	return &SchemaError{Reason: subject + fallback}
+}
+
+// decodeSchemaValue reads one value from the token stream, tracking object keys
+// so a duplicate is reported at its own pointer.
+func decodeSchemaValue(decoder *json.Decoder, subject, path string) (schemaValue, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return schemaValue{}, err
+	}
+	delim, isDelim := token.(json.Delim)
+	if !isDelim {
+		switch value := token.(type) {
+		case nil:
+			return schemaValue{kind: schemaNull}, nil
+		case bool:
+			return schemaValue{kind: schemaBool, boolean: value}, nil
+		case json.Number:
+			converted := schemaValue{kind: schemaNumber, number: value}
+			if _, ok := converted.asFloat(); !ok {
+				return schemaValue{}, &SchemaError{Pointer: path,
+					Reason: subject + " contains a number outside the supported range"}
+			}
+			return converted, nil
+		case string:
+			return schemaValue{kind: schemaString, text: value}, nil
+		default:
+			return schemaValue{}, errors.New("unsupported JSON token")
+		}
+	}
+	switch delim {
+	case '{':
+		fields := map[string]schemaValue{}
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return schemaValue{}, err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return schemaValue{}, errors.New("unsupported JSON object key")
+			}
+			if _, duplicate := fields[key]; duplicate {
+				return schemaValue{}, &SchemaError{Pointer: pointer(path, key),
+					Reason: subject + " must not repeat an object key"}
+			}
+			child, err := decodeSchemaValue(decoder, subject, pointer(path, key))
+			if err != nil {
+				return schemaValue{}, err
+			}
+			fields[key] = child
+		}
+		if _, err := decoder.Token(); err != nil {
+			return schemaValue{}, err
+		}
+		return schemaValue{kind: schemaObject, object: fields}, nil
+	case '[':
+		var items []schemaValue
+		for index := 0; decoder.More(); index++ {
+			child, err := decodeSchemaValue(decoder, subject, path+"/"+strconv.Itoa(index))
+			if err != nil {
+				return schemaValue{}, err
+			}
+			items = append(items, child)
+		}
+		if _, err := decoder.Token(); err != nil {
+			return schemaValue{}, err
+		}
+		return schemaValue{kind: schemaArray, array: items}, nil
+	default:
+		return schemaValue{}, errors.New("unsupported JSON delimiter")
+	}
+}
+
 // Validate reports whether a returned payload conforms to the requested
 // schema. Structural validity is all it establishes: it never claims the
 // values are semantically correct.
 func (s *Schema) Validate(payload json.RawMessage) error {
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.UseNumber()
-	var raw any
-	if err := decoder.Decode(&raw); err != nil {
-		return &SchemaError{Reason: "returned payload is not valid JSON"}
-	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return &SchemaError{Reason: "returned payload is not one JSON value"}
-	}
-	value, ok := schemaValueOf(raw)
-	if !ok {
-		return &SchemaError{Reason: "returned payload is not valid JSON"}
+	value, err := decodeSchemaDocument(payload, "returned payload")
+	if err != nil {
+		return err
 	}
 	if bad := validateSchemaValue(value, s.root, ""); bad != "" {
 		return &SchemaError{Pointer: bad, Reason: "returned payload does not match the requested schema"}
 	}
 	return nil
-}
-
-func schemaValueOf(raw any) (schemaValue, bool) {
-	switch value := raw.(type) {
-	case nil:
-		return schemaValue{kind: schemaNull}, true
-	case bool:
-		return schemaValue{kind: schemaBool, boolean: value}, true
-	case json.Number:
-		return schemaValue{kind: schemaNumber, number: value}, true
-	case string:
-		return schemaValue{kind: schemaString, text: value}, true
-	case []any:
-		items := make([]schemaValue, 0, len(value))
-		for _, item := range value {
-			converted, ok := schemaValueOf(item)
-			if !ok {
-				return schemaValue{}, false
-			}
-			items = append(items, converted)
-		}
-		return schemaValue{kind: schemaArray, array: items}, true
-	case map[string]any:
-		fields := make(map[string]schemaValue, len(value))
-		for name, item := range value {
-			converted, ok := schemaValueOf(item)
-			if !ok {
-				return schemaValue{}, false
-			}
-			fields[name] = converted
-		}
-		return schemaValue{kind: schemaObject, object: fields}, true
-	default:
-		return schemaValue{}, false
-	}
 }
 
 func (v schemaValue) asFloat() (float64, bool) {
@@ -533,7 +617,10 @@ func pointer(path, component string) string {
 
 // encode is the whitespace-free, sorted-key encoding the helper measures. It
 // follows Foundation's JSON encoder for the value shapes this subset admits:
-// non-ASCII stays UTF-8, and only JSON's own escapes are emitted.
+// keys sorted, non-ASCII kept as UTF-8, "/" escaped as "\/", and numbers
+// printed with 17 significant digits. The 64 KiB bound is applied to this
+// encoding on both sides, so matching Foundation's number and slash decisions
+// is what keeps the two measurements comparable.
 func (v schemaValue) encode() ([]byte, bool) {
 	var builder strings.Builder
 	if !v.encodeTo(&builder) {
@@ -575,17 +662,20 @@ func (v schemaValue) encodeTo(builder *strings.Builder) bool {
 		if !ok {
 			return false
 		}
-		if number == math.Trunc(number) && math.Abs(number) < 1e21 {
-			builder.WriteString(strconv.FormatFloat(number, 'f', -1, 64))
-			return true
-		}
-		builder.WriteString(strconv.FormatFloat(number, 'g', -1, 64))
+		builder.WriteString(formatJSONNumber(number))
 	case schemaBool:
 		builder.WriteString(strconv.FormatBool(v.boolean))
 	case schemaNull:
 		builder.WriteString("null")
 	}
 	return true
+}
+
+// formatJSONNumber reproduces Foundation's JSON number text: 17 significant
+// digits in shortest-exponent form. Verified against JSONSerialization for
+// 1, 1.5, 0.1, 1e18, 1e21, 2^53, 1e300, 5e-324 and -0.
+func formatJSONNumber(value float64) string {
+	return strconv.FormatFloat(value, 'g', 17, 64)
 }
 
 func writeJSONString(builder *strings.Builder, value string) {
@@ -597,6 +687,11 @@ func writeJSONString(builder *strings.Builder, value string) {
 			builder.WriteString(`\"`)
 		case '\\':
 			builder.WriteString(`\\`)
+		// Foundation escapes every solidus, not only the JSON-mandated ones.
+		// Matching it keeps the measured size identical for schema values that
+		// contain a path, and a divergence here would shift the 64 KiB gate.
+		case '/':
+			builder.WriteString(`\/`)
 		case '\n':
 			builder.WriteString(`\n`)
 		case '\r':

@@ -124,6 +124,11 @@ type Error struct {
 	// the model request deadline, and the error already carries the
 	// approved fixed sentence shared with the bounded shell path.
 	ListTimeout bool
+	// ProbeTimeout marks a KindTimeout raised by the capability probe that
+	// runs before a helper is spawned. No model request was made, and the
+	// probe deadline is fixed, so the CLI must not suggest a larger
+	// --timeout.
+	ProbeTimeout bool
 }
 
 func (e *Error) Error() string {

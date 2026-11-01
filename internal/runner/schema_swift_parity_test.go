@@ -206,6 +206,12 @@ func swiftParityCases() []swiftParityCase {
 	withValue := func(name, schema, value string) swiftParityCase {
 		return swiftParityCase{Name: name, Schema: json.RawMessage(schema), Value: json.RawMessage(value)}
 	}
+	// The 64 KiB gate is measured on the normalized encoding, and Foundation
+	// writes every solidus as \/. This schema carries 33 KB of solidus in the
+	// source: escaped, it is over the gate; left bare it would be under it. The
+	// case only agrees when both sides escape alike.
+	solidus := now("size gate counts escaped solidus",
+		typed(`{"type":"string","enum":["`+strings.Repeat("/", 33000)+`"]}`))
 	return []swiftParityCase{
 		now("empty object", object("", "")),
 		now("string", typed(`{"type":"string"}`)),
@@ -243,13 +249,24 @@ func swiftParityCases() []swiftParityCase {
 		now("escaped pointer", `{"type":"object","additionalProperties":false,"properties":{"a/b~c":{"type":"string","pattern":"x"}}}`),
 		now("missing type", typed(`{"properties":{}}`)),
 		now("unsupported type", typed(`{"type":"null"}`)),
+		solidus,
 
-		withValue("payload conforming", typed(`{"type":"integer","minimum":0,"maximum":10}`), `3`),
-		withValue("payload wrong type", typed(`{"type":"integer"}`), `"3"`),
-		withValue("payload fractional", typed(`{"type":"integer"}`), `1.5`),
-		withValue("payload above maximum", typed(`{"type":"integer","maximum":10}`), `11`),
-		withValue("payload enum mismatch", typed(`{"type":"string","enum":["a"]}`), `"b"`),
-		withValue("payload array bounds", typed(`{"type":"array","items":{"type":"string"},"minItems":1}`), `[]`),
+		// Payload cases carry the value inside the declared property. A bare
+		// scalar against an object root agrees trivially, so it would not
+		// compare any of the checks these cases are named for.
+		withValue("payload conforming", typed(`{"type":"integer","minimum":0,"maximum":10}`), `{"p":3}`),
+		withValue("payload wrong type", typed(`{"type":"integer"}`), `{"p":"3"}`),
+		withValue("payload fractional", typed(`{"type":"integer"}`), `{"p":1.5}`),
+		withValue("payload above maximum", typed(`{"type":"integer","maximum":10}`), `{"p":11}`),
+		withValue("payload below minimum", typed(`{"type":"integer","minimum":0}`), `{"p":-1}`),
+		withValue("payload number above maximum", typed(`{"type":"number","maximum":1.5}`), `{"p":1.6}`),
+		withValue("payload enum mismatch", typed(`{"type":"string","enum":["a"]}`), `{"p":"b"}`),
+		withValue("payload array below minItems", typed(`{"type":"array","items":{"type":"string"},"minItems":1}`), `{"p":[]}`),
+		withValue("payload array above maxItems", typed(`{"type":"array","items":{"type":"string"},"maxItems":1}`), `{"p":["a","b"]}`),
+		withValue("payload array item fault", typed(`{"type":"array","items":{"type":"integer"}}`), `{"p":[1,"b"]}`),
+		withValue("payload missing required", typed(`{"type":"string"}`), `{}`),
+		withValue("payload extra property", typed(`{"type":"string"}`), `{"p":"a","q":1}`),
+		withValue("payload nested fault", object(`{"p":`+typed(`{"type":"string"}`)+`}`, ""), `{"p":{"p":1}}`),
 		withValue("payload root mismatch", object("", ""), `[1]`),
 	}
 }

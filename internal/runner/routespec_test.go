@@ -215,3 +215,49 @@ func TestValidateRouteTable(t *testing.T) {
 		t.Fatalf("table did not restore cleanly: %v", err)
 	}
 }
+
+// TestGuidedOutputIsPinnedToTheNativeRow keeps the two statements the CLI and
+// the diagnostics rely on equal: guided output is declared by the native route
+// and by nothing else, and declaring it elsewhere is a table error. With that
+// invariant, reading spec.Capabilities.Schema and comparing the model name are
+// the same predicate, so the table is the single place the fact lives.
+func TestGuidedOutputIsPinnedToTheNativeRow(t *testing.T) {
+	corrupt := func(m Model, mutate func(*RouteSpec)) error {
+		original, ok := routeSpecs[m]
+		if !ok {
+			t.Fatalf("%s row missing", m)
+		}
+		changed := original
+		mutate(&changed)
+		routeSpecs[m] = changed
+		err := validateRouteTable()
+		routeSpecs[m] = original
+		return err
+	}
+	if err := corrupt(ModelLocal, func(s *RouteSpec) { s.Capabilities.Schema = false }); err == nil {
+		t.Error("native row without guided output accepted")
+	}
+	if err := corrupt(ModelCloud, func(s *RouteSpec) { s.Capabilities.Schema = true }); err == nil {
+		t.Error("guided output declared on a Shortcut route accepted")
+	}
+	if err := corrupt(ModelLocal, func(s *RouteSpec) { s.Capabilities.Usage = false }); err == nil {
+		t.Error("native guided output without measured usage accepted")
+	}
+	if err := validateRouteTable(); err != nil {
+		t.Fatalf("table did not restore cleanly: %v", err)
+	}
+	// The live table must actually declare it once, on the native row.
+	declared := 0
+	for m := range routeSpecs {
+		spec, _ := Spec(m)
+		if spec.Capabilities.Schema {
+			declared++
+			if m != ModelLocal {
+				t.Fatalf("%s declares guided output", m)
+			}
+		}
+	}
+	if declared != 1 {
+		t.Fatalf("%d rows declare guided output; want exactly the native row", declared)
+	}
+}

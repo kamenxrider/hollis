@@ -306,7 +306,13 @@ again before it is reported as success.`,
 				if err := json.Indent(&pretty, structured, "", "  "); err != nil {
 					return transportErr(errors.New("returned structured output is not valid JSON"))
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), pretty.String())
+				// JSON escapes C0 controls but not C1, and 0x9b is an 8-bit CSI
+				// introducer on some terminals, so the model's string values can
+				// still carry a live sequence. Sanitizing the rendered text is
+				// lossless for JSON: an escaped \u0080 inside a string literal
+				// decodes to the same character. Non-terminal output is
+				// untouched, so pipes and files keep the exact bytes.
+				fmt.Fprintln(cmd.OutOrStdout(), humanTerminalText(cmd.OutOrStdout(), pretty.String()))
 				return nil
 			}
 			// Plain text out. Apple emits no trailing newline; add one
@@ -331,28 +337,26 @@ again before it is reported as success.`,
 }
 
 // schemaFileReadLimit bounds the raw file before parsing. The subset's own
-// 64 KiB bound applies to the normalized encoding, so a pretty-printed schema
-// legitimately exceeds it in source bytes.
+// 64 KiB bound applies to the normalized encoding, and Foundation's encoder
+// escapes each "/" as "\/", so a pretty-printed schema legitimately exceeds the
+// normalized bound in source bytes.
 const schemaFileReadLimit = 1 << 20
 
 // readSchemaFile parses and validates a guided-output schema. Every rejection
 // is a usage error naming the offending JSON pointer, and it happens before the
 // helper is spawned.
+//
+// The read follows the same safe-input rules as --prompt-file and --file:
+// basename-only diagnostics, classified errors that never carry the caller's
+// local path, a regular-file check before reading, and a non-blocking open so a
+// raced FIFO cannot stall the command.
 func readSchemaFile(path string) (*runner.Schema, error) {
 	if path == "" {
 		return nil, usageErr(errors.New("--schema requires a file path"))
 	}
-	file, err := os.Open(path)
+	data, err := docinput.ReadFile(path, "schema file", schemaFileReadLimit)
 	if err != nil {
-		return nil, usageErr(fmt.Errorf("read schema file: %w", err))
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, schemaFileReadLimit+1))
-	if err != nil {
-		return nil, usageErr(fmt.Errorf("read schema file: %w", err))
-	}
-	if len(data) > schemaFileReadLimit {
-		return nil, usageErr(fmt.Errorf("schema file exceeds the %d-byte read limit", schemaFileReadLimit))
+		return nil, usageErr(err)
 	}
 	schema, err := runner.ParseSchema(data)
 	if err != nil {

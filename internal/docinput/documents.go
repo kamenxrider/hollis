@@ -5,11 +5,9 @@ package docinput
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"unicode/utf8"
 )
 
@@ -39,27 +37,9 @@ func ReadDocument(path string, maxBytes int64) (Document, error) {
 	}
 
 	name := filepath.Base(path)
-	info, err := os.Stat(path)
+	data, err := ReadFile(path, "document", maxBytes)
 	if err != nil {
-		return Document{}, fmt.Errorf("inspect document %q: %w", name, classifyFileError(err))
-	}
-	if !info.Mode().IsRegular() {
-		return Document{}, fmt.Errorf("document %q must be a regular file", name)
-	}
-
-	// O_NONBLOCK prevents a raced path replacement from blocking on a FIFO
-	// before readPromptBytes can validate the opened descriptor.
-	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return Document{}, fmt.Errorf("open document %q: %w", name, classifyFileError(err))
-	}
-	data, readErr := readPromptBytes(file, maxBytes)
-	closeErr := file.Close()
-	if readErr != nil {
-		return Document{}, fmt.Errorf("read document %q: %w", name, readErr)
-	}
-	if closeErr != nil {
-		return Document{}, fmt.Errorf("close document %q: %w", name, classifyFileError(closeErr))
+		return Document{}, err
 	}
 
 	if !utf8.Valid(data) {

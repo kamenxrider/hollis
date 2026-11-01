@@ -5,11 +5,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/kamenxrider/hollis/internal/runner"
 )
@@ -87,7 +90,7 @@ func TestRespondSchemaRejectionsHappenBeforeTheRunner(t *testing.T) {
 		{"integer enum", []string{"respond", "--model", "local", "--schema", intEnum, "hi"}, "/properties/p/enum", 2},
 		{"depth four", []string{"respond", "--model", "local", "--schema", deep, "hi"}, "object nesting exceeds depth 3", 2},
 		{"not json", []string{"respond", "--model", "local", "--schema", notJSON, "hi"}, "schema is not valid JSON", 2},
-		{"missing file", []string{"respond", "--model", "local", "--schema", filepath.Join(t.TempDir(), "absent.json"), "hi"}, "read schema file", 2},
+		{"missing file", []string{"respond", "--model", "local", "--schema", filepath.Join(t.TempDir(), "absent.json"), "hi"}, "schema file \"absent.json\"", 2},
 		{"cloud route", []string{"respond", "--model", "cloud", "--schema", valid, "hi"}, "requires --model local", 2},
 		{"auto route", []string{"respond", "--schema", valid, "hi"}, "requires --model local", 2},
 		{"stream", []string{"respond", "--model", "local", "--schema", valid, "--stream", "hi"}, "complete-only", 2},
@@ -350,6 +353,167 @@ func TestDoctorReportsMeasuredContextSize(t *testing.T) {
 	}
 }
 
+func TestRejectedStatusNeverReportsAvailable(t *testing.T) {
+	stubConfigPath(t)
+	stubResolution(t, allImportedNames(), true, 27)
+	// A status read that failed may still hand back the partial value it had
+	// built. Both diagnostics must report the failure rather than the leftover
+	// availability, and the measured detail belongs to a successful read only.
+	status := runner.LocalStatus{Available: true, Protocol: 2, Version: "0.5.0", ContextSize: 4096}
+	statusErr := &runner.Error{Kind: runner.KindNativeProtocol, ExitCode: -1, Err: errors.New("invalid native context size")}
+
+	models := NewRootCmd(func() runner.Runner { return &statusFixtureRunner{status: status, err: statusErr} })
+	models.SetArgs([]string{"models", "--model", "local", "--json"})
+	var modelsOut bytes.Buffer
+	models.SetOut(&modelsOut)
+	models.SetErr(io.Discard)
+	if err := models.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(modelsOut.Bytes(), &rows); err != nil {
+		t.Fatalf("JSON: %v (%q)", err, modelsOut.String())
+	}
+	if len(rows) != 1 || rows[0]["available"] != false {
+		t.Fatalf("models row = %#v; a failed status must not report available", rows)
+	}
+	if _, present := rows[0]["context_size"]; present {
+		t.Fatalf("models row = %#v; a failed status has no measured context window", rows[0])
+	}
+	if got, _ := rows[0]["status"].(string); !strings.HasPrefix(got, "unavailable: ") {
+		t.Fatalf("models status = %q; want the failure", got)
+	}
+
+	humanModels := NewRootCmd(func() runner.Runner { return &statusFixtureRunner{status: status, err: statusErr} })
+	humanModels.SetArgs([]string{"models", "--model", "local"})
+	var humanOut bytes.Buffer
+	humanModels.SetOut(&humanOut)
+	humanModels.SetErr(io.Discard)
+	if err := humanModels.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if line := humanOut.String(); strings.Contains(line, "available\n") || strings.Contains(line, "context window") {
+		t.Fatalf("human models line = %q; want the failure with no measured detail", line)
+	}
+
+	doctor := NewRootCmd(func() runner.Runner { return &statusFixtureRunner{status: status, err: statusErr} })
+	doctor.SetArgs([]string{"doctor", "--json"})
+	var doctorOut bytes.Buffer
+	doctor.SetOut(&doctorOut)
+	doctor.SetErr(io.Discard)
+	if err := doctor.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var report map[string]any
+	if err := json.Unmarshal(doctorOut.Bytes(), &report); err != nil {
+		t.Fatalf("JSON: %v (%q)", err, doctorOut.String())
+	}
+	local, ok := report["local"].(map[string]any)
+	if !ok || local["available"] != false {
+		t.Fatalf("doctor local row = %#v; want available false", report["local"])
+	}
+	if _, present := local["context_size"]; present {
+		t.Fatalf("doctor local row = %#v; want no context size", local)
+	}
+}
+
+// TestSchemaFileReadErrorsNeverCarryTheLocalPath pins the safe-input contract
+// on the new --schema surface: a rejected path is named by basename only, and a
+// FIFO cannot stall the command waiting for a writer.
+func TestSchemaFileReadErrorsNeverCarryTheLocalPath(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "absent-schema.json")
+	_, err := readSchemaFile(missing)
+	if err == nil {
+		t.Fatal("readSchemaFile accepted a missing file")
+	}
+	if ExitCode(err) != 2 {
+		t.Fatalf("exit code = %d; want usage 2", ExitCode(err))
+	}
+	if strings.Contains(err.Error(), dir) {
+		t.Fatalf("error = %q; leaked the local directory", err.Error())
+	}
+	if !strings.Contains(err.Error(), "absent-schema.json") {
+		t.Fatalf("error = %q; want the basename for the caller to recognise", err.Error())
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("error = %v; want os.ErrNotExist to survive classification", err)
+	}
+
+	fifo := filepath.Join(dir, "schema.fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := readSchemaFile(fifo)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "must be a regular file") {
+			t.Fatalf("readSchemaFile(FIFO) = %v; want the regular-file rejection", err)
+		}
+		if strings.Contains(err.Error(), dir) {
+			t.Fatalf("error = %q; leaked the local directory", err.Error())
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("readSchemaFile blocked on a FIFO")
+	}
+}
+
+func TestGuidedHumanOutputStripsTerminalControls(t *testing.T) {
+	stubConfigPath(t)
+	old := terminalOutput
+	terminalOutput = func(io.Writer) bool { return true }
+	t.Cleanup(func() { terminalOutput = old })
+	schema := writeSchemaFixture(t, cliGuidedSchema)
+	// C1 controls survive JSON encoding as raw UTF-8, and 0x9b is an 8-bit CSI
+	// introducer on some terminals. ESC and BEL arrive as \u escapes and are
+	// already inert, but the renderer has to leave them inert in both forms.
+	structured := json.RawMessage("{\"name\":\"a\u0085b\u009bc\\u001bd\\u0007e\"}")
+	r := &schemaFixtureRunner{structured: structured}
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs([]string{"respond", "--model", "local", "--schema", schema, "produce"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	printed := out.String()
+	if strings.ContainsAny(printed, "\x1b\x07") {
+		t.Fatalf("output = %q; a C0 control reached the writer", printed)
+	}
+	if strings.Contains(printed, "\u0085") || strings.Contains(printed, "\u009b") {
+		t.Fatalf("output = %q; a C1 control reached the writer", printed)
+	}
+	if !strings.Contains(printed, `\u0085`) || !strings.Contains(printed, `\u009b`) {
+		t.Fatalf("output = %q; want the C1 controls rendered as escapes", printed)
+	}
+	// A pipe or file keeps the exact payload bytes: only a terminal gets the
+	// escaped render, and the JSON surface is never rewritten.
+	for _, wantTTY := range []bool{true, false} {
+		terminalOutput = func(io.Writer) bool { return wantTTY }
+		r := &schemaFixtureRunner{structured: structured}
+		cmd := NewRootCmd(func() runner.Runner { return r })
+		cmd.SetArgs([]string{"respond", "--model", "local", "--schema", schema, "--json", "produce"})
+		var piped bytes.Buffer
+		cmd.SetOut(&piped)
+		cmd.SetErr(io.Discard)
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		var envelope map[string]json.RawMessage
+		if err := json.Unmarshal(piped.Bytes(), &envelope); err != nil {
+			t.Fatalf("JSON output: %v (%q)", err, piped.String())
+		}
+		if string(envelope["response"]) != string(structured) {
+			t.Fatalf("tty=%v response = %s; want the exact payload %s", wantTTY, envelope["response"], structured)
+		}
+	}
+}
+
 func TestSchemaCapabilityComesFromTheRouteTable(t *testing.T) {
 	spec, ok := runner.Spec(runner.ModelLocal)
 	if !ok {
@@ -363,5 +527,70 @@ func TestSchemaCapabilityComesFromTheRouteTable(t *testing.T) {
 		if !ok || other.Capabilities.Schema {
 			t.Fatalf("%s declares guided output; only the native route implements it", model)
 		}
+	}
+}
+
+// TestLocalCapabilitiesMirrorsTheRouteSpec feeds the renderer a route with no
+// capabilities at all. A literal true for guided output (or any other field)
+// would survive a table with the real flags, so the empty case is what makes
+// the derivation observable.
+func TestLocalCapabilitiesMirrorsTheRouteSpec(t *testing.T) {
+	empty := localCapabilities(runner.RouteSpec{})
+	for name, value := range empty {
+		if value {
+			t.Fatalf("%s reported true for a route with no capabilities", name)
+		}
+	}
+	if len(empty) != 6 {
+		t.Fatalf("capability map = %#v; want the six published names", empty)
+	}
+	full := localCapabilities(runner.RouteSpec{Capabilities: runner.CapabilitySet{
+		Images: true, MaxImages: 1, Streaming: true, StreamingUsage: true, Usage: true, Schema: true,
+	}})
+	for _, name := range []string{"streaming", "complete_usage", "stream_usage", "images", "guided_output"} {
+		if !full[name] {
+			t.Fatalf("%s reported false for a route that declares it", name)
+		}
+	}
+	if full["tools"] {
+		t.Fatal("tools is not implemented on any route")
+	}
+}
+
+// TestEveryNonLocalRouteRefusesGuidedOutput walks the whole table rather than
+// the two routes a fallback would pick, so a new non-native route cannot be
+// added without inheriting the refusal.
+func TestEveryNonLocalRouteRefusesGuidedOutput(t *testing.T) {
+	stubConfigPath(t)
+	schema := writeSchemaFixture(t, cliGuidedSchema)
+	checked := 0
+	for _, model := range append(runner.Models(), runner.ModelAuto) {
+		if model == runner.ModelLocal {
+			continue
+		}
+		if !model.Valid() {
+			t.Fatalf("%q is not a valid model", model)
+		}
+		r := &schemaFixtureRunner{}
+		cmd := NewRootCmd(func() runner.Runner { return r })
+		cmd.SetArgs([]string{"respond", "--model", string(model), "--schema", schema, "produce"})
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(io.Discard)
+		err := cmd.Execute()
+		if err == nil || ExitCode(err) != 2 {
+			t.Fatalf("%s: err=%v exit=%d; want a usage refusal", model, err, ExitCode(err))
+		}
+		if !strings.Contains(err.Error(), "--schema requires --model local") {
+			t.Fatalf("%s: error = %v", model, err)
+		}
+		if r.calls != 0 {
+			t.Fatalf("%s reached the runner %d times", model, r.calls)
+		}
+		checked++
+	}
+	// Models() is every Shortcut-backed route (local is native, not listed
+	// there), so the loop covers those plus auto.
+	if checked != len(runner.Models())+1 {
+		t.Fatalf("checked %d routes, want %d", checked, len(runner.Models())+1)
 	}
 }

@@ -131,6 +131,178 @@ func asSchemaError(err error, target **SchemaError) bool {
 	return ok
 }
 
+func TestParseSchemaRejectsDuplicateKeys(t *testing.T) {
+	// Foundation's decoder keeps the first value of a repeated key where
+	// encoding/json keeps the last, so a duplicate would be measured and
+	// enforced differently on each side. The schema is refused instead.
+	cases := []struct {
+		name    string
+		schema  string
+		pointer string
+	}{
+		{"root type", `{"type":"object","additionalProperties":false,"type":"array"}`, "/type"},
+		{"nested property", `{"type":"object","additionalProperties":false,"properties":{"a":{"type":"string","type":"integer"},"b":{"type":"string"}}}`, "/properties/a/type"},
+		{"inside array items", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"array","items":{"type":"string","type":"boolean"}}}}`, "/properties/p/items/type"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseSchema([]byte(tc.schema))
+			var failure *SchemaError
+			if !asSchemaError(err, &failure) {
+				t.Fatalf("error = %v; want *SchemaError", err)
+			}
+			if failure.Pointer != tc.pointer || failure.Reason != "schema must not repeat an object key" {
+				t.Fatalf("rejection = (%q, %q); want (%q, %q)",
+					failure.Pointer, failure.Reason, tc.pointer, "schema must not repeat an object key")
+			}
+		})
+	}
+	// A duplicate in the returned payload is refused for the same reason: two
+	// decoders would read different values out of it.
+	schema := mustParseSchema(t, guidedSchema)
+	err := schema.Validate(json.RawMessage(`{"name":"a","name":"b","age":3}`))
+	var failure *SchemaError
+	if !asSchemaError(err, &failure) || failure.Reason != "returned payload must not repeat an object key" {
+		t.Fatalf("Validate error = %v; want the duplicate-key rejection", err)
+	}
+	if failure.Pointer != "/name" {
+		t.Fatalf("pointer = %q; want /name", failure.Pointer)
+	}
+}
+
+func TestParseSchemaRejectsNumbersItCannotEncode(t *testing.T) {
+	// A number outside the finite double range cannot be measured or encoded.
+	// It must not be reported as an oversized schema: that reason is false.
+	for _, schema := range []string{
+		schemaWithProperty(`{"type":"number","minimum":1e400}`),
+		`{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string","enum":["a"]}},"x":1e400}`,
+	} {
+		_, err := ParseSchema([]byte(schema))
+		var failure *SchemaError
+		if !asSchemaError(err, &failure) {
+			t.Fatalf("ParseSchema(%s) error = %v; want *SchemaError", schema, err)
+		}
+		if failure.Reason != "schema contains a number outside the supported range" {
+			t.Fatalf("ParseSchema(%s) reason = %q; want the number-range reason", schema, failure.Reason)
+		}
+	}
+}
+
+func TestParseSchemaEncodesLikeFoundation(t *testing.T) {
+	// Foundation's JSONSerialization writes a solidus as \/ and a number with
+	// 17 significant digits. Both decisions move the 64 KiB measurement, so
+	// the Go encoding has to match, character for character.
+	cases := []struct {
+		name   string
+		schema string
+		want   string
+	}{
+		{
+			"solidus in a property name",
+			`{"type":"object","additionalProperties":false,"properties":{"a/b":{"type":"string"}}}`,
+			`{"additionalProperties":false,"properties":{"a\/b":{"type":"string"}},"type":"object"}`,
+		},
+		{
+			"solidus in an enum choice",
+			schemaWithProperty(`{"type":"string","enum":["/etc/hosts","a b"]}`),
+			`{"additionalProperties":false,"properties":{"p":{"enum":["\/etc\/hosts","a b"],"type":"string"}},"required":["p"],"type":"object"}`,
+		},
+		{
+			"non-ascii stays UTF-8",
+			`{"type":"object","additionalProperties":false,"properties":{"é":{"type":"string"}}}`,
+			"{\"additionalProperties\":false,\"properties\":{\"é\":{\"type\":\"string\"}},\"type\":\"object\"}",
+		},
+		{
+			"seventeen significant digits",
+			schemaWithProperty(`{"type":"number","minimum":0.1,"maximum":1e300}`),
+			`{"additionalProperties":false,"properties":{"p":{"maximum":1.0000000000000001e+300,"minimum":0.10000000000000001,"type":"number"}},"required":["p"],"type":"object"}`,
+		},
+		{
+			"integral bound without a fraction",
+			schemaWithProperty(`{"type":"integer","minimum":1.0,"maximum":9007199254740992}`),
+			`{"additionalProperties":false,"properties":{"p":{"maximum":9007199254740992,"minimum":1,"type":"integer"}},"required":["p"],"type":"object"}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			schema, err := ParseSchema([]byte(tc.schema))
+			if err != nil {
+				t.Fatalf("ParseSchema: %v", err)
+			}
+			if string(schema.Bytes()) != tc.want {
+				t.Fatalf("encoding =\n%s\nwant\n%s", schema.Bytes(), tc.want)
+			}
+			if _, err := ParseSchema(schema.Bytes()); err != nil {
+				t.Fatalf("normalized encoding does not re-parse: %v", err)
+			}
+		})
+	}
+}
+
+func TestParseSchemaIntegerBoundAtTwoToThe53(t *testing.T) {
+	// 2^53 is the largest integer a double represents exactly: it is the
+	// documented bound, so it must be accepted, and the next representable
+	// value above it must not.
+	if _, err := ParseSchema([]byte(schemaWithProperty(`{"type":"integer","maximum":9007199254740992}`))); err != nil {
+		t.Fatalf("2^53 bound rejected: %v", err)
+	}
+	_, err := ParseSchema([]byte(schemaWithProperty(`{"type":"integer","maximum":9007199254740994}`)))
+	var failure *SchemaError
+	if !asSchemaError(err, &failure) || failure.Pointer != "/properties/p/maximum" {
+		t.Fatalf("error = %v; want the bound rejection at the maximum", err)
+	}
+	negative := schemaWithProperty(`{"type":"integer","minimum":-9007199254740994}`)
+	if _, err := ParseSchema([]byte(negative)); err == nil {
+		t.Fatal("a magnitude above 2^53 was accepted as an integer bound")
+	}
+}
+
+func TestSchemaErrorEscapesControlCharactersInPointers(t *testing.T) {
+	// A property name is caller input: a rejected payload must not print a
+	// live ESC or an 8-bit CSI even though the pointer keeps the name verbatim
+	// for comparison with the helper's pointer.
+	cases := []struct {
+		name      string
+		raw       string
+		schemaKey string
+		escaped   string
+		payload   string
+	}{
+		{"escape", "a\u001bb", `a\u001bb`, `\u001b`, `{"a\u001bb":1}`},
+		{"bell", "c\u0007d", `c\u0007d`, `\u0007`, `{"c\u0007d":1}`},
+		// 0x9b is an 8-bit CSI introducer on some terminals; JSON leaves C1
+		// unescaped, so this one really would be a live byte in the document.
+		{"csi", "e\u009bf", "e\u009bf", `\u009b`, "{\"e\u009bf\":1}"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			schema := `{"type":"object","additionalProperties":false,"properties":{` +
+				`"` + tc.schemaKey + `":{"type":"string"}}}`
+			parsed, err := ParseSchema([]byte(schema))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = parsed.Validate([]byte(tc.payload))
+			var failure *SchemaError
+			if !asSchemaError(err, &failure) {
+				t.Fatalf("Validate error = %v; want *SchemaError", err)
+			}
+			// The structured pointer keeps the raw name so it can be compared
+			// with the helper's; only the message is escaped.
+			if failure.Pointer != "/"+tc.raw {
+				t.Fatalf("pointer = %q; want the raw property name", failure.Pointer)
+			}
+			message := err.Error()
+			if strings.Contains(message, tc.raw) {
+				t.Fatalf("message = %q; the control character reached the text", message)
+			}
+			if !strings.Contains(message, tc.escaped) {
+				t.Fatalf("message = %q; want %s", message, tc.escaped)
+			}
+		})
+	}
+}
+
 func TestParseSchemaBoundsPropertyCountAndSize(t *testing.T) {
 	// 32 declared properties is the limit, counted across the whole tree.
 	properties := make([]string, 0, SchemaMaxProperties)

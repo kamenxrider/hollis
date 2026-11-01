@@ -308,3 +308,73 @@ func TestRoutedRunnerRejectsGuidedOutputForShortcutRoutes(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+// TestNativeStatusRejectionDoesNotKeepAnAvailableStatus pins the order inside
+// the status branch: an event that is refused must not leave the half-built
+// status behind, because NativeStatus returns it alongside the error and a
+// diagnostic caller would then report available:true for an event hollis
+// rejected.
+func TestNativeStatusRejectionDoesNotKeepAnAvailableStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		fields map[string]any
+	}{
+		{"zero context size", map[string]any{"available": true, "context_size": 0}},
+		{"negative context size", map[string]any{"available": true, "context_size": -1}},
+		// A payload field on status is a sequence violation caught before the
+		// status is built, so the same rule has to hold there.
+		{"unexpected structured", map[string]any{"available": true, "structured": map[string]any{"a": 1}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := fakeNative(t, "cat >/dev/null\n"+nativePrint(nativeLine("status", tc.fields)))
+			status, err := r.NativeStatus(t.Context())
+			requireNativeKind(t, err, KindNativeProtocol)
+			if status.Available || status.ContextSize != 0 || status.Protocol != 0 {
+				t.Fatalf("status = %#v after a rejected event; want the zero status", status)
+			}
+		})
+	}
+}
+
+// TestNativeProbeTimeoutIsNotAModelTimeout pins the marker that keeps the CLI
+// from telling a user to raise --timeout: the probe deadline is fixed and no
+// model request was made.
+func TestNativeProbeTimeoutIsNotAModelTimeout(t *testing.T) {
+	previous := helperProbeTimeout
+	helperProbeTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { helperProbeTimeout = previous })
+	r := fakeNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then sleep 30; fi\ncat >/dev/null\n")
+	_, err := r.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindTimeout {
+		t.Fatalf("error = %v; want KindTimeout", err)
+	}
+	if !re.ProbeTimeout {
+		t.Fatal("ProbeTimeout marker is false; the CLI may append the model-timeout hint")
+	}
+	if re.ListTimeout {
+		t.Fatal("poll marker reused for a probe timeout")
+	}
+	if !strings.Contains(err.Error(), "--protocol-version") {
+		t.Fatalf("error = %v; want the probe named", err)
+	}
+	if strings.Contains(err.Error(), "native local request timed out") {
+		t.Fatalf("error = %v; a probe timeout is not a model request timeout", err)
+	}
+}
+
+// TestNativeProbeNonZeroExitIsNotATimeout keeps the probe's exit status from
+// being folded into the timeout marker: printing the right version and then
+// failing is a helper failure, and ExitCode carries the child's status.
+func TestNativeProbeNonZeroExitIsNotATimeout(t *testing.T) {
+	r := fakeNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then printf '2\\n'; exit 3; fi\ncat >/dev/null\n")
+	_, err := r.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindNativeFailed {
+		t.Fatalf("error = %v; want KindNativeFailed", err)
+	}
+	if re.ProbeTimeout {
+		t.Fatal("ProbeTimeout set for a probe that exited on its own")
+	}
+}
