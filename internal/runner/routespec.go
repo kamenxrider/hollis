@@ -66,6 +66,11 @@ type RouteSpec struct {
 	// value: its display row comes from native status, not this catalog.
 	Names        NameSet
 	Capabilities CapabilitySet
+	// ImageRestriction is the measured refusal shown when image input is
+	// requested on a Shortcut route without image capability. Shortcut
+	// routes that cannot accept images must state it; the native route
+	// keeps it empty because the Shortcut image contract does not cover it.
+	ImageRestriction string
 	// BatchSpacing is the minimum wall-clock gap between batch calls on
 	// this route; 0 means no measured spacing requirement.
 	BatchSpacing time.Duration
@@ -123,9 +128,10 @@ var routeSpecs = map[Model]RouteSpec{
 			Legacy:   "Apple Intelligence on-device model (pre-27)",
 			Unknown:  "Apple Intelligence on-device model (macOS version unknown)",
 		},
-		Capabilities: CapabilitySet{},
-		BatchSpacing: 0,
-		OwnedBy:      "Apple",
+		Capabilities:     CapabilitySet{},
+		ImageRestriction: "--image is unavailable with on-device: the tested Shortcut ignored the pixels",
+		BatchSpacing:     0,
+		OwnedBy:          "Apple",
 	},
 	ModelChatGPT: {
 		ID:           ModelChatGPT,
@@ -222,6 +228,12 @@ func validateRouteTable() error {
 		}
 		if spec.Capabilities.Streaming || spec.Capabilities.Usage || spec.Capabilities.StreamingUsage {
 			return fmt.Errorf("%s: shortcut routes declare no streaming or usage capability today", m)
+		}
+		if spec.Capabilities.Images && spec.ImageRestriction != "" {
+			return fmt.Errorf("%s: image restriction recorded for a route that accepts images", m)
+		}
+		if !spec.Capabilities.Images && spec.ImageRestriction == "" {
+			return fmt.Errorf("%s: missing measured image restriction", m)
 		}
 	}
 	local, ok := routeSpecs[ModelLocal]

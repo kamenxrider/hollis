@@ -54,9 +54,6 @@ func TestRouteSpecParityWithCurrentConstants(t *testing.T) {
 		if want := BridgeNameCandidates[m]; !reflect.DeepEqual(spec.BridgeNames, want) {
 			t.Errorf("%s bridge names = %v, want %v", m, spec.BridgeNames, want)
 		}
-		if want := CompiledUUID(m); spec.CompiledUUID != want {
-			t.Errorf("%s compiled UUID = %q, want %q", m, spec.CompiledUUID, want)
-		}
 		if m == ModelCloudPro {
 			if spec.MinOSMajor != MeasuredOSMajor {
 				t.Errorf("cloud-pro MinOSMajor = %d, want %d", spec.MinOSMajor, MeasuredOSMajor)
@@ -88,7 +85,7 @@ func TestRouteSpecParityWithCurrentConstants(t *testing.T) {
 	if !ok {
 		t.Fatal("local missing from table")
 	}
-	if local.Transport != TransportNative || local.Selection != "" || len(local.BridgeNames) != 0 || local.CompiledUUID != "" {
+	if local.Transport != TransportNative || local.Selection != "" || len(local.BridgeNames) != 0 || local.CompiledUUID != "" || local.BatchSpacing != 0 {
 		t.Fatalf("native local row drifted: %+v", local)
 	}
 	wantLocalCap := CapabilitySet{Streaming: true, Usage: true}
@@ -210,6 +207,12 @@ func TestValidateRouteTable(t *testing.T) {
 	}
 	if err := corrupt(func(s *RouteSpec) { s.OwnedBy = "" }); err == nil {
 		t.Error("missing owner accepted")
+	}
+	if err := corrupt(func(s *RouteSpec) { s.Capabilities = CapabilitySet{} }); err == nil {
+		t.Error("shortcut route without images and without a recorded restriction accepted")
+	}
+	if err := corrupt(func(s *RouteSpec) { s.ImageRestriction = "no images" }); err == nil {
+		t.Error("image restriction recorded on an image-accepting route accepted")
 	}
 	if err := validateRouteTable(); err != nil {
 		t.Fatalf("table did not restore cleanly: %v", err)

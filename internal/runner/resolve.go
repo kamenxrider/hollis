@@ -23,18 +23,10 @@ var BridgeNameCandidates = map[Model][]string{
 // CompiledUUID returns the compile-time fallback UUID for a concrete tier.
 // This is a private artifact of the macOS 27 development machine: any other
 // Mac gets new UUIDs at import time and must not rely on these.
+// CompiledUUID returns the measured fallback reference for a concrete route
+// tier. auto and unknown IDs have no row and return empty.
 func CompiledUUID(m Model) string {
-	switch m {
-	case ModelCloud:
-		return BridgeUUIDCloud
-	case ModelCloudPro:
-		return BridgeUUIDCloudPro
-	case ModelOnDevice:
-		return BridgeUUIDOnDevice
-	case ModelChatGPT:
-		return BridgeUUIDChatGPT
-	}
-	return ""
+	return routeSpecs[m].CompiledUUID
 }
 
 // ResolutionSource explains how a bridge reference was determined.
@@ -111,8 +103,8 @@ func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[
 	for _, n := range installed {
 		have[n] = true
 	}
-	out := make(map[Model]ResolvedBridge, len(Models))
-	for _, m := range Models {
+	out := make(map[Model]ResolvedBridge, len(routeOrder))
+	for _, m := range routeOrder {
 		res := ResolvedBridge{
 			Model:   m,
 			Ref:     CompiledUUID(m),
@@ -146,7 +138,7 @@ func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[
 				}
 			}
 		} else if listOK {
-			for _, cand := range BridgeNameCandidates[m] {
+			for _, cand := range routeSpecs[m].BridgeNames {
 				if have[cand] {
 					res.Ref = cand
 					res.Source = SourceList
