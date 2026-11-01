@@ -3,7 +3,9 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -27,6 +29,7 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		documents  []string
 		images     []string
 		stream     bool
+		schemaFile string
 	)
 	cmd := &cobra.Command{
 		Use:   "respond [prompt]",
@@ -48,7 +51,10 @@ hardware), or chatgpt (ChatGPT extension; enable it in System Settings >
 Apple Intelligence & Siri). Image requests with no selected or configured
 model default directly to cloud because auto cannot safely fall back. See
 hollis models. Select local for Apple's native system model with genuine
-streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.`,
+streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.
+Guide the native response with --schema <file>: the supported JSON Schema
+subset is validated before anything runs, and the returned object is checked
+again before it is reported as success.`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
   hollis respond model cloud-pro "Draft a reply"
   printf 'long prompt from a pipeline' | hollis respond
@@ -58,6 +64,7 @@ streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.`,
   hollis respond --image photo.jpg "What is this?"
   hollis respond --model cloud-pro --image a.png --image b.png "Compare them"
   hollis respond --model cloud-pro "Flag form also works"
+  hollis respond --model local --schema person.json "Invent one person"
   hollis respond --agent "Return strict JSON describing X"`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := validateTimeout(cmd, timeout); err != nil {
@@ -73,6 +80,9 @@ streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.`,
 			}
 			if len(documents) > 0 && len(images) > 0 {
 				return usageErr(errors.New("--file cannot be combined with --image"))
+			}
+			if cmd.Flags().Changed("schema") && len(images) > 0 {
+				return usageErr(errors.New("--schema cannot be combined with --image: guided output is text-only"))
 			}
 			if (len(documents) > 0 || len(images) > 0) && len(promptArgs) == 0 && !hasPromptFile {
 				inputFlag := "--file"
@@ -153,6 +163,18 @@ streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.`,
 				}
 			}
 
+			// The schema is parsed and validated here, before any model
+			// resolution or process spawn: an unsupported schema never reaches
+			// the helper, and a rejection costs no discovery and no inference.
+			var schema *runner.Schema
+			if cmd.Flags().Changed("schema") {
+				parsed, err := readSchemaFile(schemaFile)
+				if err != nil {
+					return err
+				}
+				schema = parsed
+			}
+
 			builtInModel := runner.ModelAuto
 			if len(images) > 0 {
 				// Auto is unsafe for vision because it can fall back to the
@@ -171,6 +193,20 @@ streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.`,
 				if err := runner.ValidateImageRequest(m, prompt, images); err != nil {
 					return toCLIError(err)
 				}
+			}
+			if schema != nil {
+				// Guided output is a route capability, read from the table
+				// rather than assumed for a model name. It is also
+				// complete-only: there is no partial structured value to
+				// stream, so the combination is refused before spawn.
+				spec, ok := runner.Spec(m)
+				if !ok || !spec.Capabilities.Schema {
+					return usageErr(errors.New("--schema requires --model local: guided output is a native local capability"))
+				}
+				if cmd.Flags().Changed("stream") && stream {
+					return usageErr(errors.New("--schema is complete-only and cannot be combined with --stream"))
+				}
+				stream = false
 			}
 
 			streaming, err := selectStreaming(cmd, flags, m, stream)
@@ -202,6 +238,7 @@ streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.`,
 			var text string
 			var used runner.Model
 			var usage *runner.Usage
+			var structured json.RawMessage
 			if len(images) > 0 {
 				imageRunner, ok := r.(runner.ImageRunner)
 				if !ok {
@@ -209,8 +246,13 @@ streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.`,
 				}
 				text, used, err = imageRunner.RunWithImages(ctx, m, prompt, images)
 			} else if m == runner.ModelLocal {
-				completion, runErr := runLocalText(ctx, r, prompt, streaming, cmd.OutOrStdout())
-				text, used, usage, err = completion.Text, completion.Model, completion.Usage, runErr
+				if schema != nil {
+					completion, runErr := runLocalSchema(ctx, r, prompt, schema)
+					text, used, usage, structured, err = completion.Text, completion.Model, completion.Usage, completion.Structured, runErr
+				} else {
+					completion, runErr := runLocalText(ctx, r, prompt, streaming, cmd.OutOrStdout())
+					text, used, usage, err = completion.Text, completion.Model, completion.Usage, runErr
+				}
 			} else if rich, ok := r.(runner.FallbackRunner); ok {
 				text, used, fallback, err = rich.RunWithFallback(ctx, m, prompt)
 			} else {
@@ -233,6 +275,12 @@ streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.`,
 					"model_used":      string(used),
 					"response":        text,
 				}
+				// Guided output is a documented new-surface behavior: with
+				// --schema, response is the decoded object rather than a text
+				// field that happens to contain JSON.
+				if len(structured) != 0 {
+					data["response"] = structured
+				}
 				if usage != nil {
 					data["usage"] = usage
 				}
@@ -250,6 +298,23 @@ streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.`,
 				}
 				fmt.Fprintf(cmd.ErrOrStderr(), "hollis: fallback %s: answered with %s\n", reason, used)
 			}
+			if len(structured) != 0 {
+				// Human guided output is the object itself, indented; the raw
+				// text field is the same JSON, so printing both would duplicate
+				// the answer.
+				var pretty bytes.Buffer
+				if err := json.Indent(&pretty, structured, "", "  "); err != nil {
+					return transportErr(errors.New("returned structured output is not valid JSON"))
+				}
+				// JSON escapes C0 controls but not C1, and 0x9b is an 8-bit CSI
+				// introducer on some terminals, so the model's string values can
+				// still carry a live sequence. Sanitizing the rendered text is
+				// lossless for JSON: an escaped \u0080 inside a string literal
+				// decodes to the same character. Non-terminal output is
+				// untouched, so pipes and files keep the exact bytes.
+				fmt.Fprintln(cmd.OutOrStdout(), humanTerminalText(cmd.OutOrStdout(), pretty.String()))
+				return nil
+			}
 			// Plain text out. Apple emits no trailing newline; add one
 			// only for terminal ergonomics, never into stored values.
 			if !streaming {
@@ -266,8 +331,38 @@ streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.`,
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "UTF-8 file containing the instruction (instead of positional text or stdin)")
 	cmd.Flags().StringArrayVar(&documents, "file", nil, "UTF-8 .txt or .md document to include; repeat to preserve source order")
 	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (ChatGPT accepts one; unavailable with auto/on-device)")
+	cmd.Flags().StringVar(&schemaFile, "schema", "", "JSON Schema file for guided native-local output; requires --model local and completes without streaming")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	return cmd
+}
+
+// schemaFileReadLimit bounds the raw file before parsing. The subset's own
+// 64 KiB bound applies to the normalized encoding, and Foundation's encoder
+// escapes each "/" as "\/", so a pretty-printed schema legitimately exceeds the
+// normalized bound in source bytes.
+const schemaFileReadLimit = 1 << 20
+
+// readSchemaFile parses and validates a guided-output schema. Every rejection
+// is a usage error naming the offending JSON pointer, and it happens before the
+// helper is spawned.
+//
+// The read follows the same safe-input rules as --prompt-file and --file:
+// basename-only diagnostics, classified errors that never carry the caller's
+// local path, a regular-file check before reading, and a non-blocking open so a
+// raced FIFO cannot stall the command.
+func readSchemaFile(path string) (*runner.Schema, error) {
+	if path == "" {
+		return nil, usageErr(errors.New("--schema requires a file path"))
+	}
+	data, err := docinput.ReadFile(path, "schema file", schemaFileReadLimit)
+	if err != nil {
+		return nil, usageErr(err)
+	}
+	schema, err := runner.ParseSchema(data)
+	if err != nil {
+		return nil, usageErr(err)
+	}
+	return schema, nil
 }
 
 // rejectFileInputStdin prevents a second instruction source from being hidden

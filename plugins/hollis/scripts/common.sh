@@ -14,6 +14,27 @@ LOCK_DIR=
 WORK_DIR=
 
 fail() { printf 'Hollis: %s\n' "$*" >&2; exit 10; }
+# A receipt-pinned native protocol is the authority: canonical decimal 1..99.
+# The record emitter interpolates it unquoted and the Go decoder requires an
+# integer, so anything that is not canonical - a leading zero ("01", "09"),
+# a sign, a float, a quote or whitespace - and anything out of range is an
+# invalid receipt, never a protocol era to guess at. Leading zeros matter:
+# plutil returns the string "01" verbatim and emitting it would produce
+# invalid JSON (`"protocol":01`) after an install that reported verified.
+valid_protocol() {
+  # Canonical decimal only: no leading zero, no sign, no whitespace.
+  #
+  # The digits are spelled out one by one because a bracket range is matched
+  # with the current locale's collation order. Under ar_SA and fa_IR,
+  # [1-9] matches Arabic-Indic and Extended Arabic-Indic digits, so a pin of
+  # "١" would pass here and be interpolated unquoted as `"protocol":١` -
+  # invalid JSON in a record the installer has already called verified.
+  # An explicit list matches the ASCII characters themselves.
+  case "$1" in
+    [123456789]|[123456789][0123456789]) return 0;;
+  esac
+  return 1
+}
 json_string() {
   local s=$1
   s=${s//\\/\\\\}; s=${s//\"/\\\"}; s=${s//$'\n'/\\n}; s=${s//$'\r'/\\r}; s=${s//$'\t'/\\t}
@@ -224,8 +245,8 @@ verify_native() {
     return 0
   fi
   [[ "$name" == hollis-native-darwin-arm64 ]] || fail 'Unexpected native helper asset.'
-  protocol=$(field "$receipt" native.protocol_version)
-  [[ "$protocol" == 1 ]] || fail 'Unsupported native helper protocol.'
+  protocol=$(field "$receipt" native.protocol_version || true)
+  valid_protocol "$protocol" || fail 'Invalid native helper protocol receipt.'
   version=$(field "$receipt" native.version || field "$receipt" version)
   verify "$dir/hollis-native" "$(field "$receipt" native.sha256)"
   [[ -x "$dir/hollis-native" ]] || fail 'Native helper is not executable.'
@@ -246,6 +267,12 @@ canonical_executable() {
 }
 
 emit_runtime_record() {
+  # Defense in depth: the protocol is the record's only unquoted
+  # interpolation. The producer gate below rejects a corrupt pin with exit 10
+  # before this runs; this keeps a future caller from emitting invalid JSON.
+  if [[ -n "$RR_HELPER_PROTOCOL" ]] && ! valid_protocol "$RR_HELPER_PROTOCOL"; then
+    RR_HELPER_PROTOCOL= RR_HELPER_VERSION=
+  fi
   printf '{"contract_version":1,"state":'; json_string "$RR_STATE"
   printf ',"reason_code":'; json_string "$RR_REASON"
   # Frozen contract key: optional message, no raw subprocess output.
@@ -365,8 +392,8 @@ runtime_record() {
     native_hash=$(field "$receipt" native.sha256 || true)
     RR_HELPER_VERSION=$(field "$receipt" native.version || field "$receipt" version)
     RR_HELPER_PROTOCOL=$(field "$receipt" native.protocol_version || true)
-    if [[ "$native_name" != hollis-native-darwin-arm64 || ! "$native_hash" =~ ^[0-9a-f]{64}$ ||
-          "$RR_HELPER_PROTOCOL" != 1 ]] || ! version_ok "$RR_HELPER_VERSION"; then
+    if [[ "$native_name" != hollis-native-darwin-arm64 || ! "$native_hash" =~ ^[0-9a-f]{64}$ ]] ||
+        ! valid_protocol "$RR_HELPER_PROTOCOL" || ! version_ok "$RR_HELPER_VERSION"; then
       RR_HELPER_VERSION= RR_HELPER_PROTOCOL=
       emit_runtime_record; return 10
     fi

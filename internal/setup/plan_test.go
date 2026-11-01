@@ -12,9 +12,9 @@ func readyObservation(route string) Observations {
 	return Observations{
 		Route: route, Platform: "supported", ConfigKnown: true, Transport: "available",
 		Runtime: RuntimeRecord{ContractVersion: 1, State: "verified",
-			Artifact: Artifact{Verification: "verified"}, Helper: Helper{Verification: "verified", Version: "0.4.0", Protocol: 1}},
+			Artifact: Artifact{Verification: "verified"}, Helper: Helper{Verification: "verified", Version: "0.5.0", Protocol: 2}},
 		Bridge: BridgeFacts{Discovery: "completed", Discovered: true, Configured: true, Reference: "Custom bridge"},
-		Native: NativeFacts{Checked: true, Available: true, Version: "0.4.0", Protocol: 1},
+		Native: NativeFacts{Checked: true, Available: true, Version: "0.5.0", Protocol: 2},
 	}
 }
 
@@ -34,9 +34,17 @@ func TestPlanner(t *testing.T) {
 		{"runtime unknown", "cloud", "unknown", "runtime_unverified", func(o *Observations) { o.Runtime.Artifact.Verification = "unknown" }},
 		{"new contract", "cloud", "unknown", "runtime_contract_unsupported", func(o *Observations) { o.Runtime.ContractVersion = 2 }},
 		{"helper mismatch", "local", "unknown", "helper_unverified", func(o *Observations) { o.Runtime.Helper.Verification = "mismatch" }},
-		{"helper version independent of runtime", "local", "ready", "prerequisites_ready", func(o *Observations) { o.Runtime.Runtime.Version = "0.5.0" }},
-		{"observed helper mismatch", "local", "unknown", "helper_mismatch", func(o *Observations) { o.Native.Version = "0.5.0" }},
-		{"observed protocol mismatch", "local", "unknown", "helper_mismatch", func(o *Observations) { o.Native.Protocol = 2 }},
+		{"helper version independent of runtime", "local", "ready", "prerequisites_ready", func(o *Observations) { o.Runtime.Runtime.Version = "0.5.1" }},
+		{"observed helper mismatch", "local", "unknown", "helper_mismatch", func(o *Observations) { o.Native.Version = "0.5.1" }},
+		{"observed protocol mismatch", "local", "unknown", "helper_mismatch", func(o *Observations) { o.Native.Protocol = 3 }},
+		// The pin bound is staged: a receipt outside 1..99 is an invalid
+		// receipt, not a protocol era, even when the observed helper agrees.
+		{"out of range pin", "local", "unknown", "helper_mismatch", func(o *Observations) {
+			o.Runtime.Helper.Protocol, o.Native.Protocol = 100, 100
+		}},
+		{"negative pin", "local", "unknown", "helper_mismatch", func(o *Observations) {
+			o.Runtime.Helper.Protocol, o.Native.Protocol = -1, -1
+		}},
 		{"native failed", "local", "unknown", "native_status_unknown", func(o *Observations) { o.Native.Failed = true }},
 		{"native not probed", "local", "unknown", "native_status_unknown", func(o *Observations) { o.Native.Checked = false }},
 		{"model not ready", "local", "model_not_ready", "model_unavailable", func(o *Observations) { o.Native.Available = false }},

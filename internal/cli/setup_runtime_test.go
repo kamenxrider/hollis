@@ -78,6 +78,27 @@ func TestRuntimeRecordProducer(t *testing.T) {
 		{"exit state mismatch", nil, 10, false},
 		{"unverified CLI", func(r *setup.RuntimeRecord) { r.Artifact.Verification = "unknown" }, 0, false},
 		{"owner mismatch", func(r *setup.RuntimeRecord) { r.Receipt.Owner = "external" }, 0, false},
+		// The receipt-pinned protocol is a positive integer no greater than 99
+		// on the shell side and the record interpolates it unquoted. A pin
+		// outside that bound is an invalid receipt, never a protocol era.
+		{"protocol pin above the bound", func(r *setup.RuntimeRecord) { r.Helper.Protocol = 100 }, 0, false},
+		{"negative protocol pin", func(r *setup.RuntimeRecord) { r.Helper.Protocol = -1 }, 0, false},
+		// The per-component states matter here: a helper that is missing or
+		// mismatched still carries the receipt's pin, and an out-of-range pin
+		// is an invalid receipt rather than a component fact.
+		{"out of range pin on a missing helper", func(r *setup.RuntimeRecord) {
+			r.Helper.Verification, r.Helper.ReasonCode, r.Helper.Protocol = "missing", "helper_missing", 100
+		}, 0, false},
+		{"out of range pin on a mismatched helper", func(r *setup.RuntimeRecord) {
+			r.Helper.Verification, r.Helper.ReasonCode, r.Helper.Protocol = "mismatch", "helper_protocol_mismatch", 100
+		}, 0, false},
+		{"no pin on a mismatched helper", func(r *setup.RuntimeRecord) {
+			r.Helper.Verification, r.Helper.ReasonCode, r.Helper.Protocol = "mismatch", "helper_protocol_mismatch", 0
+		}, 0, true},
+		{"omitted pin with a missing helper", func(r *setup.RuntimeRecord) {
+			r.Helper.Verification, r.Helper.Protocol = "missing", 0
+		}, 0, true},
+		{"omitted pin with a verified helper", func(r *setup.RuntimeRecord) { r.Helper.Protocol = 0 }, 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			record := verifiedRecordFixture(t)

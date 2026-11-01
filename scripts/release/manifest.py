@@ -13,8 +13,8 @@ import subprocess
 import zipfile
 
 REPOSITORY = 'kamenxrider/hollis'
-HELPER_VERSION = '0.4.0'
-HELPER_PROTOCOL = 1
+HELPER_VERSION = '0.5.0'
+HELPER_PROTOCOL = 2
 BRIDGE_MEMBERS = {
     'AFM Bridge - Cloud.shortcut',
     'AFM Bridge - Cloud Pro.shortcut',
@@ -112,7 +112,8 @@ def inspect_bundle(data, version, expected_contents=None):
     expected_fields = {'version', 'native_protocol_version', 'native_minimum_macos', 'architecture', 'sha256'}
     if set(inner) != expected_fields or inner['version'] != version:
         raise ValueError('Runtime bundle manifest identity or fields changed')
-    if (type(inner['native_protocol_version']) is not int or inner['native_protocol_version'] != 1
+    if (type(inner['native_protocol_version']) is not int
+            or inner['native_protocol_version'] != HELPER_PROTOCOL
             or inner['native_minimum_macos'] != '27.0'
             or inner['architecture'] != 'arm64'):
         raise ValueError('Runtime bundle compatibility fields changed')

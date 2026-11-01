@@ -54,6 +54,17 @@ func runLocalText(ctx context.Context, r runner.Runner, prompt string, streaming
 	return runner.Completion{Text: text, Model: model}, err
 }
 
+// runLocalSchema asks the native runner for guided output. The schema was
+// already validated before this call, and the returned object is re-validated
+// by the runner; no partial or unrepaired value can reach the caller.
+func runLocalSchema(ctx context.Context, r runner.Runner, prompt string, schema *runner.Schema) (runner.Completion, error) {
+	sr, ok := r.(runner.SchemaRunner)
+	if !ok {
+		return runner.Completion{}, errors.New("configured runner does not support guided output")
+	}
+	return sr.RunSchema(ctx, runner.ModelLocal, prompt, schema)
+}
+
 // terminalStreamWriter escapes controls as data. It retains incomplete UTF-8
 // across writes; no escape byte is ever forwarded, even across chunk boundaries.
 // Redirected explicit streaming uses the same protection as a terminal.

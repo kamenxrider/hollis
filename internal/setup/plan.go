@@ -165,7 +165,8 @@ func evaluate(o Observations, requireVerified bool) Plan {
 		if !o.Native.Checked || o.Native.Failed {
 			return fail("unknown", "native_status_unknown", "Native availability could not be checked; no inference was attempted.", "check_native_status")
 		}
-		if requireVerified && (o.Runtime.Helper.Version == "" || o.Runtime.Helper.Protocol <= 0 ||
+		if requireVerified && (o.Runtime.Helper.Version == "" || !runner.ValidProtocol(o.Runtime.Helper.Protocol) ||
+			!runner.ValidProtocol(o.Native.Protocol) ||
 			o.Native.Version != o.Runtime.Helper.Version || o.Native.Protocol != o.Runtime.Helper.Protocol) {
 			return fail("unknown", "helper_mismatch", "The observed native helper does not match its independently pinned version and protocol.", "verify_helper")
 		}

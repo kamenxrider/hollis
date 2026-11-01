@@ -157,7 +157,7 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "hollis doctor (version %s)\n", version)
-			fmt.Fprintf(w, "  local: %s (availability only; inference not tested)\n", localStatusLabel(localStatus, localErr))
+			fmt.Fprintf(w, "  local: %s%s (availability only; inference not tested)\n", localStatusLabel(localStatus, localErr), localStatusDetail(localStatus, localErr))
 			fmt.Fprintf(w, "  transport: %s\n", report["shortcuts_cli"])
 			if b := report["macos_build"]; b != "" {
 				fmt.Fprintf(w, "  macos: %s (%s)\n", report["macos"], b)

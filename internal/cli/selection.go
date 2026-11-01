@@ -92,8 +92,8 @@ func buildResultSchemas() map[string]*fieldSchema {
 		chat.fields[name] = field
 	}
 	local := resultFields("model", "backend", "apple_model", "available", "status",
-		"inference_verified", "helper_protocol", "helper_version")
-	local.fields["capabilities"] = resultFields("streaming", "complete_usage", "stream_usage", "images", "tools")
+		"inference_verified", "helper_protocol", "helper_version", "context_size")
+	local.fields["capabilities"] = resultFields("streaming", "complete_usage", "stream_usage", "images", "tools", "guided_output")
 	models := resultFields("wfllm_model", "resolved_ref", "source", "verified")
 	for name, field := range local.fields {
 		models.fields[name] = field

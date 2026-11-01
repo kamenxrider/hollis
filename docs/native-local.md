@@ -36,6 +36,101 @@ is unavailable; Hollis does not estimate it or report invented zeros. Native
 local supports text, including the existing TXT/MD document preparation. It does
 not add image input, image generation or tool/function calls to this route.
 
+## Guided output
+
+`--schema` asks the native model for an object that follows a supported subset
+of JSON Schema. The schema is validated before the helper is spawned, so an
+unsupported schema costs no inference:
+
+```sh
+hollis respond --model local --schema person.json "Invent one person"
+hollis respond --model local --schema person.json --json "Invent one person"
+```
+
+With `--json`, `response` is the decoded object rather than a string. Human
+output prints the same object, indented. Usage keeps its existing three counts;
+no field is added.
+
+The subset is deliberately small, and anything outside it is rejected with the
+offending JSON pointer instead of being approximated:
+
+- the root is an object with `"additionalProperties": false`, as is every
+  nested object; nesting stops at three object levels, with arrays adding none
+  object level. On top of that, at most sixteen schema nodes fit on one path,
+  root included, so an array chain (`items` inside `items`) cannot nest without
+  bound;
+- properties are `string`, `integer`, `number` or `boolean`; `required` names
+  declared properties; at most 32 properties are declared across the schema;
+- property names, `required` names and `enum` choices are printable ASCII.
+  Foundation compares strings by Unicode canonical equivalence, so a
+  precomposed `é` and a decomposed `e` + combining acute are one name there and
+  two byte-distinct names here; that alone would make the same schema mean
+  different things on each side. With ASCII-only names and choices the two
+  comparisons agree exactly, and a model cannot answer with a byte-different
+  but canonically equal value;
+- `enum` accepts string choices only (Apple's dynamic schema accepts no other
+  kind), and choices must be non-empty and unique;
+- arrays declare `items`, with `minItems`/`maxItems` between 0 and 100;
+- `minimum`/`maximum` are integral for integers and finite for numbers;
+- rejections include references, `anyOf`/`oneOf`/`allOf`/`not`, patterns,
+  formats, string bounds, defaults, descriptions and contradictions such as
+  `maxItems < minItems`. The normalized schema is capped at 64 KiB, measured
+  the way the helper measures it: sorted keys, `/` escaped, 17 significant
+  digits.
+- an object that repeats a key is rejected rather than resolved. Foundation
+  keeps the first value of a duplicate key and Go keeps the last, so an
+  ambiguous schema would be measured and enforced differently on each side.
+  The repeated key is found after JSON escape decoding, so `"a/b"` and
+  `"a\/b"`, or `"a"` and `"\u0061"`, are the same key.
+- only strict JSON is accepted: a leading byte-order mark, a trailing comma in
+  an object or array, or a second top-level value is refused as
+  "schema is not valid JSON". Foundation's decoder is more permissive than
+  Go's, so both sides run the same strictness check before decoding.
+
+Every rule in that list is enforced by Hollis before the helper is spawned, and
+by the helper's own parser as well. A schema Hollis accepts is therefore a
+schema the helper accepts, and a rejection is a usage error (exit 2) naming the
+offending JSON pointer with no inference and no process spawned.
+
+The helper reaches that agreement by scanning the raw request bytes before
+Foundation's decoder sees them: the request envelope is checked for strict JSON
+and repeated keys, and the embedded `schema` member is scanned again as a schema
+so its rejections carry the same pointer and sentence Hollis would report. The
+scan compares keys by decoded UTF-8, which is what the Go decoder does. Without
+that scan the helper's decoder would accept a byte-order mark or a trailing
+comma and keep the first value of a repeated key.
+
+One bound is the helper's own rather than a shared rule: Foundation's
+`JSONDecoder` fails at roughly 512 levels of nesting. That is far above the
+16-node nesting bound, so a schema deep enough to reach it is rejected by
+Hollis first as a usage error and never reaches the helper.
+
+Guided output is complete-only: `--schema` refuses `--stream`, `--image` and
+every route except `local` before generation. The helper scans the SDK's JSON
+text for the returned object, refuses it if it is not strict JSON or repeats a
+key, validates the decoded value against the requested subset, and only then
+emits the object, re-encoded from a dictionary, so the emitted bytes cannot
+repeat a key. Hollis re-validates that emitted object independently, and the Go
+check is the authority for the returned payload: the helper's echo has already
+lost any duplicate by construction, so a payload fault can only be caught on
+the text the SDK produced. A mismatch, a refusal, a timeout or a
+context-capacity failure reports the existing error and never a partial object.
+A helper that predates guided output
+is refused before the request spawns, with a message to install the matching
+bundle; that refusal is a component mismatch, so it reports `native_protocol`
+with exit 5, the same class as a helper that speaks too new a protocol.
+
+Structural validity is all this feature establishes. A conforming object is not
+a claim that its content is correct. See [the API guide](api.md) for the
+OpenAI-shaped endpoints, which keep `content` as a JSON string.
+
+Guided output arrives with helper 0.5.0, so it needs the bundle from the same
+release as the CLI. The helper is asked which protocol it speaks before a schema
+request spawns, so an older helper costs no inference: it is refused, pointing
+at the matching bundle. Pairing the CLI with any other helper release is a
+mismatch for every operation, guided or not; the refusal names the cause instead
+of degrading to plain text.
+
 ## Install the matching helper
 
 The Apple Silicon release bundle contains `hollis`, `hollis-native`, the existing

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/kamenxrider/hollis/internal/setup"
 	"github.com/kamenxrider/hollis/internal/subproc"
 )
@@ -129,6 +130,17 @@ func readRuntimeRecord(ctx context.Context, producer string) (setup.RuntimeRecor
 	switch record.Helper.Verification {
 	case "verified", "missing", "mismatch", "failed", "unknown":
 	default:
+		return fail()
+	}
+	// The receipt-pinned protocol is a positive integer no greater than 99 on
+	// the shell side, and the record interpolates it as an unquoted integer. A
+	// pin outside that bound is an invalid receipt here too, not a protocol
+	// era to guess at. An omitted pin (0) stays valid only for a helper that
+	// was not verified.
+	if record.Helper.Protocol != 0 && !runner.ValidProtocol(record.Helper.Protocol) {
+		return fail()
+	}
+	if record.Helper.Verification == "verified" && !runner.ValidProtocol(record.Helper.Protocol) {
 		return fail()
 	}
 	switch record.Bridges.Verification {
