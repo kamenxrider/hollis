@@ -891,12 +891,25 @@ func (r *ShortcutRunner) ListShortcuts(ctx context.Context) ([]string, error) {
 	// A listing that outgrew the capture is not a listing. Truncated bytes
 	// would otherwise turn into invented names; an expired deadline still owns
 	// the classification, and the message never claims a bridge is missing.
+	// The leader's own status is preserved: a flood and a failure can happen
+	// together, and reporting a clean exit for a listing that exited nonzero
+	// would invent one fact while refusing to invent another.
 	if res.StdoutTruncated && cctx.Err() == nil {
+		exitCode := 0
+		if res.WaitErr != nil {
+			exitCode = exitOf(res.WaitErr)
+		}
+		signal, _ := processSignal(res.WaitErr)
+		overflowErr := fmt.Errorf("Listing Shortcuts produced more than the %d MiB capture cap; no bridge is proven missing.",
+			listCaptureCap>>20)
+		if res.WaitErr != nil {
+			overflowErr = fmt.Errorf("%w: %w", overflowErr, res.WaitErr)
+		}
 		return nil, &Error{
 			Kind:     KindListFailure,
-			ExitCode: 0,
-			Err: fmt.Errorf("Listing Shortcuts produced more than the %d MiB capture cap; no bridge is proven missing.",
-				listCaptureCap>>20),
+			ExitCode: exitCode,
+			Signal:   signal,
+			Err:      overflowErr,
 		}
 	}
 	return listShortcutsResult(cctx, budget, res.WaitErr, readErr, string(res.Stdout))

@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	runtimeRecordPipeModeEnv = "HOLLIS_RECORD_PIPE_MODE"
-	runtimeRecordPipePIDEnv  = "HOLLIS_RECORD_PIPE_PID"
+	runtimeRecordPipeModeEnv  = "HOLLIS_RECORD_PIPE_MODE"
+	runtimeRecordPipePIDEnv   = "HOLLIS_RECORD_PIPE_PID"
+	runtimeRecordPipeGroupEnv = "HOLLIS_RECORD_PIPE_GROUP_PID"
 )
 
 // TestRuntimeRecordPipeHelper is an offline fixture: the producer stand-in. The
@@ -39,6 +40,42 @@ func TestRuntimeRecordPipeHelper(t *testing.T) {
 		if err := holder.Start(); err != nil {
 			os.Exit(3)
 		}
+		os.Exit(0)
+	case "late-exit":
+		// Two descendants, two claims. The detached holder keeps stdout open
+		// after the leader exits and is out of the producer's group, so only
+		// closing the read ends can bound the wait on it. The in-group child
+		// must be killed by the deadline's group kill.
+		holder := exec.Command(os.Args[0], "-test.run=^TestRuntimeRecordPipeHelper$")
+		holder.Env = append(os.Environ(), runtimeRecordPipeModeEnv+"=holder")
+		holder.Stdout, holder.Stderr = os.Stdout, os.Stderr
+		holder.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := holder.Start(); err != nil {
+			os.Exit(3)
+		}
+		group := exec.Command(os.Args[0], "-test.run=^TestRuntimeRecordPipeHelper$")
+		group.Env = append(os.Environ(), runtimeRecordPipeModeEnv+"=group-member",
+			runtimeRecordPipeGroupEnv+"="+os.Getenv(runtimeRecordPipeGroupEnv))
+		group.Stdout, group.Stderr = os.Stdout, os.Stderr
+		if err := group.Start(); err != nil {
+			os.Exit(3)
+		}
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			_, holderErr := os.Stat(os.Getenv(runtimeRecordPipePIDEnv))
+			_, groupErr := os.Stat(os.Getenv(runtimeRecordPipeGroupEnv))
+			if holderErr == nil && groupErr == nil {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		time.Sleep(150 * time.Millisecond)
+		os.Exit(0)
+	case "group-member":
+		if err := os.WriteFile(os.Getenv(runtimeRecordPipeGroupEnv), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+			os.Exit(4)
+		}
+		time.Sleep(30 * time.Second)
 		os.Exit(0)
 	case "holder":
 		pidPath := os.Getenv(runtimeRecordPipePIDEnv)
@@ -126,6 +163,51 @@ func TestReadRuntimeRecordBoundsPipeHolder(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A producer that exits just before the budget expires while a descendant keeps
+// stdout open is the late-leader shape. The run must end at the deadline the
+// caller set, not at the deadline plus a cleanup interval, and the fail-closed
+// classification must not depend on how long the descendant lived.
+func TestReadRuntimeRecordLateLeaderReturnsAtDeadline(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("producer stand-in mirrors the macOS-only runtime record")
+	}
+	previous := runtimeRecordTimeout
+	runtimeRecordTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { runtimeRecordTimeout = previous })
+
+	pidPath := filepath.Join(t.TempDir(), "holder.pid")
+	groupPath := filepath.Join(t.TempDir(), "group.pid")
+	t.Setenv(runtimeRecordPipeModeEnv, "late-exit")
+	t.Setenv(runtimeRecordPipePIDEnv, pidPath)
+	t.Setenv(runtimeRecordPipeGroupEnv, groupPath)
+	producer := writeProbeStandIn(t, "TestRuntimeRecordPipeHelper")
+	start := time.Now()
+	record, err := readRuntimeRecord(context.Background(), producer)
+	elapsed := time.Since(start)
+	if err == nil || record.State == "verified" {
+		t.Fatalf("record=%+v err=%v, want a fail-closed verification", record, err)
+	}
+	// The leader exits at 150ms while the detached holder would keep the pipe
+	// open for 30s. Anything past the budget plus a small scheduling allowance
+	// means the run waited on a cleanup interval rather than on the deadline.
+	if elapsed < runtimeRecordTimeout-100*time.Millisecond || elapsed > runtimeRecordTimeout+500*time.Millisecond {
+		t.Errorf("late leader did not return at the deadline: elapsed=%v budget=%v", elapsed, runtimeRecordTimeout)
+	}
+	// The deadline's group kill covers every descendant that stayed in the
+	// producer's group.
+	waitForProbeExit(t, readProbePID(t, groupPath))
+	// A holder that left the group survives by design: the deadline disconnects
+	// the pipe instead of signalling it. Record that honestly rather than
+	// claiming a kill this layer does not perform.
+	holderPID := readProbePID(t, pidPath)
+	if killErr := syscall.Kill(holderPID, 0); killErr != nil {
+		t.Logf("detached holder %d exited on its own: %v", holderPID, killErr)
+	} else {
+		t.Logf("detached holder %d survives the call, as documented", holderPID)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(holderPID, syscall.SIGKILL) })
 }
 
 func TestReadRuntimeRecordStillAcceptsBoundedProducer(t *testing.T) {

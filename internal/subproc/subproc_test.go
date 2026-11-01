@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,9 +19,14 @@ import (
 )
 
 const (
-	helperModeEnv = "HOLLIS_SUBPROC_HELPER"
-	helperPIDEnv  = "HOLLIS_SUBPROC_HELPER_PID"
+	helperModeEnv  = "HOLLIS_SUBPROC_HELPER"
+	helperPIDEnv   = "HOLLIS_SUBPROC_HELPER_PID"
+	helperWriteEnv = "HOLLIS_SUBPROC_HELPER_WRITE"
 )
+
+// lateOutput is a complete-looking response. A process that emits this after the
+// deadline and exits 0 must not be able to turn a killed run into a success.
+const lateOutput = `{"protocol":1,"version":"0.4.0","model":"local","event":"complete","text":"late"}`
 
 // TestSubprocHelperProcess is an offline fixture: it is inert unless a test
 // selects a mode. The detached holder deliberately leaves the leader's process
@@ -52,6 +58,44 @@ func TestSubprocHelperProcess(t *testing.T) {
 			t.Fatal(err)
 		}
 		time.Sleep(8 * time.Second)
+		os.Exit(0)
+	case "late-leader":
+		// A detached writer keeps the inherited stdout and is therefore not
+		// reachable by the deadline's group kill; only closing the read ends can
+		// disconnect it.
+		writer := exec.Command(os.Args[0], "-test.run=^TestSubprocHelperProcess$")
+		writer.Env = append(os.Environ(), helperModeEnv+"=late-writer")
+		writer.Stdout, writer.Stderr = os.Stdout, os.Stderr
+		writer.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := writer.Start(); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(os.Getenv(helperPIDEnv)); err == nil {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	case "late-writer":
+		// A Go program that writes to a broken stdout is killed by the runtime's
+		// SIGPIPE handling. Ignore it so the fixture can report whether the late
+		// write was refused, which is the observation this test needs.
+		signal.Ignore(syscall.SIGPIPE)
+		if err := os.WriteFile(os.Getenv(helperPIDEnv), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// Write after the test's deadline has certainly expired, then attempt a
+		// clean exit: exactly the shape that must never become a result.
+		time.Sleep(700 * time.Millisecond)
+		_, writeErr := os.Stdout.WriteString(lateOutput)
+		note := "write=ok"
+		if writeErr != nil {
+			note = "write=error:" + writeErr.Error()
+		}
+		_ = os.WriteFile(os.Getenv(helperWriteEnv), []byte(note), 0o600)
 		os.Exit(0)
 	default:
 		os.Exit(2)
@@ -397,23 +441,66 @@ func TestRunIgnoresSIGTERMIgnoringChild(t *testing.T) {
 	}
 }
 
+// A killed run cannot be rescued by output that arrives later. The fixture
+// writes a complete-looking response after the deadline and then exits 0; the
+// call must already have returned an error, and the late bytes must never reach
+// the result.
 func TestRunDiscardsLateOutputAfterDeadline(t *testing.T) {
+	pidPath := filepath.Join(t.TempDir(), "late.pid")
+	writePath := filepath.Join(t.TempDir(), "late-write.txt")
+	t.Setenv(helperModeEnv, "late-leader")
+	t.Setenv(helperPIDEnv, pidPath)
+	t.Setenv(helperWriteEnv, writePath)
+
+	start := time.Now()
 	result, err := Run(context.Background(), Spec{
-		Name:    "/bin/sh",
-		Args:    []string{"-c", `printf partial; sleep 30`},
-		Timeout: 200 * time.Millisecond,
+		Name:    os.Args[0],
+		Args:    []string{"-test.run=^TestSubprocHelperProcess$"},
+		Timeout: 300 * time.Millisecond,
 	})
+	elapsed := time.Since(start)
+
+	writerPID := readPID(t, pidPath)
+	t.Cleanup(func() { killPID(t, writerPID) })
+
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want deadline exceeded", err)
 	}
 	if !result.Expired {
 		t.Error("Expired = false for a run that outlived its deadline")
 	}
-	// Captured bytes may exist for diagnosis, but the call is never a
-	// success, so no caller can read them as a completed result.
 	if result.WaitErr == nil {
 		t.Error("WaitErr = nil for a killed run")
 	}
+	if elapsed > 3*time.Second {
+		t.Errorf("late output extended the call: elapsed=%v", elapsed)
+	}
+
+	// Wait for the writer to prove it really attempted the late write.
+	var note string
+	var writeObservedAt time.Time
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		data, readErr := os.ReadFile(writePath)
+		if readErr == nil {
+			note, writeObservedAt = string(data), time.Now()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if note == "" {
+		t.Fatal("fixture never attempted its late write")
+	}
+	if since := writeObservedAt.Sub(start); since < 400*time.Millisecond {
+		t.Fatalf("late write was observed at %v, before the deadline", since)
+	}
+	if strings.Contains(string(result.Stdout), "late") {
+		t.Errorf("late output reached the result: %q", result.Stdout)
+	}
+	if strings.Contains(string(result.Stdout), "complete") {
+		t.Errorf("late completion reached the result: %q", result.Stdout)
+	}
+	t.Logf("deadline=%v elapsed=%v late write outcome=%q captured=%q", 300*time.Millisecond, elapsed, note, result.Stdout)
 }
 
 func TestRunCancellationReapsDescendants(t *testing.T) {

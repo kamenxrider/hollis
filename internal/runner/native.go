@@ -307,11 +307,15 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		LineCap:   nativeMaxOutputBytes,
 	}, handle)
 	if !res.Started {
-		if res.StartErr == nil {
-			return fail(nativeError(KindTransport, "could not open native output pipe"))
-		}
+		// A child that never started because the governing deadline expired is
+		// a timeout, not a transport failure. Check the context before the
+		// missing StartErr: an expired run reports no start error, and the
+		// stale pipe message would blame the helper for the caller's deadline.
 		if ctxErr := nativeContextError(ctx); ctxErr != nil {
 			return fail(ctxErr)
+		}
+		if res.StartErr == nil {
+			return fail(nativeError(KindTransport, "could not open native output pipe"))
 		}
 		return fail(nativeError(KindTransport, "could not launch native helper"))
 	}

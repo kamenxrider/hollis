@@ -25,6 +25,15 @@
 // disconnects the pipe instead of signalling the holder; no test here claims to
 // kill one, and the fixtures assert the holder is still alive when the budget
 // is observed to hold. Every process that stays in the group is killed.
+//
+// Accepted limitation, standard input: stdout and stderr are deadline-owned
+// pipes, but Stdin is a plain bytes.Reader handed to exec.Cmd. That contract
+// assumes a trusted child consumes the input or exits; if a child blocks holding
+// stdin unread, exec.Cmd's copying goroutine keeps it alive and Run does not
+// return at the deadline. Every caller here spawns a known binary, so this is
+// out of scope rather than a supported guarantee. Owning stdin the way the
+// output pipes are owned — a parent-written pipe closed at the deadline — would
+// be a separate change with its own regression fixtures.
 package subproc
 
 import (
