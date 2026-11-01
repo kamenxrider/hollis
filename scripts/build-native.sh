@@ -15,7 +15,7 @@ trap 'rm -rf "$module_cache"' EXIT
 mkdir -p "$(dirname "$output")"
 xcrun --sdk macosx swiftc -parse-as-library -O \
   -module-cache-path "$module_cache" -sdk "$sdk_path" -target arm64-apple-macosx27.0 \
-  "$root/native/HollisNative.swift" -o "$output"
+  "$root/native/HollisNative.swift" "$root/native/SchemaSubset.swift" -o "$output"
 codesign --force --sign - "$output"
 # The SDK 27 GitHub image currently runs macOS 26. Building a macOS 27
 # executable there is supported; executing it there is not. Verify the artifact
