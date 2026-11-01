@@ -18,25 +18,36 @@ SIGN_DEADLINE=60
 OPEN_DEADLINE=30
 bound_run() {
   local deadline=$1 child reaper bound_flag saved_exit saved_int saved_term
+  local composed_exit composed_int composed_term
   shift
   # The reaper measures real seconds: a poll-tick counter would fire the
   # bound early, and a too-short bound must not impersonate its message.
   # It kills the group FIRST and writes the provenance flag second, because
   # the flag lives in WORK_DIR which the script's cleanup trap deletes when
   # the caller stops the script; a failed write must never skip the kill.
-  # The reaper keeps its own group, so it survives the caller stopping and
-  # still enforces the deadline on an orphaned child.
+  # The reaper keeps its own group, so it survives only an untrapped SIGKILL
+  # of the caller; a trapped TERM or INT runs stopping and takes the reaper
+  # group down with the child.
   # bound_run's children live outside the caller's process group, so a
   # signal to the caller alone would not reach them; they die with the
   # script. Empty guards keep a signal that arrives before the spawns
-  # (the only window where child or reaper is unset) harmless. The trap
+  # (the only window where child or reaper is unset) harmless. Cancellation
+  # escalates: TERM to the group, then KILL after a one-second grace, so a
+  # child that ignores TERM cannot outlive the stopped script. The trap
   # runs stopping twice (handler, then the composed EXIT trap during that
-  # exit), and the second run's kills fail while the leaders are unreaped
-  # zombies, so stopping must return 0 unconditionally: under set -e the
+  # exit), spawning one KILL escalation each time, and the second run's
+  # TERM kills fail while the leaders are unreaped zombies, so every kill
+  # is best-effort and stopping returns 0 unconditionally: under set -e the
   # caller's handler exits 143/130 must survive teardown.
   stopping() {
-    if [[ -n "${child:-}" ]]; then kill -- -"$child" 2>/dev/null || true; fi
-    if [[ -n "${reaper:-}" ]]; then kill -- -"$reaper" 2>/dev/null || true; fi
+    if [[ -n "${child:-}" ]]; then
+      kill -- -"$child" 2>/dev/null || true
+      ( sleep 1; kill -9 -- -"$child" 2>/dev/null || true ) &
+    fi
+    if [[ -n "${reaper:-}" ]]; then
+      kill -- -"$reaper" 2>/dev/null || true
+      ( sleep 1; kill -9 -- -"$reaper" 2>/dev/null || true ) &
+    fi
     return 0
   }
   bound_flag="$WORK_DIR/bound.fired"
@@ -44,15 +55,37 @@ bound_run() {
   rm -f -- "$bound_flag"
   set -m
   # Capture the caller's handlers and install the composed ones BEFORE
-  # spawning: a signal between spawn and trap installation used to run the
-  # old handler and let the child live until its deadline. With the traps
-  # up first, that window is closed by construction.
+  # spawning, so a signal in the spawn-to-trap window runs the composed
+  # handler and takes the bound children with it; the window is closed by
+  # construction. Each composed trap is the captured caller handler with
+  # stopping prepended: the insertion happens in the captured eval-able
+  # line, so the caller's own handler text (cleanup, audit markers,
+  # anything) runs verbatim during cancellation and cannot drift from a
+  # hard-coded copy.
   saved_exit=$(trap -p EXIT)
   saved_int=$(trap -p INT)
   saved_term=$(trap -p TERM)
-  trap 'stopping; cleanup' EXIT
-  trap 'stopping; exit 130' INT
-  trap 'stopping; exit 143' TERM
+  # The pattern and replacement hold a real single quote, so they are
+  # expanded in assignment context: inside double quotes a backslash-quote
+  # is a literal backslash and the capture would stop matching.
+  if [[ -n "$saved_exit" ]]; then
+    composed_exit=${saved_exit/#trap -- \'/trap -- \'stopping; }
+  else
+    composed_exit="trap -- 'stopping; cleanup' EXIT"
+  fi
+  if [[ -n "$saved_int" ]]; then
+    composed_int=${saved_int/#trap -- \'/trap -- \'stopping; }
+  else
+    composed_int="trap -- 'stopping; exit 130' INT"
+  fi
+  if [[ -n "$saved_term" ]]; then
+    composed_term=${saved_term/#trap -- \'/trap -- \'stopping; }
+  else
+    composed_term="trap -- 'stopping; exit 143' TERM"
+  fi
+  eval "$composed_exit"
+  eval "$composed_int"
+  eval "$composed_term"
   "$@" & child=$!
   ( SECONDS=0
     while kill -0 "$child" 2>/dev/null; do
@@ -70,9 +103,9 @@ bound_run() {
   wait "$reaper" 2>/dev/null || true
   [[ ! -f "$bound_flag" ]] || BOUND_DEADLINE_FIRED=yes
   # Restore the caller's handlers exactly: trap -p prints eval-able trap
-  # commands, so acquire may change its handler text and bound_run keeps
-  # restoring it instead of reinstalling strings that silently drift. A
-  # captured default (empty capture) resets to the shell default.
+  # commands, so the caller may change its handler text across calls and
+  # bound_run restores precisely what it captured. An empty capture resets
+  # to the shell default.
   if [[ -n "$saved_exit" ]]; then eval "$saved_exit"; else trap - EXIT; fi
   if [[ -n "$saved_int" ]]; then eval "$saved_int"; else trap - INT; fi
   if [[ -n "$saved_term" ]]; then eval "$saved_term"; else trap - TERM; fi

@@ -119,17 +119,25 @@ class DiscoveryBoundsTests(unittest.TestCase):
         self.assertIn("Listing Shortcuts did not complete within", payload["message"])
         self.assertEqual(payload["message"].rsplit("within ", 1)[1].split(" ", 1)[0], "10")
 
-    def _start_hung_listing(self):
+    def _start_hung_listing(self, term_ignoring=False):
         # Shared setup for the interruption tests: a lister that records its
         # process group, spawns a same-group member and never exits; the
         # script is started detached. Captures the hung child's group and
         # the reaper's own group (the only script child in another group).
+        # term_ignoring adds "trap '' TERM" so the child ignores the TERM
+        # half of cancellation and only the KILL escalation can stop it.
         pglog_path = self.base / "bounds-pg"
+        # A fresh log per start: tests that interrupt twice share the
+        # fixture base, and a stale log would skip the listing-sync wait.
+        if pglog_path.exists():
+            pglog_path.unlink()
         quoted_pglog = shlex.quote(str(pglog_path))
+        ignoring = "    trap '' TERM\n" if term_ignoring else ""
         self.replace_shortcuts(
             "#!/bin/bash\n"
             "case \"${1:-}\" in\n"
             "  list)\n"
+            + ignoring +
             f"    ps -o pgid= -p $$ | tr -d ' ' >> {quoted_pglog}\n"
             f"    ( sleep 240 ) &\n"
             "    exec sleep 240\n"
@@ -170,8 +178,8 @@ class DiscoveryBoundsTests(unittest.TestCase):
                 self.fail(f"{label} {pgid} survived the stopped script")
             time.sleep(0.5)
 
-    def _signal_and_wait(self, how, expected_rc):
-        proc, child_pgid, reaper_pgid = self._start_hung_listing()
+    def _signal_and_wait(self, how, expected_rc, term_ignoring=False):
+        proc, child_pgid, reaper_pgid = self._start_hung_listing(term_ignoring)
         with proc:  # closes the pipes when done; silences ResourceWarning
             if how == "term-pid":
                 os.kill(proc.pid, signal.SIGTERM)
@@ -192,11 +200,52 @@ class DiscoveryBoundsTests(unittest.TestCase):
         self._signal_and_wait("term-pid", 143)
 
     def test_script_int_group_mid_hang_kills_bound_group(self):
-        # The PR body's cancellation claim, as its own case: INT at the
-        # script's group while the listing hangs must exit 130 and leave
-        # zero survivors in both bound groups.
+        # INT at the script's group while the listing hangs must exit 130
+        # and leave zero survivors in both bound groups.
         self.fixture.install()
         self._signal_and_wait("int-group", 130)
+
+    def test_script_cancellation_stops_term_ignoring_children(self):
+        # A hung child that ignores TERM must still not outlive
+        # cancellation: stopping sends TERM, then KILLs the group after a
+        # one-second grace, for the child and the reaper alike.
+        self.fixture.install()
+        self._signal_and_wait("term-pid", 143, term_ignoring=True)
+        self._signal_and_wait("int-group", 130, term_ignoring=True)
+
+    def test_cancellation_runs_callers_composed_exit_handler(self):
+        # The composed traps are built by prepending stopping to the
+        # captured caller handler, so the caller's own handler text runs
+        # during cancellation. A capture that falls back to fixed strings
+        # (or an exact-restore regression) leaves the marker absent. The
+        # patched trap lives in the caller (bridges.sh's status readiness
+        # block), which is where the captured handlers come from.
+        self.fixture.install()
+        marker_path = self.base / "exit-marker"
+        quoted_marker = shlex.quote(str(marker_path))
+        bridge = self.fixture.kit / "scripts" / "bridges.sh"
+        text = bridge.read_text()
+        anchor = text.index("hollis-status.XXXXXX")
+        after = text[anchor:]
+        trio = ("  trap cleanup EXIT\n"
+                "  trap 'exit 130' INT\n"
+                "  trap 'exit 143' TERM\n")
+        self.assertIn(trio, after, "status readiness caller traps not found")
+        patched = text[:anchor] + after.replace(
+            trio,
+            f"  trap 'cleanup; printf composed-ran > {quoted_marker}' EXIT\n"
+            "  trap 'exit 130' INT\n"
+            "  trap 'exit 143' TERM\n", 1)
+        self.assertNotEqual(patched, text)
+        bridge.write_text(patched)
+        proc, child_pgid, reaper_pgid = self._start_hung_listing()
+        with proc:
+            os.kill(proc.pid, signal.SIGTERM)
+            self.assertEqual(proc.wait(timeout=5), 143)
+        self._assert_group_gone(child_pgid, "hung child group")
+        self._assert_group_gone(reaper_pgid, "reaper group")
+        self.assertEqual(marker_path.read_text().strip(), "composed-ran",
+                         "the caller's own EXIT handler did not run during cancellation")
 
     def test_list_success_is_unchanged_and_quiet(self):
         self.fixture.install()
