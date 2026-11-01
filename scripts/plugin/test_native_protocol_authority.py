@@ -5,10 +5,14 @@ never call Apple services: the helper and CLI are synthetic scripts and every
 runtime lives in a temporary directory.
 """
 import json
+from pathlib import Path
+import subprocess
 import unittest
 
 import package_plugin
 import test_native_package
+
+COMMON = Path(package_plugin.__file__).resolve().parents[2] / 'plugins/hollis/scripts/common.sh'
 
 
 class ProtocolAuthorityTests(unittest.TestCase):
@@ -65,7 +69,8 @@ class ProtocolAuthorityTests(unittest.TestCase):
         self.assertIn('"protocol":1', raw)
 
     def test_corrupt_pins_fail_closed_with_valid_json(self):
-        for protocol in ('one', 2.0, 0, 100, -1, '1;rm -rf /', {'a': 1}, True, 10 ** 30):
+        for protocol in ('one', 2.0, 0, 100, -1, '1;rm -rf /', {'a': 1}, True, 10 ** 30,
+                         '01', '09', '00', ' 1', '1 ', '+1', '1.0'):
             with self.subTest(protocol=protocol):
                 self.helper(1)
                 self.pin(protocol)
@@ -74,9 +79,46 @@ class ProtocolAuthorityTests(unittest.TestCase):
                 self.assertNotIn('protocol', payload['helper'])
                 self.assertNotIn('"protocol"', raw)
 
+    def test_leading_zero_pin_never_emits_invalid_json(self):
+        # A JSON string "01" reaches the producer verbatim through plutil. It
+        # must never be interpolated unquoted: `"protocol":01` is invalid JSON
+        # and the strict Go decoder would drop the whole record after the
+        # install had already reported verified.
+        installed = self.fixture.install()
+        receipt_path = installed / 'runtime.lock.json'
+        receipt = json.loads(receipt_path.read_text())
+        for raw_pin in ('01', '09'):
+            with self.subTest(pin=raw_pin):
+                receipt['native']['protocol_version'] = raw_pin
+                receipt_path.write_text(json.dumps(receipt))
+                payload, raw = self.record()
+                # Fail-closed: not verified, no protocol field, and the one
+                # emitted document parses (record() would raise otherwise).
+                self.assertNotEqual(payload['state'], 'verified')
+                self.assertNotIn('protocol', payload['helper'])
+                self.assertNotIn('"protocol":', raw)
+                self.assertNotIn('"protocol",', raw)
+
+    def test_valid_protocol_accepts_only_canonical_decimal(self):
+        accepted = ('1', '2', '9', '10', '42', '99')
+        rejected = ('0', '00', '01', '09', '010', '100', '-1', '+1', '1.0', '2.0',
+                    '', 'one', '1;rm -rf /', ' 1', '1 ', '٠١')
+        script = ('set -uo pipefail; . "$1"; shift; '
+                  'for value in "$@"; do if valid_protocol "$value"; '
+                  'then printf \'ok\\n\'; else printf \'no\\n\'; fi; done')
+        result = subprocess.run(
+            ['/bin/bash', '-c', script, '_', str(COMMON), *accepted, *rejected],
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        answers = result.stdout.split()
+        self.assertEqual(len(answers), len(accepted) + len(rejected), result.stdout)
+        self.assertEqual(answers[:len(accepted)], ['ok'] * len(accepted))
+        for raw_pin, answer in zip(rejected, answers[len(accepted):]):
+            self.assertEqual(answer, 'no', f'{raw_pin!r} must be rejected')
+
     def test_install_rejects_corrupt_pin_before_switching_pointer(self):
         self.helper(1)
-        for protocol in ('one', 100, {'a': 1}, '1;rm -rf /'):
+        for protocol in ('one', 100, {'a': 1}, '1;rm -rf /', '01', '09'):
             with self.subTest(protocol=protocol):
                 self.pin(protocol)
                 result = self.fixture.call('install')

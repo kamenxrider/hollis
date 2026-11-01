@@ -14,13 +14,18 @@ LOCK_DIR=
 WORK_DIR=
 
 fail() { printf 'Hollis: %s\n' "$*" >&2; exit 10; }
-# A receipt-pinned native protocol is the authority: a positive integer no
-# greater than 99. The record emitter interpolates it unquoted and the Go
-# decoder requires an integer, so a non-integer or out-of-range pin is an
-# invalid receipt, never a protocol era to guess at.
+# A receipt-pinned native protocol is the authority: canonical decimal 1..99.
+# The record emitter interpolates it unquoted and the Go decoder requires an
+# integer, so anything that is not canonical - a leading zero ("01", "09"),
+# a sign, a float, a quote or whitespace - and anything out of range is an
+# invalid receipt, never a protocol era to guess at. Leading zeros matter:
+# plutil returns the string "01" verbatim and emitting it would produce
+# invalid JSON (`"protocol":01`) after an install that reported verified.
 valid_protocol() {
-  case "$1" in ''|*[!0-9]*) return 1;; esac
-  [[ ${#1} -le 2 ]] && (( 10#$1 >= 1 && 10#$1 <= 99 ))
+  case "$1" in
+    [1-9]|[1-9][0-9]) return 0;;
+  esac
+  return 1
 }
 json_string() {
   local s=$1
