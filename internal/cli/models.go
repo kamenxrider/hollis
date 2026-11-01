@@ -36,7 +36,7 @@ sources.`,
 				if flags.asJSON {
 					return printJSONArrayFilteredTo(cmd.OutOrStdout(), []map[string]any{localModelRow(localStatus, localErr)}, flags)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "local: %s (availability only; inference not tested)\n", localStatusLabel(localStatus, localErr))
+				fmt.Fprintf(cmd.OutOrStdout(), "local: %s%s (availability only; inference not tested)\n", localStatusLabel(localStatus, localErr), localStatusDetail(localStatus))
 				return nil
 			}
 			resolved, err := resolveBridges(cmd.Context())
@@ -82,7 +82,7 @@ sources.`,
 				desc := appleModelName(spec.Names, osMajor)
 				fmt.Fprintf(w, "  %-10s %s\n", string(spec.ID), desc)
 			}
-			fmt.Fprintf(w, "  %-10s Native Foundation Models SDK: %s (inference not tested)\n", "local", localStatusLabel(localStatus, localErr))
+			fmt.Fprintf(w, "  %-10s Native Foundation Models SDK: %s%s (inference not tested)\n", "local", localStatusLabel(localStatus, localErr), localStatusDetail(localStatus))
 			fmt.Fprintf(w, "\nApple publishes no backend model IDs. The internal Shortcuts parameter\nstrings are included in --json; background in README \"Model tiers\".\n")
 			return nil
 		},

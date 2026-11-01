@@ -36,6 +36,50 @@ is unavailable; Hollis does not estimate it or report invented zeros. Native
 local supports text, including the existing TXT/MD document preparation. It does
 not add image input, image generation or tool/function calls to this route.
 
+## Guided output
+
+`--schema` asks the native model for an object that follows a supported subset
+of JSON Schema. The schema is validated before the helper is spawned, so an
+unsupported schema costs no inference:
+
+```sh
+hollis respond --model local --schema person.json "Invent one person"
+hollis respond --model local --schema person.json --json "Invent one person"
+```
+
+With `--json`, `response` is the decoded object rather than a string. Human
+output prints the same object, indented. Usage keeps its existing three counts;
+no field is added.
+
+The subset is deliberately small, and anything outside it is rejected with the
+offending JSON pointer instead of being approximated:
+
+- the root is an object with `"additionalProperties": false`, as is every
+  nested object; nesting stops at three object levels, with arrays adding none;
+- properties are `string`, `integer`, `number` or `boolean`; `required` names
+  declared properties; at most 32 properties are declared across the schema;
+- `enum` accepts string choices only (Apple's dynamic schema accepts no other
+  kind), and choices must be non-empty and unique;
+- arrays declare `items`, with `minItems`/`maxItems` between 0 and 100;
+- `minimum`/`maximum` are integral for integers and finite for numbers;
+- rejections include references, `anyOf`/`oneOf`/`allOf`/`not`, patterns,
+  formats, string bounds, defaults, descriptions and contradictions such as
+  `maxItems < minItems`. The normalized schema is capped at 64 KiB.
+
+Guided output is complete-only: `--schema` refuses `--stream`, `--image` and
+every route except `local` before generation. The returned object is re-checked
+against the same subset by Hollis after the helper's own validation; a
+mismatch, a refusal, a timeout or a context-capacity failure reports the
+existing error and never a partial object. A helper that predates guided output
+is refused before the request spawns, with a message to install the matching
+bundle.
+
+Structural validity is all this feature establishes. A conforming object is not
+a claim that its content is correct. See [the API guide](api.md) for the
+OpenAI-shaped endpoints, which keep `content` as a JSON string.
+local supports text, including the existing TXT/MD document preparation. It does
+not add image input, image generation or tool/function calls to this route.
+
 ## Install the matching helper
 
 The Apple Silicon release bundle contains `hollis`, `hollis-native`, the existing

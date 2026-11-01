@@ -21,7 +21,9 @@ on-device SDK and stream human output when stdout is a terminal. Use `--stream`
 to stream explicitly to a pipe, or `--stream=false` for a complete answer. JSON
 and agent output never stream, even in a terminal; `--stream=true` with either
 is rejected. Terminal control characters are rendered visibly. No conversation
-is silently shortened to fit native context capacity. See [native local](native-local.md).
+is silently shortened to fit native context capacity. `respond --schema` asks
+`local` for a guided object; the supported subset, the pre-call rejections and
+the complete-only rule are in [native local](native-local.md#guided-output).
 
 ## Text documents
 
