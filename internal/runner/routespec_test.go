@@ -85,7 +85,7 @@ func TestRouteSpecParityWithCurrentConstants(t *testing.T) {
 	if local.Transport != TransportNative || local.Selection != "" || len(local.BridgeNames) != 0 || local.CompiledUUID != "" || local.BatchSpacing != 0 {
 		t.Fatalf("native local row drifted: %+v", local)
 	}
-	wantLocalCap := CapabilitySet{Streaming: true, Usage: true}
+	wantLocalCap := CapabilitySet{Streaming: true, Usage: true, Schema: true}
 	if local.Capabilities != wantLocalCap {
 		t.Errorf("local capabilities = %+v, want %+v", local.Capabilities, wantLocalCap)
 	}

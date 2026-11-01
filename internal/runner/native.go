@@ -19,25 +19,41 @@ import (
 	"github.com/kamenxrider/hollis/internal/subproc"
 )
 
-const NativeProtocol = 1
-const NativeVersion = "0.4.0"
+// NativeProtocol and NativeVersion are the matched helper contract this CLI
+// speaks. A protocol bump is deliberate: guided output needs an operation and
+// event fields an older helper would silently ignore.
+const NativeProtocol = 2
+const NativeVersion = "0.5.0"
 const NativeMaxPromptBytes = 128 << 10
 const nativeMaxOutputBytes = 8 << 20
+
+// ValidProtocol reports whether n is a usable helper protocol pin: a positive
+// integer no greater than 99. Plugins, the packager and the runtime-record
+// producer enforce the same bound, so a pin outside it is an invalid receipt
+// rather than a protocol era to guess at.
+func ValidProtocol(n int) bool { return n >= 1 && n <= 99 }
 
 // platformProbeTimeout bounds the sw_vers platform probe independently of the
 // invoking call's deadline. Variable so offline fixtures can shorten it.
 var platformProbeTimeout = 5 * time.Second
+
+// helperProbeTimeout bounds the non-generative --protocol-version probe that
+// guards a guided-output request. Variable so offline fixtures can shorten it.
+var helperProbeTimeout = 5 * time.Second
 
 // swVersPath is the platform probe binary. Variable so offline fixtures can
 // substitute a stand-in without invoking the real probe.
 var swVersPath = "/usr/bin/sw_vers"
 
 // LocalStatus describes a non-generative availability check, not inference proof.
+// ContextSize is the measured context window, present only where the helper
+// reports it; absent signals stay absent rather than zero-filled.
 type LocalStatus struct {
-	Available bool   `json:"available"`
-	Reason    string `json:"reason,omitempty"`
-	Protocol  int    `json:"protocol"`
-	Version   string `json:"version"`
+	Available   bool   `json:"available"`
+	Reason      string `json:"reason,omitempty"`
+	Protocol    int    `json:"protocol"`
+	Version     string `json:"version"`
+	ContextSize int    `json:"context_size,omitempty"`
 }
 
 type NativeStatusRunner interface {
@@ -110,18 +126,29 @@ func (r *NativeRunner) Run(ctx context.Context, model Model, prompt string) (str
 	return result.Text, model, err
 }
 func (r *NativeRunner) RunComplete(ctx context.Context, model Model, prompt string) (Completion, error) {
-	result, _, err := r.invoke(ctx, model, "complete", prompt, nil)
+	result, _, err := r.invoke(ctx, model, "complete", prompt, nil, nil)
 	return result, err
 }
 func (r *NativeRunner) Stream(ctx context.Context, model Model, prompt string, emit func(string) error) (Completion, error) {
 	if emit == nil {
 		return Completion{}, nativeError(KindUsage, "stream callback is required")
 	}
-	result, _, err := r.invoke(ctx, model, "stream", prompt, emit)
+	result, _, err := r.invoke(ctx, model, "stream", prompt, emit, nil)
 	return result, err
 }
+
+// RunSchema requests guided output. The schema must already be parsed: there is
+// no path here that forwards an unvalidated schema to the helper.
+func (r *NativeRunner) RunSchema(ctx context.Context, model Model, prompt string, schema *Schema) (Completion, error) {
+	if schema == nil {
+		return Completion{Model: model}, nativeError(KindUsage, "guided output requires a schema")
+	}
+	result, _, err := r.invoke(ctx, model, "schema", prompt, nil, schema)
+	return result, err
+}
+
 func (r *NativeRunner) NativeStatus(ctx context.Context) (LocalStatus, error) {
-	_, status, err := r.invoke(ctx, ModelLocal, "status", "", nil)
+	_, status, err := r.invoke(ctx, ModelLocal, "status", "", nil, nil)
 	return status, err
 }
 
@@ -139,10 +166,52 @@ func nativeContextError(ctx context.Context) error {
 	return nil
 }
 
+// requireGuidedSupport asks the resolved helper which protocol it speaks
+// before a schema request spawns. Guided output is a protocol-2 operation: an
+// older helper answers a protocol-2 request with an error event at best, so the
+// refusal happens here with an actionable message instead. The probe is the
+// non-generative --protocol-version command, and its output is never
+// propagated beyond the parsed integer.
+func (r *NativeRunner) requireGuidedSupport(ctx context.Context, path string) error {
+	timeout := helperProbeTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < timeout {
+			timeout = remaining
+		}
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	res, runErr := subproc.Run(probeCtx, subproc.Spec{
+		Name:      path,
+		Args:      []string{"--protocol-version"},
+		StdoutCap: 4096,
+		StderrCap: -1,
+	})
+	if ctxErr := nativeContextError(probeCtx); ctxErr != nil {
+		return ctxErr
+	}
+	if runErr != nil || !res.Started || res.WaitErr != nil {
+		return nativeError(KindNativeFailed, "native helper could not report its supported protocol")
+	}
+	reported, convErr := strconv.Atoi(strings.TrimSpace(string(res.Stdout)))
+	if convErr != nil || !ValidProtocol(reported) {
+		return nativeError(KindNativeFailed, "native helper reported an unsupported protocol version")
+	}
+	switch {
+	case reported < NativeProtocol:
+		return nativeError(KindUsage, "native helper does not support guided output; update the matched bundle")
+	case reported > NativeProtocol:
+		return nativeError(KindNativeProtocol, "native helper version, protocol or model mismatch; install the matching bundle")
+	default:
+		return nil
+	}
+}
+
 type nativeRequest struct {
-	Protocol  int    `json:"protocol"`
-	Operation string `json:"operation"`
-	Prompt    string `json:"prompt,omitempty"`
+	Protocol  int             `json:"protocol"`
+	Operation string          `json:"operation"`
+	Prompt    string          `json:"prompt,omitempty"`
+	Schema    json.RawMessage `json:"schema,omitempty"`
 }
 type nativeUsage struct {
 	InputTokens     *int `json:"input_tokens"`
@@ -164,16 +233,25 @@ type nativeEvent struct {
 	Text      *string      `json:"text,omitempty"`
 	Usage     *nativeUsage `json:"usage,omitempty"`
 	Kind      Kind         `json:"kind,omitempty"`
+	// ContextSize is the measured context window a protocol-2 status reports.
+	ContextSize *int `json:"context_size,omitempty"`
+	// Structured is the guided-output object. It is accepted only on a
+	// terminal complete event for a schema request, and only after this
+	// package re-validates it against the requested schema.
+	Structured json.RawMessage `json:"structured,omitempty"`
 }
 
 // invoke never retries, truncates, or repairs model output. Complete events must
 // be followed by clean EOF and a successful process exit before success is returned.
-func (r *NativeRunner) invoke(parent context.Context, model Model, operation, prompt string, emit func(string) error) (Completion, LocalStatus, error) {
+func (r *NativeRunner) invoke(parent context.Context, model Model, operation, prompt string, emit func(string) error, schema *Schema) (Completion, LocalStatus, error) {
 	result := Completion{Model: model}
 	status := LocalStatus{}
 	fail := func(err error) (Completion, LocalStatus, error) { return Completion{Model: model}, status, err }
 	if model != ModelLocal {
 		return fail(nativeError(KindUsage, "native backend only supports model local"))
+	}
+	if operation == "schema" && schema == nil {
+		return fail(nativeError(KindUsage, "guided output requires a schema"))
 	}
 	if operation != "status" {
 		if strings.TrimSpace(prompt) == "" {
@@ -208,7 +286,20 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		}
 		return fail(nativeError(KindLocalUnavailable, err.Error()))
 	}
-	request, err := json.Marshal(nativeRequest{NativeProtocol, operation, prompt})
+	if operation == "schema" {
+		// Refuse a guided request before the request spawns when the paired
+		// helper predates the operation. The probe is the helper's metadata
+		// command: it loads no model and never reads the request, so the
+		// refusal costs no inference.
+		if err := r.requireGuidedSupport(ctx, path); err != nil {
+			return fail(err)
+		}
+	}
+	var requestSchema json.RawMessage
+	if schema != nil {
+		requestSchema = schema.Bytes()
+	}
+	request, err := json.Marshal(nativeRequest{Protocol: NativeProtocol, Operation: operation, Prompt: prompt, Schema: requestSchema})
 	if err != nil {
 		return fail(nativeError(KindTransport, "could not encode native request"))
 	}
@@ -241,13 +332,29 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		if event.Protocol != NativeProtocol || event.Version != NativeVersion || event.Model != ModelLocal {
 			return nativeError(KindNativeProtocol, "native helper version, protocol or model mismatch; install the matching bundle")
 		}
+		// Signals the design pins to one place in the sequence: the context
+		// window belongs to status, and a structured object belongs to a
+		// terminal guided completion. Anything else is a protocol error, never
+		// a value to be picked up wherever it appears.
+		if event.ContextSize != nil && event.Event != "status" {
+			return nativeError(KindNativeProtocol, "unexpected native context size")
+		}
+		if len(event.Structured) != 0 && event.Event != "complete" {
+			return nativeError(KindNativeProtocol, "unexpected structured output")
+		}
 		switch event.Event {
 		case "status":
 			if ready || event.Available == nil {
 				return nativeError(KindNativeProtocol, "invalid native status sequence")
 			}
 			ready = true
-			status = LocalStatus{*event.Available, event.Reason, event.Protocol, event.Version}
+			status = LocalStatus{Available: *event.Available, Reason: event.Reason, Protocol: event.Protocol, Version: event.Version}
+			if event.ContextSize != nil {
+				if *event.ContextSize <= 0 {
+					return nativeError(KindNativeProtocol, "invalid native context size")
+				}
+				status.ContextSize = *event.ContextSize
+			}
 			if operation == "status" {
 				terminal = true
 			} else if !status.Available {
@@ -277,6 +384,20 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 				}
 			} else if !event.Usage.valid() {
 				return nativeError(KindNativeProtocol, "native complete response lacks valid measured usage")
+			}
+			if operation == "schema" {
+				// The helper's SDK decode is necessary but not trusted: the
+				// returned object is re-validated here against the same
+				// requested subset. No retry, repair or fallback.
+				if len(event.Structured) == 0 {
+					return nativeError(KindNativeProtocol, "native guided response lacks structured output")
+				}
+				if err := schema.Validate(event.Structured); err != nil {
+					return nativeError(KindNativeProtocol, "returned payload does not match the requested schema")
+				}
+				result.Structured = event.Structured
+			} else if len(event.Structured) != 0 {
+				return nativeError(KindNativeProtocol, "unexpected structured output")
 			}
 			result.Text = *event.Text
 			if event.Usage != nil {
@@ -378,6 +499,14 @@ func (r *RoutedRunner) Stream(ctx context.Context, model Model, prompt string, e
 		return Completion{}, nativeError(KindUsage, "streaming is supported only for model local")
 	}
 	return r.Native.Stream(ctx, model, prompt, emit)
+}
+func (r *RoutedRunner) RunSchema(ctx context.Context, model Model, prompt string, schema *Schema) (Completion, error) {
+	// Guided output is a native-only capability. Shortcut routes have no schema
+	// operation, so the refusal is a usage error before anything spawns.
+	if model != ModelLocal {
+		return Completion{Model: model}, nativeError(KindUsage, "guided output is supported only for model local")
+	}
+	return r.Native.RunSchema(ctx, model, prompt, schema)
 }
 func (r *RoutedRunner) NativeStatus(ctx context.Context) (LocalStatus, error) {
 	return r.Native.NativeStatus(ctx)

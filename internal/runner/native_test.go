@@ -67,7 +67,7 @@ func TestNativeCompletePreservesRequestAndMeasuredUsage(t *testing.T) {
 	if err := json.Unmarshal(raw, &request); err != nil {
 		t.Fatal(err)
 	}
-	if request.Prompt != prompt || request.Operation != "complete" || request.Protocol != 1 {
+	if request.Prompt != prompt || request.Operation != "complete" || request.Protocol != NativeProtocol {
 		t.Fatalf("request %#v", request)
 	}
 }
