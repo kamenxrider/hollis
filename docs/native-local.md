@@ -55,9 +55,19 @@ The subset is deliberately small, and anything outside it is rejected with the
 offending JSON pointer instead of being approximated:
 
 - the root is an object with `"additionalProperties": false`, as is every
-  nested object; nesting stops at three object levels, with arrays adding none;
+  nested object; nesting stops at three object levels, with arrays adding none
+  object level. On top of that, at most eight schema nodes fit on one path,
+  root included, so an array chain (`items` inside `items`) cannot nest without
+  bound;
 - properties are `string`, `integer`, `number` or `boolean`; `required` names
   declared properties; at most 32 properties are declared across the schema;
+- property names, `required` names and `enum` choices are printable ASCII.
+  Foundation compares strings by Unicode canonical equivalence, so a
+  precomposed `é` and a decomposed `e` + combining acute are one name there and
+  two byte-distinct names here; that alone would make the same schema mean
+  different things on each side. With ASCII-only names and choices the two
+  comparisons agree exactly, and a model cannot answer with a byte-different
+  but canonically equal value;
 - `enum` accepts string choices only (Apple's dynamic schema accepts no other
   kind), and choices must be non-empty and unique;
 - arrays declare `items`, with `minItems`/`maxItems` between 0 and 100;
@@ -71,13 +81,19 @@ offending JSON pointer instead of being approximated:
   keeps the first value of a duplicate key and Go keeps the last, so an
   ambiguous schema would be measured and enforced differently on each side.
 
+Every rule in that list is enforced by Hollis before the helper is spawned, and
+by the helper's own parser as well. A schema Hollis accepts is therefore a
+schema the helper accepts, and a rejection is a usage error (exit 2) naming the
+offending JSON pointer with no inference and no process spawned.
+
 Guided output is complete-only: `--schema` refuses `--stream`, `--image` and
 every route except `local` before generation. The returned object is re-checked
 against the same subset by Hollis after the helper's own validation; a
 mismatch, a refusal, a timeout or a context-capacity failure reports the
 existing error and never a partial object. A helper that predates guided output
 is refused before the request spawns, with a message to install the matching
-bundle.
+bundle; that refusal is a component mismatch, so it reports `native_protocol`
+with exit 5, the same class as a helper that speaks too new a protocol.
 
 Structural validity is all this feature establishes. A conforming object is not
 a claim that its content is correct. See [the API guide](api.md) for the

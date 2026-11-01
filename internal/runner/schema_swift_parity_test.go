@@ -200,6 +200,13 @@ func swiftParityCases() []swiftParityCase {
 		}
 		return schema
 	}
+	arrays := func(count int) string {
+		schema := `{"type":"string"}`
+		for index := 0; index < count; index++ {
+			schema = `{"type":"array","items":` + schema + `}`
+		}
+		return typed(schema)
+	}
 	now := func(name, schema string) swiftParityCase {
 		return swiftParityCase{Name: name, Schema: json.RawMessage(schema)}
 	}
@@ -249,6 +256,21 @@ func swiftParityCases() []swiftParityCase {
 		now("escaped pointer", `{"type":"object","additionalProperties":false,"properties":{"a/b~c":{"type":"string","pattern":"x"}}}`),
 		now("missing type", typed(`{"properties":{}}`)),
 		now("unsupported type", typed(`{"type":"null"}`)),
+		// Authoring names and enum choices are printable ASCII on both sides.
+		// The precomposed and decomposed pairs are canonically equivalent, so
+		// a byte-comparing consumer and a canonical-equivalence helper would
+		// otherwise treat the same schema differently.
+		now("precomposed property name", `{"type":"object","additionalProperties":false,"properties":{"\u00e9":{"type":"string"}}}`),
+		now("decomposed property name", `{"type":"object","additionalProperties":false,"properties":{"e\u0301":{"type":"string"}}}`),
+		now("precomposed required name", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string"}},"required":["\u00e9"]}`),
+		now("decomposed required name", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string"}},"required":["e\u0301"]}`),
+		now("precomposed enum choice", typed(`{"type":"string","enum":["caf\u00e9"]}`)),
+		now("decomposed enum choice", typed(`{"type":"string","enum":["cafe\u0301"]}`)),
+		// Object depth stops objects at three levels; this bound also covers
+		// array chains, whose items can be another array.
+		now("array nesting 6", arrays(6)),
+		now("array nesting 7", arrays(7)),
+		now("array nesting 12", arrays(12)),
 		solidus,
 
 		// Payload cases carry the value inside the declared property. A bare

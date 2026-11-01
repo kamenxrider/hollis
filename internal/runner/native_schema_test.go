@@ -204,7 +204,13 @@ func TestNativeSchemaRefusesOldHelperBeforeSpawn(t *testing.T) {
 		nativePrint(nativeLine("status", map[string]any{"available": true}))
 	r := nativeProtocolHelper(t, "1", body)
 	_, err := r.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
-	requireNativeKind(t, err, KindUsage)
+	// An older paired helper is a version mismatch, not a bad invocation: the
+	// operation is supported on this route and the installed component cannot
+	// serve it. That is native_protocol/exit 5, the same class as the
+	// higher-protocol case and the per-event identity check, so a caller does
+	// not have to read the exit code differently depending on which side of
+	// the protocol the helper sits.
+	requireNativeKind(t, err, KindNativeProtocol)
 	if !strings.Contains(err.Error(), "does not support guided output") {
 		t.Fatalf("error = %v; want the guided-output refusal", err)
 	}
@@ -268,7 +274,7 @@ func TestNativeProtocolOneHelperFailsClosedOnIdentity(t *testing.T) {
 	// The same stale helper reports protocol 1 on the metadata probe.
 	probeOnly := fakeNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then printf '1\\n'; exit 0; fi\ncat >/dev/null\n")
 	_, err = probeOnly.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
-	requireNativeKind(t, err, KindUsage)
+	requireNativeKind(t, err, KindNativeProtocol)
 }
 
 func TestNativeSchemaRejectsUnavailableModelWithoutStructuredOutput(t *testing.T) {

@@ -22,8 +22,16 @@ fail() { printf 'Hollis: %s\n' "$*" >&2; exit 10; }
 # plutil returns the string "01" verbatim and emitting it would produce
 # invalid JSON (`"protocol":01`) after an install that reported verified.
 valid_protocol() {
+  # Canonical decimal only: no leading zero, no sign, no whitespace.
+  #
+  # The digits are spelled out one by one because a bracket range is matched
+  # with the current locale's collation order. Under ar_SA and fa_IR,
+  # [1-9] matches Arabic-Indic and Extended Arabic-Indic digits, so a pin of
+  # "١" would pass here and be interpolated unquoted as `"protocol":١` -
+  # invalid JSON in a record the installer has already called verified.
+  # An explicit list matches the ASCII characters themselves.
   case "$1" in
-    [1-9]|[1-9][0-9]) return 0;;
+    [123456789]|[123456789][0123456789]) return 0;;
   esac
   return 1
 }

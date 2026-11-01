@@ -68,6 +68,16 @@ func writeSchemaFixture(t *testing.T, schema string) string {
 const cliGuidedSchema = `{"type":"object","additionalProperties":false,"required":["name"],` +
 	`"properties":{"name":{"type":"string"},"age":{"type":"integer","minimum":0}}}`
 
+// deepArraySchema builds the array chain a reviewer used to show that neither
+// parser bounded array nesting.
+func deepArraySchema(levels int) string {
+	schema := `{"type":"string"}`
+	for index := 0; index < levels; index++ {
+		schema = `{"type":"array","items":` + schema + `}`
+	}
+	return `{"type":"object","additionalProperties":false,"properties":{"p":` + schema + `}}`
+}
+
 func TestRespondSchemaRejectionsHappenBeforeTheRunner(t *testing.T) {
 	valid := writeSchemaFixture(t, cliGuidedSchema)
 	badPointer := writeSchemaFixture(t, `{"type":"object","additionalProperties":false,`+
@@ -78,6 +88,12 @@ func TestRespondSchemaRejectionsHappenBeforeTheRunner(t *testing.T) {
 	deep := writeSchemaFixture(t, `{"type":"object","additionalProperties":false,"properties":{"a":{"type":"object",`+
 		`"additionalProperties":false,"properties":{"b":{"type":"object","additionalProperties":false,"properties":{`+
 		`"c":{"type":"object","additionalProperties":false,"properties":{"d":{"type":"string"}}}}}}}}}`)
+	// The reviewer's shape: hundreds of nested arrays. Neither parser bounded
+	// them, so the CLI accepted the schema and the helper's decoder failed
+	// after the request had spawned.
+	deepArrays := writeSchemaFixture(t, deepArraySchema(600))
+	unicodeName := writeSchemaFixture(t, `{"type":"object","additionalProperties":false,`+
+		`"properties":{"caf\u00e9":{"type":"string"}}}`)
 	image := writeCLIImage(t, "fixture.png")
 
 	cases := []struct {
@@ -89,6 +105,8 @@ func TestRespondSchemaRejectionsHappenBeforeTheRunner(t *testing.T) {
 		{"pattern keyword", []string{"respond", "--model", "local", "--schema", badPointer, "hi"}, "/properties/p/pattern", 2},
 		{"integer enum", []string{"respond", "--model", "local", "--schema", intEnum, "hi"}, "/properties/p/enum", 2},
 		{"depth four", []string{"respond", "--model", "local", "--schema", deep, "hi"}, "object nesting exceeds depth 3", 2},
+		{"600 nested arrays", []string{"respond", "--model", "local", "--schema", deepArrays, "hi"}, "schema nesting exceeds depth 8", 2},
+		{"non-ascii property name", []string{"respond", "--model", "local", "--schema", unicodeName, "hi"}, "property names must be printable ASCII", 2},
 		{"not json", []string{"respond", "--model", "local", "--schema", notJSON, "hi"}, "schema is not valid JSON", 2},
 		{"missing file", []string{"respond", "--model", "local", "--schema", filepath.Join(t.TempDir(), "absent.json"), "hi"}, "schema file \"absent.json\"", 2},
 		{"cloud route", []string{"respond", "--model", "cloud", "--schema", valid, "hi"}, "requires --model local", 2},
@@ -178,6 +196,39 @@ func TestRespondSchemaHumanPrintsIndentedObject(t *testing.T) {
 	}
 	if parsed["name"] != "Ada" || strings.Count(out.String(), "Ada") != 1 {
 		t.Fatalf("output = %q; want the object printed exactly once", out.String())
+	}
+}
+
+// TestOldHelperGuidedRefusalIsAProtocolFailure pins the exit-code contract for
+// the pre-spawn refusal. An older paired helper cannot serve an operation this
+// route supports, which is the same class of failure as a higher protocol or a
+// protocol-1 event on plain completion: exit 5 with machine code
+// native_protocol. Reporting it as a usage error would tell a script that its
+// invocation was wrong when only the installed component is stale.
+//
+// The error comes from the transport rather than a hand-written literal, so
+// this test also fails if the refusal's kind or message changes there.
+func TestOldHelperGuidedRefusalIsAProtocolFailure(t *testing.T) {
+	stubConfigPath(t)
+	schema := writeSchemaFixture(t, cliGuidedSchema)
+	r := &schemaFixtureRunner{err: runner.GuidedOutputRefusal()}
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs([]string{"respond", "--model", "local", "--schema", schema, "produce"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	err := cmd.Execute()
+	if err == nil || ExitCode(err) != 5 {
+		t.Fatalf("err=%v exit=%d; want exit 5", err, ExitCode(err))
+	}
+	if code := errorCode(err); code != "native_protocol" {
+		t.Fatalf("machine code = %q; want native_protocol", code)
+	}
+	if !strings.Contains(err.Error(), "does not support guided output") {
+		t.Fatalf("error = %q; want the refusal message", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q; a refusal must not print a partial object", out.String())
 	}
 }
 
@@ -414,6 +465,68 @@ func TestRejectedStatusNeverReportsAvailable(t *testing.T) {
 	}
 	if _, present := local["context_size"]; present {
 		t.Fatalf("doctor local row = %#v; want no context size", local)
+	}
+}
+
+// TestUnavailableStatusReportsNoContextWindow pins the two diagnostic surfaces
+// to the same rule. A helper can report an unavailable model and a window in
+// the same status; the JSON row omits the window there, so the human sentence
+// must not append one either — otherwise `models` and `doctor` would describe
+// the same status two different ways, and the human surface would claim a
+// measurement for a model it just called unavailable.
+func TestUnavailableStatusReportsNoContextWindow(t *testing.T) {
+	stubConfigPath(t)
+	stubResolution(t, allImportedNames(), true, 27)
+	// A successful read, an unavailable model, and a window: the shape a
+	// helper produces for an ineligible device that still knows its capacity.
+	status := runner.LocalStatus{Available: false, Reason: "device_not_eligible",
+		Protocol: 2, Version: "0.5.0", ContextSize: 8192}
+	runnerFixture := func() runner.Runner { return &statusFixtureRunner{status: status} }
+
+	modelsJSON := NewRootCmd(runnerFixture)
+	modelsJSON.SetArgs([]string{"models", "--model", "local", "--json"})
+	var modelsOut bytes.Buffer
+	modelsJSON.SetOut(&modelsOut)
+	modelsJSON.SetErr(io.Discard)
+	if err := modelsJSON.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(modelsOut.Bytes(), &rows); err != nil {
+		t.Fatalf("JSON: %v (%q)", err, modelsOut.String())
+	}
+	if len(rows) != 1 || rows[0]["available"] != false {
+		t.Fatalf("models row = %#v; want available false", rows)
+	}
+	if _, present := rows[0]["context_size"]; present {
+		t.Fatalf("models row = %#v; an unavailable model reports no window", rows[0])
+	}
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"models", []string{"models", "--model", "local"}},
+		{"doctor", []string{"doctor"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd(runnerFixture)
+			cmd.SetArgs(tc.args)
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(io.Discard)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			line := out.String()
+			if !strings.Contains(line, "unavailable") {
+				t.Fatalf("output = %q; want the unavailable label", line)
+			}
+			if strings.Contains(line, "context window") {
+				t.Fatalf("output = %q; an unavailable model must not report a window", line)
+			}
+		})
 	}
 }
 

@@ -48,13 +48,19 @@ indirect enum JSONValue: Decodable {
 ///
 /// The bounds are the design's: root object, depth 3 (the root counts as
 /// depth 1, and every child schema node adds a level), 32 declared properties
-/// across the whole tree, 64 KiB of normalized encoding, and array bounds no
-/// greater than 100. Anything outside the subset is rejected, never guessed.
+/// across the whole tree, 64 KiB of normalized encoding, array bounds no
+/// greater than 100, and at most 8 schema nodes on one path counting the root.
+/// Anything outside the subset is rejected, never guessed.
 enum SchemaSubset {
     static let maxEncodedBytes = 64 * 1024
     static let maxDepth = 3
     static let maxProperties = 32
     static let maxItems = 100
+    /// Total nodes on one path, root included. Object depth bounds objects
+    /// more tightly; this bound also covers array chains, whose `items` can be
+    /// another array. Kept equal to the Go consumer's SchemaMaxNesting so both
+    /// sides reject the same documents with the same pointer.
+    static let maxNesting = 8
     static let rootName = "HollisResponse"
 
     indirect enum Node {
@@ -87,7 +93,7 @@ enum SchemaSubset {
         guard value.fields?["type"]?.text == "object" else {
             throw Failure(pointer: "", reason: "root schema must be an object")
         }
-        let node = try parseNode(value, path: "", objectDepth: 1, budget: &budget)
+        let node = try parseNode(value, path: "", objectDepth: 1, nesting: 1, budget: &budget)
         guard case .object = node else {
             throw Failure(pointer: "", reason: "root schema must be an object")
         }
@@ -103,8 +109,14 @@ enum SchemaSubset {
     }
 
     private static func parseNode(
-        _ value: JSONValue, path: String, objectDepth: Int, budget: inout Budget
+        _ value: JSONValue, path: String, objectDepth: Int, nesting: Int, budget: inout Budget
     ) throws -> Node {
+        // Checked first, for every node kind. Object depth alone leaves array
+        // chains unbounded, and a deeply nested document fails in this file's
+        // decoder instead of as a clean rejection.
+        guard nesting <= maxNesting else {
+            throw Failure(pointer: path, reason: "schema nesting exceeds depth 8")
+        }
         guard let fields = value.fields else {
             throw Failure(pointer: path, reason: "schema node must be an object")
         }
@@ -145,6 +157,16 @@ enum SchemaSubset {
                         throw Failure(pointer: pointer(path, "properties"),
                                       reason: "property names must not be empty")
                     }
+                    // Byte-distinct names that are canonically equivalent are
+                    // one name to Foundation and two to Go. Printable ASCII
+                    // removes the difference: no two ASCII strings are
+                    // canonically equivalent unless they are identical, and no
+                    // non-ASCII string is canonically equivalent to an ASCII
+                    // one.
+                    guard printableASCII(name) else {
+                        throw Failure(pointer: pointer(path, "properties"),
+                                      reason: "property names must be printable ASCII")
+                    }
                     budget.properties += 1
                     guard budget.properties <= maxProperties else {
                         throw Failure(pointer: pointer(path, "properties"),
@@ -152,7 +174,7 @@ enum SchemaSubset {
                     }
                     declared[name] = try parseNode(
                         propertyFields[name]!, path: pointer(pointer(path, "properties"), name),
-                        objectDepth: objectDepth + 1, budget: &budget)
+                        objectDepth: objectDepth + 1, nesting: nesting + 1, budget: &budget)
                     order.append(name)
                 }
             }
@@ -166,6 +188,10 @@ enum SchemaSubset {
                     guard let key = name.text else {
                         throw Failure(pointer: path + "/required/\(index)",
                                       reason: "required entries must be strings")
+                    }
+                    guard printableASCII(key) else {
+                        throw Failure(pointer: path + "/required/\(index)",
+                                      reason: "required names must be printable ASCII")
                     }
                     guard required.insert(key).inserted else {
                         throw Failure(pointer: path + "/required/\(index)",
@@ -185,7 +211,7 @@ enum SchemaSubset {
             // Arrays add no object level: an object inside an array is nested
             // one level below the object that declares the array property.
             let items = try parseNode(rawItems, path: pointer(path, "items"),
-                                      objectDepth: objectDepth, budget: &budget)
+                                      objectDepth: objectDepth, nesting: nesting + 1, budget: &budget)
             let minimum = try itemBound(fields["minItems"], path: pointer(path, "minItems"))
             let maximum = try itemBound(fields["maxItems"], path: pointer(path, "maxItems"))
             if let low = minimum, let high = maximum, low > high {
@@ -203,6 +229,14 @@ enum SchemaSubset {
                     guard let choice = value.text else {
                         throw Failure(pointer: pointer(path, "enum"),
                                       reason: "enum choices must be strings")
+                    }
+                    // Foundation compares strings by canonical equivalence, so
+                    // a precomposed choice would accept a decomposed value the
+                    // Go consumer rejects. Printable ASCII choices make the two
+                    // comparisons agree.
+                    guard printableASCII(choice) else {
+                        throw Failure(pointer: pointer(path, "enum"),
+                                      reason: "enum choices must be printable ASCII")
                     }
                     guard seen.insert(choice).inserted else {
                         throw Failure(pointer: pointer(path, "enum"),
@@ -229,6 +263,14 @@ enum SchemaSubset {
         default:
             return .boolean
         }
+    }
+
+    /// Printable ASCII only: byte identity and canonical equivalence are then
+    /// the same relation for schema-authoring names and enum choices. Control
+    /// characters are excluded too, which keeps a name out of a terminal escape
+    /// sequence.
+    static func printableASCII(_ name: String) -> Bool {
+        name.unicodeScalars.allSatisfy { $0.isASCII && $0.value >= 0x20 && $0.value <= 0x7e }
     }
 
     private static func itemBound(_ value: JSONValue?, path: String) throws -> Int? {

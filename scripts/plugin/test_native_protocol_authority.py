@@ -5,6 +5,7 @@ never call Apple services: the helper and CLI are synthetic scripts and every
 runtime lives in a temporary directory.
 """
 import json
+import os
 from pathlib import Path
 import subprocess
 import unittest
@@ -115,6 +116,38 @@ class ProtocolAuthorityTests(unittest.TestCase):
         self.assertEqual(answers[:len(accepted)], ['ok'] * len(accepted))
         for raw_pin, answer in zip(rejected, answers[len(accepted):]):
             self.assertEqual(answer, 'no', f'{raw_pin!r} must be rejected')
+
+    def test_protocol_digits_are_matched_without_locale_collation(self):
+        """Non-ASCII digits must be rejected under every locale.
+
+        A bracket range such as [1-9] is matched with the active locale's
+        collation order. Under ar_SA and fa_IR it matches the Arabic-Indic and
+        Extended Arabic-Indic digits, so a pin of "١" passed the check and was
+        then interpolated unquoted as `"protocol":١` — invalid JSON in a record
+        the installer had already called verified. These cases fail under the
+        default collation too, so they are not a locale-only guard.
+        """
+        rejected = ('١', '۲', '1٠', '٠١', '٩٩', '۱۲', '۱', '９')
+        accepted = ('1', '9', '10', '99')
+        script = ('set -uo pipefail; . "$1"; shift; '
+                  'for value in "$@"; do if valid_protocol "$value"; '
+                  'then printf \'ok\\n\'; else printf \'no\\n\'; fi; done')
+        for locale in (None, 'ar_SA.UTF-8', 'fa_IR.UTF-8', 'hi_IN.UTF-8'):
+            with self.subTest(locale=locale or 'default'):
+                environment = dict(os.environ)
+                if locale:
+                    environment['LC_ALL'] = locale
+                result = subprocess.run(
+                    ['/bin/bash', '-c', script, '_', str(COMMON), *accepted, *rejected],
+                    capture_output=True, text=True, timeout=60, env=environment)
+                if locale and result.returncode != 0:
+                    self.skipTest(f'{locale} is not available on this host')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                answers = result.stdout.split()
+                self.assertEqual(answers[:len(accepted)], ['ok'] * len(accepted), result.stdout)
+                for raw_pin, answer in zip(rejected, answers[len(accepted):]):
+                    self.assertEqual(answer, 'no',
+                                     f'{raw_pin!r} accepted under {locale or "default"}')
 
     def test_install_rejects_corrupt_pin_before_switching_pointer(self):
         self.helper(1)

@@ -31,6 +31,10 @@ const (
 	SchemaMaxDepth = 3
 	// SchemaMaxProperties bounds declared properties across the whole tree.
 	SchemaMaxProperties = 32
+	// SchemaMaxNesting counts schema nodes on one path, root included, so an
+	// array chain cannot nest without bound. Objects are bounded more tightly
+	// by SchemaMaxDepth; this bound applies to every node kind.
+	SchemaMaxNesting = 8
 	// SchemaMaxItems is the largest accepted minItems/maxItems value.
 	SchemaMaxItems = 100
 	// schemaMaxInteger is the largest integer bound exactly representable as a
@@ -155,7 +159,7 @@ func ParseSchema(data []byte) (*Schema, error) {
 		return nil, &SchemaError{Reason: "root schema must be an object"}
 	}
 	budget := 0
-	root, err := parseSchemaNode(value, "", 1, &budget)
+	root, err := parseSchemaNode(value, "", 1, 1, &budget)
 	if err != nil {
 		return nil, err
 	}
@@ -296,7 +300,15 @@ func (v schemaValue) asFloat() (float64, bool) {
 
 // parseSchemaNode mirrors SchemaSubset.parseNode. The declaration order is the
 // helper's: type, unknown keywords, then the per-kind structure.
-func parseSchemaNode(value schemaValue, path string, objectDepth int, budget *int) (*schemaNode, error) {
+func parseSchemaNode(value schemaValue, path string, objectDepth, nesting int, budget *int) (*schemaNode, error) {
+	// Nesting is checked before anything else, for every node kind. Object
+	// depth alone would leave array chains unbounded: an array's items can be
+	// another array, and a document nested deeply enough fails in the helper's
+	// decoder after the request has already spawned. Rejecting here keeps the
+	// pre-spawn promise and gives Go and Swift the same pointer.
+	if nesting > SchemaMaxNesting {
+		return nil, &SchemaError{Pointer: path, Reason: "schema nesting exceeds depth 8"}
+	}
 	if value.kind != schemaObject {
 		return nil, &SchemaError{Pointer: path, Reason: "schema node must be an object"}
 	}
@@ -352,13 +364,23 @@ func parseSchemaNode(value schemaValue, path string, objectDepth int, budget *in
 					return nil, &SchemaError{Pointer: pointer(path, "properties"),
 						Reason: "property names must not be empty"}
 				}
+				// Two byte-distinct names that are canonically equivalent in
+				// Unicode are one name to Foundation and two to Go, so a schema
+				// could be measured and enforced differently on each side.
+				// Restricting authoring names to printable ASCII removes that:
+				// no two ASCII strings are canonically equivalent unless they
+				// are identical.
+				if !printableASCII(name) {
+					return nil, &SchemaError{Pointer: pointer(path, "properties"),
+						Reason: "property names must be printable ASCII"}
+				}
 				*budget++
 				if *budget > SchemaMaxProperties {
 					return nil, &SchemaError{Pointer: pointer(path, "properties"),
 						Reason: "schema declares more than 32 properties"}
 				}
 				child, err := parseSchemaNode(rawProperties.object[name],
-					pointer(pointer(path, "properties"), name), objectDepth+1, budget)
+					pointer(pointer(path, "properties"), name), objectDepth+1, nesting+1, budget)
 				if err != nil {
 					return nil, err
 				}
@@ -375,6 +397,9 @@ func parseSchemaNode(value schemaValue, path string, objectDepth int, budget *in
 				at := path + "/required/" + strconv.Itoa(index)
 				if entry.kind != schemaString {
 					return nil, &SchemaError{Pointer: at, Reason: "required entries must be strings"}
+				}
+				if !printableASCII(entry.text) {
+					return nil, &SchemaError{Pointer: at, Reason: "required names must be printable ASCII"}
 				}
 				if node.required[entry.text] {
 					return nil, &SchemaError{Pointer: at, Reason: "required names must be unique"}
@@ -397,7 +422,7 @@ func parseSchemaNode(value schemaValue, path string, objectDepth int, budget *in
 		}
 		// Arrays add no object level: an object inside an array sits one level
 		// below the object that declares the array property.
-		items, err := parseSchemaNode(rawItems, pointer(path, "items"), objectDepth, budget)
+		items, err := parseSchemaNode(rawItems, pointer(path, "items"), objectDepth, nesting+1, budget)
 		if err != nil {
 			return nil, err
 		}
@@ -423,6 +448,14 @@ func parseSchemaNode(value schemaValue, path string, objectDepth int, budget *in
 			for _, choice := range rawEnum.array {
 				if choice.kind != schemaString {
 					return nil, &SchemaError{Pointer: pointer(path, "enum"), Reason: "enum choices must be strings"}
+				}
+				// An enum choice is matched against model output. Foundation
+				// compares strings by canonical equivalence, so a precomposed
+				// choice would accept a decomposed value that Go rejects. With
+				// printable ASCII choices the two comparisons agree.
+				if !printableASCII(choice.text) {
+					return nil, &SchemaError{Pointer: pointer(path, "enum"),
+						Reason: "enum choices must be printable ASCII"}
 				}
 				if seen[choice.text] {
 					return nil, &SchemaError{Pointer: pointer(path, "enum"), Reason: "enum choices must be unique"}
@@ -600,6 +633,21 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+// printableASCII reports whether every byte of name is a printable ASCII
+// character. Schema-authoring names and enum choices are held to this so that
+// byte identity and canonical identity are the same relation: Foundation
+// compares strings by Unicode canonical equivalence, and no non-ASCII string is
+// canonically equivalent to an ASCII one. Control characters are excluded too,
+// which also keeps a name out of a terminal escape sequence.
+func printableASCII(name string) bool {
+	for index := 0; index < len(name); index++ {
+		if name[index] < 0x20 || name[index] > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 func sortedKeys(fields map[string]schemaValue) []string {

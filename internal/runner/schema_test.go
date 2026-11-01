@@ -102,6 +102,20 @@ func TestParseSchemaRejectsUnsupportedSubset(t *testing.T) {
 		{"properties not object", `{"type":"object","additionalProperties":false,"properties":[]}`, "/properties", "properties must be an object"},
 		{"empty property name", `{"type":"object","additionalProperties":false,"properties":{"":{"type":"string"}}}`, "/properties", "property names must not be empty"},
 		{"node not object", schemaWithProperty(`"string"`), "/properties/p", "schema node must be an object"},
+		// Authoring names and enum choices are printable ASCII. Foundation
+		// compares strings by canonical equivalence, so a precomposed name
+		// would be one name there and two here, and a precomposed enum choice
+		// would accept a decomposed value. Refusing non-ASCII keeps the two
+		// sides agreeing instead of documenting a divergence.
+		{"precomposed property name", `{"type":"object","additionalProperties":false,"properties":{"\u00e9":{"type":"string"}}}`, "/properties", "property names must be printable ASCII"},
+		{"decomposed property name", `{"type":"object","additionalProperties":false,"properties":{"e\u0301":{"type":"string"}}}`, "/properties", "property names must be printable ASCII"},
+		{"non-ascii property name", `{"type":"object","additionalProperties":false,"properties":{"名前":{"type":"string"}}}`, "/properties", "property names must be printable ASCII"},
+		{"control character in a property name", `{"type":"object","additionalProperties":false,"properties":{"a\u001bb":{"type":"string"}}}`, "/properties", "property names must be printable ASCII"},
+		{"precomposed required name", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string"}},"required":["\u00e9"]}`, "/required/0", "required names must be printable ASCII"},
+		{"decomposed required name", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string"}},"required":["e\u0301"]}`, "/required/0", "required names must be printable ASCII"},
+		{"precomposed enum choice", schemaWithProperty(`{"type":"string","enum":["caf\u00e9"]}`), "/properties/p/enum", "enum choices must be printable ASCII"},
+		{"decomposed enum choice", schemaWithProperty(`{"type":"string","enum":["cafe\u0301"]}`), "/properties/p/enum", "enum choices must be printable ASCII"},
+		{"non-ascii enum choice", schemaWithProperty(`{"type":"string","enum":["\u9078\u629e"]}`), "/properties/p/enum", "enum choices must be printable ASCII"},
 		{"trailing data", `{"type":"object","additionalProperties":false} {}`, "", "schema must be one JSON value"},
 		{"not json", `not json`, "", "schema is not valid JSON"},
 	}
@@ -208,9 +222,13 @@ func TestParseSchemaEncodesLikeFoundation(t *testing.T) {
 			`{"additionalProperties":false,"properties":{"p":{"enum":["\/etc\/hosts","a b"],"type":"string"}},"required":["p"],"type":"object"}`,
 		},
 		{
-			"non-ascii stays UTF-8",
-			`{"type":"object","additionalProperties":false,"properties":{"é":{"type":"string"}}}`,
-			"{\"additionalProperties\":false,\"properties\":{\"é\":{\"type\":\"string\"}},\"type\":\"object\"}",
+			// Non-ASCII is not reachable here: names and enum choices are held
+			// to printable ASCII, so the encoder's UTF-8 handling is exercised
+			// only by values the subset cannot carry. The solidus and number
+			// cases above are the decisions that remain observable.
+			"solidus next to punctuation",
+			schemaWithProperty(`{"type":"string","enum":["a/b~c d"]}`),
+			`{"additionalProperties":false,"properties":{"p":{"enum":["a\/b~c d"],"type":"string"}},"required":["p"],"type":"object"}`,
 		},
 		{
 			"seventeen significant digits",
@@ -258,39 +276,38 @@ func TestParseSchemaIntegerBoundAtTwoToThe53(t *testing.T) {
 }
 
 func TestSchemaErrorEscapesControlCharactersInPointers(t *testing.T) {
-	// A property name is caller input: a rejected payload must not print a
-	// live ESC or an 8-bit CSI even though the pointer keeps the name verbatim
-	// for comparison with the helper's pointer.
+	// A returned payload's keys are caller content, not schema-authoring names,
+	// so a rejected payload can still carry a control character in its pointer.
+	// The pointer keeps it verbatim for comparison with the helper's pointer;
+	// the message must not print a live ESC, BEL or 8-bit CSI.
+	parsed, err := ParseSchema([]byte(`{"type":"object","additionalProperties":false,` +
+		`"properties":{"p":{"type":"string"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
-		name      string
-		raw       string
-		schemaKey string
-		escaped   string
-		payload   string
+		name    string
+		raw     string
+		escaped string
+		payload string
 	}{
-		{"escape", "a\u001bb", `a\u001bb`, `\u001b`, `{"a\u001bb":1}`},
-		{"bell", "c\u0007d", `c\u0007d`, `\u0007`, `{"c\u0007d":1}`},
+		{"escape", "a\u001bb", `\u001b`, `{"p":"x","a\u001bb":1}`},
+		{"bell", "c\u0007d", `\u0007`, `{"p":"x","c\u0007d":1}`},
 		// 0x9b is an 8-bit CSI introducer on some terminals; JSON leaves C1
 		// unescaped, so this one really would be a live byte in the document.
-		{"csi", "e\u009bf", "e\u009bf", `\u009b`, "{\"e\u009bf\":1}"},
+		{"csi", "e\u009bf", `\u009b`, "{\"p\":\"x\",\"e\u009bf\":1}"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			schema := `{"type":"object","additionalProperties":false,"properties":{` +
-				`"` + tc.schemaKey + `":{"type":"string"}}}`
-			parsed, err := ParseSchema([]byte(schema))
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = parsed.Validate([]byte(tc.payload))
+			err := parsed.Validate([]byte(tc.payload))
 			var failure *SchemaError
 			if !asSchemaError(err, &failure) {
 				t.Fatalf("Validate error = %v; want *SchemaError", err)
 			}
-			// The structured pointer keeps the raw name so it can be compared
+			// The structured pointer keeps the raw key so it can be compared
 			// with the helper's; only the message is escaped.
 			if failure.Pointer != "/"+tc.raw {
-				t.Fatalf("pointer = %q; want the raw property name", failure.Pointer)
+				t.Fatalf("pointer = %q; want the raw key", failure.Pointer)
 			}
 			message := err.Error()
 			if strings.Contains(message, tc.raw) {
@@ -300,6 +317,61 @@ func TestSchemaErrorEscapesControlCharactersInPointers(t *testing.T) {
 				t.Fatalf("message = %q; want %s", message, tc.escaped)
 			}
 		})
+	}
+}
+
+// arrayChain nests one array schema inside the root object's single property.
+// The root object is nesting 1, so chain(k) puts the leaf string at node depth
+// k+2.
+func arrayChain(arrays int) string {
+	schema := `{"type":"string"}`
+	for index := 0; index < arrays; index++ {
+		schema = `{"type":"array","items":` + schema + `}`
+	}
+	return schemaWithProperty(schema)
+}
+
+func TestParseSchemaBoundsTotalNesting(t *testing.T) {
+	// Object depth stops objects at three levels. Arrays were unbounded: items
+	// can be another array, and neither parser counted them. A document deep
+	// enough then failed in the helper's decoder after the request had already
+	// spawned, which contradicts the pre-spawn rejection.
+	//
+	// Root object (1) plus k arrays puts the leaf at k+2, so k=6 reaches the
+	// bound of 8 and k=7 exceeds it.
+	if _, err := ParseSchema([]byte(arrayChain(6))); err != nil {
+		t.Fatalf("nesting 8 rejected: %v", err)
+	}
+	_, err := ParseSchema([]byte(arrayChain(7)))
+	var failure *SchemaError
+	if !asSchemaError(err, &failure) {
+		t.Fatalf("error = %v; want *SchemaError", err)
+	}
+	if failure.Reason != "schema nesting exceeds depth 8" {
+		t.Fatalf("reason = %q; want the nesting sentence", failure.Reason)
+	}
+	if want := "/properties/p" + strings.Repeat("/items", 7); failure.Pointer != want {
+		t.Fatalf("pointer = %q; want %q", failure.Pointer, want)
+	}
+	// The reviewer's probe: hundreds of levels were accepted by both parsers
+	// and only failed later, in the helper's decoder. The bound rejects them
+	// here, before any process exists. 600 is well below Go's own recursion
+	// limit, so this is a rejection rather than a stack test.
+	if _, err := ParseSchema([]byte(arrayChain(600))); err == nil {
+		t.Fatal("a 600-level array chain was accepted")
+	}
+	if _, err := ParseSchema([]byte(arrayChain(600))); !asSchemaError(err, &failure) {
+		t.Fatalf("deep chain error = %v; want *SchemaError", err)
+	}
+	// The bound counts nodes on one path, not the tree: a wide schema with
+	// many shallow properties stays valid.
+	wide := make([]string, 0, 8)
+	for index := 0; index < 8; index++ {
+		wide = append(wide, `"p`+itoa(index)+`":{"type":"array","items":{"type":"string"}}`)
+	}
+	if _, err := ParseSchema([]byte(`{"type":"object","additionalProperties":false,"properties":{` +
+		strings.Join(wide, ",") + `}}`)); err != nil {
+		t.Fatalf("wide schema rejected: %v", err)
 	}
 }
 

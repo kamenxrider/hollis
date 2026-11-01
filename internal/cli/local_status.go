@@ -29,7 +29,8 @@ func localStatusLabel(status runner.LocalStatus, err error) string {
 func localModelRow(status runner.LocalStatus, err error) map[string]any {
 	// A failed status read cannot report the model available, whatever the
 	// partial value holds: the row would otherwise pair available:true with an
-	// "unavailable: …" label.
+	// "unavailable: …" label. An unavailable model has not been measured
+	// either, so it reports no context window.
 	available := err == nil && status.Available
 	spec, _ := runner.Spec(runner.ModelLocal)
 	row := map[string]any{
@@ -64,9 +65,13 @@ func localCapabilities(spec runner.RouteSpec) map[string]bool {
 }
 
 // localStatusDetail appends measured signals to a human availability label.
-// A failed read has no measured signal to append: the error is the label.
+// The sentence is appended to "available" or "unavailable: …", so it needs the
+// same two conditions the JSON row applies: a successful read and an available
+// model. Appending a measured window to an unavailable row would claim a
+// measurement that the JSON deliberately omits, and the two surfaces would
+// describe the same status differently.
 func localStatusDetail(status runner.LocalStatus, err error) string {
-	if err != nil {
+	if err != nil || !status.Available {
 		return ""
 	}
 	if status.ContextSize > 0 {

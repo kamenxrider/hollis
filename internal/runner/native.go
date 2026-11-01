@@ -208,12 +208,26 @@ func (r *NativeRunner) requireGuidedSupport(ctx context.Context, path string) er
 	}
 	switch {
 	case reported < NativeProtocol:
-		return nativeError(KindUsage, "native helper does not support guided output; install the matching bundle")
+		// A paired helper that speaks an older protocol is a version mismatch,
+		// not a bad invocation: the caller asked for a supported operation on
+		// this route and the installed component cannot serve it. It maps to
+		// native_protocol/exit 5 like the higher-protocol case below and like
+		// the per-event identity check, so the exit code does not depend on
+		// which side of the version the helper sits.
+		return GuidedOutputRefusal()
 	case reported > NativeProtocol:
 		return nativeError(KindNativeProtocol, "native helper version, protocol or model mismatch; install the matching bundle")
 	default:
 		return nil
 	}
+}
+
+// GuidedOutputRefusal is the pre-spawn refusal for a paired helper that speaks
+// an older protocol. It is exported so the CLI can pin the exit-code contract
+// against the same value the transport raises: an older helper is a component
+// mismatch, which is native_protocol/exit 5, not a usage error.
+func GuidedOutputRefusal() *Error {
+	return nativeError(KindNativeProtocol, "native helper does not support guided output; install the matching bundle")
 }
 
 type nativeRequest struct {

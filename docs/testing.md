@@ -41,11 +41,24 @@ value inside a declared property so the per-node checks are actually compared,
 and one case straddles the 64 KiB gate with solidus characters, because
 Foundation escapes `/` and that decision moves the measured size.
 
-Accepted limitation: the two runtimes normalise Unicode differently, so a
-schema whose enum choice is precomposed `é` and a returned value in decomposed
-`e` + combining acute agrees in Swift but is rejected in Go. Rejecting is the
-safe direction: Hollis refuses an object the helper would have accepted, never
-the reverse.
+Accepted limitation, resolved by a subset rule rather than a dependency: the
+two runtimes normalise Unicode differently, so a schema whose property name,
+`required` name or `enum` choice was precomposed `é` would be one name in
+Foundation (canonical equivalence) and a different byte string in Go. Rather
+than adding a normalisation library, the subset holds authoring names and enum
+choices to printable ASCII, and both parsers reject anything else with the same
+pointer and reason. No two ASCII strings are canonically equivalent unless they
+are identical, so the rule removes the divergence instead of documenting it,
+and both parity directions are exercised by the precomposed/decomposed cases in
+the table.
+
+The same table bounds nesting: three object levels as before, plus at most eight
+schema nodes on one path counting the root. Object depth alone left array chains
+(`items` inside `items`) unbounded, and a document deep enough failed in the
+helper's decoder after the request had spawned. `array nesting 6` is accepted,
+`array nesting 7` and `array nesting 12` are rejected, and a Go-only case drives
+600 levels through `ParseSchema` and the CLI to prove the rejection happens
+before any process exists.
 
 ## SQLite migration gates
 
