@@ -11,11 +11,6 @@ import (
 	"github.com/kamenxrider/hollis/internal/runner"
 )
 
-const (
-	cloudCallSpacing    = 15 * time.Second
-	cloudProCallSpacing = 45 * time.Second
-)
-
 var (
 	// ErrFailedChoiceRequired prevents a resume from silently passing a known
 	// failed item when the command has no explicit skip-failed operation.
@@ -277,15 +272,14 @@ func waitForPacing(ctx context.Context, clock Clock, notBefore time.Time) error 
 	return nil
 }
 
+// spacingFor returns the table's measured gap for the job's concrete route.
+// auto and unknown IDs have no row and take no spacing.
 func spacingFor(model runner.Model) time.Duration {
-	switch model {
-	case runner.ModelCloudPro:
-		return cloudProCallSpacing
-	case runner.ModelCloud, runner.ModelChatGPT:
-		return cloudCallSpacing
-	default:
+	spec, ok := runner.Spec(model)
+	if !ok {
 		return 0
 	}
+	return spec.BatchSpacing
 }
 
 func ambiguousExecution(ctx context.Context, err error) bool {
