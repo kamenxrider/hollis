@@ -794,6 +794,11 @@ func writePromptFile(prompt string) (string, func(), error) {
 // number enforced. It matches the bounded shell path's LIST_DEADLINE=10.
 const listDeadline = 10 * time.Second
 
+// listCaptureCap bounds the listing capture. Ten seconds of a flooding child
+// would otherwise grow the parent heap without limit; a truncated listing is
+// rejected rather than turned into names.
+const listCaptureCap = 1 << 20
+
 // listDeadlineError classifies an expired list deadline. The message is the
 // approved fixed sentence, byte-identical to the bounded shell path's: it
 // claims only what is known — the listing was stopped, and no bridge is
@@ -831,26 +836,6 @@ func listDeadlineError(budget time.Duration) *Error {
 	}
 }
 
-// listStderrCapture keeps a bounded prefix while continuing to drain the
-// child pipe. Cmd.Output normally stores a bounded stderr excerpt on
-// ExitError; the explicit Start/Wait lifecycle needs to retain that behavior
-// without letting stderr grow the parent heap.
-type listStderrCapture struct {
-	data []byte
-}
-
-func (b *listStderrCapture) Write(p []byte) (int, error) {
-	const limit = 32 << 10
-	if room := limit - len(b.data); room > 0 {
-		if len(p) > room {
-			b.data = append(b.data, p[:room]...)
-		} else {
-			b.data = append(b.data, p...)
-		}
-	}
-	return len(p), nil
-}
-
 func (r *ShortcutRunner) ListShortcuts(ctx context.Context) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -870,81 +855,51 @@ func (r *ShortcutRunner) ListShortcuts(ctx context.Context) ([]string, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, r.ShortcutsPath, "list")
-	// Descendants in this group must stop even if the leader exits first.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
-	// Own both pipes so their lifetime ends at the context deadline, not a
-	// fresh WaitDelay interval after leader exit. Closing the readers also
-	// bounds a detached descendant that cannot be killed with this group.
-	stdoutR, stdoutW, err := os.Pipe()
-	if err != nil {
-		return nil, &Error{Kind: KindListFailure, ExitCode: -1, Err: err}
-	}
-	defer stdoutR.Close()
-	defer stdoutW.Close()
-	stderrR, stderrW, err := os.Pipe()
-	if err != nil {
-		return nil, &Error{Kind: KindListFailure, ExitCode: -1, Err: err}
-	}
-	defer stderrR.Close()
-	defer stderrW.Close()
-	var stdout bytes.Buffer
-	var stderr listStderrCapture
-	cmd.Stdout = stdoutW
-	cmd.Stderr = stderrW
-	if err := cmd.Start(); err != nil {
+	// The shared lifecycle owns both pipes so their lifetime ends at the
+	// context deadline, not a fresh WaitDelay interval after leader exit.
+	// Closing the readers also bounds a detached descendant that cannot be
+	// killed with this group. Stderr keeps a bounded prefix (32 KiB) while
+	// continuing to drain: ExitError normally carries that excerpt, and the
+	// explicit lifecycle retains it without letting stderr grow the heap.
+	res, runErr := subproc.Run(cctx, subproc.Spec{
+		Name:      r.ShortcutsPath,
+		Args:      []string{"list"},
+		StdoutCap: listCaptureCap,
+		StderrCap: 32 << 10,
+	})
+	if !res.Started {
+		startErr := res.StartErr
+		if startErr == nil {
+			startErr = runErr
+		}
 		switch {
 		case errors.Is(cctx.Err(), context.DeadlineExceeded):
 			return nil, listDeadlineError(budget)
 		case errors.Is(cctx.Err(), context.Canceled):
-			return nil, &Error{Kind: KindContextCanceled, ExitCode: -1, Err: err}
+			return nil, &Error{Kind: KindContextCanceled, ExitCode: -1, Err: startErr}
 		default:
-			return nil, &Error{Kind: KindListFailure, ExitCode: exitOf(err), Err: err}
+			return nil, &Error{Kind: KindListFailure, ExitCode: exitOf(startErr), Err: startErr}
 		}
 	}
-	_ = stdoutW.Close()
-	_ = stderrW.Close()
-	copyDone := make(chan error, 2)
-	go func() { _, err := io.Copy(&stdout, stdoutR); copyDone <- err }()
-	go func() { _, err := io.Copy(&stderr, stderrR); copyDone <- err }()
-
-	pgid := cmd.Process.Pid
-	stopGroupKiller := make(chan struct{})
-	groupKillerDone := make(chan struct{})
-	go func() {
-		defer close(groupKillerDone)
-		select {
-		case <-cctx.Done():
-			// Do not rely on exec.Cmd's watchCtx Cancel: in Go 1.27 it
-			// may never call Cancel if Wait observes the leader exit
-			// before the context expires.
-			_ = syscall.Kill(-pgid, syscall.SIGKILL)
-			_ = stdoutR.Close()
-			_ = stderrR.Close()
-		case <-stopGroupKiller:
-		}
-	}()
-
-	waitErr := cmd.Wait()
-	var readErr error
-	for range 2 {
-		if err := <-copyDone; err != nil && readErr == nil {
-			readErr = err
+	if exitErr, ok := res.WaitErr.(*exec.ExitError); ok {
+		exitErr.Stderr = append([]byte(nil), res.Stderr...)
+	}
+	readErr := res.ReadErr
+	if readErr == nil && runErr != nil && cctx.Err() == nil {
+		readErr = runErr
+	}
+	// A listing that outgrew the capture is not a listing. Truncated bytes
+	// would otherwise turn into invented names; an expired deadline still owns
+	// the classification, and the message never claims a bridge is missing.
+	if res.StdoutTruncated && cctx.Err() == nil {
+		return nil, &Error{
+			Kind:     KindListFailure,
+			ExitCode: 0,
+			Err: fmt.Errorf("Listing Shortcuts produced more than the %d MiB capture cap; no bridge is proven missing.",
+				listCaptureCap>>20),
 		}
 	}
-	close(stopGroupKiller)
-	<-groupKillerDone
-	if exitErr, ok := waitErr.(*exec.ExitError); ok {
-		exitErr.Stderr = append([]byte(nil), stderr.data...)
-	}
-	// The watcher can race context cancellation with normal completion.
-	if cctx.Err() != nil {
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-	}
-	return listShortcutsResult(cctx, budget, waitErr, readErr, stdout.String())
+	return listShortcutsResult(cctx, budget, res.WaitErr, readErr, string(res.Stdout))
 }
 
 func listShortcutsResult(ctx context.Context, budget time.Duration, waitErr, readErr error, out string) ([]string, error) {

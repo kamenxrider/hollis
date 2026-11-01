@@ -9,7 +9,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -24,6 +23,14 @@ const NativeProtocol = 1
 const NativeVersion = "0.4.0"
 const NativeMaxPromptBytes = 128 << 10
 const nativeMaxOutputBytes = 8 << 20
+
+// platformProbeTimeout bounds the sw_vers platform probe independently of the
+// invoking call's deadline. Variable so offline fixtures can shorten it.
+var platformProbeTimeout = 5 * time.Second
+
+// swVersPath is the platform probe binary. Variable so offline fixtures can
+// substitute a stand-in without invoking the real probe.
+var swVersPath = "/usr/bin/sw_vers"
 
 // LocalStatus describes a non-generative availability check, not inference proof.
 type LocalStatus struct {
@@ -80,11 +87,18 @@ func nativePlatform(ctx context.Context) error {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
 		return errors.New("native local requires Apple Silicon and macOS 27 or later")
 	}
-	output, err := exec.CommandContext(ctx, "/usr/bin/sw_vers", "-productVersion").Output()
-	if err != nil {
+	// The probe is bounded by its own deadline as well as the caller's: a wedged
+	// sw_vers must not hold a status or completion call open.
+	result, err := subproc.Run(ctx, subproc.Spec{
+		Name:      swVersPath,
+		Args:      []string{"-productVersion"},
+		Timeout:   platformProbeTimeout,
+		StdoutCap: 4096,
+	})
+	if err != nil || result.WaitErr != nil {
 		return errors.New("could not determine macOS version for native local")
 	}
-	major, err := strconv.Atoi(strings.Split(strings.TrimSpace(string(output)), ".")[0])
+	major, err := strconv.Atoi(strings.Split(strings.TrimSpace(string(result.Stdout)), ".")[0])
 	if err != nil || major < 27 {
 		return errors.New("native local requires macOS 27 or later")
 	}

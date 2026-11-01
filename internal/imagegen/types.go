@@ -40,10 +40,6 @@ const (
 
 	// MaxPixels bounds the decoded image dimensions.
 	MaxPixels int64 = 16_000_000
-
-	// processWaitDelay lets os/exec reap a process whose pipes or descendants
-	// do not close immediately after the owned process group is killed.
-	processWaitDelay = 2 * time.Second
 )
 
 // Request is one bounded image-generation operation.
