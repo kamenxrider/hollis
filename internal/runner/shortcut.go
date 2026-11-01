@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kamenxrider/hollis/internal/shortcutdiagnostic"
+	"github.com/kamenxrider/hollis/internal/subproc"
 	"golang.org/x/sys/unix"
 )
 
@@ -440,45 +441,47 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 	for _, imagePath := range imagePaths {
 		args = append(args, "--input-path", imagePath)
 	}
-	cmd := exec.CommandContext(ctx, r.ShortcutsPath, args...)
-
-	// Rule 2: capture via pipes. The capped writers keep os/exec's pipe
-	// draining (the child's writes never block on the capture) while
+	// Rule 2: capture through pipes this package owns. The capped writers
+	// keep draining (the child's writes never block on the capture) while
 	// bounding parent memory: a flooding child grows the capture only to
 	// the cap. Truncation is recorded and surfaced — a truncated stdout is
 	// never returned as a complete response.
+	//
+	// Rule 3: the deadline owns the pipes. The child runs in its own process
+	// group, the group is SIGKILLed when the deadline expires, and the
+	// capture read ends are closed at that same moment, so a detached
+	// descendant holding the inherited pipe cannot extend the budget past
+	// the deadline. A leader that exits successfully is not a completed
+	// response while the deadline has expired; the shared lifecycle checks
+	// the context after Wait. SIGALRM was measured to terminate the hung
+	// child cleanly; SIGKILL on the group is at least as decisive.
 	stdout, stderr := &cappedBuffer{}, &cappedStderr{}
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	res, runErr := subproc.Run(ctx, subproc.Spec{
+		Name:       r.ShortcutsPath,
+		Args:       args,
+		StdoutSink: stdout,
+		StderrSink: stderr,
+	})
 
-	// Rule 3: deadline semantics. exec.CommandContext kills only the direct
-	// child on cancel; put the child in its own process group and SIGKILL
-	// the whole group so no orphaned `shortcuts run` survives the deadline.
-	// SIGALRM was measured to terminate the hung child cleanly; SIGKILL on
-	// the group is at least as decisive.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
-	// WaitDelay guarantees Wait returns even if the killed child's pipe
-	// goroutines would otherwise linger.
-	cmd.WaitDelay = 2 * time.Second
-
-	if err := cmd.Start(); err != nil {
+	if !res.Started {
+		startErr := res.StartErr
+		if startErr == nil {
+			startErr = runErr
+		}
 		switch parentCtx.Err() {
 		case context.Canceled:
 			return "", &Error{
 				Kind:     KindContextCanceled,
 				Ref:      ref,
 				ExitCode: -1,
-				Err:      fmt.Errorf("context canceled before %s could start: %w", r.ShortcutsPath, err),
+				Err:      fmt.Errorf("context canceled before %s could start: %w", r.ShortcutsPath, startErr),
 			}
 		case context.DeadlineExceeded:
 			return "", &Error{
 				Kind:     KindTimeout,
 				Ref:      ref,
 				ExitCode: -1,
-				Err:      fmt.Errorf("deadline already exceeded before %s could start: %w", r.ShortcutsPath, err),
+				Err:      fmt.Errorf("deadline already exceeded before %s could start: %w", r.ShortcutsPath, startErr),
 			}
 		}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -486,61 +489,91 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 				Kind:     KindTimeout,
 				Ref:      ref,
 				ExitCode: -1,
-				Err:      fmt.Errorf("deadline exceeded before %s could start: %w", r.ShortcutsPath, err),
+				Err:      fmt.Errorf("deadline exceeded before %s could start: %w", r.ShortcutsPath, startErr),
 			}
 		}
 		return "", &Error{
 			Kind:     KindTransport,
 			Ref:      ref,
 			ExitCode: -1,
-			Err:      fmt.Errorf("spawn %s: %w", r.ShortcutsPath, err),
+			Err:      fmt.Errorf("spawn %s: %w", r.ShortcutsPath, startErr),
 		}
 	}
 
-	type result struct {
-		err      error
-		deadline bool
-	}
-	done := make(chan result, 1)
-	go func() {
-		err := cmd.Wait()
-		// Buffers are filled before Wait returns (exec drains them).
-		done <- result{err: err}
-	}()
-
-	var res result
-	select {
-	case res = <-done:
-	case <-ctx.Done():
-		// Rule 3: kill the process group, then reap.
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		res = <-done
-		res.deadline = true
-	}
-
 	out := stdout.String()
-	if res.deadline {
-		if errors.Is(parentCtx.Err(), context.Canceled) {
+	if runErr != nil {
+		// The governing context ended or the capture failed. Output from
+		// such a run is never presented as a response.
+		//
+		// Expired means the deadline (caller's or the runner's own) ended the
+		// run, so the killed child's status adds nothing actionable: these
+		// keep the wording they had when the kill was observed directly.
+		if res.Expired {
+			if errors.Is(parentCtx.Err(), context.Canceled) {
+				return "", &Error{
+					Kind: KindContextCanceled, Ref: ref, ExitCode: -1,
+					Err: errors.New("shortcut run canceled by caller"),
+				}
+			}
+			return "", &Error{
+				Kind:     KindTimeout,
+				Ref:      ref,
+				ExitCode: -1,
+				Err:      fmt.Errorf("shortcut run exceeded %s and was killed", effective),
+			}
+		}
+		// The child finished on its own while the caller's context ended.
+		waitErr := res.WaitErr
+		if waitErr == nil {
+			waitErr = runErr
+		}
+		switch parentCtx.Err() {
+		case context.Canceled:
+			return "", &Error{
+				Kind:     KindContextCanceled,
+				Ref:      ref,
+				ExitCode: -1,
+				Err:      fmt.Errorf("context canceled while running %s: %w", r.ShortcutsPath, waitErr),
+			}
+		case context.DeadlineExceeded:
+			return "", &Error{
+				Kind:     KindTimeout,
+				Ref:      ref,
+				ExitCode: -1,
+				Err:      fmt.Errorf("deadline exceeded while running %s: %w", r.ShortcutsPath, waitErr),
+			}
+		}
+		// The runner adds its own default/ceiling deadline when the caller
+		// has none, so the derived deadline can expire before the parent's.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", &Error{
+				Kind:     KindTimeout,
+				Ref:      ref,
+				ExitCode: -1,
+				Err:      fmt.Errorf("shortcut run exceeded %s and was killed", effective),
+			}
+		}
+		if ctx.Err() != nil {
 			return "", &Error{
 				Kind: KindContextCanceled, Ref: ref, ExitCode: -1,
 				Err: errors.New("shortcut run canceled by caller"),
 			}
 		}
 		return "", &Error{
-			Kind:     KindTimeout,
+			Kind:     KindTransport,
 			Ref:      ref,
 			ExitCode: -1,
-			Err:      fmt.Errorf("shortcut run exceeded %s and was killed", effective),
+			Err:      fmt.Errorf("read %s output: %w", r.ShortcutsPath, runErr),
 		}
 	}
 
-	exitCode := exitOf(res.err)
+	exitCode := exitOf(res.WaitErr)
 	stderrText := stderr.String()
 
 	// Rule 5: exit 0 + empty stdout is shortcut_no_output, never a response.
 	// On a TTY this is exactly what suppressed-but-successful output looks
 	// like, so it must always be treated as failure here.
-	if res.err == nil && strings.TrimSpace(out) == "" {
+	if res.WaitErr == nil && strings.TrimSpace(out) == "" {
 		if isRateLimited(stderrText) {
 			message := "rate limit reported"
 			if stderr.truncated {
@@ -567,21 +600,21 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 		}
 	}
 
-	if res.err != nil {
+	if res.WaitErr != nil {
 		switch parentCtx.Err() {
 		case context.Canceled:
 			return "", &Error{
 				Kind:     KindContextCanceled,
 				Ref:      ref,
 				ExitCode: -1,
-				Err:      fmt.Errorf("context canceled while running %s: %w", r.ShortcutsPath, res.err),
+				Err:      fmt.Errorf("context canceled while running %s: %w", r.ShortcutsPath, res.WaitErr),
 			}
 		case context.DeadlineExceeded:
 			return "", &Error{
 				Kind:     KindTimeout,
 				Ref:      ref,
 				ExitCode: -1,
-				Err:      fmt.Errorf("deadline exceeded while running %s: %w", r.ShortcutsPath, res.err),
+				Err:      fmt.Errorf("deadline exceeded while running %s: %w", r.ShortcutsPath, res.WaitErr),
 			}
 		}
 		// The runner adds its own default/ceiling deadline when the caller has
@@ -596,7 +629,7 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 				Err:      fmt.Errorf("shortcut run exceeded %s and was killed", effective),
 			}
 		}
-		signal, signaled := processSignal(res.err)
+		signal, signaled := processSignal(res.WaitErr)
 		kind := KindShortcutFailed
 		switch {
 		case signaled && signal == syscall.SIGABRT:
@@ -614,7 +647,7 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 		case exitCode == 64:
 			kind = KindUsage
 		}
-		err := res.err
+		err := res.WaitErr
 		if exitCode >= 0 {
 			if se := strings.TrimSpace(stderrText); se != "" {
 				err = fmt.Errorf("%s: %w", se, err)

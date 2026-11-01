@@ -3,7 +3,6 @@
 package runner
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -15,9 +14,10 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/kamenxrider/hollis/internal/subproc"
 )
 
 const NativeProtocol = 1
@@ -198,114 +198,71 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	if err != nil {
 		return fail(nativeError(KindTransport, "could not encode native request"))
 	}
-	cmd := exec.CommandContext(ctx, path)
-	cmd.Stdin = bytes.NewReader(append(request, '\n'))
 	// The helper's stderr can contain framework diagnostics. Do not propagate or
 	// accumulate it: protocol errors provide deliberately prompt-free diagnostics.
-	cmd.Stderr = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = 2 * time.Second
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fail(nativeError(KindTransport, "could not open native output pipe"))
-	}
-	if err := cmd.Start(); err != nil {
-		if ctxErr := nativeContextError(ctx); ctxErr != nil {
-			return fail(ctxErr)
-		}
-		return fail(nativeError(KindTransport, "could not launch native helper"))
-	}
-	// Close stdout as well as killing the group when cancellation occurs, so a
-	// descendant retaining an inherited pipe cannot hold the scanner indefinitely.
-	stopped := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = stdout.Close()
-		case <-stopped:
-		}
-	}()
-	defer close(stopped)
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 4096), nativeMaxOutputBytes)
 	ready, terminal := false, false
 	previous := ""
 	total := 0
-	var protocolErr error
-	for scanner.Scan() {
-		total += len(scanner.Bytes())
+	handle := func(line []byte) error {
+		total += len(line)
 		if total > 64*nativeMaxOutputBytes {
-			protocolErr = nativeError(KindNativeProtocol, "native output exceeded protocol limit")
-			break
+			return nativeError(KindNativeProtocol, "native output exceeded protocol limit")
 		}
 		if terminal {
-			protocolErr = nativeError(KindNativeProtocol, "native helper emitted data after completion")
-			break
+			return nativeError(KindNativeProtocol, "native helper emitted data after completion")
 		}
-		if !utf8.Valid(scanner.Bytes()) {
-			protocolErr = nativeError(KindNativeProtocol, "native event is not valid UTF-8")
-			break
+		if !utf8.Valid(line) {
+			return nativeError(KindNativeProtocol, "native event is not valid UTF-8")
 		}
 		var event nativeEvent
-		decoder := json.NewDecoder(bytes.NewReader(scanner.Bytes()))
+		decoder := json.NewDecoder(bytes.NewReader(line))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&event); err != nil {
-			protocolErr = nativeError(KindNativeProtocol, "invalid native event")
-			break
+			return nativeError(KindNativeProtocol, "invalid native event")
 		}
 		var extra any
 		if decoder.Decode(&extra) != io.EOF {
-			protocolErr = nativeError(KindNativeProtocol, "extra native event data")
-			break
+			return nativeError(KindNativeProtocol, "extra native event data")
 		}
 		if event.Protocol != NativeProtocol || event.Version != NativeVersion || event.Model != ModelLocal {
-			protocolErr = nativeError(KindNativeProtocol, "native helper version, protocol or model mismatch; install the matching bundle")
-			break
+			return nativeError(KindNativeProtocol, "native helper version, protocol or model mismatch; install the matching bundle")
 		}
 		switch event.Event {
 		case "status":
 			if ready || event.Available == nil {
-				protocolErr = nativeError(KindNativeProtocol, "invalid native status sequence")
-				break
+				return nativeError(KindNativeProtocol, "invalid native status sequence")
 			}
 			ready = true
 			status = LocalStatus{*event.Available, event.Reason, event.Protocol, event.Version}
 			if operation == "status" {
 				terminal = true
 			} else if !status.Available {
-				protocolErr = nativeError(KindLocalUnavailable, "native local model is unavailable: "+event.Reason)
+				return nativeError(KindLocalUnavailable, "native local model is unavailable: "+event.Reason)
 			}
 		case "snapshot":
 			if !ready || operation != "stream" || event.Text == nil {
-				protocolErr = nativeError(KindNativeProtocol, "unexpected native snapshot")
-				break
+				return nativeError(KindNativeProtocol, "unexpected native snapshot")
 			}
 			if !strings.HasPrefix(*event.Text, previous) {
-				protocolErr = nativeError(KindNativeProtocol, "native model revised earlier streamed text; response incomplete")
-				break
+				return nativeError(KindNativeProtocol, "native model revised earlier streamed text; response incomplete")
 			}
 			delta := (*event.Text)[len(previous):]
 			if delta != "" {
 				if err := emit(delta); err != nil {
-					protocolErr = err
-					break
+					return err
 				}
 			}
 			previous = *event.Text
 		case "complete":
 			if !ready || operation == "status" || event.Text == nil || *event.Text == "" {
-				protocolErr = nativeError(KindNativeProtocol, "invalid native completion")
-				break
+				return nativeError(KindNativeProtocol, "invalid native completion")
 			}
 			if operation == "stream" {
 				if *event.Text != previous || event.Usage != nil {
-					protocolErr = nativeError(KindNativeProtocol, "stream completion does not match snapshots or includes unqualified usage")
-					break
+					return nativeError(KindNativeProtocol, "stream completion does not match snapshots or includes unqualified usage")
 				}
 			} else if !event.Usage.valid() {
-				protocolErr = nativeError(KindNativeProtocol, "native complete response lacks valid measured usage")
-				break
+				return nativeError(KindNativeProtocol, "native complete response lacks valid measured usage")
 			}
 			result.Text = *event.Text
 			if event.Usage != nil {
@@ -315,37 +272,48 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		case "error":
 			switch event.Kind {
 			case KindContextCapacity:
-				protocolErr = nativeError(event.Kind, "local model context capacity exceeded; shorten the conversation explicitly or choose another model; no messages were removed")
+				return nativeError(event.Kind, "local model context capacity exceeded; shorten the conversation explicitly or choose another model; no messages were removed")
 			case KindRequestDeclined, KindRateLimited, KindLocalUnavailable, KindNativeFailed:
-				protocolErr = nativeError(event.Kind, "native local request failed: "+string(event.Kind))
+				return nativeError(event.Kind, "native local request failed: "+string(event.Kind))
 			default:
-				protocolErr = nativeError(KindNativeProtocol, "unrecognized native failure")
+				return nativeError(KindNativeProtocol, "unrecognized native failure")
 			}
 		default:
-			protocolErr = nativeError(KindNativeProtocol, "unknown native event")
+			return nativeError(KindNativeProtocol, "unknown native event")
 		}
-		if protocolErr != nil {
-			break
+		return nil
+	}
+	// The shared lifecycle owns the output pipe, kills the group when the
+	// protocol is rejected or the deadline expires, and closes the read end so
+	// a descendant retaining an inherited pipe cannot hold the scan.
+	res, runErr := subproc.Scan(ctx, subproc.Spec{
+		Name:      path,
+		Stdin:     append(request, '\n'),
+		StderrCap: -1,
+		LineCap:   nativeMaxOutputBytes,
+	}, handle)
+	if !res.Started {
+		if res.StartErr == nil {
+			return fail(nativeError(KindTransport, "could not open native output pipe"))
 		}
+		if ctxErr := nativeContextError(ctx); ctxErr != nil {
+			return fail(ctxErr)
+		}
+		return fail(nativeError(KindTransport, "could not launch native helper"))
 	}
-	if protocolErr != nil || scanner.Err() != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
-	scanErr := scanner.Err()
-	waitErr := cmd.Wait()
 	if ctx.Err() != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return fail(nativeError(KindTimeout, "native local request timed out"))
 		}
 		return fail(nativeError(KindContextCanceled, "native local request canceled"))
 	}
-	if protocolErr != nil {
-		return fail(protocolErr)
+	if res.EmitErr != nil {
+		return fail(res.EmitErr)
 	}
-	if scanErr != nil {
+	if res.LineOverflow || res.ReadErr != nil || runErr != nil {
 		return fail(nativeError(KindNativeProtocol, "could not read native output"))
 	}
-	if waitErr != nil {
+	if res.WaitErr != nil {
 		return fail(nativeError(KindNativeFailed, "native helper exited unsuccessfully"))
 	}
 	if !terminal {
