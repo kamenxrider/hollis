@@ -19,13 +19,20 @@ request a tool or function call, do not finish with `stop`, or exceed the
 60,000-byte review limit. Model output is stored and posted only as Markdown
 text. The reviewer analyzes the diff only and does not run tests.
 
-A refused request fails with the HTTP status plus a bounded diagnostic: the
-first 16 KiB of the error body is kept, and only the provider's structured
-`type`, `code`, `param`, and `message` fields are reported, or a single-line
-excerpt when the body is not JSON. That text is cut to 500 bytes, stripped of
-control characters, and has the credential and any `Bearer`, `sk-`, `ghp_`, or
-`github_pat_` value replaced with `[redacted]`. The request body, response
-headers, and secret are never printed.
+A refused request fails with the HTTP status followed by a bounded diagnostic.
+At most the first 16 KiB of the error body is kept. When that body is JSON, the
+message is built from its decoded form, never from the escaped bytes: the
+provider's `error.type`, `error.code`, `error.param`, and `error.message`, plus
+top-level `message`, `detail`, or `code`, or otherwise one excerpt of the
+decoded document. When the body is not JSON, one excerpt of the text is used.
+On `401` and `403` only the status and the `type`/`code` identifiers are
+reported; free-text messages and excerpts are dropped. Redirects are refused
+without reading their body. Every diagnostic is limited to 500 bytes and
+collapses control and format characters onto one line before pattern matching.
+What remains has any `Bearer`, `sk-`, `gh[pousr]_`, or `github_pat_` value
+replaced with `[redacted]`, and any run of 8 or more consecutive characters of
+the configured credential replaced the same way. Request bodies and response
+headers are never printed.
 
 The review and comment jobs use clean runners. Only the fetch step receives a
 read-only GitHub token, only the inference step receives `POOLSIDE_API_KEY`, and
