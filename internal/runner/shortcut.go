@@ -141,17 +141,21 @@ func validateImageRequestShape(model Model, prompt string, imagePaths []string) 
 	if len(imagePaths) == 0 {
 		return usage(errors.New("image request requires at least one --image path"))
 	}
-	// The policy switch below reads route facts from the table; only auto,
-	// which is a routing policy rather than a route, keeps its own arm.
+	// Route facts come from the table; auto, a routing policy rather than a
+	// route, keeps its own arm. This is an if chain rather than a switch so
+	// that no production code dispatches on a model value — routespec_guard
+	// enforces that, and the table is the only place such a decision belongs.
 	spec, ok := routeSpecs[model]
-	switch {
-	case model == ModelAuto:
+	if model == ModelAuto {
 		return usage(errors.New("--image is unavailable with auto because auto can fall back to on-device"))
-	case !ok || spec.Transport != TransportShortcuts:
+	}
+	if !ok || spec.Transport != TransportShortcuts {
 		return usage(fmt.Errorf("%w: %q", ErrUnknownModel, model))
-	case !spec.Capabilities.Images:
+	}
+	if !spec.Capabilities.Images {
 		return usage(errors.New(spec.ImageRestriction))
-	case spec.Capabilities.MaxImages == 1 && len(imagePaths) != 1:
+	}
+	if spec.Capabilities.MaxImages == 1 && len(imagePaths) != 1 {
 		return usage(fmt.Errorf("%s accepts exactly one --image; multiple image paths were unreliable in testing", model))
 	}
 
