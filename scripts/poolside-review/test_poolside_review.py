@@ -505,6 +505,43 @@ class PoolsideResponseTests(unittest.TestCase):
                 self.assertNotIn(token, message)
                 self.assertNotIn("Bearer" + token, message)
 
+    def test_removed_format_characters_cannot_join_a_bearer_token(self):
+        token = "abcdefghijklmnopqrstuvwxyz0123"
+        for separator, label in [
+            ("\u200b", "zero-width space"),
+            ("\u200c", "zero-width non-joiner"),
+            ("\u2060", "word joiner"),
+            ("\ufeff", "zero-width no-break space"),
+        ]:
+            with self.subTest(separator=label):
+                body = encoded({"error": {"message": f"auth Bearer{separator}{token}"}})
+                with self.assertRaises(poolside_review.ReviewError) as raised:
+                    poolside_review.create_review(
+                        diff_artifact(),
+                        poolside_api_key="placeholder",
+                        transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+                    )
+                message = str(raised.exception)
+                self.assertEqual(
+                    message, "Poolside returned HTTP 400: message=auth [redacted]"
+                )
+                self.assertNotIn(token, message)
+                self.assertNotIn("Bearer" + token, message)
+
+                # The configured key is still redacted even when it is the token.
+                secret = token + "Q7"
+                body = encoded({"error": {"message": f"auth Bearer{separator}{secret}"}})
+                with self.assertRaises(poolside_review.ReviewError) as raised:
+                    poolside_review.create_review(
+                        diff_artifact(),
+                        poolside_api_key=secret,
+                        transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+                    )
+                message = str(raised.exception)
+                self.assertIn(poolside_review.REDACTED, message)
+                assert_no_key_fragment(self, message, secret)
+                self.assertNotIn(separator, message)
+
     def test_credential_run_redaction_handles_a_long_key_quickly(self):
         secret = "q" * 1024
         text = ("a" * 7 + secret[:300]) * 8

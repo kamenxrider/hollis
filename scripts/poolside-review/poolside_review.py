@@ -41,7 +41,9 @@ REDACTED = "[redacted]"
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 CREDENTIAL_PATTERN = re.compile(
-    r"[Bb]earer\s+[^\s\"']+|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}"
+    # No separator is required after "Bearer": normalization drops format
+    # characters, so a zero-width split must not defeat the match.
+    r"[Bb]earer\s*[^\s\"']+|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}"
     r"|sk-[A-Za-z0-9_-]{16,}"
 )
 ERROR_FIELDS = ("type", "code", "param", "message")

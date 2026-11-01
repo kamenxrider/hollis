@@ -30,14 +30,18 @@ reported; free-text messages and excerpts are dropped. Redirects are refused
 without reading their body. Every diagnostic is limited to 500 bytes. Before
 pattern matching, every whitespace character is replaced with a space and every
 other non-printable character, including format characters, is removed; runs of
-spaces then collapse to one. What remains has any `Bearer`, `sk-`, `gh[pousr]_`,
-or `github_pat_` value replaced with `[redacted]`, and any run of 8 or more
-consecutive characters of the configured credential replaced the same way.
-Request bodies and response headers are never printed.
+spaces then collapse to one. What remains has any `Bearer` token, `sk-`,
+`gh[pousr]_`, or `github_pat_` value replaced with `[redacted]`, and any run of
+8 or more consecutive characters of the configured credential replaced the same
+way. Because removing format characters can close the gap a `Bearer` token was
+hidden behind, the pattern accepts a token directly after `Bearer` with no
+separator, so an ordinary word such as `Bearerless` is redacted too. Request
+bodies and response headers are never printed.
 
-Known limit: run redaction matches contiguous characters of the credential, so a
-key echoed with a separator inserted every 7 characters or fewer never forms a
-long enough run and is not redacted. The pattern-based rules still apply.
+Known limits: run redaction matches contiguous characters of the credential, so
+a key echoed with a separator inserted every 7 characters or fewer never forms a
+long enough run and is not redacted; the pattern-based rules still apply. A
+`Bearer`-prefixed word that is not a token is over-redacted rather than kept.
 
 The review and comment jobs use clean runners. Only the fetch step receives a
 read-only GitHub token, only the inference step receives `POOLSIDE_API_KEY`, and
