@@ -34,10 +34,12 @@ a misinterpreted request.
   object against the same subset, and only then emits `complete` with `structured`
   and measured usage. Unsupported schemas (references, unions, patterns, formats,
   integer enums, non-object roots, missing `additionalProperties: false`, objects
-  nested deeper than 3, more than 32 properties, more than 64 KiB, or contradictory
-  bounds) and schema-plus-`stream` fail closed with an `error` event and no
-  partial object. The caller re-validates the object independently; structural
-  validity never claims semantic truth.
+  nested deeper than 3, more than 16 schema nodes on a path including the root,
+  property/required names or enum choices outside printable ASCII, more than 32
+  properties, more than 64 KiB, or contradictory bounds) and schema-plus-`stream`
+  fail closed with an `error` event and no partial object. The caller re-validates
+  the object independently; structural validity never claims semantic truth.
+  See the [full subset rules](../docs/native-local.md#guided-output).
 - `error`: a stable `kind` without input or framework diagnostic text.
 
 A generation starts with status, then either complete or snapshots followed by

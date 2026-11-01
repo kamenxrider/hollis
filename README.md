@@ -28,6 +28,9 @@ Hollis cannot show your remaining allowance or predict recovery.
 **Choose your setup:** [CLI 0.4.0](#install) ·
 [Claude Code / Codex plugin 0.2.0](plugins/hollis/README.md#install), including runtime 0.4.0 and native local.
 
+Current-source additions (`--schema` and protocol-2 context diagnostics) are not
+in those pinned releases. See [native-local version requirements](docs/native-local.md#guided-output).
+
 Chats and configuration stay on your Mac. Requests go to the model you select.
 If a cloud-hosted agent calls Hollis, its provider can also receive Apple’s answer.
 Hollis does not automatically read your workspace: supply context with `--file`,
@@ -36,7 +39,7 @@ Hollis does not automatically read your workspace: supply context with `--file`,
 ## Requirements
 
 - Apple-silicon Mac with Apple Intelligence enabled and its model downloads complete.
-- macOS 27. Historical tests used builds 26A5421a and 26A5425a; the 0.4.0 candidate was also checked on 26A428. macOS 26 is untested ([compatibility](docs/compatibility.md)).
+- macOS 27. Native local was checked on macOS 27.2 (26B123) on 2026-11-01; historical Shortcuts tests used 26A5421a, 26A5425a and 26A428. macOS 26 is untested ([compatibility](docs/compatibility.md)).
 - [GitHub CLI](https://cli.github.com/) (`gh`) for the CLI download verification below. Plugin setup does not require it.
 - Network access for Cloud, Cloud Pro and ChatGPT; On-Device and native local work offline.
 - For ChatGPT, enable the extension in *System Settings → Apple Intelligence & Siri*.
@@ -285,8 +288,16 @@ backing up anything you want to keep. [Plugin state and removal](plugins/hollis/
 ## Why not `fm`?
 
 On macOS 27.0 build **26A428**, Apple’s installed `fm --help` and `fm respond --help`
-list only the on-device `system` model. Hollis exposes separate Cloud and Cloud Pro
-choices through Shortcuts, with successful responses checked on the 0.4.0 candidate.
+listed only the on-device `system` model. That historical CLI observation does
+not describe every `fm` surface: in 2026-10-31 tests, `fm serve` PCC requests
+succeeded only from an interactive Terminal-hosted process; tested noninteractive
+and background-Terminal contexts were refused. Hollis's `fm` route remains an
+unmerged draft prototype ([#62](https://github.com/kamenxrider/hollis/pull/62)),
+not an available route as of 2026-11-01.
+
+Hollis exposes separate Cloud and Cloud Pro choices through Shortcuts; each
+succeeded once on the merged runtime on 2026-10-31. These are scoped checks,
+not a guarantee of continued cloud availability.
 Joseph Humfrey demonstrated the Shortcut-to-PCC approach in
 [*The Shortcut to integrating Private Cloud Compute into my app*](https://joethephish.me/blog/the-shortcut-to-integrating-PCC/);
 Hollis adds explicit selection, CLI/API access, conversations and batches.
