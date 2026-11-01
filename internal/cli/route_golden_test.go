@@ -5,7 +5,7 @@ package cli
 // Route output goldens lock the byte-for-byte output shape that the RouteSpec
 // table must preserve (roadmap §13.2, issues #18/#20/#30): `hollis models`
 // human/JSON/agent rows, doctor bridge rows, and `config show` bridge
-// ordering. Every fixture was generated from unmodified main (b8b7c3a)
+// ordering. Every fixture was generated from unmodified main (5ccde23)
 // before any route-table code existed; regenerating a fixture after a
 // refactor proves nothing, so treat regeneration as a deliberate contract
 // change that must be reviewed, never a way to fix drift.

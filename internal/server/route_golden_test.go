@@ -5,7 +5,7 @@ package server
 // Route output goldens lock the /v1/models body that the RouteSpec table
 // must preserve byte-for-byte (roadmap §13.2, issues #18/#20/#30): the id
 // list, ordering, owned_by values, and capability flags. Fixtures were
-// generated from unmodified main (b8b7c3a) before any route-table code
+// generated from unmodified main (5ccde23) before any route-table code
 // existed; regenerating after a refactor proves nothing, so treat
 // regeneration as a deliberate contract change.
 
