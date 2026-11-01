@@ -131,12 +131,11 @@ func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
 	if s.modelAvailable(string(runner.ModelAuto)) {
 		data = append(data, map[string]any{"id": "auto", "object": "model", "owned_by": "hollis"})
 	}
-	owned := map[string]string{
-		"cloud": "Apple", "cloud-pro": "Apple", "on-device": "Apple", "chatgpt": "OpenAI", "local": "Apple",
-	}
-	for _, id := range []string{"cloud", "cloud-pro", "on-device", "chatgpt", "local"} {
+	local, _ := runner.Spec(runner.ModelLocal)
+	for _, spec := range append(runner.Specs(), local) {
+		id := string(spec.ID)
 		if s.modelAvailable(id) {
-			data = append(data, map[string]any{"id": id, "object": "model", "owned_by": owned[id], "capabilities": modelCapabilities(id)})
+			data = append(data, map[string]any{"id": id, "object": "model", "owned_by": spec.OwnedBy, "capabilities": modelCapabilities(id)})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
@@ -462,18 +461,16 @@ func (s *Server) validatePreparedModel(w http.ResponseWriter, request preparedRe
 		return model, ok
 	}
 
-	limit := MaxCloudImages
-	switch model {
-	case runner.ModelCloud, runner.ModelCloudPro:
-	case runner.ModelChatGPT:
-		limit = MaxChatGPTImages
-	case runner.ModelAuto, runner.ModelOnDevice, runner.ModelLocal:
-		writeRequestValidationError(w, unsupportedParameter("image input requires cloud, cloud-pro, or chatgpt"))
-		return "", false
-	default:
+	spec, known := runner.Spec(model)
+	if !known && model != runner.ModelAuto {
 		writeRequestValidationError(w, unsupportedParameter("the selected model does not support image input"))
 		return "", false
 	}
+	if !model.SupportsImages() {
+		writeRequestValidationError(w, unsupportedParameter("image input requires cloud, cloud-pro, or chatgpt"))
+		return "", false
+	}
+	limit := spec.Capabilities.MaxImages
 	if len(request.Images) > limit {
 		writeRequestValidationError(w, imageLimitExceeded(fmt.Sprintf("model %q accepts at most %d image(s)", model, limit)))
 		return "", false
