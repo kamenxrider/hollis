@@ -9,6 +9,9 @@ import stat
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
+# The inner manifest describes the helper packed beside the CLI: protocol 2
+# ships with helper 0.5.0 and its schema operation.
+NATIVE_PROTOCOL = 2
 
 
 def package(dist, version):
@@ -25,7 +28,7 @@ def package(dist, version):
         if path.is_symlink() or not path.is_file():
             raise ValueError(f'Missing or unsafe bundle member: {name}')
         data[name] = path.read_bytes()
-    manifest = {'version': version, 'native_protocol_version': 1,
+    manifest = {'version': version, 'native_protocol_version': NATIVE_PROTOCOL,
                 'native_minimum_macos': '27.0', 'architecture': 'arm64',
                 'sha256': {k: hashlib.sha256(v).hexdigest() for k, v in data.items()}}
     data['manifest.json'] = (json.dumps(manifest, indent=2, sort_keys=True) + '\n').encode()

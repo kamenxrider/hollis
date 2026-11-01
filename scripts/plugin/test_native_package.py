@@ -222,7 +222,7 @@ class NativeArchiveTests(unittest.TestCase):
             with zipfile.ZipFile(output) as archive:
                 self.assertEqual(set(archive.namelist()), {'hollis', 'hollis-native', 'hollis-bridges.zip', 'LICENSE', 'manifest.json'})
                 manifest = json.loads(archive.read('manifest.json'))
-                self.assertEqual(manifest['native_protocol_version'], 1)
+                self.assertEqual(manifest['native_protocol_version'], package_runtime.NATIVE_PROTOCOL)
                 for name, expected in manifest['sha256'].items():
                     import hashlib
                     self.assertEqual(hashlib.sha256(archive.read(name)).hexdigest(), expected)

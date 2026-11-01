@@ -95,8 +95,12 @@ def validate_source(root=ROOT):
             raise ValueError("Invalid locked asset")
     if lock["schema_version"] == 2:
         native = lock.get("native", {})
+        # The receipt pins the protocol: a positive integer no greater than 99,
+        # matching the shell producer's bounded numeric pin. A newer receipt is
+        # data, not a packager edit.
+        protocol = native.get("protocol_version")
         if (native.get("name") != "hollis-native-darwin-arm64"
-                or native.get("protocol_version") != 1
+                or type(protocol) is not int or not 1 <= protocol <= 99
                 or ("version" in native and (
                     not isinstance(native["version"], str)
                     or not re.fullmatch(r"\d+\.\d+\.\d+", native["version"])))
