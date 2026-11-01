@@ -94,6 +94,11 @@ func TestRespondSchemaRejectionsHappenBeforeTheRunner(t *testing.T) {
 	deepArrays := writeSchemaFixture(t, deepArraySchema(600))
 	unicodeName := writeSchemaFixture(t, `{"type":"object","additionalProperties":false,`+
 		`"properties":{"caf\u00e9":{"type":"string"}}}`)
+	// Foundation's decoder accepts a repeated key, a BOM and a trailing comma;
+	// Go does not. All three are usage errors before any transport call.
+	duplicateKey := writeSchemaFixture(t, `{"type":"object","additionalProperties":false,"type":"array"}`)
+	bom := writeSchemaFixture(t, "\ufeff"+`{"type":"object","additionalProperties":false}`)
+	trailingComma := writeSchemaFixture(t, `{"type":"object","additionalProperties":false,}`)
 	image := writeCLIImage(t, "fixture.png")
 
 	cases := []struct {
@@ -108,6 +113,9 @@ func TestRespondSchemaRejectionsHappenBeforeTheRunner(t *testing.T) {
 		{"600 nested arrays", []string{"respond", "--model", "local", "--schema", deepArrays, "hi"}, "schema nesting exceeds depth 16", 2},
 		{"non-ascii property name", []string{"respond", "--model", "local", "--schema", unicodeName, "hi"}, "property names must be printable ASCII", 2},
 		{"not json", []string{"respond", "--model", "local", "--schema", notJSON, "hi"}, "schema is not valid JSON", 2},
+		{"duplicate key", []string{"respond", "--model", "local", "--schema", duplicateKey, "hi"}, "/type: schema must not repeat an object key", 2},
+		{"byte order mark", []string{"respond", "--model", "local", "--schema", bom, "hi"}, "schema is not valid JSON", 2},
+		{"trailing comma", []string{"respond", "--model", "local", "--schema", trailingComma, "hi"}, "schema is not valid JSON", 2},
 		{"missing file", []string{"respond", "--model", "local", "--schema", filepath.Join(t.TempDir(), "absent.json"), "hi"}, "schema file \"absent.json\"", 2},
 		{"cloud route", []string{"respond", "--model", "cloud", "--schema", valid, "hi"}, "requires --model local", 2},
 		{"auto route", []string{"respond", "--schema", valid, "hi"}, "requires --model local", 2},

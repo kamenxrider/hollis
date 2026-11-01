@@ -41,6 +41,19 @@ value inside a declared property so the per-node checks are actually compared,
 and one case straddles the 64 KiB gate with solidus characters, because
 Foundation escapes `/` and that decision moves the measured size.
 
+Schema cases are fed to the harness as raw document text, not as a value the
+Go side already decoded: the harness runs the helper's own strict scan and
+Foundation decode before the subset parser sees anything. That is what makes
+the decoder's leniency testable, so the table covers a repeated key at the root,
+in `properties`, in `required`, in `additionalProperties`, in a nested node and
+in `items`; a repeated key reached through a different escape spelling
+(`"a/b"` and `"a\/b"`, `"a"` and `"\u0061"`); a leading byte-order mark;
+trailing commas in an object and in an enum array; and a request case that
+checks the helper extracts exactly the schema bytes from a whole request whose
+prompt contains request-shaped text. The payload rows add a repeated key and a
+trailing comma. Mutating the helper by removing its scan, its duplicate-key
+check or its payload scan fails these rows.
+
 Accepted limitation, resolved by a subset rule rather than a dependency: the
 two runtimes normalise Unicode differently, so a schema whose property name,
 `required` name or `enum` choice was precomposed `é` would be one name in
@@ -58,7 +71,9 @@ chains (`items` inside `items`) unbounded, and a document deep enough failed in
 the helper's decoder after the request had spawned. `array nesting 14` is
 accepted, `array nesting 15` and `array nesting 20` are rejected, and a Go-only
 case drives 600 levels through `ParseSchema` and the CLI to prove the rejection
-happens before any process exists.
+happens before any process exists. Foundation's own decoder fails at roughly 512
+levels; the 16-node bound is far below it, so through Hollis that limit is
+unreachable.
 
 ## SQLite migration gates
 

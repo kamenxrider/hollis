@@ -118,6 +118,11 @@ func TestParseSchemaRejectsUnsupportedSubset(t *testing.T) {
 		{"non-ascii enum choice", schemaWithProperty(`{"type":"string","enum":["\u9078\u629e"]}`), "/properties/p/enum", "enum choices must be printable ASCII"},
 		{"trailing data", `{"type":"object","additionalProperties":false} {}`, "", "schema must be one JSON value"},
 		{"not json", `not json`, "", "schema is not valid JSON"},
+		// Foundation's decoder accepts these; Go does not, and the helper must
+		// not resolve them differently than the CLI measured them.
+		{"byte order mark", "\ufeff" + `{"type":"object","additionalProperties":false}`, "", "schema is not valid JSON"},
+		{"trailing comma in object", `{"type":"object","additionalProperties":false,}`, "", "schema is not valid JSON"},
+		{"trailing comma in enum", schemaWithProperty(`{"type":"string","enum":["a",]}`), "", "schema is not valid JSON"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -155,8 +160,15 @@ func TestParseSchemaRejectsDuplicateKeys(t *testing.T) {
 		pointer string
 	}{
 		{"root type", `{"type":"object","additionalProperties":false,"type":"array"}`, "/type"},
+		{"root additionalProperties", `{"type":"object","additionalProperties":false,"additionalProperties":true}`, "/additionalProperties"},
+		{"property name", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string"},"p":{"type":"integer"}}}`, "/properties/p"},
+		{"required member", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string"}},"required":["p"],"required":[]}`, "/required"},
 		{"nested property", `{"type":"object","additionalProperties":false,"properties":{"a":{"type":"string","type":"integer"},"b":{"type":"string"}}}`, "/properties/a/type"},
 		{"inside array items", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"array","items":{"type":"string","type":"boolean"}}}}`, "/properties/p/items/type"},
+		// Foundation's decoder resolves the escape spellings, so a key reached
+		// through a different escape is the same duplicated key there and here.
+		{"escaped solidus spelling", `{"type":"object","additionalProperties":false,"properties":{"a/b":{"type":"string"},"a\/b":{"type":"string"}}}`, "/properties/a~1b"},
+		{"unicode escape spelling", `{"type":"object","additionalProperties":false,"properties":{"a":{"type":"string"},"\u0061":{"type":"string"}}}`, "/properties/a"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,6 +193,15 @@ func TestParseSchemaRejectsDuplicateKeys(t *testing.T) {
 	}
 	if failure.Pointer != "/name" {
 		t.Fatalf("pointer = %q; want /name", failure.Pointer)
+	}
+	// The same leniency applies to the returned payload: a trailing comma or a
+	// BOM is not valid JSON, however Foundation would read it.
+	for _, payload := range []string{`{"name":"a",}`, "\ufeff" + `{"name":"a"}`} {
+		err := schema.Validate(json.RawMessage(payload))
+		var failure *SchemaError
+		if !asSchemaError(err, &failure) || failure.Reason != "returned payload is not valid JSON" || failure.Pointer != "" {
+			t.Fatalf("Validate(%q) = %v; want the not-valid-JSON rejection", payload, err)
+		}
 	}
 }
 

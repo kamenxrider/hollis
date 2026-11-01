@@ -100,6 +100,32 @@ enum SchemaSubset {
         return node
     }
 
+    /// Decode schema text with the Go consumer's strictness: a repeated object
+    /// key, a leading byte-order mark, a trailing comma or any other
+    /// non-standard JSON is refused before Foundation's decoder can normalize
+    /// it away. The decoded tree then goes through `parse`.
+    static func decodeSchema(_ data: Data) throws -> JSONValue {
+        try StrictJSON.scan(data, subject: "schema")
+        do {
+            return try JSONDecoder().decode(JSONValue.self, from: data)
+        } catch {
+            throw Failure(pointer: "", reason: "schema is not valid JSON")
+        }
+    }
+
+    /// The same strict decode for the returned payload text. The SDK's
+    /// encoder produces the bytes, but a duplicated key or a malformed
+    /// document must not be resolved here differently than in the Go
+    /// re-validation that follows.
+    static func decodePayload(_ data: Data) throws -> JSONValue {
+        try StrictJSON.scan(data, subject: "returned payload")
+        do {
+            return try JSONDecoder().decode(JSONValue.self, from: data)
+        } catch {
+            throw Failure(pointer: "", reason: "returned payload is not valid JSON")
+        }
+    }
+
     private static func escape(_ name: String) -> String {
         name.replacingOccurrences(of: "~", with: "~0").replacingOccurrences(of: "/", with: "~1")
     }
@@ -399,6 +425,332 @@ enum SchemaSubset {
         case .boolean:
             if case .boolean = value { return nil }
             return path.isEmpty ? "/" : path
+        }
+    }
+}
+
+/// Strict JSON scanning for the documents Foundation's decoder is too lenient
+/// about.
+///
+/// `JSONDecoder` accepts a leading byte-order mark and trailing commas, and it
+/// resolves a repeated object key by keeping the first value. Go's decoder
+/// rejects all three, and the subset's duplicate-key and "not valid JSON"
+/// rules depend on that difference: a document Go refuses must not be
+/// reinterpreted here. The helper scans the raw request bytes and the schema
+/// member inside them before decoding, and scans the returned payload text the
+/// same way; the parity harness feeds the same raw text through the same
+/// scanner.
+///
+/// A schema nested more than 16 nodes deep is already refused by `parseNode`,
+/// and through Hollis it never reaches the helper at all. The scan's own depth
+/// cap only keeps a hostile document from exhausting the stack; Foundation's
+/// decoder is the tighter limit at roughly 512 levels.
+enum StrictJSON {
+    static func scan(_ data: Data, subject: String) throws {
+        var scanner = Scanner(bytes: Array(data), subject: subject, rejectDuplicateKeys: true)
+        try scanner.scanDocument()
+    }
+
+    /// Scans one request document strictly and returns the raw bytes of its
+    /// top-level `schema` member, when present. The request envelope is written
+    /// by Go, so it carries no duplicate keys; the schema is the only
+    /// caller-controlled object in it and is scanned again as a schema, so a
+    /// duplicate inside it reports the same pointer and reason Go reports for
+    /// the same document.
+    static func schemaMember(of request: Data) throws -> Data? {
+        // The envelope is checked for duplicate keys too: a repeated `schema`
+        // member would otherwise let Foundation's keep-the-first decoder read a
+        // different value than the one scanned below.
+        var scanner = Scanner(bytes: Array(request), subject: "request", rejectDuplicateKeys: true)
+        try scanner.scanDocument()
+        guard let range = scanner.schemaRange else { return nil }
+        return Data(scanner.bytes[range])
+    }
+
+    private struct Scanner {
+        private static let quote: UInt8 = 0x22
+        private static let backslash: UInt8 = 0x5c
+        private static let comma: UInt8 = 0x2c
+        private static let colon: UInt8 = 0x3a
+        private static let objectOpen: UInt8 = 0x7b
+        private static let objectClose: UInt8 = 0x7d
+        private static let arrayOpen: UInt8 = 0x5b
+        private static let arrayClose: UInt8 = 0x5d
+        private static let maxDepth = 2048
+
+        let bytes: [UInt8]
+        private let subject: String
+        private let rejectDuplicateKeys: Bool
+        private var index = 0
+        private var depth = 0
+        private(set) var schemaRange: Range<Int>?
+
+        init(bytes: [UInt8], subject: String, rejectDuplicateKeys: Bool, start: Int = 0) {
+            self.bytes = bytes
+            self.subject = subject
+            self.rejectDuplicateKeys = rejectDuplicateKeys
+            self.index = start
+        }
+
+        mutating func scanDocument() throws {
+            skipWhitespace()
+            try scanValue(path: "")
+            skipWhitespace()
+            guard index == bytes.count else {
+                throw SchemaSubset.Failure(pointer: "", reason: subject + " must be one JSON value")
+            }
+        }
+
+        private mutating func scanValue(path: String) throws {
+            guard index < bytes.count else { throw syntaxFailure() }
+            switch bytes[index] {
+            case Self.objectOpen: try scanObject(path: path)
+            case Self.arrayOpen: try scanArray(path: path)
+            case Self.quote: _ = try scanString()
+            case 0x74: try scanLiteral("true")
+            case 0x66: try scanLiteral("false")
+            case 0x6e: try scanLiteral("null")
+            case 0x2d, 0x30...0x39: try scanNumber()
+            default: throw syntaxFailure()
+            }
+        }
+
+        private mutating func scanObject(path: String) throws {
+            depth += 1
+            defer { depth -= 1 }
+            guard depth <= Self.maxDepth else { throw syntaxFailure() }
+            index += 1
+            skipWhitespace()
+            if peek(Self.objectClose) {
+                index += 1
+                return
+            }
+            var seen = Set<String>()
+            while true {
+                skipWhitespace()
+                guard peek(Self.quote) else { throw syntaxFailure() }
+                let key = try scanString()
+                skipWhitespace()
+                try expect(Self.colon)
+                skipWhitespace()
+                let childPath = pointer(path, key)
+                // Checked before the value is scanned, with the duplicate's own
+                // pointer, exactly as Go's token decoder does.
+                if rejectDuplicateKeys, !seen.insert(key).inserted {
+                    throw SchemaSubset.Failure(pointer: childPath, reason: subject + " must not repeat an object key")
+                }
+                let valueStart = index
+                if depth == 1, key == "schema" {
+                    // Locate the end of the schema member with duplicate checks
+                    // deferred, then rescan those bytes as a schema. Scanning
+                    // it here would report a schema duplicate with the request's
+                    // subject and a `/schema` prefix, where Go's pointer and
+                    // sentence are the schema's own. The deferred pass still
+                    // enforces strict syntax, so a trailing comma is refused
+                    // either way.
+                    var skipper = Scanner(bytes: bytes, subject: subject,
+                                          rejectDuplicateKeys: false, start: index)
+                    try skipper.scanValue(path: childPath)
+                    index = skipper.index
+                    schemaRange = valueStart..<index
+                } else {
+                    try scanValue(path: childPath)
+                }
+                skipWhitespace()
+                guard index < bytes.count else { throw syntaxFailure() }
+                switch bytes[index] {
+                case Self.comma:
+                    // A trailing comma cannot parse: the loop resumes at a key,
+                    // and the closing delimiter is not one.
+                    index += 1
+                    skipWhitespace()
+                case Self.objectClose:
+                    index += 1
+                    return
+                default:
+                    throw syntaxFailure()
+                }
+            }
+        }
+
+        private mutating func scanArray(path: String) throws {
+            depth += 1
+            defer { depth -= 1 }
+            guard depth <= Self.maxDepth else { throw syntaxFailure() }
+            index += 1
+            skipWhitespace()
+            if peek(Self.arrayClose) {
+                index += 1
+                return
+            }
+            var item = 0
+            while true {
+                try scanValue(path: path + "/" + String(item))
+                item += 1
+                skipWhitespace()
+                guard index < bytes.count else { throw syntaxFailure() }
+                switch bytes[index] {
+                case Self.comma:
+                    // Likewise a trailing comma leaves the closing delimiter
+                    // where a value must start.
+                    index += 1
+                    skipWhitespace()
+                case Self.arrayClose:
+                    index += 1
+                    return
+                default:
+                    throw syntaxFailure()
+                }
+            }
+        }
+
+        private mutating func scanString() throws -> String {
+            guard peek(Self.quote) else { throw syntaxFailure() }
+            index += 1
+            var output: [UInt8] = []
+            while index < bytes.count {
+                let byte = bytes[index]
+                index += 1
+                switch byte {
+                case Self.quote:
+                    return String(decoding: output, as: UTF8.self)
+                case Self.backslash:
+                    guard index < bytes.count else { throw syntaxFailure() }
+                    let escape = bytes[index]
+                    index += 1
+                    switch escape {
+                    case 0x22: output.append(0x22)
+                    case 0x5c: output.append(0x5c)
+                    case 0x2f: output.append(0x2f)
+                    case 0x62: output.append(0x08)
+                    case 0x66: output.append(0x0c)
+                    case 0x6e: output.append(0x0a)
+                    case 0x72: output.append(0x0d)
+                    case 0x74: output.append(0x09)
+                    case 0x75:
+                        let scalar = try scanUnicodeEscape()
+                        output.append(contentsOf: String(Character(scalar)).utf8)
+                    default:
+                        throw syntaxFailure()
+                    }
+                case 0x00...0x1f:
+                    throw syntaxFailure()
+                default:
+                    output.append(byte)
+                }
+            }
+            throw syntaxFailure()
+        }
+
+        /// Reads four hex digits after `\u`. A lone surrogate becomes U+FFFD,
+        /// which is what Go's unquoter writes and what Foundation's decoder
+        /// stores, so duplicate detection compares the same strings on both
+        /// sides.
+        private mutating func scanUnicodeEscape() throws -> Unicode.Scalar {
+            let first = try hexQuad()
+            if first >= 0xd800 && first <= 0xdbff {
+                if index + 6 <= bytes.count, bytes[index] == Self.backslash, bytes[index + 1] == 0x75 {
+                    let saved = index
+                    index += 2
+                    let second = try hexQuad()
+                    if second >= 0xdc00 && second <= 0xdfff {
+                        let value = 0x10000 + (UInt32(first - 0xd800) << 10) + UInt32(second - 0xdc00)
+                        return Unicode.Scalar(value) ?? "\u{FFFD}"
+                    }
+                    // Not a pair: replace the high surrogate and let the next
+                    // escape be scanned on its own, as Go does.
+                    index = saved
+                }
+                return "\u{FFFD}"
+            }
+            if first >= 0xdc00 && first <= 0xdfff {
+                return "\u{FFFD}"
+            }
+            return Unicode.Scalar(UInt32(first)) ?? "\u{FFFD}"
+        }
+
+        private mutating func hexQuad() throws -> UInt16 {
+            var value: UInt16 = 0
+            for _ in 0..<4 {
+                guard index < bytes.count, let digit = Self.hexValue(bytes[index]) else {
+                    throw syntaxFailure()
+                }
+                value = value << 4 | UInt16(digit)
+                index += 1
+            }
+            return value
+        }
+
+        private mutating func scanNumber() throws {
+            if peek(0x2d) { index += 1 }
+            guard index < bytes.count else { throw syntaxFailure() }
+            if bytes[index] == 0x30 {
+                index += 1
+            } else if bytes[index] >= 0x31 && bytes[index] <= 0x39 {
+                while index < bytes.count, Self.isDigit(bytes[index]) { index += 1 }
+            } else {
+                throw syntaxFailure()
+            }
+            if index < bytes.count, bytes[index] == 0x2e {
+                index += 1
+                guard index < bytes.count, Self.isDigit(bytes[index]) else { throw syntaxFailure() }
+                while index < bytes.count, Self.isDigit(bytes[index]) { index += 1 }
+            }
+            if index < bytes.count, bytes[index] == 0x65 || bytes[index] == 0x45 {
+                index += 1
+                if index < bytes.count, bytes[index] == 0x2b || bytes[index] == 0x2d { index += 1 }
+                guard index < bytes.count, Self.isDigit(bytes[index]) else { throw syntaxFailure() }
+                while index < bytes.count, Self.isDigit(bytes[index]) { index += 1 }
+            }
+        }
+
+        private mutating func scanLiteral(_ literal: String) throws {
+            let expected = Array(literal.utf8)
+            guard index + expected.count <= bytes.count,
+                  Array(bytes[index..<(index + expected.count)]) == expected else {
+                throw syntaxFailure()
+            }
+            index += expected.count
+        }
+
+        private func peek(_ byte: UInt8) -> Bool {
+            index < bytes.count && bytes[index] == byte
+        }
+
+        private mutating func expect(_ byte: UInt8) throws {
+            guard peek(byte) else { throw syntaxFailure() }
+            index += 1
+        }
+
+        private mutating func skipWhitespace() {
+            while index < bytes.count, Self.isWhitespace(bytes[index]) { index += 1 }
+        }
+
+        private func pointer(_ path: String, _ component: String) -> String {
+            path + "/" + component
+                .replacingOccurrences(of: "~", with: "~0")
+                .replacingOccurrences(of: "/", with: "~1")
+        }
+
+        private func syntaxFailure() -> SchemaSubset.Failure {
+            SchemaSubset.Failure(pointer: "", reason: subject + " is not valid JSON")
+        }
+
+        private static func isDigit(_ byte: UInt8) -> Bool {
+            byte >= 0x30 && byte <= 0x39
+        }
+
+        private static func isWhitespace(_ byte: UInt8) -> Bool {
+            byte == 0x20 || byte == 0x09 || byte == 0x0a || byte == 0x0d
+        }
+
+        private static func hexValue(_ byte: UInt8) -> UInt8? {
+            switch byte {
+            case 0x30...0x39: return byte - 0x30
+            case 0x41...0x46: return byte - 0x41 + 10
+            case 0x61...0x66: return byte - 0x61 + 10
+            default: return nil
+            }
         }
     }
 }

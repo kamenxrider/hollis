@@ -80,17 +80,42 @@ offending JSON pointer instead of being approximated:
 - an object that repeats a key is rejected rather than resolved. Foundation
   keeps the first value of a duplicate key and Go keeps the last, so an
   ambiguous schema would be measured and enforced differently on each side.
+  The repeated key is found after JSON escape decoding, so `"a/b"` and
+  `"a\/b"`, or `"a"` and `"\u0061"`, are the same key.
+- only strict JSON is accepted: a leading byte-order mark, a trailing comma in
+  an object or array, or a second top-level value is refused as
+  "schema is not valid JSON". Foundation's decoder is more permissive than
+  Go's, so both sides run the same strictness check before decoding.
 
 Every rule in that list is enforced by Hollis before the helper is spawned, and
 by the helper's own parser as well. A schema Hollis accepts is therefore a
 schema the helper accepts, and a rejection is a usage error (exit 2) naming the
 offending JSON pointer with no inference and no process spawned.
 
+The helper reaches that agreement by scanning the raw request bytes before
+Foundation's decoder sees them: the request envelope is checked for strict JSON
+and repeated keys, and the embedded `schema` member is scanned again as a schema
+so its rejections carry the same pointer and sentence Hollis would report. The
+scan compares keys by decoded UTF-8, which is what the Go decoder does. Without
+that scan the helper's decoder would accept a byte-order mark or a trailing
+comma and keep the first value of a repeated key.
+
+One bound is the helper's own rather than a shared rule: Foundation's
+`JSONDecoder` fails at roughly 512 levels of nesting. That is far above the
+16-node nesting bound, so a schema deep enough to reach it is rejected by
+Hollis first as a usage error and never reaches the helper.
+
 Guided output is complete-only: `--schema` refuses `--stream`, `--image` and
-every route except `local` before generation. The returned object is re-checked
-against the same subset by Hollis after the helper's own validation; a
-mismatch, a refusal, a timeout or a context-capacity failure reports the
-existing error and never a partial object. A helper that predates guided output
+every route except `local` before generation. The helper scans the SDK's JSON
+text for the returned object, refuses it if it is not strict JSON or repeats a
+key, validates the decoded value against the requested subset, and only then
+emits the object, re-encoded from a dictionary, so the emitted bytes cannot
+repeat a key. Hollis re-validates that emitted object independently, and the Go
+check is the authority for the returned payload: the helper's echo has already
+lost any duplicate by construction, so a payload fault can only be caught on
+the text the SDK produced. A mismatch, a refusal, a timeout or a
+context-capacity failure reports the existing error and never a partial object.
+A helper that predates guided output
 is refused before the request spawns, with a message to install the matching
 bundle; that refusal is a component mismatch, so it reports `native_protocol`
 with exit 5, the same class as a helper that speaks too new a protocol.

@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,11 +30,13 @@ import (
 const swiftSubsetHarness = `import Foundation
 
 struct Case: Decodable {
-    let schema: JSONValue
-    let value: JSONValue?
+    let schema: String
+    let value: String?
+    let request: String?
+    let request_want: Verdict?
 }
 
-struct Verdict: Encodable {
+struct Verdict: Codable, Equatable {
     let ok: Bool
     let pointer: String
     let reason: String
@@ -47,9 +50,44 @@ catch { print("[]"); exit(0) }
 var verdicts: [Verdict] = []
 for item in cases {
     do {
-        let node = try SchemaSubset.parse(item.schema)
-        if let value = item.value, let bad = SchemaSubset.validate(value, against: node) {
-            verdicts.append(Verdict(ok: false, pointer: bad, reason: "returned payload does not match the requested schema"))
+        // A request case exercises the helper's own entry path: the strict scan
+        // over the whole request and the extraction of the schema member, which
+        // must return exactly the bytes carried in "schema".
+        if let want = item.request_want {
+            let actual: Verdict
+            do {
+                _ = try StrictJSON.schemaMember(of: Data((item.request ?? "").utf8))
+                actual = Verdict(ok: true, pointer: "", reason: "")
+            } catch let failure as SchemaSubset.Failure {
+                actual = Verdict(ok: false, pointer: failure.pointer, reason: failure.reason)
+            } catch {
+                actual = Verdict(ok: false, pointer: "", reason: "unknown")
+            }
+            guard actual == want else {
+                verdicts.append(Verdict(ok: false, pointer: "", reason: "request verdict mismatch"))
+                continue
+            }
+            verdicts.append(actual)
+            continue
+        }
+        if let request = item.request {
+            guard let extracted = try StrictJSON.schemaMember(of: Data(request.utf8)),
+                  extracted == Data(item.schema.utf8) else {
+                verdicts.append(Verdict(ok: false, pointer: "", reason: "schema member mismatch"))
+                continue
+            }
+        }
+        // The real helper path: raw schema bytes go through the strict scan and
+        // Foundation's decoder before the subset parser sees a value.
+        let decoded = try SchemaSubset.decodeSchema(Data(item.schema.utf8))
+        let node = try SchemaSubset.parse(decoded)
+        if let text = item.value {
+            let payload = try SchemaSubset.decodePayload(Data(text.utf8))
+            if let bad = SchemaSubset.validate(payload, against: node) {
+                verdicts.append(Verdict(ok: false, pointer: bad, reason: "returned payload does not match the requested schema"))
+            } else {
+                verdicts.append(Verdict(ok: true, pointer: "", reason: ""))
+            }
         } else {
             verdicts.append(Verdict(ok: true, pointer: "", reason: ""))
         }
@@ -64,9 +102,21 @@ print(String(decoding: encoded, as: UTF8.self))
 `
 
 type swiftParityCase struct {
-	Name   string          `json:"name"`
-	Schema json.RawMessage `json:"schema"`
-	Value  json.RawMessage `json:"value,omitempty"`
+	Name string `json:"name"`
+	// Schema and Value carry raw document bytes, not pre-decoded values: the
+	// helper's own decode is part of what is compared, so a case that is not
+	// valid JSON, carries a BOM or repeats a key must reach the scanner intact.
+	Schema string `json:"schema"`
+	Value  string `json:"value,omitempty"`
+	// Request, when set, is a whole helper request embedding Schema. The
+	// harness must extract exactly Schema from it, which is how the helper's
+	// own request path is covered.
+	Request string `json:"request,omitempty"`
+	// RequestWant, when set, is the exact verdict the whole request must
+	// produce ("ok", or a pointer and reason). It covers the request envelope,
+	// which has no Go-side equivalent to compare against, so the expectation is
+	// written out here.
+	RequestWant *schemaVerdict `json:"request_want,omitempty"`
 }
 
 type schemaVerdict struct {
@@ -78,9 +128,12 @@ type schemaVerdict struct {
 // goSchemaVerdict runs this package's parser and payload validator.
 func goSchemaVerdict(t *testing.T, tc swiftParityCase) schemaVerdict {
 	t.Helper()
-	schema, err := ParseSchema(tc.Schema)
-	if err == nil && len(tc.Value) != 0 {
-		err = schema.Validate(tc.Value)
+	if tc.RequestWant != nil {
+		return *tc.RequestWant
+	}
+	schema, err := ParseSchema([]byte(tc.Schema))
+	if err == nil && tc.Value != "" {
+		err = schema.Validate([]byte(tc.Value))
 	}
 	if err == nil {
 		return schemaVerdict{OK: true}
@@ -208,10 +261,20 @@ func swiftParityCases() []swiftParityCase {
 		return typed(schema)
 	}
 	now := func(name, schema string) swiftParityCase {
-		return swiftParityCase{Name: name, Schema: json.RawMessage(schema)}
+		return swiftParityCase{Name: name, Schema: schema}
 	}
 	withValue := func(name, schema, value string) swiftParityCase {
-		return swiftParityCase{Name: name, Schema: json.RawMessage(schema), Value: json.RawMessage(value)}
+		return swiftParityCase{Name: name, Schema: schema, Value: value}
+	}
+	// A whole request, as Go writes it, embedding the schema verbatim. The
+	// prompt carries request-shaped text so a scanner that looked for the
+	// literal bytes `"schema"` inside a string would extract the wrong slice.
+	withRequest := func(name, schema, prompt string) swiftParityCase {
+		request := `{"protocol":2,"operation":"schema","prompt":` + strconv.Quote(prompt) + `,"schema":` + schema + `}`
+		return swiftParityCase{Name: name, Schema: schema, Request: request}
+	}
+	requestWant := func(name, request string, want schemaVerdict) swiftParityCase {
+		return swiftParityCase{Name: name, Request: request, RequestWant: &want}
 	}
 	// The 64 KiB gate is measured on the normalized encoding, and Foundation
 	// writes every solidus as \/. This schema carries 33 KB of solidus in the
@@ -273,6 +336,38 @@ func swiftParityCases() []swiftParityCase {
 		now("array nesting 20", arrays(20)),
 		solidus,
 
+		// Foundation's decoder resolves a repeated key by keeping the first
+		// value and accepts a BOM and trailing commas; Go rejects all three.
+		// These cases reach the helper as raw bytes, so the strict scan is what
+		// makes the two sides agree.
+		now("duplicate root type", `{"type":"object","additionalProperties":false,"type":"array"}`),
+		now("duplicate additionalProperties", `{"type":"object","additionalProperties":false,"additionalProperties":false}`),
+		now("duplicate property name", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string"},"p":{"type":"integer"}}}`),
+		now("duplicate required member", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string"}},"required":["p"],"required":["p"]}`),
+		now("duplicate nested type", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"object","additionalProperties":false,"properties":{"q":{"type":"string","type":"integer"}}}}}`),
+		now("duplicate items", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"array","items":{"type":"string"},"items":{"type":"string"}}}}`),
+		now("duplicate key via escaped solidus", `{"type":"object","additionalProperties":false,"properties":{"a/b":{"type":"string"},"a\/b":{"type":"string"}}}`),
+		now("duplicate key via unicode escape", `{"type":"object","additionalProperties":false,"properties":{"a":{"type":"string"},"\u0061":{"type":"string"}}}`),
+		now("byte order mark", "\ufeff"+`{"type":"object","additionalProperties":false}`),
+		now("trailing comma in object", `{"type":"object","additionalProperties":false,}`),
+		now("trailing comma in enum array", typed(`{"type":"string","enum":["a",]}`)),
+		// The same documents embedded in a helper request, which is how the
+		// helper really receives them. Extraction must return exactly the
+		// schema bytes, and the prompt text must not confuse it.
+		withRequest("request with schema", typed(`{"type":"string"}`), `say "schema": {"type":"object"} please`),
+		withRequest("request with duplicate schema key", `{"type":"object","additionalProperties":false,"type":"array"}`, "hi"),
+		withRequest("request with escaped duplicate", `{"type":"object","additionalProperties":false,"properties":{"a":{"type":"string"},"\u0061":{"type":"string"}}}`, "hi"),
+		// The envelope is scanned too: a repeated `schema` member would let
+		// Foundation's keep-the-first decoder read a different value than the
+		// one the helper scanned, and a repeated any other member is a request
+		// Go never writes.
+		requestWant("request with repeated schema member",
+			`{"protocol":2,"operation":"schema","prompt":"hi","schema":{"type":"object","additionalProperties":false},"schema":{"type":"object","additionalProperties":false,"type":"array"}}`,
+			schemaVerdict{Pointer: "/schema", Reason: "request must not repeat an object key"}),
+		requestWant("request with repeated protocol member",
+			`{"protocol":2,"protocol":2,"operation":"schema","prompt":"hi","schema":{"type":"object","additionalProperties":false}}`,
+			schemaVerdict{Pointer: "/protocol", Reason: "request must not repeat an object key"}),
+
 		// Payload cases carry the value inside the declared property. A bare
 		// scalar against an object root agrees trivially, so it would not
 		// compare any of the checks these cases are named for.
@@ -290,5 +385,7 @@ func swiftParityCases() []swiftParityCase {
 		withValue("payload extra property", typed(`{"type":"string"}`), `{"p":"a","q":1}`),
 		withValue("payload nested fault", object(`{"p":`+typed(`{"type":"string"}`)+`}`, ""), `{"p":{"p":1}}`),
 		withValue("payload root mismatch", object("", ""), `[1]`),
+		withValue("payload duplicate key", typed(`{"type":"string"}`), `{"p":"a","p":"b"}`),
+		withValue("payload trailing comma", typed(`{"type":"string"}`), `{"p":"a",}`),
 	}
 }

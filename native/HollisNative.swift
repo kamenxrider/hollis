@@ -53,6 +53,17 @@ struct HollisNative {
                 input.append(rest)
                 if input.count > 1_048_576 { fail("context_capacity"); return }
             }
+            // Foundation's decoder accepts a leading byte-order mark, trailing
+            // commas and repeated object keys (keeping the first value). Go
+            // rejects all three, and the embedded schema must not be
+            // reinterpreted more leniently here than it was measured there.
+            // The request envelope is scanned strictly; the schema member is
+            // scanned again as a schema so its own rejections match Go's.
+            do {
+                if let raw = try StrictJSON.schemaMember(of: input) {
+                    try StrictJSON.scan(raw, subject: "schema")
+                }
+            } catch { fail("native_failed"); return }
             var request: Request
             do { request = try JSONDecoder().decode(Request.self, from: input) }
             catch { fail("native_failed"); return }
@@ -111,9 +122,11 @@ struct HollisNative {
                     to: prompt, schema: try SchemaSubset.schema(for: requested!))
                 // The SDK decode is necessary but not trusted: validate the
                 // emitted object against the requested subset before emitting.
+                // The raw text is scanned first, so a repeated key or a
+                // malformed document is refused rather than resolved by
+                // Foundation's lenient decoder.
                 let encoded = response.content.jsonString
-                guard let payload = try? JSONDecoder().decode(
-                          JSONValue.self, from: Data(encoded.utf8)),
+                guard let payload = try? SchemaSubset.decodePayload(Data(encoded.utf8)),
                       SchemaSubset.validate(payload, against: requested!) == nil else {
                     fail("native_failed", protocol: effective); return
                 }
