@@ -21,6 +21,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"syscall"
@@ -123,6 +124,11 @@ type Error struct {
 	// the model request deadline, and the error already carries the
 	// approved fixed sentence shared with the bounded shell path.
 	ListTimeout bool
+	// ProbeTimeout marks a KindTimeout raised by the capability probe that
+	// runs before a helper is spawned. No model request was made, and the
+	// probe deadline is fixed, so the CLI must not suggest a larger
+	// --timeout.
+	ProbeTimeout bool
 }
 
 func (e *Error) Error() string {
@@ -213,15 +219,25 @@ type Usage struct {
 }
 
 // Completion is a complete, successful response. Usage is absent when unavailable.
+// Structured is the validated guided-output object, and only a schema request
+// that passed independent validation sets it.
 type Completion struct {
-	Text  string
-	Model Model
-	Usage *Usage
+	Text       string
+	Model      Model
+	Usage      *Usage
+	Structured json.RawMessage
 }
 
 // CompleteRunner optionally provides measured response usage.
 type CompleteRunner interface {
 	RunComplete(context.Context, Model, string) (Completion, error)
+}
+
+// SchemaRunner optionally provides guided output. Only the native local route
+// implements it: a schema is validated before the helper spawns, and a returned
+// object is re-validated here rather than trusted because the helper decoded it.
+type SchemaRunner interface {
+	RunSchema(ctx context.Context, model Model, prompt string, schema *Schema) (Completion, error)
 }
 
 // StreamRunner emits incremental text and returns only after successful completion.

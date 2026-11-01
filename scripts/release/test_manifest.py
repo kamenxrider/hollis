@@ -34,7 +34,7 @@ def make_release_dir(folder):
     }
     inner = {
         'version': VERSION,
-        'native_protocol_version': 1,
+        'native_protocol_version': manifest.HELPER_PROTOCOL,
         'native_minimum_macos': '27.0',
         'architecture': 'arm64',
         'sha256': {name: hashlib.sha256(content).hexdigest() for name, content in core.items()},
@@ -87,7 +87,8 @@ class ManifestTests(unittest.TestCase):
             self.assertEqual(raw['schema_version'], 1)
             self.assertEqual(raw['identity']['source_ref'], 'refs/tags/v0.4.0')
             self.assertEqual(raw['identity']['source_commit'], COMMIT)
-            self.assertEqual(raw['helper'], {'version': VERSION, 'protocol_version': 1})
+            self.assertEqual(raw['helper'], {'version': manifest.HELPER_VERSION,
+                                              'protocol_version': manifest.HELPER_PROTOCOL})
             self.assertEqual(raw['platform']['minimum_macos'], '27.0')
             self.assertEqual(set(raw['macho']), {
                 'hollis-darwin-arm64', 'hollis-darwin-amd64', 'hollis-native-darwin-arm64'})

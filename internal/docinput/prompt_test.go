@@ -101,7 +101,7 @@ func TestReadPromptFileRejectsDirectory(t *testing.T) {
 	}
 }
 
-func TestReadPromptBytesClosedHandleDoesNotLeakAbsolutePath(t *testing.T) {
+func TestReadBoundedFileClosedHandleDoesNotLeakAbsolutePath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "instructions.txt")
 	if err := os.WriteFile(path, []byte("hello"), 0o600); err != nil {
 		t.Fatal(err)
@@ -114,12 +114,12 @@ func TestReadPromptBytesClosedHandleDoesNotLeakAbsolutePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = readPromptBytes(file, 128)
+	_, err = readBoundedFile(file, "prompt file", 128)
 	if err == nil {
-		t.Fatal("readPromptBytes() accepted a closed handle")
+		t.Fatal("readBoundedFile() accepted a closed handle")
 	}
 	if strings.Contains(err.Error(), path) {
-		t.Fatalf("readPromptBytes() error leaked absolute source path: %v", err)
+		t.Fatalf("readBoundedFile() error leaked absolute source path: %v", err)
 	}
 }
 

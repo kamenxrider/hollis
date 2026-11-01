@@ -35,8 +35,8 @@ class RefreshLockTests(unittest.TestCase):
         lock = json.loads(output.read_text())
         self.assertEqual(lock['schema_version'], 2)
         self.assertEqual(lock['source_commit'], test_manifest.COMMIT)
-        self.assertEqual(lock['native']['version'], '0.4.0')
-        self.assertEqual(lock['native']['protocol_version'], 1)
+        self.assertEqual(lock['native']['version'], test_manifest.manifest.HELPER_VERSION)
+        self.assertEqual(lock['native']['protocol_version'], test_manifest.manifest.HELPER_PROTOCOL)
         for key in ('binary', 'bridges', 'native'):
             self.assertEqual(lock[key]['sha256'], record['assets'][lock[key]['name']]['sha256'])
         self.assertEqual(lock['bridge_files'], [item['name'] for item in record['bridges']['members']])

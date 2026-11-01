@@ -386,6 +386,12 @@ func toCLIError(err error) error {
 			// raise a model timeout for a listing.
 			return timeoutErr(err)
 		}
+		if re.ProbeTimeout {
+			// The helper never got as far as a model request: the fixed
+			// capability probe expired first. A larger --timeout cannot lift
+			// that deadline, so the model hint below would be false advice.
+			return timeoutErr(fmt.Errorf("%s\nhint: the probe deadline is 5s, or the remaining --timeout when that is shorter; no model request was made. Do not automatically retry; check that the helper starts, and install or update the matched bundle", err))
+		}
 		return timeoutErr(fmt.Errorf("%s\nhint: the model request exceeded its deadline; this alone does not identify the cause or confirm whether it completed. Do not automatically retry; choose a larger --timeout (up to the 120s ceiling) for a future request if needed", err))
 	case runner.KindNoOutput:
 		return transportErr(fmt.Errorf("%s\nhint: run 'hollis doctor'; exit 0 with empty output is always treated as failure", err))

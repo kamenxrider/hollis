@@ -27,7 +27,7 @@ class Hollis < Formula
 
     metadata = JSON.parse((extracted / "manifest.json").read)
     odie "Runtime bundle identity changed" unless metadata["version"] == version.to_s
-    odie "Runtime helper protocol changed" unless metadata["native_protocol_version"] == 1
+    odie "Runtime helper protocol changed" unless metadata["native_protocol_version"] == "{{HELPER_PROTOCOL}}".to_i
     odie "Runtime platform changed" unless metadata["native_minimum_macos"] == "27.0" && metadata["architecture"] == "arm64"
     hashes = metadata.fetch("sha256")
     expected_hashed = %w[LICENSE hollis hollis-bridges.zip hollis-native]
@@ -61,7 +61,7 @@ class Hollis < Formula
   test do
     assert_match "hollis #{version}", shell_output("#{bin}/hollis --version")
     assert_equal "hollis-native {{HELPER_VERSION}}\n", shell_output("#{libexec}/#{version}/hollis-native --version")
-    assert_equal "1\n", shell_output("#{libexec}/#{version}/hollis-native --protocol-version")
+    assert_equal "{{HELPER_PROTOCOL}}\n", shell_output("#{libexec}/#{version}/hollis-native --protocol-version")
     assert_predicate libexec / version.to_s / "hollis-bridges.zip", :exist?
     assert_predicate libexec / version.to_s / "manifest.json", :exist?
     assert_predicate bash_completion / "hollis", :exist?

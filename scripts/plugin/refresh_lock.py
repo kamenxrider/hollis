@@ -34,7 +34,7 @@ def refresh(version, commit, output):
     lock.update(schema_version=2, version=version, source_commit=commit,
                 source_ref=f'refs/tags/v{version}',
                 release_url=f'https://github.com/kamenxrider/hollis/releases/download/v{version}')
-    lock['native'] = {'name': 'hollis-native-darwin-arm64', 'protocol_version': 1}
+    lock['native'] = {'name': 'hollis-native-darwin-arm64', 'protocol_version': 2}
     with tempfile.TemporaryDirectory(prefix='hollis-published-pins-') as temp:
         folder = Path(temp)
         # Authenticate the common authority against caller-selected source pins

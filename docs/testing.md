@@ -21,6 +21,60 @@ and historical run receipts are maintained separately and are not distributed.
 Synthetic privacy canaries in tests are fabricated values used to verify that
 errors do not disclose request data.
 
+## Cross-language schema parity
+
+Guided output (see [native local](native-local.md#guided-output)) validates a
+schema subset twice: the shipped Swift helper (`native/SchemaSubset.swift`)
+parses it before generation, and Hollis re-checks the returned object against
+the same subset. Both parsers are compiled and compared over one case table, so
+a divergence in acceptance, JSON pointer or rejection reason fails a test:
+
+```sh
+HOLLIS_SCHEMA_PARITY=1 go test ./internal/runner -run TestSchemaSwiftParity -count=1 -v
+```
+
+The test skips without `HOLLIS_SCHEMA_PARITY=1` because it compiles Swift, and
+it skips on hosts without the macOS 27 SDK or on a non-arm64 machine. It is
+offline: it builds the checked-in subset parser and a harness from the same
+source tree, runs them locally, and calls no model. The payload cases carry the
+value inside a declared property so the per-node checks are actually compared,
+and one case straddles the 64 KiB gate with solidus characters, because
+Foundation escapes `/` and that decision moves the measured size.
+
+Schema cases are fed to the harness as raw document text, not as a value the
+Go side already decoded: the harness runs the helper's own strict scan and
+Foundation decode before the subset parser sees anything. That is what makes
+the decoder's leniency testable, so the table covers a repeated key at the root,
+in `properties`, in `required`, in `additionalProperties`, in a nested node and
+in `items`; a repeated key reached through a different escape spelling
+(`"a/b"` and `"a\/b"`, `"a"` and `"\u0061"`); a leading byte-order mark;
+trailing commas in an object and in an enum array; and a request case that
+checks the helper extracts exactly the schema bytes from a whole request whose
+prompt contains request-shaped text. The payload rows add a repeated key and a
+trailing comma. Mutating the helper by removing its scan, its duplicate-key
+check or its payload scan fails these rows.
+
+Accepted limitation, resolved by a subset rule rather than a dependency: the
+two runtimes normalise Unicode differently, so a schema whose property name,
+`required` name or `enum` choice was precomposed `é` would be one name in
+Foundation (canonical equivalence) and a different byte string in Go. Rather
+than adding a normalisation library, the subset holds authoring names and enum
+choices to printable ASCII, and both parsers reject anything else with the same
+pointer and reason. No two ASCII strings are canonically equivalent unless they
+are identical, so the rule removes the divergence instead of documenting it,
+and both parity directions are exercised by the precomposed/decomposed cases in
+the table.
+
+The same table bounds nesting: three object levels as before, plus at most
+sixteen schema nodes on one path counting the root. Object depth alone left array
+chains (`items` inside `items`) unbounded, and a document deep enough failed in
+the helper's decoder after the request had spawned. `array nesting 14` is
+accepted, `array nesting 15` and `array nesting 20` are rejected, and a Go-only
+case drives 600 levels through `ParseSchema` and the CLI to prove the rejection
+happens before any process exists. Foundation's own decoder fails at roughly 512
+levels; the 16-node bound is far below it, so through Hollis that limit is
+unreachable.
+
 ## SQLite migration gates
 
 Storage tests use temporary SQLite fixtures, not user databases. Run the two

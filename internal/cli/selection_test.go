@@ -191,6 +191,87 @@ func TestSelectionValidationUsesSchemaNotRows(t *testing.T) {
 	}
 }
 
+func TestSelectionPinsGuidedOutputAndContextSize(t *testing.T) {
+	// Both names are part of the published surface. Removing either from the
+	// result schema has to break a test rather than silently turn a valid
+	// --select into a usage error, so selection validation is pinned here and
+	// the projection is pinned per value.
+	schema := commandResultSchemas["hollis models"]
+	for _, field := range []string{"context_size", "capabilities.guided_output"} {
+		if _, err := selectionPaths(field, schema); err != nil {
+			t.Fatalf("%s: %v", field, err)
+		}
+	}
+	for _, field := range []string{"context_window", "capabilities.guided", "capabilities.context_size"} {
+		if _, err := selectionPaths(field, schema); err == nil {
+			t.Fatalf("%s is not a published field, but selection accepted it", field)
+		}
+	}
+	cases := []struct {
+		name     string
+		row      map[string]any
+		fields   string
+		expected string
+	}{
+		{
+			"measured context window",
+			map[string]any{"model": "local", "context_size": 4096},
+			"context_size",
+			`[{"context_size":4096}]`,
+		},
+		{
+			// An absent signal must stay absent: a zero would claim a measured
+			// context window of zero tokens.
+			"absent context window stays absent",
+			map[string]any{"model": "local"},
+			"context_size",
+			`[{}]`,
+		},
+		{
+			"guided output true",
+			map[string]any{"model": "local", "capabilities": map[string]bool{"guided_output": true}},
+			"capabilities.guided_output",
+			`[{"capabilities":{"guided_output":true}}]`,
+		},
+		{
+			"guided output false stays explicit",
+			map[string]any{"model": "cloud", "capabilities": map[string]bool{"guided_output": false}},
+			"capabilities.guided_output",
+			`[{"capabilities":{"guided_output":false}}]`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			flags := &rootFlags{selectFields: tc.fields, resultSchema: schema}
+			if err := printJSONArrayFilteredTo(&out, []map[string]any{tc.row}, flags); err != nil {
+				t.Fatal(err)
+			}
+			if strings.TrimSpace(out.String()) != tc.expected {
+				t.Fatalf("projection = %s; want %s", out.String(), tc.expected)
+			}
+		})
+	}
+
+	// The same two names through the command line, where the row is built from
+	// a measured status rather than a fixture map.
+	stubConfigPath(t)
+	cmd := NewRootCmd(func() runner.Runner {
+		return &statusFixtureRunner{status: runner.LocalStatus{Available: true, Protocol: 2, Version: "0.5.0", ContextSize: 4096}}
+	})
+	cmd.SetArgs([]string{"models", "--model", "local", "--json", "--select", "context_size,capabilities.guided_output"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	want := `[{"capabilities":{"guided_output":true},"context_size":4096}]`
+	if strings.TrimSpace(out.String()) != want {
+		t.Fatalf("selected row = %s; want %s", out.String(), want)
+	}
+}
+
 func TestSelectionArrayParityAndLaterFields(t *testing.T) {
 	rows := []map[string]any{
 		{"model": "auto", "apple_model": "strategy"},

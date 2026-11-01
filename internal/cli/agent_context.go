@@ -192,7 +192,7 @@ func commandOutputModes(command *cobra.Command) []string {
 func commandSideEffects(command *cobra.Command) []string {
 	switch command.CommandPath() {
 	case "hollis respond":
-		return []string{"invokes one Shortcut model run", "with --prompt-file or --file, reads local UTF-8 text files", "with --image, reads local image files and creates then removes a private temporary prompt file"}
+		return []string{"invokes one Shortcut model run, or one native helper run for --model local", "with --prompt-file or --file, reads local UTF-8 text files", "with --schema, reads one local JSON Schema file and runs the helper's non-generative --protocol-version probe before the request", "with --image, reads local image files and creates then removes a private temporary prompt file"}
 	case "hollis image generate":
 		return []string{"invokes one image-generation Shortcut through an explicit bridge or configured style with no retry or fallback", "creates and removes private prompt and PNG staging files", "writes one private PNG without overwriting an existing destination", "macOS or the chosen Shortcut may require first-run permissions or interaction; --no-input does not answer those prompts"}
 	case "hollis batch plan":

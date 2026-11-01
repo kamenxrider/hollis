@@ -31,13 +31,16 @@ type NameSet struct {
 // CapabilitySet is the static implementation truth about one route: what
 // the transport can do. It makes no claim about runtime availability or
 // prior successful inference, and must never be presented as either.
-// StreamingUsage is a measured NO on every route today.
+// StreamingUsage is a measured NO on every route today. Schema is guided
+// output: a requested JSON Schema subset whose returned object is
+// re-validated before it is reported as success.
 type CapabilitySet struct {
 	Images         bool
 	MaxImages      int
 	Streaming      bool
 	Usage          bool
 	StreamingUsage bool
+	Schema         bool
 }
 
 // RouteSpec is the single description of one concrete route: its wire
@@ -154,9 +157,10 @@ var routeSpecs = map[Model]RouteSpec{
 		// Native local has no bridge, no Shortcuts parameter, and no
 		// compiled UUID; its display row is rendered from native status.
 		Names: NameSet{},
-		// Measured capabilities of the Foundation Models helper: streaming
-		// and complete usage work; stream usage and image input do not.
-		Capabilities: CapabilitySet{Streaming: true, Usage: true},
+		// Measured capabilities of the Foundation Models helper: streaming,
+		// complete usage and guided output work; stream usage and image input
+		// do not.
+		Capabilities: CapabilitySet{Streaming: true, Usage: true, Schema: true},
 		BatchSpacing: 0,
 		OwnedBy:      "Apple",
 	},
@@ -246,10 +250,16 @@ func validateRouteTable() error {
 	if local.Selection != "" || len(local.BridgeNames) != 0 || local.CompiledUUID != "" || local.Names.Measured != "" {
 		return fmt.Errorf("%s: native route must not declare bridge artifacts", ModelLocal)
 	}
-	if !local.Capabilities.Streaming || !local.Capabilities.Usage || local.Capabilities.StreamingUsage || local.Capabilities.Images {
+	if !local.Capabilities.Streaming || !local.Capabilities.Usage || !local.Capabilities.Schema ||
+		local.Capabilities.StreamingUsage || local.Capabilities.Images {
 		return fmt.Errorf("%s: native capabilities drifted from the measured surface", ModelLocal)
 	}
 	for id, spec := range routeSpecs {
+		// Guided output is a protocol-2 native operation. A Shortcut bridge
+		// has no schema operation, so claiming it elsewhere is a table bug.
+		if spec.Capabilities.Schema && (spec.Transport != TransportNative || !spec.Capabilities.Usage) {
+			return fmt.Errorf("%s: guided output requires the native transport and measured usage", id)
+		}
 		if spec.Capabilities.Images != (spec.Capabilities.MaxImages > 0) {
 			return fmt.Errorf("%s: Images=%v with MaxImages=%d", id, spec.Capabilities.Images, spec.Capabilities.MaxImages)
 		}

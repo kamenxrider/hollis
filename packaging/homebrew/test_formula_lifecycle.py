@@ -128,6 +128,7 @@ class FormulaLifecycle:
         self.helper = self.assets / 'hollis-native'
         run(['bash', str(ROOT / 'scripts/build-native.sh'), str(self.helper)])
         self.helper_version = run([str(self.helper), '--version']).split()[-1]
+        self.helper_protocol = run([str(self.helper), '--protocol-version']).strip()
         for version in versions:
             run(['go', 'build', '-C', str(ROOT), '-trimpath', '-ldflags',
                  f'-s -w -X github.com/kamenxrider/hollis/internal/cli.version={version}',
@@ -145,7 +146,7 @@ class FormulaLifecycle:
             'hollis-bridges.zip': sha256(self.bridges_zip),
             'LICENSE': sha256(ROOT / 'LICENSE'),
         }
-        manifest = {'version': version, 'native_protocol_version': 1,
+        manifest = {'version': version, 'native_protocol_version': int(self.helper_protocol),
                     'native_minimum_macos': '27.0', 'architecture': 'arm64',
                     'sha256': hashes}
         inner = self.assets / f'manifest-{version}.json'
@@ -167,6 +168,7 @@ class FormulaLifecycle:
                     .replace('{{BUNDLE_NAME}}', bundle_name)
                     .replace('{{VERSION}}', version)
                     .replace('{{BUNDLE_SHA256}}', sha256(self.served / bundle_name))
+                    .replace('{{HELPER_PROTOCOL}}', self.helper_protocol)
                     .replace('{{HELPER_VERSION}}', self.helper_version)
                     .replace(published_url,
                              f'http://127.0.0.1:{self.server.port}/{bundle_name}'))
@@ -274,7 +276,8 @@ class FormulaLifecycleTests(unittest.TestCase):
                          'hollis 0.4.0')
         self.assertEqual(run([str(libexec / 'hollis-native'), '--version']).strip(),
                          f'hollis-native {self.lifecycle.helper_version}')
-        self.assertEqual(run([str(libexec / 'hollis-native'), '--protocol-version']).strip(), '1')
+        self.assertEqual(run([str(libexec / 'hollis-native'), '--protocol-version']).strip(),
+                         self.lifecycle.helper_protocol)
         for relative in ('etc/bash_completion.d/hollis', 'share/zsh/site-functions/_hollis',
                          'share/fish/vendor_completions.d/hollis.fish',
                          'share/hollis/completion/hollis.ps1'):

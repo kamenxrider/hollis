@@ -19,6 +19,10 @@ _privacy_spec = importlib.util.spec_from_file_location('release_privacy', Path(_
 privacy = importlib.util.module_from_spec(_privacy_spec)
 _privacy_spec.loader.exec_module(privacy)
 
+_manifest_spec = importlib.util.spec_from_file_location('release_manifest', Path(__file__).resolve().parents[1] / 'release/manifest.py')
+release_manifest = importlib.util.module_from_spec(_manifest_spec)
+_manifest_spec.loader.exec_module(release_manifest)
+
 
 class NativeInstallerTests(unittest.TestCase):
     def setUp(self):
@@ -212,6 +216,16 @@ class NativeArchiveTests(unittest.TestCase):
             producer = next(i for i in archive.infolist() if i.filename.endswith('/scripts/setup.sh'))
             self.assertEqual(producer.external_attr >> 16 & 0o777, 0o755)
 
+    def test_protocol_pin_matches_the_release_manifest(self):
+        """The bundled pin and the release manifest must move together.
+
+        A runtime bundle that advertises one protocol beside a helper that
+        speaks another pairs mismatched components, and the consumer refuses the
+        pair after the fact. The two constants are the only source of the pin,
+        so they are compared here rather than discovered at release time.
+        """
+        self.assertEqual(package_runtime.NATIVE_PROTOCOL, release_manifest.HELPER_PROTOCOL)
+
     def test_runtime_bundle_exact_members_hashes_and_no_checkout_walk(self):
         with tempfile.TemporaryDirectory() as temp:
             dist = Path(temp)
@@ -222,7 +236,7 @@ class NativeArchiveTests(unittest.TestCase):
             with zipfile.ZipFile(output) as archive:
                 self.assertEqual(set(archive.namelist()), {'hollis', 'hollis-native', 'hollis-bridges.zip', 'LICENSE', 'manifest.json'})
                 manifest = json.loads(archive.read('manifest.json'))
-                self.assertEqual(manifest['native_protocol_version'], 1)
+                self.assertEqual(manifest['native_protocol_version'], package_runtime.NATIVE_PROTOCOL)
                 for name, expected in manifest['sha256'].items():
                     import hashlib
                     self.assertEqual(hashlib.sha256(archive.read(name)).hexdigest(), expected)

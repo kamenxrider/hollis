@@ -19,6 +19,7 @@ def render_formula(dist, output, template=TEMPLATE):
         '{{VERSION}}': identity['runtime_version'],
         '{{BUNDLE_NAME}}': bundle_name,
         '{{BUNDLE_SHA256}}': bundle_hash,
+        '{{HELPER_PROTOCOL}}': str(manifest['helper']['protocol_version']),
         '{{HELPER_VERSION}}': manifest['helper']['version'],
     }
     for marker, value in replacements.items():

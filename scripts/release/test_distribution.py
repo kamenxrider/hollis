@@ -20,6 +20,7 @@ class DistributionPreparationTests(unittest.TestCase):
             self.assertIn('version "0.4.0"', formula)
             self.assertIn(f'sha256 "{bundle_hash}"', formula)
             self.assertIn('hollis-0.4.0-darwin-arm64.zip', formula)
+            self.assertIn('native_protocol_version"] == "2".to_i', formula)
             self.assertNotIn('{{', formula)
             with self.assertRaises(FileExistsError):
                 render_formula(dist, output)

@@ -10,6 +10,12 @@ and agent schema version remain unchanged.
 | `request_declined` | The failed process returned Apple's recorded “Try describing something different to create an image” diagnostic | 5 | 502 | Review the description; a different request is a new experiment, not a silent retry |
 | `shortcut_failed` | The Shortcut executed unsuccessfully without a recognized diagnostic | 5 | 502 | Inspect the failure context before making another call |
 | `transport` | Launch, staging or other transport failure | 5 | 502 for typed launch/transport errors | Check host access and process setup |
+| `native_protocol` | The paired native helper and this CLI disagree about their contract: an older or newer helper, an event that breaks the sequence, or a guided object that does not match the requested schema | 5 | 502 | Install the matching bundle from the same release; do not retry against the same helper |
+
+`native_protocol` is a component mismatch, not a bad invocation: the command
+was understood and the installed helper cannot serve it. It deliberately shares
+exit 5 with the transport family so a script can treat a stale pairing like any
+other failed execution, while the machine code names the cause.
 
 `request_declined` does **not** establish why Apple declined. It is not proof of
 a safety-filter rejection, a rate limit, or a broken bridge. Hollis recognizes
