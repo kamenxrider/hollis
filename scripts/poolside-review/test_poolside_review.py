@@ -1,4 +1,5 @@
 import importlib.util
+import gc
 import http.client
 import io
 import json
@@ -10,6 +11,7 @@ import tempfile
 import time
 import unittest
 import urllib.error
+import warnings
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -619,6 +621,23 @@ class PoolsideResponseTests(unittest.TestCase):
 class UrllibTransportTests(unittest.TestCase):
     canary = "synthetic-transport-private-canary"
 
+    def setUp(self):
+        self._warnings = warnings.catch_warnings(record=True)
+        self.caught_warnings = self._warnings.__enter__()
+        warnings.simplefilter("always")
+
+    def tearDown(self):
+        # Fail on any cleanup warning a test leaves for the collector, which is
+        # how an unclosed HTTPError response handle shows up.
+        gc.collect()
+        self._warnings.__exit__(None, None, None)
+        leaked = [
+            f"{w.category.__name__}: {w.message}"
+            for w in self.caught_warnings
+            if issubclass(w.category, ResourceWarning)
+        ]
+        self.assertEqual(leaked, [])
+
     def opener(self):
         opener = MagicMock()
         response = opener.open.return_value.__enter__.return_value
@@ -773,6 +792,27 @@ class UrllibTransportTests(unittest.TestCase):
                 )
                 self.assertEqual(str(caught.exception), expected)
 
+    def test_every_http_error_handed_to_the_transport_is_closed(self):
+        class TrackedError(urllib.error.HTTPError):
+            closed = False
+
+            def close(self):
+                type(self).closed = True
+                super().close()
+
+        for status in [200, 301, 307, 400, 401, 500]:
+            with self.subTest(status=status):
+                TrackedError.closed = False
+                opener, _ = self.opener()
+                opener.open.side_effect = TrackedError(
+                    "https://transport.invalid/" + self.canary, status, self.canary,
+                    {}, io.BytesIO(b'{"error": {"message": "rejected"}}'),
+                )
+                with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
+                    result = self.request()
+                self.assertEqual(result.status, status)
+                self.assertTrue(TrackedError.closed, "HTTPError handle was not closed")
+
     def test_read_and_close_failures_preserve_the_http_status(self):
         class FailingBody:
             def __init__(self, payload=b"", *, read_error=None, close_error=None):
@@ -880,19 +920,19 @@ class UrllibTransportTests(unittest.TestCase):
                 (200, "Poolside returned an invalid JSON response"),
             ]:
                 with self.subTest(status=status):
-                    opener, _ = self.opener()
-                    error = urllib.error.HTTPError(
-                        "https://transport.invalid/" + self.canary, status, self.canary, {},
-                        io.BytesIO(huge),
-                    )
+                    opener, response = self.opener()
                     if status == 200:
-                        opener.open.side_effect = None
-                        response = opener.open.return_value.__enter__.return_value
                         response.status = 200
                         response.headers = {}
                         response.read.return_value = huge
                     else:
-                        opener.open.side_effect = error
+                        # Only an actually raised error is created here; an
+                        # unused HTTPError holds an open body handle and would
+                        # warn when the garbage collector reclaimed it.
+                        opener.open.side_effect = urllib.error.HTTPError(
+                            "https://transport.invalid/" + self.canary, status,
+                            self.canary, {}, io.BytesIO(huge),
+                        )
                     stdout, stderr = io.StringIO(), io.StringIO()
                     with redirect_stdout(stdout), redirect_stderr(stderr):
                         with patch.object(poolside_review, "_required_environment", return_value=self.canary):

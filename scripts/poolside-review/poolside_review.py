@@ -101,22 +101,25 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def _error_response_body(error: urllib.error.HTTPError) -> bytes:
     """Read a bounded, non-fatal copy of an error response body."""
-    try:
-        status = int(error.code)
-    except (TypeError, ValueError):
-        status = 0
     raw = b""
-    if not 300 <= status < 400:
-        try:
-            candidate = error.read(MAX_ERROR_BODY_BYTES + 1)
-        except (OSError, ValueError, http.client.HTTPException):
-            candidate = b""
-        if isinstance(candidate, bytes):
-            raw = candidate[:MAX_ERROR_BODY_BYTES]
     try:
-        error.close()
-    except (OSError, ValueError, http.client.HTTPException):
-        pass
+        try:
+            status = int(error.code)
+        except (TypeError, ValueError):
+            status = 0
+        if not 300 <= status < 400:
+            try:
+                candidate = error.read(MAX_ERROR_BODY_BYTES + 1)
+            except (OSError, ValueError, http.client.HTTPException):
+                candidate = b""
+            if isinstance(candidate, bytes):
+                raw = candidate[:MAX_ERROR_BODY_BYTES]
+    finally:
+        # The error owns a response body handle; always release it.
+        try:
+            error.close()
+        except (OSError, ValueError, http.client.HTTPException):
+            pass
     return raw
 
 
