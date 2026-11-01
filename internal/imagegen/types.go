@@ -40,10 +40,6 @@ const (
 
 	// MaxPixels bounds the decoded image dimensions.
 	MaxPixels int64 = 16_000_000
-
-	// processWaitDelay lets os/exec reap a process whose pipes or descendants
-	// do not close immediately after the owned process group is killed.
-	processWaitDelay = 2 * time.Second
 )
 
 // Request is one bounded image-generation operation.
@@ -116,9 +112,15 @@ type Generator interface {
 }
 
 // CommandFactory constructs the child process used by a ShortcutTransport.
-// The factory is an offline test seam: production uses exec.CommandContext,
-// while tests can return an in-process Go test helper command. The transport
-// installs process-group and WaitDelay handling on the returned command.
+// The factory is an offline test seam: production uses plain exec.Command,
+// while tests can return an in-process Go test helper command.
+//
+// The returned command is handed to internal/subproc, which owns the lifecycle:
+// it installs stdout/stderr pipes, its own process group, cancellation and
+// deadline closure, and it clears any Cancel or WaitDelay the factory set.
+// A custom factory must therefore not rely on its own Cancel, WaitDelay or pipes;
+// it is only a way to choose the executable, arguments, environment and
+// directory. A nil factory means the production default.
 type CommandFactory func(context.Context, string, ...string) *exec.Cmd
 
 // ShortcutTransport invokes one explicit image-generation Shortcut and stages
@@ -133,7 +135,10 @@ type ShortcutTransport struct {
 	TempDir string
 	// Timeout is used when Request.Timeout is zero. Zero selects MaxTimeout.
 	Timeout time.Duration
-	// Command replaces exec.CommandContext for provider-free tests.
+	// Command replaces the default command construction for provider-free
+	// tests. The lifecycle stays with internal/subproc: process group,
+	// cancellation, pipes and deadline closure all belong to it, so a custom
+	// factory must not rely on its own Cancel, WaitDelay or pipes.
 	Command CommandFactory
 }
 

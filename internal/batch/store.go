@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -21,6 +20,8 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/kamenxrider/hollis/internal/subproc"
 )
 
 const (
@@ -576,6 +577,10 @@ const (
 	maxACLListingBytes   = 64 << 10
 )
 
+// aclInspectionBinary is the native ACL inspector. Variable so offline
+// fixtures can substitute a stand-in without invoking /bin/ls.
+var aclInspectionBinary = "/bin/ls"
+
 // requireSafeLockACL rejects macOS allow ACL entries that let another local
 // principal replace a protected directory entry, delete the lock, or change
 // its owner or permissions. Read-only allow entries and recognized deny
@@ -587,12 +592,20 @@ func requireSafeLockACL(ctx context.Context, path, label string) error {
 	inspectCtx, cancel := context.WithTimeout(ctx, aclInspectionTimeout)
 	defer cancel()
 
-	command := exec.CommandContext(inspectCtx, "/bin/ls", "-ldbe", path)
-	command.Env = []string{"LC_ALL=C", "LANG=C"}
+	// The shared lifecycle puts /bin/ls in its own process group, kills that
+	// group on every exit path, and closes the capture read ends at the
+	// deadline: a stand-in that exits while a pipe-holding descendant remains
+	// cannot extend the inspection, and the fail-closed semantics below never
+	// depend on a partial listing.
 	var stdout, stderr cappedCommandOutput
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-	if err := command.Run(); err != nil {
+	res, runErr := subproc.Run(inspectCtx, subproc.Spec{
+		Name:       aclInspectionBinary,
+		Args:       []string{"-ldbe", path},
+		Env:        []string{"LC_ALL=C", "LANG=C"},
+		StdoutSink: &stdout,
+		StderrSink: &stderr,
+	})
+	if !res.Started || res.WaitErr != nil || runErr != nil {
 		if ctxErr := inspectCtx.Err(); ctxErr != nil {
 			return fmt.Errorf("inspect %s ACL: %w", label, ctxErr)
 		}
