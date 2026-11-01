@@ -76,7 +76,8 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 			bridges := []bridgeCheck{}
 			missing := false
 			unverified := false
-			for _, m := range runner.Models {
+			for _, spec := range runner.Specs() {
+				m := spec.ID
 				rb := resolved[m]
 				status := resolvedStatus(rb, osMajor)
 				if resErr != nil {
@@ -87,8 +88,8 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 				}
 				bridges = append(bridges, bridgeCheck{
 					Model:       string(m),
-					UUID:        runner.CompiledUUID(m),
-					Name:        runner.BridgeNameCandidates[m][0],
+					UUID:        spec.CompiledUUID,
+					Name:        spec.BridgeNames[0],
 					Installed:   rb.ListedName != "",
 					Verified:    rb.Verified,
 					ResolvedRef: rb.Ref,

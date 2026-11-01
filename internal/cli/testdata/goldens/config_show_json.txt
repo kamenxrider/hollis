@@ -1,0 +1,1 @@
+{"bridges":{"chatgpt":"My ChatGPT","cloud":"My Cloud","cloud-pro":"My Pro","on-device":"My On-Device"},"default_model":"cloud","image_bridge":"Hollis Image Unified","image_bridges":null,"path":"$CONFIG_DIR/config.json"}

@@ -15,12 +15,12 @@ import (
 )
 
 func modelCapabilities(id string) map[string]any {
-	local := id == string(runner.ModelLocal)
-	backend := "shortcuts"
-	if local {
-		backend = "native"
+	spec, ok := runner.Spec(runner.Model(id))
+	if !ok {
+		spec.Transport = runner.TransportShortcuts
 	}
-	return map[string]any{"backend": backend, "streaming": local, "usage": local, "streaming_usage": false, "image_input": id == "cloud" || id == "cloud-pro" || id == "chatgpt"}
+	capabilities := spec.Capabilities
+	return map[string]any{"backend": string(spec.Transport), "streaming": capabilities.Streaming, "usage": capabilities.Usage, "streaming_usage": capabilities.StreamingUsage, "image_input": runner.Model(id).SupportsImages()}
 }
 
 func chatUsage(usage *runner.Usage) any {

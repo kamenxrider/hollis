@@ -9,32 +9,10 @@ import "fmt"
 // artifacts of that install and are never availability evidence on a host.
 const MeasuredOSMajor = 27
 
-// BridgeNameCandidates maps each concrete tier to the display names its
-// imported bridge is expected to carry, most specific first. make-bridge.py
-// writes unsigned files as "AFM Bridge - X"; the signed imports inherit a
-// ".signed" suffix from the filename, so both spellings are matched.
-var BridgeNameCandidates = map[Model][]string{
-	ModelCloud:    {"AFM Bridge - Cloud.signed", "AFM Bridge - Cloud"},
-	ModelCloudPro: {"AFM Bridge - Cloud Pro.signed", "AFM Bridge - Cloud Pro"},
-	ModelOnDevice: {"AFM Bridge - On-Device.signed", "AFM Bridge - On-Device"},
-	ModelChatGPT:  {"AFM Bridge - ChatGPT.signed", "AFM Bridge - ChatGPT"},
-}
-
-// CompiledUUID returns the compile-time fallback UUID for a concrete tier.
-// This is a private artifact of the macOS 27 development machine: any other
-// Mac gets new UUIDs at import time and must not rely on these.
+// CompiledUUID returns the measured fallback reference for a concrete route
+// tier. auto and unknown IDs have no row and return empty.
 func CompiledUUID(m Model) string {
-	switch m {
-	case ModelCloud:
-		return BridgeUUIDCloud
-	case ModelCloudPro:
-		return BridgeUUIDCloudPro
-	case ModelOnDevice:
-		return BridgeUUIDOnDevice
-	case ModelChatGPT:
-		return BridgeUUIDChatGPT
-	}
-	return ""
+	return routeSpecs[m].CompiledUUID
 }
 
 // ResolutionSource explains how a bridge reference was determined.
@@ -77,7 +55,7 @@ type ResolvedBridge struct {
 //     unverified candidate (`shortcuts run <UUID>` is measured on 27); a name is verified against the
 //     installed list when that list is available, so a stale or fake
 //     name marks the tier unavailable.
-//  2. first BridgeNameCandidates match in installed — the ref is the
+//  2. first bridge-name candidate match in installed — the ref is the
 //     NAME, so macOS 26 does not depend on UUID-run (unmeasured there).
 //  3. CompiledUUID last resort — still the Ref, so a config override or a
 //     later fix has something to point at, but NOT evidence of presence.
@@ -111,8 +89,8 @@ func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[
 	for _, n := range installed {
 		have[n] = true
 	}
-	out := make(map[Model]ResolvedBridge, len(Models))
-	for _, m := range Models {
+	out := make(map[Model]ResolvedBridge, len(routeOrder))
+	for _, m := range routeOrder {
 		res := ResolvedBridge{
 			Model:   m,
 			Ref:     CompiledUUID(m),
@@ -146,7 +124,7 @@ func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[
 				}
 			}
 		} else if listOK {
-			for _, cand := range BridgeNameCandidates[m] {
+			for _, cand := range routeSpecs[m].BridgeNames {
 				if have[cand] {
 					res.Ref = cand
 					res.Source = SourceList

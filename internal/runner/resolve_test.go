@@ -2,10 +2,7 @@
 
 package runner
 
-import (
-	"reflect"
-	"testing"
-)
+import "testing"
 
 // allNames returns the display names the measured 27 machine shows after
 // the standard signed import.
@@ -26,7 +23,7 @@ func TestResolveBridgesMeasuredMachine(t *testing.T) {
 	// This machine, no config: every tier matches a stable name and the
 	// invoked ref is that name (26-safe), not the compiled UUID.
 	res := ResolveBridges(allNames(), true, 27, nil)
-	for _, m := range Models {
+	for _, m := range Models() {
 		rb := refsByModel(res, m)
 		if !rb.Available {
 			t.Fatalf("%s: want available", m)
@@ -80,7 +77,7 @@ func TestResolveBridgesFreshMacWithNoBridgesIsUnavailable(t *testing.T) {
 	// installed, and the compiled UUIDs belong to someone else's Mac.
 	// Doctor must say MISSING here, not OK.
 	res := ResolveBridges([]string{"Some Unrelated Shortcut", "Make PDF"}, true, 27, nil)
-	for _, m := range Models {
+	for _, m := range Models() {
 		rb := refsByModel(res, m)
 		if rb.Available {
 			t.Fatalf("%s on a fresh 27 Mac = %+v, want unavailable", m, rb)
@@ -155,7 +152,7 @@ func TestResolveBridgesListFailureFailsClosed(t *testing.T) {
 	// `shortcuts list` broken: compiled UUIDs are candidates, never proof of
 	// installation. No tier may claim availability without positive evidence.
 	res := ResolveBridges(nil, false, 27, nil)
-	for _, m := range Models {
+	for _, m := range Models() {
 		if rb := refsByModel(res, m); rb.Available || rb.Source != SourceCompiled || !rb.OSKnown {
 			t.Fatalf("%s with failed list = %+v, want unavailable compiled candidate", m, rb)
 		}
@@ -216,16 +213,3 @@ func TestUnavailableErrMentionsProRequirement(t *testing.T) {
 		t.Fatalf("cloud message = %q", got)
 	}
 }
-
-func TestBridgeNameCandidatesCoverAllModels(t *testing.T) {
-	if !reflect.DeepEqual(sortedModels(), Models) {
-		t.Fatalf("Models order changed; keep BridgeNameCandidates in sync: %v", Models)
-	}
-	for _, m := range Models {
-		if len(BridgeNameCandidates[m]) == 0 {
-			t.Fatalf("%s: no name candidates", m)
-		}
-	}
-}
-
-func sortedModels() []Model { return Models }

@@ -194,7 +194,7 @@ func TestLocalIsSelectableWithoutShortcutBridge(t *testing.T) {
 	if !ModelLocal.Valid() {
 		t.Fatal("local not selectable")
 	}
-	for _, model := range Models {
+	for _, model := range Models() {
 		if model == ModelLocal {
 			t.Fatal("local included in Shortcut discovery")
 		}

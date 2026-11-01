@@ -1,0 +1,8 @@
+config file: $CONFIG_DIR/config.json
+default model: cloud
+image bridge (JSON): Hollis Image Unified
+bridge overrides:
+  cloud      My Cloud
+  cloud-pro  My Pro
+  on-device  My On-Device
+  chatgpt    My ChatGPT
