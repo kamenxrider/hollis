@@ -51,9 +51,6 @@ func TestRouteSpecParityWithCurrentConstants(t *testing.T) {
 		if !reflect.DeepEqual(spec.Names, wantNames[m]) {
 			t.Errorf("%s names = %+v, want %+v", m, spec.Names, wantNames[m])
 		}
-		if want := BridgeNameCandidates[m]; !reflect.DeepEqual(spec.BridgeNames, want) {
-			t.Errorf("%s bridge names = %v, want %v", m, spec.BridgeNames, want)
-		}
 		if m == ModelCloudPro {
 			if spec.MinOSMajor != MeasuredOSMajor {
 				t.Errorf("cloud-pro MinOSMajor = %d, want %d", spec.MinOSMajor, MeasuredOSMajor)
@@ -112,7 +109,7 @@ func TestValidSingleLookupParity(t *testing.T) {
 	if !ModelAuto.Valid() {
 		t.Error("auto must stay valid")
 	}
-	for _, m := range Models {
+	for _, m := range Models() {
 		if !m.Valid() {
 			t.Errorf("%s must stay valid", m)
 		}
@@ -129,8 +126,8 @@ func TestValidSingleLookupParity(t *testing.T) {
 
 func TestModelsDerivedFromTable(t *testing.T) {
 	want := []Model{ModelCloud, ModelCloudPro, ModelOnDevice, ModelChatGPT}
-	if !reflect.DeepEqual(Models, want) {
-		t.Fatalf("Models = %v, want %v", Models, want)
+	if !reflect.DeepEqual(Models(), want) {
+		t.Fatalf("Models = %v, want %v", Models(), want)
 	}
 	specs := Specs()
 	if len(specs) != len(want) {
@@ -146,7 +143,7 @@ func TestModelsDerivedFromTable(t *testing.T) {
 	// every other reader (Models, Specs) sees.
 	snapshot := routeOrderSnapshot()
 	snapshot[0] = ModelLocal
-	if Specs()[0].ID != ModelCloud || Models[0] != ModelCloud {
+	if Specs()[0].ID != ModelCloud || Models()[0] != ModelCloud {
 		t.Fatal("table order mutated through a snapshot")
 	}
 }

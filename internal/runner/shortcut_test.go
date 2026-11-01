@@ -497,10 +497,10 @@ func TestBridgeReferenceBeginningWithDashRejectedBeforeSpawn(t *testing.T) {
 
 func TestDefaultBridgeRefsCoverAllModels(t *testing.T) {
 	r := New()
-	if len(r.BridgeRefs) != len(Models) {
-		t.Fatalf("BridgeRefs has %d entries, want %d", len(r.BridgeRefs), len(Models))
+	if len(r.BridgeRefs) != len(Models()) {
+		t.Fatalf("BridgeRefs has %d entries, want %d", len(r.BridgeRefs), len(Models()))
 	}
-	for _, m := range Models {
+	for _, m := range Models() {
 		if r.BridgeRefs[m] == "" {
 			t.Fatalf("model %q missing bridge ref", m)
 		}
@@ -588,7 +588,7 @@ func TestAutoReportsTheTierThatServed(t *testing.T) {
 
 	// Explicit tiers always report themselves.
 	r, _ = runnerWithFake(t, "echo")
-	for _, m := range Models {
+	for _, m := range Models() {
 		if _, used, err := r.Run(context.Background(), m, "hi"); err != nil || used != m {
 			t.Fatalf("explicit %s: used = %q, err = %v", m, used, err)
 		}

@@ -1040,7 +1040,7 @@ func TestDoctorDiscoveryFailureReportsSupportedBridgesUnverified(t *testing.T) {
 		t.Fatalf("invalid JSON: %q", out.String())
 	}
 	bridges, ok := got["bridges"].([]any)
-	if !ok || len(bridges) != len(runner.Models) {
+	if !ok || len(bridges) != len(runner.Models()) {
 		t.Fatalf("bridges=%#v", got["bridges"])
 	}
 	for _, raw := range bridges {

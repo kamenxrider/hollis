@@ -9,34 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// modelInfo describes one selectable tier. WFLLMModel is the Shortcuts
-// action parameter the bridge shortcuts carry — a Shortcuts-layer
-// identifier, never an Apple backend model ID (plan §3.5/§21).
-type modelInfo struct {
-	tier  runner.Model
-	wfllm string
-	// appleName is the description on the measured macOS 27 machine.
-	appleName string
-	// legacyName is the description on macOS < 27, where the AFM 3
-	// family does not apply (the cloud tier is the pre-AFM-3 PCC model;
-	// do not print "AFM 3" for 26.
-	legacyName string
-	// unknownName avoids claiming a generation or availability when the
-	// operating-system version could not be detected.
-	unknownName string
-}
-
-// modelCatalog is the exhaustive tier table, ordered as runner.Models.
-// Apple model names come from Apple's ML Research announcement of the
-// third-generation Foundation Models; Apple publishes no backend model
-// IDs or checkpoints for these tiers.
-var modelCatalog = []modelInfo{
-	{runner.ModelCloud, "Apple Intelligence", "AFM 3 Cloud (Private Cloud Compute)", "Apple Intelligence cloud on Private Cloud Compute (pre-27; not AFM 3)", "Apple Intelligence cloud (macOS version unknown)"},
-	{runner.ModelCloudPro, "Apple Intelligence Pro", "AFM 3 Cloud Pro (Private Cloud Compute; macOS 27+)", "Cloud Pro is not offered on macOS 26", "Apple Intelligence Cloud Pro (requires macOS 27; macOS version unknown)"},
-	{runner.ModelOnDevice, "Apple Intelligence on Device", "AFM 3 Core or AFM 3 Core Advanced (by hardware)", "Apple Intelligence on-device model (pre-27)", "Apple Intelligence on-device model (macOS version unknown)"},
-	{runner.ModelChatGPT, "ChatGPT", "OpenAI ChatGPT extension for Apple Intelligence", "OpenAI ChatGPT extension for Apple Intelligence", "OpenAI ChatGPT extension for Apple Intelligence"},
-}
-
 func newModelsCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 	var modelFilter string
 	cmd := &cobra.Command{
@@ -81,15 +53,15 @@ sources.`,
 					"model":       "auto",
 					"apple_model": "fallback strategy: cloud first, on-device on failure",
 				}}
-				for _, m := range modelCatalog {
-					rb := resolved[m.tier]
+				for _, spec := range runner.Specs() {
+					rb := resolved[spec.ID]
 					if !rb.Available {
 						continue // catalog = what resolves here
 					}
 					rows = append(rows, map[string]any{
-						"model":        string(m.tier),
-						"wfllm_model":  m.wfllm,
-						"apple_model":  appleModelName(m, osMajor),
+						"model":        string(spec.ID),
+						"wfllm_model":  spec.Selection,
+						"apple_model":  appleModelName(spec.Names, osMajor),
 						"resolved_ref": rb.Ref,
 						"source":       string(rb.Source),
 						"verified":     rb.Verified,
@@ -102,13 +74,13 @@ sources.`,
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "hollis models (version %s)\n", version)
 			fmt.Fprintf(w, "  %-10s %s\n", "auto", "fallback strategy: cloud first, on-device on failure")
-			for _, m := range modelCatalog {
-				rb := resolved[m.tier]
+			for _, spec := range runner.Specs() {
+				rb := resolved[spec.ID]
 				if !rb.Available {
 					continue
 				}
-				desc := appleModelName(m, osMajor)
-				fmt.Fprintf(w, "  %-10s %s\n", string(m.tier), desc)
+				desc := appleModelName(spec.Names, osMajor)
+				fmt.Fprintf(w, "  %-10s %s\n", string(spec.ID), desc)
 			}
 			fmt.Fprintf(w, "  %-10s Native Foundation Models SDK: %s (inference not tested)\n", "local", localStatusLabel(localStatus, localErr))
 			fmt.Fprintf(w, "\nApple publishes no backend model IDs. The internal Shortcuts parameter\nstrings are included in --json; background in README \"Model tiers\".\n")
@@ -119,12 +91,12 @@ sources.`,
 	return cmd
 }
 
-func appleModelName(m modelInfo, osMajor int) string {
+func appleModelName(names runner.NameSet, osMajor int) string {
 	if osMajor == 0 {
-		return m.unknownName
+		return names.Unknown
 	}
-	if osMajor != 0 && osMajor < runner.MeasuredOSMajor {
-		return m.legacyName
+	if osMajor < runner.MeasuredOSMajor {
+		return names.Legacy
 	}
-	return m.appleName
+	return names.Measured
 }

@@ -38,14 +38,12 @@ const (
 	ModelLocal    Model = "local"
 )
 
-// Models contains Shortcut-backed tiers only; native ModelLocal has no bridge.
-// ModelAuto is a
-// strategy, not a tier: it tries the default tier first and may fall back to
-// the on-device model for confirmed missing bridges or recognized rate limits, so
-// it is valid for selection but has no bridge of its own.
-//
-// Derived from the canonical route table (routespec.go); treat as read-only.
-var Models = routeOrderSnapshot()
+// Models returns Shortcut-backed tier IDs in canonical table order; native
+// ModelLocal has no bridge. ModelAuto is a strategy, not a tier: it tries the
+// default tier first and may fall back to the on-device model for confirmed
+// missing bridges or recognized rate limits, so it is valid for selection but
+// has no bridge of its own.
+func Models() []Model { return routeOrderSnapshot() }
 
 // ModelAuto selects the default tier (cloud) and falls back to the
 // on-device model only for a confirmed missing bridge or recognized rate limit.
@@ -147,7 +145,7 @@ func (e *Error) Unwrap() error { return e.Err }
 // We refuse to spawn: empty input makes `shortcuts run` hang forever.
 var ErrEmptyPrompt = errors.New("empty prompt")
 
-// ErrUnknownModel is returned for a Model outside runner.Models.
+// ErrUnknownModel is returned for a Model with no route-table row.
 var ErrUnknownModel = errors.New("unknown model")
 
 // Runner sends one prompt to Apple Intelligence and returns the plain-text

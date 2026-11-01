@@ -365,9 +365,9 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 				fmt.Fprintf(w, "bridge overrides: none\n")
 			} else {
 				fmt.Fprintf(w, "bridge overrides:\n")
-				for _, tier := range []string{"cloud", "cloud-pro", "on-device", "chatgpt"} {
-					if ref, ok := c.Bridges[tier]; ok {
-						fmt.Fprintf(w, "  %-10s %s\n", tier, ref)
+				for _, spec := range runner.Specs() {
+					if ref, ok := c.Bridges[string(spec.ID)]; ok {
+						fmt.Fprintf(w, "  %-10s %s\n", spec.ID, ref)
 					}
 				}
 			}
