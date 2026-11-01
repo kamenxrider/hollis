@@ -265,6 +265,32 @@ func TestImageRequestValidationRefusesUnsafeShapesWithoutSpawn(t *testing.T) {
 	}
 }
 
+func TestImagePolicyMessagesArePinned(t *testing.T) {
+	one := writeTestImage(t, "one.png")
+	for _, tc := range []struct {
+		model Model
+		paths []string
+		want  string
+	}{
+		{ModelChatGPT, []string{one, one}, "chatgpt accepts exactly one --image; multiple image paths were unreliable in testing"},
+		{ModelOnDevice, []string{one}, "--image is unavailable with on-device: the tested Shortcut ignored the pixels"},
+		{ModelAuto, []string{one}, "--image is unavailable with auto because auto can fall back to on-device"},
+		{Model("unknown"), []string{one}, `unknown model: "unknown"`},
+	} {
+		t.Run(string(tc.model), func(t *testing.T) {
+			r, dir := runnerWithFake(t, "echo-image")
+			_, _, err := r.RunWithImages(context.Background(), tc.model, "describe", tc.paths)
+			var runErr *Error
+			if !errors.As(err, &runErr) || runErr.Kind != KindUsage || runErr.Err.Error() != tc.want {
+				t.Fatalf("err=%v, want usage message %q", err, tc.want)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "count.txt")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("invalid request reached transport: %v", err)
+			}
+		})
+	}
+}
+
 func TestRunWithImagesRejectsInvalidImageContentWithoutSpawn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "not-an-image.png")
 	if err := os.WriteFile(path, []byte("fixture image bytes"), 0o600); err != nil {
