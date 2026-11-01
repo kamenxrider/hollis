@@ -1,0 +1,346 @@
+// Regression tests for the run path's capture bound.
+//
+// A flooding child must not grow parent memory without bound while the
+// runner waits for its deadline. Capped writers must keep draining both
+// streams, reject incomplete responses, and retain useful diagnostics.
+//
+// Property:
+//
+//	BOUNDED CAPTURE — parent memory does not grow with child volume.
+//
+// Fixture: offline self-re-exec of the test binary via a wrapper script
+// (the run path spawns ShortcutsPath with `run <ref> …` arguments);
+// /usr/bin/shortcuts is never invoked. RSS is a proxy measurement — it is
+// asserted in non-race runs only, because the race detector's allocator
+// inflates both baseline and transients.
+package runner
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+)
+
+// floodRateDelay paces the flood at ~40 MiB/s across both streams.
+const floodRateDelay = 50 * time.Millisecond
+
+// captureBoundMiB is the RSS proxy bound: two capped 1 MiB streams plus
+// allocator and sampling slack.
+const captureBoundMiB = 8.0
+
+// TestSubprocFixture is the shared fixture entrypoint selected by
+// SUBPROCFIX_MODE. Without the env var it skips, so normal suite runs are
+// unaffected.
+func TestSubprocFixture(t *testing.T) {
+	switch os.Getenv("SUBPROCFIX_MODE") {
+	case "":
+		t.Skip("fixture only")
+	case "flood":
+		chunk := make([]byte, 1<<20)
+		for i := range chunk {
+			chunk[i] = 'x'
+		}
+		for {
+			if _, err := os.Stdout.Write(chunk); err != nil {
+				os.Exit(0)
+			}
+			if _, err := os.Stderr.Write(chunk); err != nil {
+				os.Exit(0)
+			}
+			time.Sleep(floodRateDelay)
+		}
+	case "capture":
+		for _, stream := range []struct {
+			name string
+			file *os.File
+		}{
+			{"SUBPROCFIX_STDOUT_PATH", os.Stdout},
+			{"SUBPROCFIX_STDERR_PATH", os.Stderr},
+		} {
+			data, err := os.ReadFile(os.Getenv(stream.name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			chunk := len(data)
+			if value := os.Getenv("SUBPROCFIX_WRITE_CHUNK"); value != "" {
+				chunk, err = strconv.Atoi(value)
+				if err != nil || chunk <= 0 {
+					t.Fatalf("invalid fixture write chunk %q", value)
+				}
+			}
+			for start := 0; start < len(data); start += chunk {
+				if _, err := stream.file.Write(data[start:min(start+chunk, len(data))]); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		code, err := strconv.Atoi(os.Getenv("SUBPROCFIX_EXIT"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Exit(code)
+	}
+}
+
+func captureRunFixture(t *testing.T, stdout, stderr []byte, exitCode int) *ShortcutRunner {
+	t.Helper()
+	dir := t.TempDir()
+	for name, data := range map[string][]byte{"stdout": stdout, "stderr": stderr} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("SUBPROCFIX_"+strings.ToUpper(name)+"_PATH", path)
+	}
+	t.Setenv("SUBPROCFIX_EXIT", strconv.Itoa(exitCode))
+	path := filepath.Join(dir, "capture-shortcuts")
+	script := "#!/bin/sh\nexport SUBPROCFIX_MODE=capture\nexec \"" + os.Args[0] + "\" -test.run='^TestSubprocFixture$'\n"
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return &ShortcutRunner{
+		ShortcutsPath: path,
+		BridgeRefs:    map[Model]string{ModelCloud: "capture-fixture"},
+		Timeout:       DefaultTimeout,
+	}
+}
+
+func TestRunCaptureRejectsCapPlusOne(t *testing.T) {
+	r := captureRunFixture(t, bytes.Repeat([]byte("x"), runCaptureCap+1), nil, 0)
+	response, _, err := r.Run(context.Background(), ModelCloud, "capture fixture")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindTransport {
+		t.Fatalf("cap+1 outcome = %v, want KindTransport", err)
+	}
+	if response != "" {
+		t.Errorf("truncated capture returned %d response bytes", len(response))
+	}
+	if re.ExitCode != 0 {
+		t.Errorf("child exit code = %d, want its successful exit status 0", re.ExitCode)
+	}
+}
+
+func TestRunCapturePreservesExactCapRandomBytes(t *testing.T) {
+	want := make([]byte, runCaptureCap)
+	if _, err := rand.Read(want); err != nil {
+		t.Fatal(err)
+	}
+	r := captureRunFixture(t, want, nil, 0)
+	response, _, err := r.Run(context.Background(), ModelCloud, "capture fixture")
+	if err != nil || !bytes.Equal([]byte(response), want) {
+		t.Fatalf("exact-cap output changed: got %d bytes, want %d bytes, err=%v", len(response), len(want), err)
+	}
+}
+
+func TestCappedBufferDrainsUnalignedStraddle(t *testing.T) {
+	var capture cappedBuffer
+	data := bytes.Repeat([]byte("x"), 2*runCaptureCap)
+	for start := 0; start < len(data); start += 1000 {
+		part := data[start:min(start+1000, len(data))]
+		n, err := capture.Write(part)
+		if err != nil || n != len(part) {
+			t.Fatalf("write at %d returned n=%d err=%v, want %d bytes", start, n, err, len(part))
+		}
+	}
+	if !capture.truncated || capture.String() != string(data[:runCaptureCap]) {
+		t.Fatal("unaligned writes did not retain exactly the capped prefix")
+	}
+}
+
+func TestRunCaptureRejectsUnalignedWrites(t *testing.T) {
+	t.Setenv("SUBPROCFIX_WRITE_CHUNK", "1000")
+	r := captureRunFixture(t, bytes.Repeat([]byte("x"), 2*runCaptureCap), nil, 0)
+	response, _, err := r.Run(context.Background(), ModelCloud, "capture fixture")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindTransport || re.ExitCode != 0 {
+		t.Fatalf("unaligned capture outcome = %v, want KindTransport with exit 0", err)
+	}
+	if response != "" || !strings.Contains(re.Error(), "capture cap") {
+		t.Fatalf("unaligned capture returned %d bytes, err=%v; want empty response and capture-cap error", len(response), err)
+	}
+}
+
+func TestRunCaptureMarksTruncatedStderrWithoutOutput(t *testing.T) {
+	r := captureRunFixture(t, nil, bytes.Repeat([]byte("x"), 3*runCaptureCap), 0)
+	_, _, err := r.Run(context.Background(), ModelCloud, "capture fixture")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindNoOutput || re.ExitCode != 0 {
+		t.Fatalf("empty-output outcome = %v, want KindNoOutput with exit 0", err)
+	}
+	if !strings.Contains(re.Err.Error(), "[stderr truncated]") {
+		t.Fatalf("empty-output message does not mark truncation: %v", re.Err)
+	}
+}
+
+func TestRunCaptureClassifiesStderrTailAfterCap(t *testing.T) {
+	for _, exitCode := range []int{0, 1} {
+		t.Run(strconv.Itoa(exitCode), func(t *testing.T) {
+			stderr := append([]byte("diagnostic beginning\n"), bytes.Repeat([]byte("x"), 3*runCaptureCap)...)
+			stderr = append(stderr, []byte("\nrate limit\n")...)
+			r := captureRunFixture(t, nil, stderr, exitCode)
+			response, _, err := r.Run(context.Background(), ModelCloud, "capture fixture")
+			var re *Error
+			if !errors.As(err, &re) {
+				t.Fatalf("stderr-tail error type = %T, want *Error", err)
+			}
+			if re.Kind != KindRateLimited {
+				t.Fatalf("stderr-tail kind = %v, want KindRateLimited", re.Kind)
+			}
+			if response != "" || re.ExitCode != exitCode {
+				t.Errorf("response bytes=%d exit=%d, want empty response and exit %d", len(response), re.ExitCode, exitCode)
+			}
+			for _, excerpt := range []string{"diagnostic beginning", "rate limit", "[stderr truncated]"} {
+				if !strings.Contains(re.Stderr, excerpt) {
+					t.Errorf("stderr excerpt does not contain %q", excerpt)
+				}
+			}
+			if !strings.Contains(re.Error(), "[stderr truncated]") {
+				t.Error("error does not surface stderr truncation")
+			}
+			if len(re.Stderr) > runCaptureCap+128 {
+				t.Errorf("stderr excerpt grew to %d bytes beyond capture bound", len(re.Stderr))
+			}
+		})
+	}
+}
+
+func TestCappedStderrHeadTailAcrossWrites(t *testing.T) {
+	data := make([]byte, 3*runCaptureCap+123)
+	if _, err := rand.Read(data); err != nil {
+		t.Fatal(err)
+	}
+	const half = runCaptureCap / 2
+	want := string(data[:half]) + "\n[stderr truncated]\n" + string(data[len(data)-half:])
+	for _, chunk := range []int{17, 32 << 10, 2 * runCaptureCap} {
+		t.Run(strconv.Itoa(chunk), func(t *testing.T) {
+			var capture cappedStderr
+			for start := 0; start < len(data); start += chunk {
+				part := data[start:min(start+chunk, len(data))]
+				n, err := capture.Write(part)
+				if err != nil || n != len(part) {
+					t.Fatalf("write returned n=%d err=%v, want %d bytes", n, err, len(part))
+				}
+			}
+			if got := capture.String(); !capture.truncated || got != want {
+				t.Fatalf("head/tail mismatch: truncated=%v, captured %d bytes, want %d", capture.truncated, len(got), len(want))
+			}
+		})
+	}
+}
+
+func TestCappedStderrResetsTailAfterLargeWrite(t *testing.T) {
+	var capture cappedStderr
+	var data []byte
+	for _, size := range []int{runCaptureCap + 17, runCaptureCap, 23} {
+		part := make([]byte, size)
+		if _, err := rand.Read(part); err != nil {
+			t.Fatal(err)
+		}
+		data = append(data, part...)
+		n, err := capture.Write(part)
+		if err != nil || n != len(part) {
+			t.Fatalf("write returned n=%d err=%v, want %d bytes", n, err, len(part))
+		}
+	}
+	const half = runCaptureCap / 2
+	want := string(data[:half]) + "\n[stderr truncated]\n" + string(data[len(data)-half:])
+	if got := capture.String(); !capture.truncated || got != want {
+		t.Fatalf("head/tail mismatch after large then small writes: truncated=%v, captured %d bytes, want %d", capture.truncated, len(got), len(want))
+	}
+}
+
+// runFloodFixturePath is the run-path fixture: the run path spawns
+// ShortcutsPath with `run <ref> …` arguments, so the wrapper re-execs the
+// fixture entrypoint and ignores the run arguments.
+func runFloodFixturePath(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "flood-shortcuts")
+	script := "#!/bin/sh\nexport SUBPROCFIX_MODE=flood\nexec \"" + os.Args[0] + "\" -test.run='^TestSubprocFixture$' run flood-ref\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write flood wrapper: %v", err)
+	}
+	return path
+}
+
+func sampleRSS(t *testing.T) uint64 {
+	t.Helper()
+	out, err := exec.Command("/bin/ps", "-o", "rss=", "-p", strconv.Itoa(os.Getpid())).Output()
+	if err != nil {
+		return 0
+	}
+	kb, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return kb
+}
+
+func TestRunCaptureIsBoundedUnderFlood(t *testing.T) {
+	r := &ShortcutRunner{
+		ShortcutsPath: runFloodFixturePath(t),
+		BridgeRefs:    map[Model]string{ModelCloud: "flood-fixture-ref"},
+		Timeout:       DefaultTimeout,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+
+	base := sampleRSS(t)
+	samples := make(chan uint64, 64)
+	stop := make(chan struct{})
+	go func() {
+		defer close(samples)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if kb := sampleRSS(t); kb > 0 {
+				select {
+				case samples <- kb:
+				default:
+				}
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+	}()
+
+	start := time.Now()
+	_, _, _, runErr := r.RunWithFallback(ctx, ModelCloud, "flood fixture prompt")
+	elapsed := time.Since(start)
+	close(stop)
+
+	peak := base
+	for kb := range samples {
+		if kb > peak {
+			peak = kb
+		}
+	}
+	growthMiB := float64(peak-base) / 1024.0
+
+	t.Logf("run path returned after %v (caller deadline 4s), err=%v", elapsed, runErr)
+	t.Logf("parent RSS: base %.1f MiB, peak %.1f MiB, growth %.1f MiB under a ~40 MiB/s flood", float64(base)/1024, float64(peak)/1024, growthMiB)
+
+	// BOUNDED CAPTURE: parent memory must not grow with child volume.
+	// Skipped under -race: the detector's allocator inflates baseline and
+	// transients, so the RSS proxy is not meaningful there. CI's test job
+	// runs both `go test ./...` (enforces this bound) and
+	// `go test -race ./...` (still runs the classification assertion).
+	if !raceEnabled && growthMiB > captureBoundMiB {
+		t.Errorf("BOUNDED CAPTURE violated: parent RSS grew %.1f MiB during a %.1fs flood; the run path's capture is unbounded", growthMiB, elapsed.Seconds())
+	}
+
+	// The flood still ends as a classified deadline error, never success.
+	var re *Error
+	if !errors.As(runErr, &re) || re.Kind != KindTimeout {
+		t.Errorf("flood outcome classified %T (%v), want a runner *Error with KindTimeout", runErr, runErr)
+	}
+}
