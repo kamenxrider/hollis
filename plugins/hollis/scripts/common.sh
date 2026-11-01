@@ -14,6 +14,14 @@ LOCK_DIR=
 WORK_DIR=
 
 fail() { printf 'Hollis: %s\n' "$*" >&2; exit 10; }
+# A receipt-pinned native protocol is the authority: a positive integer no
+# greater than 99. The record emitter interpolates it unquoted and the Go
+# decoder requires an integer, so a non-integer or out-of-range pin is an
+# invalid receipt, never a protocol era to guess at.
+valid_protocol() {
+  case "$1" in ''|*[!0-9]*) return 1;; esac
+  [[ ${#1} -le 2 ]] && (( 10#$1 >= 1 && 10#$1 <= 99 ))
+}
 json_string() {
   local s=$1
   s=${s//\\/\\\\}; s=${s//\"/\\\"}; s=${s//$'\n'/\\n}; s=${s//$'\r'/\\r}; s=${s//$'\t'/\\t}
@@ -224,8 +232,8 @@ verify_native() {
     return 0
   fi
   [[ "$name" == hollis-native-darwin-arm64 ]] || fail 'Unexpected native helper asset.'
-  protocol=$(field "$receipt" native.protocol_version)
-  [[ "$protocol" == 1 ]] || fail 'Unsupported native helper protocol.'
+  protocol=$(field "$receipt" native.protocol_version || true)
+  valid_protocol "$protocol" || fail 'Invalid native helper protocol receipt.'
   version=$(field "$receipt" native.version || field "$receipt" version)
   verify "$dir/hollis-native" "$(field "$receipt" native.sha256)"
   [[ -x "$dir/hollis-native" ]] || fail 'Native helper is not executable.'
@@ -246,6 +254,12 @@ canonical_executable() {
 }
 
 emit_runtime_record() {
+  # Defense in depth: the protocol is the record's only unquoted
+  # interpolation. The producer gate below rejects a corrupt pin with exit 10
+  # before this runs; this keeps a future caller from emitting invalid JSON.
+  if [[ -n "$RR_HELPER_PROTOCOL" ]] && ! valid_protocol "$RR_HELPER_PROTOCOL"; then
+    RR_HELPER_PROTOCOL= RR_HELPER_VERSION=
+  fi
   printf '{"contract_version":1,"state":'; json_string "$RR_STATE"
   printf ',"reason_code":'; json_string "$RR_REASON"
   # Frozen contract key: optional message, no raw subprocess output.
@@ -365,8 +379,8 @@ runtime_record() {
     native_hash=$(field "$receipt" native.sha256 || true)
     RR_HELPER_VERSION=$(field "$receipt" native.version || field "$receipt" version)
     RR_HELPER_PROTOCOL=$(field "$receipt" native.protocol_version || true)
-    if [[ "$native_name" != hollis-native-darwin-arm64 || ! "$native_hash" =~ ^[0-9a-f]{64}$ ||
-          "$RR_HELPER_PROTOCOL" != 1 ]] || ! version_ok "$RR_HELPER_VERSION"; then
+    if [[ "$native_name" != hollis-native-darwin-arm64 || ! "$native_hash" =~ ^[0-9a-f]{64}$ ]] ||
+        ! valid_protocol "$RR_HELPER_PROTOCOL" || ! version_ok "$RR_HELPER_VERSION"; then
       RR_HELPER_VERSION= RR_HELPER_PROTOCOL=
       emit_runtime_record; return 10
     fi
