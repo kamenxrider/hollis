@@ -7,6 +7,110 @@ MODE=${1:-status}; ROUTE=${2:-all}
 [[ -z ${3:-} || ( "$MODE" == import && "$3" == --reopen ) ]] || fail 'Only import accepts --reopen.'
 case "$ROUTE" in local|cloud|cloud-pro|on-device|chatgpt|image|all) ;; *) fail 'Unknown bridge route.';; esac
 [[ "$MODE" != import || "$ROUTE" != all ]] || fail 'Import one selected bridge at a time.'
+# External Shortcuts interactions get hard time bounds. macOS has no
+# timeout(1), so the bound is pure bash 3.2: monitor mode gives the child its
+# own process group, and a polling reaper kills the GROUP — direct child and
+# descendants holding pipes — on expiry, escalating TERM to KILL. This is a
+# layer for the script path only; it does not cover the Go runner's own
+# Shortcut execution. Constants are the single tuning surface.
+LIST_DEADLINE=10
+SIGN_DEADLINE=60
+OPEN_DEADLINE=30
+bound_run() {
+  local deadline=$1 child reaper bound_flag saved_exit saved_int saved_term
+  local composed_exit composed_int composed_term
+  shift
+  # The reaper measures real seconds: a poll-tick counter would fire the
+  # bound early, and a too-short bound must not impersonate its message.
+  # It kills the group FIRST and writes the provenance flag second, because
+  # the flag lives in WORK_DIR which the script's cleanup trap deletes when
+  # the caller stops the script; a failed write must never skip the kill.
+  # The reaper keeps its own group, so it survives only an untrapped SIGKILL
+  # of the caller; a trapped TERM or INT runs stopping and takes the reaper
+  # group down with the child.
+  # bound_run's children live outside the caller's process group, so a
+  # signal to the caller alone would not reach them; they die with the
+  # script. Empty guards keep a signal that arrives before the spawns
+  # (the only window where child or reaper is unset) harmless. Cancellation
+  # escalates: TERM to the group, then KILL after a one-second grace, so a
+  # child that ignores TERM cannot outlive the stopped script. The trap
+  # runs stopping twice (handler, then the composed EXIT trap during that
+  # exit), spawning one KILL escalation each time, and the second run's
+  # TERM kills fail while the leaders are unreaped zombies, so every kill
+  # is best-effort and stopping returns 0 unconditionally: under set -e the
+  # caller's handler exits 143/130 must survive teardown.
+  stopping() {
+    if [[ -n "${child:-}" ]]; then
+      kill -- -"$child" 2>/dev/null || true
+      ( sleep 1; kill -9 -- -"$child" 2>/dev/null || true ) &
+    fi
+    if [[ -n "${reaper:-}" ]]; then
+      kill -- -"$reaper" 2>/dev/null || true
+      ( sleep 1; kill -9 -- -"$reaper" 2>/dev/null || true ) &
+    fi
+    return 0
+  }
+  bound_flag="$WORK_DIR/bound.fired"
+  BOUND_CODE=0 BOUND_DEADLINE_FIRED=no
+  rm -f -- "$bound_flag"
+  set -m
+  # Capture the caller's handlers and install the composed ones BEFORE
+  # spawning, so a signal in the spawn-to-trap window runs the composed
+  # handler and takes the bound children with it; the window is closed by
+  # construction. Each composed trap is the captured caller handler with
+  # stopping prepended: the insertion happens in the captured eval-able
+  # line, so the caller's own handler text (cleanup, audit markers,
+  # anything) runs verbatim during cancellation and cannot drift from a
+  # hard-coded copy.
+  saved_exit=$(trap -p EXIT)
+  saved_int=$(trap -p INT)
+  saved_term=$(trap -p TERM)
+  # The pattern and replacement hold a real single quote, so they are
+  # expanded in assignment context: inside double quotes a backslash-quote
+  # is a literal backslash and the capture would stop matching.
+  if [[ -n "$saved_exit" ]]; then
+    composed_exit=${saved_exit/#trap -- \'/trap -- \'stopping; }
+  else
+    composed_exit="trap -- 'stopping; cleanup' EXIT"
+  fi
+  if [[ -n "$saved_int" ]]; then
+    composed_int=${saved_int/#trap -- \'/trap -- \'stopping; }
+  else
+    composed_int="trap -- 'stopping; exit 130' INT"
+  fi
+  if [[ -n "$saved_term" ]]; then
+    composed_term=${saved_term/#trap -- \'/trap -- \'stopping; }
+  else
+    composed_term="trap -- 'stopping; exit 143' TERM"
+  fi
+  eval "$composed_exit"
+  eval "$composed_int"
+  eval "$composed_term"
+  "$@" & child=$!
+  ( SECONDS=0
+    while kill -0 "$child" 2>/dev/null; do
+      if [ "$SECONDS" -ge "$deadline" ]; then
+        kill -- -"$child" 2>/dev/null || true
+        sleep 1
+        kill -9 -- -"$child" 2>/dev/null || true
+        { : > "$bound_flag"; } 2>/dev/null || true
+        exit 0
+      fi
+      sleep 0.2
+    done ) & reaper=$!
+  set +m
+  wait "$child" || BOUND_CODE=$?
+  wait "$reaper" 2>/dev/null || true
+  [[ ! -f "$bound_flag" ]] || BOUND_DEADLINE_FIRED=yes
+  # Restore the caller's handlers exactly: trap -p prints eval-able trap
+  # commands, so the caller may change its handler text across calls and
+  # bound_run restores precisely what it captured. An empty capture resets
+  # to the shell default.
+  if [[ -n "$saved_exit" ]]; then eval "$saved_exit"; else trap - EXIT; fi
+  if [[ -n "$saved_int" ]]; then eval "$saved_int"; else trap - INT; fi
+  if [[ -n "$saved_term" ]]; then eval "$saved_term"; else trap - TERM; fi
+  return 0
+}
 safe_path "$PLUGIN_HOME"
 runtime_home_accessible() {
   local path=$PLUGIN_HOME parent
@@ -85,7 +189,17 @@ CONFIG_PATH=$(field "$WORK_DIR/config.json" path || true)
 # A failed listing is unknown. Only a completed listing can establish absence;
 # its exit status alone cannot identify sandbox, helper or session restrictions.
 discovery_code=0
-/usr/bin/shortcuts list > "$WORK_DIR/shortcuts.txt" 2> "$WORK_DIR/discovery-error.txt" || discovery_code=$?
+bound_run "$LIST_DEADLINE" /usr/bin/shortcuts list > "$WORK_DIR/shortcuts.txt" 2> "$WORK_DIR/discovery-error.txt"
+discovery_code=$BOUND_CODE
+# Expiry answers unknown no matter how the stopped lister exited: a lister
+# that traps TERM and completes without finishing must never establish
+# absence from a partial listing.
+if [[ "$BOUND_DEADLINE_FIRED" == yes ]]; then
+  printf '{"status":"unknown","message":"Listing Shortcuts did not complete within %s seconds and was stopped; no bridge is proven missing. The underlying cause is unconfirmed.","inference_tested":false' "$LIST_DEADLINE"
+  context_fields
+  printf ',"discovery":{"status":"failed","exit_code":%s}}\n' "$discovery_code"
+  exit 5
+fi
 if [[ "$discovery_code" != 0 ]]; then
   printf '{"status":"unknown","message":"Could not list Shortcuts. Check local Mac host access; no bridge is proven missing. The underlying cause is unconfirmed.","inference_tested":false'
   context_fields
@@ -176,8 +290,12 @@ private_dir "$PLUGIN_HOME/imports"
 target="$PLUGIN_HOME/imports/$name.shortcut"
 [[ ! -L "$target" ]] || fail 'Refusing symlinked import output.'
 printf 'Hollis will open “%s”. Choose Add Shortcut. The first model call may then ask Allow.\n' "$name" >&2
-/usr/bin/shortcuts sign --mode anyone --input "$WORK_DIR/unsigned/$name.shortcut" --output "$WORK_DIR/signed.shortcut"
+bound_run "$SIGN_DEADLINE" /usr/bin/shortcuts sign --mode anyone --input "$WORK_DIR/unsigned/$name.shortcut" --output "$WORK_DIR/signed.shortcut"
+if [[ "$BOUND_DEADLINE_FIRED" == yes ]]; then fail "Signing did not complete within ${SIGN_DEADLINE} seconds; no import state changed."; fi
+(( $BOUND_CODE == 0 )) || exit "$BOUND_CODE"
 mv "$WORK_DIR/signed.shortcut" "$target"
 atomic_text "$PLUGIN_HOME/imports/pending" "$ROUTE"
-/usr/bin/open "$target"
+bound_run "$OPEN_DEADLINE" /usr/bin/open "$target"
+if [[ "$BOUND_DEADLINE_FIRED" == yes ]]; then fail "Hollis could not open the Shortcut. Allow the Shortcuts dialog to appear and retry with import $ROUTE --reopen."; fi
+(( $BOUND_CODE == 0 )) || exit "$BOUND_CODE"
 report permission_pending "Add $name in Shortcuts, then run import $ROUTE again to verify discovery."
