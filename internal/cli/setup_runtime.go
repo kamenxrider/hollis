@@ -9,13 +9,12 @@ import (
 	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/kamenxrider/hollis/internal/setup"
+	"github.com/kamenxrider/hollis/internal/subproc"
 )
 
 const runtimeRecordLimit = 256 << 10
@@ -71,18 +70,22 @@ func readRuntimeRecord(ctx context.Context, producer string) (setup.RuntimeRecor
 	ctx, cancel := context.WithTimeout(ctx, runtimeRecordTimeout)
 	defer cancel()
 	output := &recordOutput{cancel: cancel}
-	cmd := exec.CommandContext(ctx, producer, "runtime-record")
-	cmd.Stdout, cmd.Stderr = output, io.Discard
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = time.Second
-	exit := 0
-	if err := cmd.Run(); err != nil {
-		var ee *exec.ExitError
-		if !errors.As(err, &ee) {
-			return fail()
-		}
-		exit = ee.ExitCode()
+	// The shared lifecycle owns the producer's pipes, kills its process group on
+	// every exit path, and closes the read ends at the deadline so a descendant
+	// holding stdout cannot keep verification open past its budget. Overflowing
+	// the record cap cancels the run, which fails closed below.
+	res, runErr := subproc.Run(ctx, subproc.Spec{
+		Name:       producer,
+		Args:       []string{"runtime-record"},
+		StdoutSink: output,
+		StderrCap:  -1,
+	})
+	if !res.Started {
+		return fail()
+	}
+	exit := res.ExitCode
+	if runErr != nil {
+		return fail()
 	}
 	if ctx.Err() != nil || output.overflow || (exit != 0 && exit != 10) {
 		return fail()

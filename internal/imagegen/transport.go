@@ -15,11 +15,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 	"unicode/utf8"
 
 	"github.com/kamenxrider/hollis/internal/shortcutdiagnostic"
+	"github.com/kamenxrider/hollis/internal/subproc"
 )
 
 var _ Generator = (*ShortcutTransport)(nil)
@@ -84,10 +84,10 @@ func (g *ShortcutTransport) Generate(ctx context.Context, req Request) (Result, 
 	}
 	cleanup.paths = append(cleanup.paths, outputPath)
 
-	factory := g.Command
-	if factory == nil {
-		factory = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-			return exec.CommandContext(ctx, name, args...)
+	builder := g.Command
+	if builder == nil {
+		builder = func(_ context.Context, name string, args ...string) *exec.Cmd {
+			return exec.Command(name, args...)
 		}
 	}
 	shortcutsPath := g.ShortcutsPath
@@ -100,52 +100,49 @@ func (g *ShortcutTransport) Generate(ctx context.Context, req Request) (Result, 
 		"--output-path", outputPath,
 		"--output-type", "public.png",
 	}
-	cmd := factory(runCtx, shortcutsPath, args...)
-	if cmd == nil {
-		return fail(&Error{
-			Kind:      KindSpawn,
-			BridgeRef: req.BridgeRef,
-			ExitCode:  -1,
-			Err:       errors.New("image command factory returned nil"),
-		})
-	}
-	stderrBuffer := configureCommand(cmd)
+	// The shared lifecycle owns the bridge's pipes and process group. Its
+	// deadline, not a fresh wait interval after the bridge exits, closes the
+	// capture read ends. Stderr stays capped at 4096 bytes: it feeds the
+	// classification below, never the model. The factory supplies command
+	// construction so tests can substitute a helper process.
+	stderrBuffer := &limitedBuffer{limit: 4096}
+	res, runErr := subproc.Run(runCtx, subproc.Spec{
+		Name:       shortcutsPath,
+		Args:       args,
+		StdoutCap:  -1,
+		StderrSink: stderrBuffer,
+		Builder:    builder,
+	})
 
-	if err := cmd.Start(); err != nil {
+	if !res.Started {
 		if runCtx.Err() != nil {
 			return fail(contextError(ctx, runCtx, req.BridgeRef, timeout))
+		}
+		if res.StartErr == nil {
+			return fail(&Error{
+				Kind:      KindSpawn,
+				BridgeRef: req.BridgeRef,
+				ExitCode:  -1,
+				Err:       errors.New("image command factory returned nil"),
+			})
 		}
 		return fail(&Error{
 			Kind:      KindSpawn,
 			BridgeRef: req.BridgeRef,
 			ExitCode:  -1,
-			Err:       fmt.Errorf("start image bridge: %w", err),
+			Err:       fmt.Errorf("start image bridge: %w", res.StartErr),
 		})
 	}
 
-	waitDone := make(chan error, 1)
-	go func() {
-		waitDone <- cmd.Wait()
-	}()
-
-	var waitErr error
-	deadlineHit := false
-	select {
-	case waitErr = <-waitDone:
-	case <-runCtx.Done():
-		deadlineHit = true
-		// cmd.Cancel is also installed for os/exec's context watcher. Calling
-		// it here makes cancellation deterministic even when a test factory
-		// returned exec.Command instead of exec.CommandContext.
-		_ = cmd.Cancel()
-		waitErr = <-waitDone
-	}
-	if deadlineHit || runCtx.Err() != nil {
+	// A successful bridge exit is not a completed generation while the
+	// deadline has expired; the shared lifecycle reports expiry first so the
+	// staged output can never be presented as a result.
+	if runErr != nil {
 		return fail(contextError(ctx, runCtx, req.BridgeRef, timeout))
 	}
-	if waitErr != nil {
+	if res.WaitErr != nil {
 		stderrText := strings.TrimSpace(stderrBuffer.String())
-		exitCode := exitCode(waitErr)
+		exitCode := exitCode(res.WaitErr)
 		if exitCode > 0 && shortcutdiagnostic.RequestDeclined(stderrText) {
 			return fail(&Error{
 				Kind: KindRequestDeclined, BridgeRef: req.BridgeRef, ExitCode: exitCode,
@@ -323,27 +320,6 @@ func reserveOutput(path string) error {
 		return err
 	}
 	return nil
-}
-
-func configureCommand(cmd *exec.Cmd) *limitedBuffer {
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	cmd.SysProcAttr.Setpgid = true
-	cmd.Stdout = io.Discard
-	limited := &limitedBuffer{limit: 4096}
-	cmd.Stderr = limited
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-			return err
-		}
-		return nil
-	}
-	cmd.WaitDelay = processWaitDelay
-	return limited
 }
 
 type limitedBuffer struct {

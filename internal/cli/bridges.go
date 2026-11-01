@@ -6,11 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kamenxrider/hollis/internal/runner"
+	"github.com/kamenxrider/hollis/internal/subproc"
 )
 
 type bridgeResolutionError struct {
@@ -36,15 +37,36 @@ var listInstalledShortcuts = func(ctx context.Context) ([]string, error) {
 	return runner.New().ListShortcuts(ctx)
 }
 
+// macosProbe runs one sw_vers field under the shared bounded lifecycle. The
+// probes used to be raw exec.Command calls with no deadline at all, so a wedged
+// sw_vers could block doctor and setup indefinitely; they now have their own
+// deadline, their own process group, and a bounded capture.
+var macosProbe = func(field string) string {
+	result, err := subproc.Run(context.Background(), subproc.Spec{
+		Name:      swVersPath,
+		Args:      []string{field},
+		Timeout:   macosProbeTimeout,
+		StdoutCap: 4096,
+	})
+	if err != nil || result.WaitErr != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(result.Stdout))
+}
+
+// macosProbeTimeout bounds each probe independently of any caller. Variable so
+// offline fixtures can shorten it.
+var macosProbeTimeout = 5 * time.Second
+
+// swVersPath is the probed binary. Variable so offline fixtures can substitute
+// a stand-in for the real probe.
+var swVersPath = "/usr/bin/sw_vers"
+
 // macosVersion returns sw_vers -productVersion (e.g. "27.0"), or "" when
 // unreadable. ProductVersion, not uname: this 27 machine's build string
 // starts at 26.
 var macosVersion = func() string {
-	out, err := exec.Command("/usr/bin/sw_vers", "-productVersion").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	return macosProbe("-productVersion")
 }
 
 // macosBuild returns sw_vers -buildVersion (e.g. "26A5421a"), or "" when
@@ -52,11 +74,7 @@ var macosVersion = func() string {
 // surface, the Use Model tier list, the WFLLMModel strings — so a bug report
 // that names only "27.0" is missing the discriminating field.
 var macosBuild = func() string {
-	out, err := exec.Command("/usr/bin/sw_vers", "-buildVersion").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	return macosProbe("-buildVersion")
 }
 
 // macosMajorVersion reports the macOS major version. The measured

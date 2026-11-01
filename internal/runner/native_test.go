@@ -177,6 +177,28 @@ func TestNativeCallbackFailureStopsWithoutSuccessfulCompletion(t *testing.T) {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
 }
+
+// A deadline that expires after the pre-flight check but before the helper is
+// spawned must still classify as a timeout. The child never started, so there is
+// no pipe to report and no exit status to decode: the stale "could not open
+// native output pipe" transport message would blame the helper for the caller's
+// deadline.
+func TestNativeExpiredBeforeSpawnClassifiesAsTimeout(t *testing.T) {
+	r := fakeNative(t, "exit 0\n")
+	r.Timeout = 50 * time.Millisecond
+	r.platformCheck = func(context.Context) error {
+		// Hold the pre-flight phase past the governing deadline without
+		// racing the scheduler, so the helper is never started.
+		time.Sleep(150 * time.Millisecond)
+		return nil
+	}
+	_, err := r.RunComplete(context.Background(), ModelLocal, "hello")
+	requireNativeKind(t, err, KindTimeout)
+	var failure *Error
+	if errors.As(err, &failure) && !strings.Contains(failure.Err.Error(), "timed out") {
+		t.Fatalf("error = %v; want the native timeout message", err)
+	}
+}
 func TestNativeStatusIsNonGenerativeProtocol(t *testing.T) {
 	requestFile := filepath.Join(t.TempDir(), "request")
 	r := fakeNative(t, "cat > '"+requestFile+"'\n"+nativeReady())
