@@ -1,11 +1,8 @@
 // Regression tests for the run path's capture bound.
 //
-// Defect, measured on unmodified main: runTierWithImages captures stdout and
-// stderr in unbounded bytes.Buffers (shortcut.go:445-447), so a flooding
-// child grows parent memory without bound until the deadline kill. Measured:
-// 514.5 MiB of parent RSS growth in 4 s under a ~40 MiB/s flood across both
-// streams (base 6.5 → peak 521.0 MiB), with deadline classification otherwise
-// correct.
+// A flooding child must not grow parent memory without bound while the
+// runner waits for its deadline. Capped writers must keep draining both
+// streams, reject incomplete responses, and retain useful diagnostics.
 //
 // Property:
 //
@@ -72,8 +69,17 @@ func TestSubprocFixture(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := stream.file.Write(data); err != nil {
-				t.Fatal(err)
+			chunk := len(data)
+			if value := os.Getenv("SUBPROCFIX_WRITE_CHUNK"); value != "" {
+				chunk, err = strconv.Atoi(value)
+				if err != nil || chunk <= 0 {
+					t.Fatalf("invalid fixture write chunk %q", value)
+				}
+			}
+			for start := 0; start < len(data); start += chunk {
+				if _, err := stream.file.Write(data[start:min(start+chunk, len(data))]); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
 		code, err := strconv.Atoi(os.Getenv("SUBPROCFIX_EXIT"))
@@ -134,6 +140,46 @@ func TestRunCapturePreservesExactCapRandomBytes(t *testing.T) {
 	}
 }
 
+func TestCappedBufferDrainsUnalignedStraddle(t *testing.T) {
+	var capture cappedBuffer
+	data := bytes.Repeat([]byte("x"), 2*runCaptureCap)
+	for start := 0; start < len(data); start += 1000 {
+		part := data[start:min(start+1000, len(data))]
+		n, err := capture.Write(part)
+		if err != nil || n != len(part) {
+			t.Fatalf("write at %d returned n=%d err=%v, want %d bytes", start, n, err, len(part))
+		}
+	}
+	if !capture.truncated || capture.String() != string(data[:runCaptureCap]) {
+		t.Fatal("unaligned writes did not retain exactly the capped prefix")
+	}
+}
+
+func TestRunCaptureRejectsUnalignedWrites(t *testing.T) {
+	t.Setenv("SUBPROCFIX_WRITE_CHUNK", "1000")
+	r := captureRunFixture(t, bytes.Repeat([]byte("x"), 2*runCaptureCap), nil, 0)
+	response, _, err := r.Run(context.Background(), ModelCloud, "capture fixture")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindTransport || re.ExitCode != 0 {
+		t.Fatalf("unaligned capture outcome = %v, want KindTransport with exit 0", err)
+	}
+	if response != "" || !strings.Contains(re.Error(), "capture cap") {
+		t.Fatalf("unaligned capture returned %d bytes, err=%v; want empty response and capture-cap error", len(response), err)
+	}
+}
+
+func TestRunCaptureMarksTruncatedStderrWithoutOutput(t *testing.T) {
+	r := captureRunFixture(t, nil, bytes.Repeat([]byte("x"), 3*runCaptureCap), 0)
+	_, _, err := r.Run(context.Background(), ModelCloud, "capture fixture")
+	var re *Error
+	if !errors.As(err, &re) || re.Kind != KindNoOutput || re.ExitCode != 0 {
+		t.Fatalf("empty-output outcome = %v, want KindNoOutput with exit 0", err)
+	}
+	if !strings.Contains(re.Err.Error(), "[stderr truncated]") {
+		t.Fatalf("empty-output message does not mark truncation: %v", re.Err)
+	}
+}
+
 func TestRunCaptureClassifiesStderrTailAfterCap(t *testing.T) {
 	for _, exitCode := range []int{0, 1} {
 		t.Run(strconv.Itoa(exitCode), func(t *testing.T) {
@@ -190,6 +236,27 @@ func TestCappedStderrHeadTailAcrossWrites(t *testing.T) {
 	}
 }
 
+func TestCappedStderrResetsTailAfterLargeWrite(t *testing.T) {
+	var capture cappedStderr
+	var data []byte
+	for _, size := range []int{runCaptureCap + 17, runCaptureCap, 23} {
+		part := make([]byte, size)
+		if _, err := rand.Read(part); err != nil {
+			t.Fatal(err)
+		}
+		data = append(data, part...)
+		n, err := capture.Write(part)
+		if err != nil || n != len(part) {
+			t.Fatalf("write returned n=%d err=%v, want %d bytes", n, err, len(part))
+		}
+	}
+	const half = runCaptureCap / 2
+	want := string(data[:half]) + "\n[stderr truncated]\n" + string(data[len(data)-half:])
+	if got := capture.String(); !capture.truncated || got != want {
+		t.Fatalf("head/tail mismatch after large then small writes: truncated=%v, captured %d bytes, want %d", capture.truncated, len(got), len(want))
+	}
+}
+
 // runFloodFixturePath is the run-path fixture: the run path spawns
 // ShortcutsPath with `run <ref> …` arguments, so the wrapper re-execs the
 // fixture entrypoint and ignores the run arguments.
@@ -219,7 +286,7 @@ func sampleRSS(t *testing.T) uint64 {
 func TestRunCaptureIsBoundedUnderFlood(t *testing.T) {
 	r := &ShortcutRunner{
 		ShortcutsPath: runFloodFixturePath(t),
-		BridgeRefs:    map[Model]string{ModelCloud: "gap-b-probe-ref"},
+		BridgeRefs:    map[Model]string{ModelCloud: "flood-fixture-ref"},
 		Timeout:       DefaultTimeout,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -247,7 +314,7 @@ func TestRunCaptureIsBoundedUnderFlood(t *testing.T) {
 	}()
 
 	start := time.Now()
-	_, _, _, runErr := r.RunWithFallback(ctx, ModelCloud, "gap B flood probe prompt")
+	_, _, _, runErr := r.RunWithFallback(ctx, ModelCloud, "flood fixture prompt")
 	elapsed := time.Since(start)
 	close(stop)
 
