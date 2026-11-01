@@ -4,14 +4,6 @@ This directory contains the trusted, standard-library-only client used by the
 Poolside pull-request workflow. The workflow runs only for non-draft,
 same-repository pull requests targeting `main`.
 
-## Operational status (2026-11-01)
-
-Poolside is diagnostic only, not a merge gate. A manual smoke test on `main`
-returned HTTP 400; the cause is unknown, and successful live review operation
-has not been established by that test. Draft
-[#77](https://github.com/kamenxrider/hollis/pull/77) adds diagnosable errors; it
-is not a confirmed fix. Provider-free tests below do not establish live success.
-
 The helper first validates the open pull request against the repository, pull
 request number, full base SHA, and full head SHA from the GitHub event. It then
 requests the matching compare endpoint's unified-diff media type. The response
