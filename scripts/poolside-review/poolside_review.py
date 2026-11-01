@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -32,9 +33,24 @@ MAX_MODEL_RESPONSE_BYTES = 1024 * 1024
 MAX_REVIEW_BYTES = 60_000
 MAX_REVIEW_ARTIFACT_BYTES = MAX_REVIEW_BYTES * 6 + 4096
 MAX_TOKENS = 4000
+MAX_ERROR_BODY_BYTES = 16 * 1024
+MAX_ERROR_DETAIL_BYTES = 500
+MIN_CREDENTIAL_RUN = 8
+REDACTED = "[redacted]"
 
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+CREDENTIAL_PATTERN = re.compile(
+    # No separator is required after "Bearer": normalization drops format
+    # characters, so a zero-width split must not defeat the match.
+    r"[Bb]earer\s*[^\s\"']+|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}"
+    r"|sk-[A-Za-z0-9_-]{16,}"
+)
+ERROR_FIELDS = ("type", "code", "param", "message")
+RESTRICTED_ERROR_FIELDS = ("type", "code")
+DETAIL_FIELDS = ("message", "detail", "code")
+RESTRICTED_STATUSES = frozenset({401, 403})
+_ERROR_JSON_OPTIONS = {"parse_int": str, "parse_float": str, "parse_constant": str}
 
 DIFF_KEYS = {
     "schema_version",
@@ -83,6 +99,30 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _error_response_body(error: urllib.error.HTTPError) -> bytes:
+    """Read a bounded, non-fatal copy of an error response body."""
+    raw = b""
+    try:
+        try:
+            status = int(error.code)
+        except (TypeError, ValueError):
+            status = 0
+        if not 300 <= status < 400:
+            try:
+                candidate = error.read(MAX_ERROR_BODY_BYTES + 1)
+            except (OSError, ValueError, http.client.HTTPException):
+                candidate = b""
+            if isinstance(candidate, bytes):
+                raw = candidate[:MAX_ERROR_BODY_BYTES]
+    finally:
+        # The error owns a response body handle; always release it.
+        try:
+            error.close()
+        except (OSError, ValueError, http.client.HTTPException):
+            pass
+    return raw
+
+
 def urllib_transport(
     method: str,
     url: str,
@@ -120,7 +160,7 @@ def urllib_transport(
                 raise
             phase = "close"
     except urllib.error.HTTPError as error:
-        return HttpResponse(status=int(error.code), body=b"")
+        return HttpResponse(status=int(error.code), body=_error_response_body(error))
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         if error is response_error:
             phase = failed_phase
@@ -163,6 +203,124 @@ def _validate_fixed_url(url: str, expected_host: str) -> None:
         raise ReviewError("refused an unexpected HTTP destination")
 
 
+def _credential_from_headers(headers: Mapping[str, str]) -> str:
+    authorization = headers.get("Authorization", "")
+    if authorization.startswith("Bearer "):
+        return authorization[len("Bearer "):].strip()
+    return ""
+
+
+def _normalize_error_text(text: str) -> str:
+    """Map every whitespace character to a space and drop other non-printables."""
+    characters = []
+    for character in text:
+        if character.isspace():
+            characters.append(" ")
+        elif character.isprintable():
+            characters.append(character)
+    return " ".join("".join(characters).split())
+
+
+def _redact_credential_runs(text: str, secret: str) -> str:
+    """Remove every run of at least MIN_CREDENTIAL_RUN characters of the key."""
+    if len(secret) < MIN_CREDENTIAL_RUN or not text:
+        return text
+    windows = {
+        secret[start:start + MIN_CREDENTIAL_RUN]
+        for start in range(len(secret) - MIN_CREDENTIAL_RUN + 1)
+    }
+    pieces = []
+    index = 0
+    total = len(text)
+    while index < total:
+        if text[index:index + MIN_CREDENTIAL_RUN] not in windows:
+            pieces.append(text[index])
+            index += 1
+            continue
+        # Extend greedily so the longest run of key characters is covered.
+        end = index + MIN_CREDENTIAL_RUN
+        while end < total and text[index:end + 1] in secret:
+            end += 1
+        pieces.append(REDACTED)
+        index = end
+    return "".join(pieces)
+
+
+def _sanitize_error_text(text: str, secret: str) -> str:
+    """Reduce provider error text to one bounded, credential-free line."""
+    text = _normalize_error_text(text)
+    if secret:
+        text = text.replace(secret, REDACTED)
+    text = CREDENTIAL_PATTERN.sub(REDACTED, text)
+    text = _redact_credential_runs(text, secret)
+    encoded = text.encode("utf-8", "replace")
+    if len(encoded) > MAX_ERROR_DETAIL_BYTES:
+        text = encoded[:MAX_ERROR_DETAIL_BYTES].decode("utf-8", "ignore").rstrip() + "..."
+    return text
+
+
+def _scalar_text(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return ""
+    return str(value).strip()
+
+
+def _structured_parts(value: Any, *, restricted: bool) -> list[str]:
+    """Collect the provider's own fields, never whole-object free text."""
+    if not isinstance(value, dict):
+        return []
+    parts = []
+    error = value.get("error")
+    fields = RESTRICTED_ERROR_FIELDS if restricted else ERROR_FIELDS
+    if isinstance(error, dict):
+        parts.extend(
+            f"{key}={_scalar_text(error.get(key))}"
+            for key in fields
+            if _scalar_text(error.get(key))
+        )
+    elif not restricted and _scalar_text(error):
+        parts.append(f"error={_scalar_text(error)}")
+    top_level = RESTRICTED_ERROR_FIELDS if restricted else DETAIL_FIELDS
+    parts.extend(
+        f"{key}={_scalar_text(value.get(key))}"
+        for key in top_level
+        if _scalar_text(value.get(key))
+    )
+    return parts
+
+
+def _parse_error_json(text: str) -> tuple[Any, bool]:
+    """Parse error text, retrying without numeric conversion limits."""
+    for options in ({}, _ERROR_JSON_OPTIONS):
+        try:
+            return json.loads(text, **options), True
+        except (ValueError, RecursionError):
+            continue
+    return None, False
+
+
+def _error_detail(body: bytes, secret: str, status: int) -> str:
+    """Describe a failed response without echoing the request or credentials."""
+    restricted = status in RESTRICTED_STATUSES
+    if not body:
+        return "" if restricted else "empty response body"
+    text = body.decode("utf-8", "replace")
+    parsed, parsed_ok = _parse_error_json(text)
+    if not parsed_ok:
+        return "" if restricted else _sanitize_error_text(text, secret)
+    parts = _structured_parts(parsed, restricted=restricted)
+    if parts:
+        return _sanitize_error_text("; ".join(parts), secret)
+    if restricted:
+        return ""
+    # Decoded JSON only: escaping must never hide a credential from redaction.
+    try:
+        decoded = json.dumps(parsed, ensure_ascii=False)
+    except (TypeError, ValueError, RecursionError):
+        decoded = text
+    return _sanitize_error_text(decoded, secret)
+
+
 def _request_json(
     *,
     transport: Transport,
@@ -182,12 +340,16 @@ def _request_json(
     if 300 <= response.status < 400:
         raise ReviewError(f"{service} redirect refused")
     if not 200 <= response.status < 300:
-        raise ReviewError(f"{service} returned HTTP {response.status}")
+        detail = _error_detail(
+            response.body, _credential_from_headers(headers), response.status
+        )
+        suffix = f": {detail}" if detail else ""
+        raise ReviewError(f"{service} returned HTTP {response.status}{suffix}")
     if len(response.body) > max_bytes:
         raise ReviewError(f"{service} response exceeded the configured size limit")
     try:
         return json.loads(response.body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
         raise ReviewError(f"{service} returned an invalid JSON response") from None
 
 

@@ -19,6 +19,30 @@ request a tool or function call, do not finish with `stop`, or exceed the
 60,000-byte review limit. Model output is stored and posted only as Markdown
 text. The reviewer analyzes the diff only and does not run tests.
 
+A refused request fails with the HTTP status followed by a bounded diagnostic.
+At most the first 16 KiB of the error body is kept. When that body is JSON, the
+message is built from its decoded form, never from the escaped bytes: the
+provider's `error.type`, `error.code`, `error.param`, and `error.message`, plus
+top-level `message`, `detail`, or `code`, or otherwise one excerpt of the
+decoded document. When the body is not JSON, one excerpt of the text is used.
+On `401` and `403` only the status and the `type`/`code` identifiers are
+reported; free-text messages and excerpts are dropped. Redirects are refused
+without reading their body. Every diagnostic is limited to 500 bytes. Before
+pattern matching, every whitespace character is replaced with a space and every
+other non-printable character, including format characters, is removed; runs of
+spaces then collapse to one. What remains has any `Bearer` token, `sk-`,
+`gh[pousr]_`, or `github_pat_` value replaced with `[redacted]`, and any run of
+8 or more consecutive characters of the configured credential replaced the same
+way. Because removing format characters can close the gap a `Bearer` token was
+hidden behind, the pattern accepts a token directly after `Bearer` with no
+separator, so an ordinary word such as `Bearerless` is redacted too. Request
+bodies and response headers are never printed.
+
+Known limits: run redaction matches contiguous characters of the credential, so
+a key echoed with a separator inserted every 7 characters or fewer never forms a
+long enough run and is not redacted; the pattern-based rules still apply. A
+`Bearer`-prefixed word that is not a token is over-redacted rather than kept.
+
 The review and comment jobs use clean runners. Only the fetch step receives a
 read-only GitHub token, only the inference step receives `POOLSIDE_API_KEY`, and
 only the final posting step receives a GitHub token with `issues: write`.

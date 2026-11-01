@@ -1,4 +1,6 @@
 import importlib.util
+import gc
+import http.client
 import io
 import json
 import os
@@ -6,8 +8,10 @@ import socket
 import ssl
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
+import warnings
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -55,6 +59,12 @@ def diff_artifact(diff_text="file: main.go\npatch:\n+safe\n"):
 def model_response(content="No actionable findings.", finish_reason="stop", **message_fields):
     message = {"role": "assistant", "content": content, **message_fields}
     return {"choices": [{"finish_reason": finish_reason, "message": message}]}
+
+
+def assert_no_key_fragment(case, message, secret, minimum=8):
+    """No run of `minimum` consecutive credential characters may survive."""
+    for start in range(len(secret) - minimum + 1):
+        case.assertNotIn(secret[start:start + minimum], message)
 
 
 class FakeTransport:
@@ -275,7 +285,7 @@ class PoolsideResponseTests(unittest.TestCase):
         self.assertEqual(len(transport.calls), 1)
         self.assertEqual(transport.calls[0]["url"], poolside_review.POOLSIDE_URL)
 
-    def test_http_error_does_not_expose_response_or_secret(self):
+    def test_http_error_detail_is_bounded_and_never_includes_the_secret(self):
         transport = FakeTransport(
             poolside_review.HttpResponse(500, b"poolside-secret internal-header-value")
         )
@@ -284,9 +294,293 @@ class PoolsideResponseTests(unittest.TestCase):
                 diff_artifact(), poolside_api_key="poolside-secret", transport=transport
             )
         message = str(raised.exception)
-        self.assertEqual(message, "Poolside returned HTTP 500")
+        self.assertTrue(message.startswith("Poolside returned HTTP 500: "))
+        self.assertIn("[redacted]", message)
         self.assertNotIn("poolside-secret", message)
-        self.assertNotIn("internal-header-value", message)
+
+    def test_http_error_reports_provider_type_code_and_message(self):
+        body = encoded(
+            {
+                "error": {
+                    "type": "invalid_request_error",
+                    "code": "model_not_found",
+                    "param": "model",
+                    "message": "Model poolside/laguna-s-2.1 is unavailable.",
+                }
+            }
+        )
+        with self.assertRaises(poolside_review.ReviewError) as raised:
+            poolside_review.create_review(
+                diff_artifact(),
+                poolside_api_key="placeholder",
+                transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+            )
+        self.assertEqual(
+            str(raised.exception),
+            "Poolside returned HTTP 400: type=invalid_request_error; code=model_not_found; "
+            "param=model; message=Model poolside/laguna-s-2.1 is unavailable.",
+        )
+
+    def test_http_error_without_a_body_reports_the_status_only(self):
+        with self.assertRaises(poolside_review.ReviewError) as raised:
+            poolside_review.create_review(
+                diff_artifact(),
+                poolside_api_key="placeholder",
+                transport=FakeTransport(poolside_review.HttpResponse(503, b"")),
+            )
+        self.assertEqual(
+            str(raised.exception), "Poolside returned HTTP 503: empty response body"
+        )
+
+    def test_http_error_detail_truncates_unstructured_bodies(self):
+        body = b"<html>" + b"x" * (poolside_review.MAX_ERROR_DETAIL_BYTES * 4) + b"</html>"
+        with self.assertRaises(poolside_review.ReviewError) as raised:
+            poolside_review.create_review(
+                diff_artifact(),
+                poolside_api_key="placeholder",
+                transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+            )
+        message = str(raised.exception)
+        detail = message.split(": ", 1)[1]
+        self.assertTrue(detail.startswith("<html>"))
+        self.assertTrue(detail.endswith("..."))
+        self.assertLessEqual(
+            len(detail.encode("utf-8")), poolside_review.MAX_ERROR_DETAIL_BYTES + 3
+        )
+
+    def test_escaped_json_bodies_cannot_hide_a_credential(self):
+        cases = [
+            ("synthetic-key-" + "A" * 16, b'{"errors":[{"message":"bad \\u0073ynthetic-key-'
+                                           + b"A" * 16 + b'"}]}'),
+            ("synthetic/key-" + "B" * 16, b'{"errors":[{"message":"bad synthetic\\/key-'
+                                           + b"B" * 16 + b'"}]}'),
+        ]
+        for secret, body in cases:
+            with self.subTest(escaped=body.split(b"\\", 1)[1][:10]):
+                with self.assertRaises(poolside_review.ReviewError) as raised:
+                    poolside_review.create_review(
+                        diff_artifact(),
+                        poolside_api_key=secret,
+                        transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+                    )
+                message = str(raised.exception)
+                self.assertIn("[redacted]", message)
+                self.assertIn("errors", message)
+                self.assertNotIn("\\u", message)
+                self.assertNotIn("\\/", message)
+                assert_no_key_fragment(self, message, secret)
+
+    def test_null_and_list_shaped_errors_are_excerpted_from_decoded_json(self):
+        secret = "synthetic-key-" + "C" * 16
+        bodies = [
+            (b'{"error": null}', '{"error": null}'),
+            (b'{"error":null,"notes":[{"message":"see ' + secret.encode() + b'"}]}',
+             None),
+        ]
+        for body, expected in bodies:
+            with self.subTest(body=body[:20]):
+                with self.assertRaises(poolside_review.ReviewError) as raised:
+                    poolside_review.create_review(
+                        diff_artifact(),
+                        poolside_api_key=secret,
+                        transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+                    )
+                message = str(raised.exception)
+                if expected is not None:
+                    self.assertEqual(
+                        message, f"Poolside returned HTTP 400: {expected}"
+                    )
+                assert_no_key_fragment(self, message, secret)
+
+    def test_oversized_integer_bodies_fail_without_a_traceback(self):
+        huge = b'{"n": ' + b"9" * 4400 + b"}"
+        with self.assertRaises(poolside_review.ReviewError) as raised:
+            poolside_review.create_review(
+                diff_artifact(),
+                poolside_api_key="placeholder",
+                transport=FakeTransport(poolside_review.HttpResponse(400, huge)),
+            )
+        self.assertTrue(str(raised.exception).startswith("Poolside returned HTTP 400:"))
+        self.assertLessEqual(
+            len(str(raised.exception)), poolside_review.MAX_ERROR_DETAIL_BYTES + 100
+        )
+
+        with self.assertRaises(poolside_review.ReviewError) as raised:
+            poolside_review.create_review(
+                diff_artifact(),
+                poolside_api_key="placeholder",
+                transport=FakeTransport(poolside_review.HttpResponse(200, huge)),
+            )
+        self.assertEqual(
+            str(raised.exception), "Poolside returned an invalid JSON response"
+        )
+
+    def test_unauthorized_and_forbidden_responses_drop_free_text(self):
+        secret = "sk-proj-" + "D" * 32
+        masked = "sk-proj-" + "*" * 8 + "4Wf6"
+        body = encoded(
+            {
+                "error": {
+                    "type": "invalid_api_key",
+                    "code": "invalid_key",
+                    "message": f"Incorrect API key provided: {masked} ({secret})",
+                }
+            }
+        )
+        for status in (401, 403):
+            with self.subTest(status=status):
+                with self.assertRaises(poolside_review.ReviewError) as raised:
+                    poolside_review.create_review(
+                        diff_artifact(),
+                        poolside_api_key=secret,
+                        transport=FakeTransport(poolside_review.HttpResponse(status, body)),
+                    )
+                message = str(raised.exception)
+                self.assertEqual(
+                    message,
+                    f"Poolside returned HTTP {status}: "
+                    "type=invalid_api_key; code=invalid_key",
+                )
+                self.assertNotIn("Incorrect", message)
+                self.assertNotIn("4Wf6", message)
+
+        with self.assertRaises(poolside_review.ReviewError) as raised:
+            poolside_review.create_review(
+                diff_artifact(),
+                poolside_api_key=secret,
+                transport=FakeTransport(
+                    poolside_review.HttpResponse(403, f"denied for {masked}".encode())
+                ),
+            )
+        self.assertEqual(str(raised.exception), "Poolside returned HTTP 403")
+
+    def test_partial_key_echoes_are_redacted_in_other_statuses(self):
+        secret = "Zq7" + "X" * 37
+        for echo in (secret[:16], secret[-16:], secret[10:26]):
+            with self.subTest(echo=echo):
+                body = encoded({"error": {"message": f"key {echo} rejected"}})
+                with self.assertRaises(poolside_review.ReviewError) as raised:
+                    poolside_review.create_review(
+                        diff_artifact(),
+                        poolside_api_key=secret,
+                        transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+                    )
+                message = str(raised.exception)
+                self.assertIn("[redacted]", message)
+                assert_no_key_fragment(self, message, secret)
+
+    def test_zero_width_characters_are_removed_before_pattern_matching(self):
+        tail = "E" * 24
+        body = encoded({"error": {"message": "invalid sk-\u200b" + tail}})
+        with self.assertRaises(poolside_review.ReviewError) as raised:
+            poolside_review.create_review(
+                diff_artifact(),
+                poolside_api_key="placeholder",
+                transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+            )
+        message = str(raised.exception)
+        self.assertIn("[redacted]", message)
+        self.assertNotIn(tail, message)
+        self.assertNotIn("\u200b", message)
+
+    def test_whitespace_separators_keep_the_bearer_pattern_matching(self):
+        token = "abcdefghijklmnopqrstuvwxyz0123"
+        for separator, label in [
+            ("\u00a0", "no-break space"),
+            ("\u2028", "line separator"),
+            ("\u3000", "ideographic space"),
+            ("\u0085", "next line"),
+            ("\t", "tab"),
+        ]:
+            with self.subTest(separator=label):
+                body = encoded(
+                    {"error": {"message": f"auth Bearer{separator}{token}"}}
+                )
+                with self.assertRaises(poolside_review.ReviewError) as raised:
+                    poolside_review.create_review(
+                        diff_artifact(),
+                        poolside_api_key="placeholder",
+                        transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+                    )
+                message = str(raised.exception)
+                self.assertIn(poolside_review.REDACTED, message)
+                self.assertNotIn(token, message)
+                self.assertNotIn("Bearer" + token, message)
+
+    def test_removed_format_characters_cannot_join_a_bearer_token(self):
+        token = "abcdefghijklmnopqrstuvwxyz0123"
+        for separator, label in [
+            ("\u200b", "zero-width space"),
+            ("\u200c", "zero-width non-joiner"),
+            ("\u2060", "word joiner"),
+            ("\ufeff", "zero-width no-break space"),
+        ]:
+            with self.subTest(separator=label):
+                body = encoded({"error": {"message": f"auth Bearer{separator}{token}"}})
+                with self.assertRaises(poolside_review.ReviewError) as raised:
+                    poolside_review.create_review(
+                        diff_artifact(),
+                        poolside_api_key="placeholder",
+                        transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+                    )
+                message = str(raised.exception)
+                self.assertEqual(
+                    message, "Poolside returned HTTP 400: message=auth [redacted]"
+                )
+                self.assertNotIn(token, message)
+                self.assertNotIn("Bearer" + token, message)
+
+                # The configured key is still redacted even when it is the token.
+                secret = token + "Q7"
+                body = encoded({"error": {"message": f"auth Bearer{separator}{secret}"}})
+                with self.assertRaises(poolside_review.ReviewError) as raised:
+                    poolside_review.create_review(
+                        diff_artifact(),
+                        poolside_api_key=secret,
+                        transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+                    )
+                message = str(raised.exception)
+                self.assertIn(poolside_review.REDACTED, message)
+                assert_no_key_fragment(self, message, secret)
+                self.assertNotIn(separator, message)
+
+    def test_credential_run_redaction_handles_a_long_key_quickly(self):
+        secret = "q" * 1024
+        text = ("a" * 7 + secret[:300]) * 8
+        started = time.monotonic()
+        redacted = poolside_review._redact_credential_runs(text, secret)
+        elapsed = time.monotonic() - started
+        self.assertNotIn(secret[:8], redacted)
+        self.assertLess(elapsed, 2.0)
+
+        # A run shorter than the minimum and a run of another key stay intact.
+        self.assertEqual(
+            poolside_review._redact_credential_runs("abc" + "q" * 7, secret),
+            "abc" + "q" * 7,
+        )
+        self.assertEqual(poolside_review._redact_credential_runs("z" * 8, secret), "z" * 8)
+
+    def test_http_error_detail_redacts_credentials_and_control_characters(self):
+        # Built at runtime so the repository never carries a credential-shaped literal.
+        provider_key = "sk-" + "synthetic" + "-" + "k" * 24
+        body = encoded(
+            {
+                "error": {
+                    "message": f"invalid key {provider_key}\nBearer another-token-value"
+                }
+            }
+        )
+        with self.assertRaises(poolside_review.ReviewError) as raised:
+            poolside_review.create_review(
+                diff_artifact(),
+                poolside_api_key="placeholder",
+                transport=FakeTransport(poolside_review.HttpResponse(400, body)),
+            )
+        message = str(raised.exception)
+        self.assertNotIn(provider_key, message)
+        self.assertNotIn("another-token-value", message)
+        self.assertNotIn("\n", message)
+        self.assertEqual(message.count("[redacted]"), 2)
 
     def test_refuses_diff_and_review_size_overflow(self):
         transport = FakeTransport()
@@ -326,6 +620,23 @@ class PoolsideResponseTests(unittest.TestCase):
 
 class UrllibTransportTests(unittest.TestCase):
     canary = "synthetic-transport-private-canary"
+
+    def setUp(self):
+        self._warnings = warnings.catch_warnings(record=True)
+        self.caught_warnings = self._warnings.__enter__()
+        warnings.simplefilter("always")
+
+    def tearDown(self):
+        # Fail on any cleanup warning a test leaves for the collector, which is
+        # how an unclosed HTTPError response handle shows up.
+        gc.collect()
+        self._warnings.__exit__(None, None, None)
+        leaked = [
+            f"{w.category.__name__}: {w.message}"
+            for w in self.caught_warnings
+            if issubclass(w.category, ResourceWarning)
+        ]
+        self.assertEqual(leaked, [])
 
     def opener(self):
         opener = MagicMock()
@@ -446,7 +757,7 @@ class UrllibTransportTests(unittest.TestCase):
         self.assertIsInstance(build.call_args.args[0], poolside_review._NoRedirect)
         self.assertIsNone(build.call_args.args[0].redirect_request(None, None, 302, self.canary, {}, self.canary))
 
-    def test_http_errors_keep_status_only_behavior_and_redirect_refusal(self):
+    def test_http_errors_report_status_and_bounded_body_with_redirect_refusal(self):
         for status in [301, 307, 401, 403, 404, 429, 500, 503]:
             with self.subTest(status=status):
                 opener, _ = self.opener()
@@ -461,6 +772,12 @@ class UrllibTransportTests(unittest.TestCase):
                 with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
                     result = self.request()
                     self.assertEqual(result, poolside_review.HttpResponse(status, b""))
+                    if 300 <= status < 400:
+                        body.read.assert_not_called()
+                    else:
+                        body.read.assert_called_once_with(
+                            poolside_review.MAX_ERROR_BODY_BYTES + 1
+                        )
                     with self.assertRaises(poolside_review.ReviewError) as caught:
                         poolside_review._request_json(
                             transport=poolside_review.urllib_transport,
@@ -468,9 +785,77 @@ class UrllibTransportTests(unittest.TestCase):
                             expected_host="inference.poolside.ai", headers={}, payload={},
                             max_bytes=32, service="Poolside",
                         )
-                expected = "Poolside redirect refused" if status < 400 else f"Poolside returned HTTP {status}"
+                expected = "Poolside redirect refused" if status < 400 else (
+                    f"Poolside returned HTTP {status}"
+                    if status in poolside_review.RESTRICTED_STATUSES
+                    else f"Poolside returned HTTP {status}: empty response body"
+                )
                 self.assertEqual(str(caught.exception), expected)
-                body.read.assert_not_called()
+
+    def test_every_http_error_handed_to_the_transport_is_closed(self):
+        class TrackedError(urllib.error.HTTPError):
+            closed = False
+
+            def close(self):
+                type(self).closed = True
+                super().close()
+
+        for status in [200, 301, 307, 400, 401, 500]:
+            with self.subTest(status=status):
+                TrackedError.closed = False
+                opener, _ = self.opener()
+                opener.open.side_effect = TrackedError(
+                    "https://transport.invalid/" + self.canary, status, self.canary,
+                    {}, io.BytesIO(b'{"error": {"message": "rejected"}}'),
+                )
+                with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
+                    result = self.request()
+                self.assertEqual(result.status, status)
+                self.assertTrue(TrackedError.closed, "HTTPError handle was not closed")
+
+    def test_read_and_close_failures_preserve_the_http_status(self):
+        class FailingBody:
+            def __init__(self, payload=b"", *, read_error=None, close_error=None):
+                self.payload = payload
+                self.read_error = read_error
+                self.close_error = close_error
+                self.reads = 0
+
+            def read(self, size=-1):
+                self.reads += 1
+                if self.read_error is not None:
+                    raise self.read_error
+                return self.payload
+
+            def close(self):
+                if self.close_error is not None:
+                    raise self.close_error
+
+        def message_for(body):
+            opener, _ = self.opener()
+            opener.open.side_effect = urllib.error.HTTPError(
+                "https://transport.invalid/" + self.canary, 400, self.canary, {}, body
+            )
+            with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
+                result = self.request()
+                self.assertEqual(result.status, 400)
+                return result, poolside_review._error_detail(
+                    result.body, self.canary, result.status
+                )
+
+        for read_error in [TimeoutError(self.canary), http.client.IncompleteRead(b"partial")]:
+            with self.subTest(read_error=type(read_error).__name__):
+                result, detail = message_for(FailingBody(read_error=read_error))
+                self.assertEqual(result.body, b"")
+                self.assertEqual(detail, "empty response body")
+
+        result, detail = message_for(FailingBody(b"rejected", close_error=OSError(self.canary)))
+        self.assertEqual(result.body, b"rejected")
+        self.assertIn("rejected", detail)
+        self.assertNotIn(self.canary, detail)
+
+        result, _ = message_for(FailingBody(b"x" * (poolside_review.MAX_ERROR_BODY_BYTES * 2)))
+        self.assertEqual(len(result.body), poolside_review.MAX_ERROR_BODY_BYTES)
 
     def test_declared_and_actual_response_bounds_and_invalid_lengths_remain(self):
         for declared, actual, message, reads in [
@@ -522,6 +907,47 @@ class UrllibTransportTests(unittest.TestCase):
                     self.assertEqual(stderr.getvalue(),
                         f"Poolside review failed safely: HTTP transport failed: category={category} "
                         f"phase={phase} headers_received={received} elapsed_ms=125 status={status}\n")
+                    self.assertFalse(output_path.exists())
+
+    def test_cli_reports_huge_integer_bodies_without_a_traceback(self):
+        huge = b'{"n": ' + b"9" * 4400 + b"}"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path, output_path = root / "diff.json", root / "review.json"
+            input_path.write_text(json.dumps(diff_artifact()), encoding="utf-8")
+            for status, expected in [
+                (400, "Poolside returned HTTP 400: "),
+                (200, "Poolside returned an invalid JSON response"),
+            ]:
+                with self.subTest(status=status):
+                    opener, response = self.opener()
+                    if status == 200:
+                        response.status = 200
+                        response.headers = {}
+                        response.read.return_value = huge
+                    else:
+                        # Only an actually raised error is created here; an
+                        # unused HTTPError holds an open body handle and would
+                        # warn when the garbage collector reclaimed it.
+                        opener.open.side_effect = urllib.error.HTTPError(
+                            "https://transport.invalid/" + self.canary, status,
+                            self.canary, {}, io.BytesIO(huge),
+                        )
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with redirect_stdout(stdout), redirect_stderr(stderr):
+                        with patch.object(poolside_review, "_required_environment", return_value=self.canary):
+                            with patch.object(poolside_review.urllib.request, "build_opener", return_value=opener):
+                                exit_code = poolside_review.main([
+                                    "create-review", "--input", str(input_path),
+                                    "--output", str(output_path),
+                                ])
+                    self.assertEqual(exit_code, 1)
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertTrue(
+                        stderr.getvalue().startswith("Poolside review failed safely:")
+                    )
+                    self.assertIn(expected, stderr.getvalue())
+                    self.assertNotIn("Traceback", stderr.getvalue())
                     self.assertFalse(output_path.exists())
 
 
