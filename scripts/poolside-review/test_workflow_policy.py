@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "poolside-review.yml"
+SMOKE_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "poolside-smoke.yml"
 
 
 def step_block(workflow, name):
@@ -72,6 +73,55 @@ def policy_errors(workflow):
     return errors
 
 
+SMOKE_GUARD = (
+    "    if: github.ref == format('refs/heads/{0}', "
+    "github.event.repository.default_branch)\n"
+)
+
+
+def trigger_block(workflow):
+    _, separator, rest = workflow.partition("\non:\n")
+    if not separator:
+        return ""
+    return rest.split("\npermissions:", 1)[0]
+
+
+def smoke_policy_errors(workflow):
+    errors = []
+    triggers = trigger_block(workflow)
+    if "workflow_dispatch:" not in triggers:
+        errors.append("manual dispatch trigger is missing")
+    if re.search(r"^  (?!workflow_dispatch:)[a-z_]+:", triggers, re.MULTILINE):
+        errors.append("trigger is not limited to workflow_dispatch")
+    if "\npermissions: {}\n" not in workflow:
+        errors.append("workflow permissions are not empty")
+
+    jobs = workflow.partition("\njobs:\n")[2]
+    if len(re.findall(r"^  [a-z][a-z0-9_-]*:$", jobs, re.MULTILINE)) != 1:
+        return errors + ["exactly one job is required"]
+    if not re.search(r"^      contents: read$", jobs, re.MULTILINE):
+        errors.append("job does not have contents: read")
+    if re.search(r"^      [a-z-]+: write$", jobs, re.MULTILINE):
+        errors.append("job has a permission beyond contents: read")
+    if SMOKE_GUARD not in workflow:
+        errors.append("default-branch dispatch guard is missing")
+    if "ref: ${{ github.event.repository.default_branch }}" not in workflow:
+        errors.append("checkout is not bound to the default branch")
+    if "persist-credentials: false" not in workflow:
+        errors.append("checkout persists credentials")
+    action_uses = re.findall(r"uses:\s*([^\s]+)", workflow)
+    if not action_uses or any(not re.fullmatch(r"[^@]+@[0-9a-f]{40}", use) for use in action_uses):
+        errors.append("action is not pinned to a full commit")
+
+    steps = re.split(r"\n      - name:", jobs)[1:]
+    secret_steps = [step for step in steps if "POOLSIDE_API_KEY:" in step]
+    if len(secret_steps) != 1:
+        errors.append("Poolside credential must appear in exactly one step")
+    elif "poolside_review.py create-review" not in secret_steps[0]:
+        errors.append("Poolside credential step does not run the review helper")
+    return errors
+
+
 class WorkflowPolicyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -110,6 +160,72 @@ class WorkflowPolicyTests(unittest.TestCase):
             "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
             self.workflow,
         )
+
+
+class SmokeWorkflowPolicyTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.workflow = SMOKE_WORKFLOW.read_text(encoding="utf-8")
+
+    def test_smoke_workflow_pins_one_manual_branch_bound_call(self):
+        self.assertEqual(smoke_policy_errors(self.workflow), [])
+
+    def test_fixture_with_extra_trigger_is_rejected(self):
+        unsafe = self.workflow.replace(
+            "on:\n  workflow_dispatch:\n",
+            "on:\n  workflow_dispatch:\n  pull_request:\n",
+            1,
+        )
+        self.assertIn("trigger is not limited to workflow_dispatch", smoke_policy_errors(unsafe))
+
+    def test_fixture_with_workflow_permissions_is_rejected(self):
+        unsafe = self.workflow.replace(
+            "\npermissions: {}\n",
+            "\npermissions:\n  contents: read\n",
+            1,
+        )
+        self.assertIn("workflow permissions are not empty", smoke_policy_errors(unsafe))
+
+    def test_fixture_with_job_write_permission_is_rejected(self):
+        unsafe = self.workflow.replace(
+            "      contents: read\n",
+            "      contents: read\n      issues: write\n",
+            1,
+        )
+        self.assertIn("job has a permission beyond contents: read", smoke_policy_errors(unsafe))
+
+    def test_fixture_without_default_branch_guard_is_rejected(self):
+        unsafe = self.workflow.replace(SMOKE_GUARD, "", 1)
+        self.assertIn("default-branch dispatch guard is missing", smoke_policy_errors(unsafe))
+
+    def test_fixture_with_other_ref_checkout_is_rejected(self):
+        unsafe = self.workflow.replace(
+            "ref: ${{ github.event.repository.default_branch }}",
+            "ref: ${{ github.ref }}",
+            1,
+        )
+        self.assertIn("checkout is not bound to the default branch", smoke_policy_errors(unsafe))
+
+    def test_fixture_with_credential_persisting_checkout_is_rejected(self):
+        unsafe = self.workflow.replace("persist-credentials: false", "persist-credentials: true", 1)
+        self.assertIn("checkout persists credentials", smoke_policy_errors(unsafe))
+
+    def test_fixture_with_mutable_action_pin_is_rejected(self):
+        unsafe = self.workflow.replace(
+            "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+            "actions/checkout@v4",
+            1,
+        )
+        self.assertIn("action is not pinned to a full commit", smoke_policy_errors(unsafe))
+
+    def test_fixture_with_second_secret_step_is_rejected(self):
+        unsafe = self.workflow.replace(
+            '        run: echo "commit=$(git -C trusted-source rev-parse HEAD)" >>"$GITHUB_OUTPUT"',
+            "        env:\n          POOLSIDE_API_KEY: ${{ secrets.POOLSIDE_API_KEY }}\n"
+            '        run: echo "commit=$(git -C trusted-source rev-parse HEAD)" >>"$GITHUB_OUTPUT"',
+            1,
+        )
+        self.assertIn("Poolside credential must appear in exactly one step", smoke_policy_errors(unsafe))
 
 
 if __name__ == "__main__":
