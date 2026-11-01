@@ -25,6 +25,24 @@ of Shortcuts; see [native local](docs/native-local.md).
 This selected product screenshot shows the Cloud, Cloud Pro, On-Device and
 ChatGPT picker. It contains no prompt, response or personal account information.
 
+## Dated qualification summary
+
+- **2026-11-01, native local:** Apple Silicon, macOS 27.2 build `26B123`,
+  SDK 27.0, source commit `8a2e4bd`, helper `hollis-native` 0.5.0, protocol 2.
+  One plain complete response and one `--schema` response succeeded. The guided
+  response was a conforming JSON object and passed independent validation; both
+  responses included SDK-measured usage. `doctor` and `models` reported an
+  8,192-token context window. No prompt text was found in Hollis state after
+  these stateless calls; this does not change persistent chat storage.
+- **2026-10-31, Shortcuts:** Cloud and Cloud Pro each succeeded once on the
+  merged runtime. Availability and quota guarantees do not follow from these
+  checks. The [`fm` comparison](README.md#why-not-fm) records the separate
+  Terminal-hosted result and the unmerged prototype's limits.
+
+These checks qualify only the stated setup and calls, not fresh-account consent,
+all schema shapes, streaming usage, other OS builds or future availability.
+Current-source protocol-2 features are not in runtime 0.4.0 or plugin 0.2.0.
+
 ## What belongs in a release
 
 Public source includes implementation, user documentation, selected product

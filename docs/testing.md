@@ -24,7 +24,7 @@ errors do not disclose request data.
 ## Cross-language schema parity
 
 Guided output (see [native local](native-local.md#guided-output)) validates a
-schema subset twice: the shipped Swift helper (`native/SchemaSubset.swift`)
+schema subset twice: the checked-in Swift helper (`native/SchemaSubset.swift`)
 parses it before generation, and Hollis re-checks the returned object against
 the same subset. Both parsers are compiled and compared over one case table, so
 a divergence in acceptance, JSON pointer or rejection reason fails a test:
