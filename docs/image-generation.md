@@ -71,7 +71,9 @@ Animation, Illustration, Sketch, Genmoji and Any Style returned valid PNGs in
 paced tests. API generation and CLI/API conversation follow-ups also returned
 images. Earlier reference tests checked bytes at the Hollis boundary but missed
 a connection inside the Shortcut. The corrected connection passed an echo
-control and a live reference generation. See the [corrected evidence](../EVIDENCE.md#reference-correction).
+control and a live reference generation. See the
+[0.3.0 upgrade notes](releases/v0.3.0.md#upgrade), which record the corrected
+connection.
 
 In the 0.3.2 comparisons, both historical prompts generated three times with
 and three times without their references. Controls that omitted the subject
@@ -87,9 +89,17 @@ provider refusals and build-specific behavior recorded rather than hidden.
 **ChatGPT image generation is blocked on the tested build** (`26A5425a`). Fixed
 and parameterized Shortcuts failed before inference with a Shortcuts ToolKit
 database sandbox denial (`SQLite error 23`), while native Image Playground
-worked. This does not affect the separate ChatGPT text/image-understanding
-bridge. No supported repair was established; Hollis does not silently substitute
-a provider. Recheck after a supported Apple update.
+worked. That is the historical signature, kept for comparison.
+
+A later check on 2026-11-02, on the current source, saw the same request refused
+in under a second with exit 5 `request_declined` ("Apple asked for a different
+description; the underlying reason was not specified.") before any image was
+made. The observed signature differs; the conclusion does not. The style stays
+blocked, Hollis still does not silently substitute a provider, and neither
+signature is claimed as permanent. Recheck after a supported Apple update.
+
+This does not affect the separate ChatGPT text/image-understanding
+bridge.
 
 A native “This shortcut requires your Mac to be unlocked” error becomes
 `image_session_locked` (HTTP409). Hollis does not manipulate the session or retry.
@@ -290,8 +300,9 @@ See [failure codes](errors.md) for runtime 0.3.2's `request_declined` and
 `shortcut_failed` diagnostics. A request for a different description leaves
 the underlying cause unknown; it is not confirmed safety-filter evidence.
 
-The [evidence record](../EVIDENCE.md#v030-validation) separates live model
-results from local contract tests and records the reference-wiring correction.
+The [0.3.0 verification record](releases/v0.3.0.md#verification-and-downloads)
+separates live results from local contract tests, and its upgrade notes record
+the reference-wiring correction.
 The release bridge has a regression test for the exact Decode → Get Images →
 Photo path; the packaging test checks the bridge actually shipped in the ZIP.
 

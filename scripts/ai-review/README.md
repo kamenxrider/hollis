@@ -89,3 +89,8 @@ python3 -m unittest discover -s scripts/ai-review -p 'test_*.py'
 
 These tests use fake HTTP transports. They do not call GitHub, OpenAI, Apple
 Shortcuts, or any other paid or live service.
+
+A manual, single-call smoke run is available from the Actions tab:
+[the AI smoke workflow](../../.github/workflows/ai-review-smoke.yml) dispatches
+only on the default branch, sends one synthetic diff, keeps the response as an
+artifact and never touches a pull request.

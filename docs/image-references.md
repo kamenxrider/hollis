@@ -15,8 +15,8 @@ the generator used those pixels. `reference_image_sent` and matching checksums
 describe Hollis's submitted input; they do not establish model conditioning.
 Earlier generations had recognizable composition, but the prompts also named
 the distinctive subjects. That result alone cannot distinguish reference use
-from following the text. The [evidence record](../EVIDENCE.md#reference-correction)
-preserves the original observations and bridge correction.
+from following the text. The [0.3.0 upgrade notes](releases/v0.3.0.md#upgrade)
+record the bridge correction.
 
 In the 0.3.2 comparisons, fully described scenes also appeared without a
 reference, three times per historical case. A further control held prompt,

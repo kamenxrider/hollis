@@ -130,6 +130,82 @@ class ContentGateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             privacy.check_content('hollis', b'\x00\x01/' + b'Users/alice/build\x00')
 
+    def test_home_path_without_trailing_slash_rejected(self):
+        for payload in (b'/' + b'Users/alice', b'copied from /' + b'Users/alice\n',
+                        b'/' + b'Users/alice/project'):
+            with self.subTest(payload=payload[-12:]), self.assertRaises(ValueError):
+                privacy.check_content('README.md', payload)
+
+    def test_documented_home_placeholders_allowed(self):
+        for payload in (b'/' + b'Users/private/customer.txt', b'/' + b'Users/you',
+                        b'install for /' + b'Users/you and restart',
+                        b'/' + b'Users/<name>/notes', b'/' + b'Users/Shared',
+                        b'/' + b'Users/example/project'):
+            with self.subTest(payload=payload[-20:]):
+                privacy.check_content('README.md', payload)
+
+    def test_private_tool_and_worktree_paths_rejected(self):
+        for payload in (b'~/' + b'.f' + b'actory/worktrees/abc/hollis',
+                        b'$HOME/' + b'.ca' + b'py/work/item',
+                        b'see .f' + b'actory/worktrees/abc',
+                        b'.hollis-work/' + b'worktrees/8d2ae18'):
+            with self.subTest(payload=payload[-16:]), self.assertRaises(ValueError):
+                privacy.check_content('README.md', payload)
+
+    def test_private_process_terms_rejected(self):
+        for payload in (b'the work' + b'stream owns this', b'an orchestr' + b'ator note',
+                        b'Software Fac' + b'tory notes', b'see hand' + b'offs/notes.md',
+                        b'led' + b'ger/decisions.md', b'plans/plugin-' + b'skills.md',
+                        b'pro' + b'mise.md'):
+            with self.subTest(payload=payload[-14:]), self.assertRaises(ValueError):
+                privacy.check_content('README.md', payload)
+
+    def test_ordinary_planning_prose_allowed(self):
+        for payload in (b'Review this plan and its phases.',
+                        b'the plans for next quarter', b'plans/budget.txt'):
+            with self.subTest(payload=payload):
+                privacy.check_content('README.md', payload)
+
+    def test_agent_labels_flagged_only_near_agent_or_verification(self):
+        rejected = (
+            b'A' + b'4 verif' + b'ication ran',
+            b'Agent' + b'3 wrote this',
+            b'agent A' + b'2 did it',
+        )
+        for payload in rejected:
+            with self.subTest(payload=payload[-12:]), self.assertRaises(ValueError):
+                privacy.check_content('README.md', payload)
+        allowed = (
+            b'Plan A' + b'1 ships later',
+            b'the A' + b'2 highway',
+            b'Agent Smith',
+        )
+        for payload in allowed:
+            with self.subTest(payload=payload):
+                privacy.check_content('README.md', payload)
+
+    def test_text_mode_checks_one_file_without_echo(self):
+        import subprocess
+        import sys
+        script = str(pathlib.Path(privacy.__file__))
+        with tempfile.TemporaryDirectory() as folder:
+            clean = pathlib.Path(folder) / 'clean.md'
+            clean.write_text('Install for /Users/' + 'you\n')
+            dirty = pathlib.Path(folder) / 'dirty.md'
+            dirty.write_text('see ~/' + '.f' + 'actory/worktrees/abc\n')
+            passing = subprocess.run([sys.executable, script, '--text', str(clean)],
+                                     capture_output=True, text=True)
+            self.assertEqual(passing.returncode, 0, passing.stderr)
+            self.assertIn('passed', passing.stdout)
+            rejected = subprocess.run([sys.executable, script, '--text', str(dirty)],
+                                      capture_output=True, text=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn('private tool state path', rejected.stderr)
+            self.assertNotIn('worktrees/abc', rejected.stderr)
+            piped = subprocess.run([sys.executable, script, '--text', '-'],
+                                   input='A work' + 'stream note', capture_output=True, text=True)
+            self.assertNotEqual(piped.returncode, 0)
+
     def test_valid_nested_bundle_passes(self):
         import io
         bridges = io.BytesIO()
