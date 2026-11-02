@@ -126,6 +126,11 @@ hollis respond --model local "Reply with OK"
 It reports missing bridges even when native local works. Verified downloads and
 existing-account tests do not establish fresh-account onboarding.
 
+**Upgrading?** A newer release may upgrade local chat storage to a schema that an
+older binary cannot read, and switching back does not undo that upgrade. Close
+older Hollis processes first and read the
+[database upgrade and recovery steps](docs/cli.md#database-upgrades-and-recovery).
+
 The binaries are not Developer ID signed or notarized. Checksum and build
 provenance verification establish their release origin.
 [Other installation routes and troubleshooting](docs/compatibility.md).
@@ -330,10 +335,12 @@ Hollis adds explicit selection, CLI/API access, conversations and batches.
 | Guide | What you will find |
 | --- | --- |
 | [CLI and local data](docs/cli.md) | Inputs, chats, agent JSON, storage and exit codes |
+| [Selected-route setup](docs/selected-route-setup.md) | `hollis setup` and `doctor --model <route>` plans, statuses and exit codes |
 | [API](docs/api.md) | Chat Completions, Responses, and why a listed model can still fail |
 | [Shortcuts transport](docs/shortcuts.md) | Bridge discovery and measured behavior |
 | [Compatibility](docs/compatibility.md) | Tested builds, doctor and alternative installation |
 | [Testing](docs/testing.md) | Offline checks and live-test boundaries |
+| [AI pull-request review](scripts/ai-review/README.md) | Bounded diff review, provider configuration and the manual smoke run |
 
 <a id="whats-in-031"></a>
 <a id="included-from-030"></a>

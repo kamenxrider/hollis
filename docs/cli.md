@@ -138,8 +138,9 @@ Exit codes are stable and parseable:
 | 7 | Timeout — the run exceeded its deadline and was killed |
 | 10 | Config or database error |
 
-Runtime 0.3.2 adds specific JSON codes `request_declined` and `shortcut_failed`,
-both retaining exit 5. See [failure meanings and next actions](errors.md).
+Specific JSON codes such as `request_declined`, `shortcut_failed`,
+`local_unavailable` and `native_protocol` keep exit 5 while naming the cause.
+See [failure meanings and next actions](errors.md).
 
 ## Shell completions
 
@@ -228,8 +229,15 @@ hollis chats show <id>                      # show one chat
 hollis chats search "query"                 # search stored chats
 hollis serve --token-file hollis.token      # authenticated local API
 hollis doctor                               # check transport and bridges
+hollis doctor --model local --json          # route-scoped diagnostics
+hollis setup --model cloud-pro --agent      # plan setup for one route
 hollis models                               # show available tiers
 hollis config set model cloud-pro           # save a default tier
 ```
+
+`hollis setup` and `hollis doctor --model <route>` inspect one concrete route
+without requesting inference, importing Shortcuts or changing settings.
+Statuses, actions and exit codes are in
+[selected-route setup and diagnostics](selected-route-setup.md).
 
 [Back to Hollis](../README.md)

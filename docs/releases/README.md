@@ -4,6 +4,7 @@ Runtime and plugin versions are separate. Each release has its own archive and v
 
 | Version | Status | Notes |
 | --- | --- | --- |
+| Unreleased | Draft notes | [Schema v3, strict selection, selected-route setup, bounded output and guided JSON](unreleased.md) |
 | Runtime 0.4.0 | Released | [Native local streaming and transport repair](v0.4.0.md) |
 | Plugin 0.2.0 | Release package | [Native-local setup](plugin-v0.2.0.md) |
 | Runtime 0.3.3 | Released | [Maintenance rebuild with fresh provenance](v0.3.3.md) |

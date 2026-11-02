@@ -133,7 +133,10 @@ route falls back to another model or to plain text.
 Availability still describes the model. A helper that is missing, not
 executable, or whose Apple model is unavailable keeps the availability
 contract: **400** `model_unavailable`, the status `/v1/models` reports. Only a
-helper that answered and disagreed about its protocol is a mismatch.
+helper that answered and disagreed about its protocol is a mismatch. The same
+unavailability discovered after admission, when a request already reached the
+helper and it could not run, is **503** `model_unavailable`; it is not a
+protocol mismatch and does not fall back either.
 
 ## Inline image input
 
