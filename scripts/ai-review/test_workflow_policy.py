@@ -5,6 +5,36 @@ from pathlib import Path
 
 WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "ai-review.yml"
 SMOKE_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "ai-review-smoke.yml"
+HELPER = Path(__file__).parents[2] / "scripts" / "ai-review" / "ai_review.py"
+
+# Headroom over the helper's socket timeout for checkout, the GitHub calls, the
+# artifact upload, and runner scheduling.
+JOB_TIMEOUT_MARGIN_SECONDS = 300
+
+
+def provider_timeout_seconds():
+    match = re.search(
+        r"^PROVIDER_TIMEOUT_SECONDS = ([\d_]+)$", HELPER.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if match is None:
+        raise AssertionError("helper does not define PROVIDER_TIMEOUT_SECONDS")
+    return int(match.group(1).replace("_", ""))
+
+
+def job_timeout_errors(workflow, label):
+    """A cancelled job would hide the helper's own diagnostic."""
+    match = re.search(r"^    timeout-minutes: (\d+)$", workflow, re.MULTILINE)
+    if match is None:
+        return [f"{label} has no job timeout"]
+    budget = int(match.group(1)) * 60
+    required = provider_timeout_seconds() + JOB_TIMEOUT_MARGIN_SECONDS
+    if budget < required:
+        return [
+            f"{label} job timeout {budget}s does not cover the provider timeout "
+            f"plus margin ({required}s)"
+        ]
+    return []
 
 
 def step_block(workflow, name):
@@ -44,6 +74,7 @@ def policy_errors(workflow):
     if "\n  review:\n" not in workflow or "\n  post:\n" not in workflow:
         return errors + ["separate review and post jobs are required"]
     review_job, post_job = workflow.split("\n  review:\n", 1)[1].split("\n  post:\n", 1)
+    errors.extend(job_timeout_errors(review_job, "review"))
     if "issues: write" in review_job or "pull-requests: write" in review_job:
         errors.append("review job has comment write permission")
     if re.search(r"^\s{6}(?!issues: write$)[a-z-]+:\s+(?:read|write)$", post_job, re.MULTILINE):
@@ -116,6 +147,8 @@ def smoke_policy_errors(workflow):
     if not action_uses or any(not re.fullmatch(r"[^@]+@[0-9a-f]{40}", use) for use in action_uses):
         errors.append("action is not pinned to a full commit")
 
+    errors.extend(job_timeout_errors(jobs, "smoke"))
+
     steps = re.split(r"\n      - name:", jobs)[1:]
     secret_steps = [step for step in steps if "OPENAI_API_KEY:" in step]
     if len(secret_steps) != 1:
@@ -157,6 +190,13 @@ class WorkflowPolicyTests(unittest.TestCase):
         errors = policy_errors(unsafe)
         self.assertIn("posting credential scope is unsafe", errors)
         self.assertIn("AI provider credential must appear in one step only", errors)
+
+    def test_fixture_with_short_review_job_timeout_is_rejected(self):
+        unsafe = self.workflow.replace("    timeout-minutes: 20\n", "    timeout-minutes: 10\n", 1)
+        self.assertIn(
+            "review job timeout 600s does not cover the provider timeout plus margin",
+            " ".join(policy_errors(unsafe)),
+        )
 
     def test_verified_action_commits_are_recorded(self):
         self.assertIn("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683", self.workflow)
@@ -249,6 +289,17 @@ class SmokeWorkflowPolicyTests(unittest.TestCase):
             "AI provider credential step has no empty-secret guard",
             smoke_policy_errors(unsafe),
         )
+
+    def test_fixture_with_short_job_timeout_is_rejected(self):
+        unsafe = self.workflow.replace("    timeout-minutes: 20\n", "    timeout-minutes: 10\n", 1)
+        self.assertIn(
+            "smoke job timeout 600s does not cover the provider timeout plus margin",
+            " ".join(smoke_policy_errors(unsafe)),
+        )
+
+    def test_provider_timeout_and_budget_are_sized_for_xhigh(self):
+        self.assertGreaterEqual(provider_timeout_seconds(), 640)
+        self.assertGreater(provider_timeout_seconds(), 30)
 
 
 if __name__ == "__main__":

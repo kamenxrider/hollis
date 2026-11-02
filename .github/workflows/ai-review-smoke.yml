@@ -27,7 +27,10 @@ jobs:
     # in the job.
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Must outlast PROVIDER_TIMEOUT_SECONDS (900) plus checkout, the synthetic
+    # request, validation, and the artifact upload, so a slow xhigh call still
+    # ends with the helper's own diagnostic instead of a cancelled job.
+    timeout-minutes: 20
     permissions:
       contents: read
 

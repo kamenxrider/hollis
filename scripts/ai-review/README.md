@@ -14,12 +14,18 @@ sent to the model provider.
 The provider call is a direct `POST` to
 `https://api.openai.com/v1/chat/completions`, and every provider value lives in
 one marked configuration block at the top of `ai_review.py`: the URL, the
-expected host, the model, the reasoning effort, the completion budget, and the
-secret's environment variable name. The default model is `gpt-6-luna`, chosen
-from the [model catalog](https://developers.openai.com/api/docs/models/gpt-6-luna)
-and [model selection guide](https://developers.openai.com/api/docs/guides/model-selection)
-as the most cost-efficient text model, which suits a review that runs on every
-pull request. The request uses the documented
+expected host, the model, the reasoning effort, the completion budget, the
+socket timeout, and the secret's environment variable name. The model is
+`gpt-6-luna`, from the
+[model catalog](https://developers.openai.com/api/docs/models/gpt-6-luna). The
+effort is `xhigh`: the model page lists `xhigh` among the efforts this model
+accepts, and the
+[reasoning guide](https://developers.openai.com/api/docs/guides/reasoning)
+names "security and code review" as an `xhigh` use case. The guide also notes
+that `xhigh` costs more latency and tokens, so the budget is sized for it:
+`max_completion_tokens` is 64000, half the model's 128000-token output cap and
+well above the 25000 tokens OpenAI recommends reserving for reasoning, because
+that limit also covers hidden reasoning tokens. The request uses the documented
 [Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
 shape: a `developer` message carrying the reviewer instructions (the documented
 replacement for `system`), a `user` message carrying the diff, and
@@ -28,9 +34,19 @@ replacement for `system`), a `user` message carrying the diff, and
 models reject a non-default value. The key is sent as a bearer token. The
 request contains text messages only and no tools.
 
+A non-streamed `xhigh` completion sends nothing back until the model finishes,
+so the provider call gets its own 900-second socket timeout while the GitHub
+calls keep 30. Both the review job and the smoke job allow 20 minutes, which
+outlasts the socket timeout plus checkout, the GitHub calls, validation, and the
+artifact upload, so a slow call ends with the helper's own diagnostic rather
+than a cancelled job. The policy tests read `PROVIDER_TIMEOUT_SECONDS` from the
+helper and fail if either job timeout drops below it plus a margin.
+
 Responses are rejected if they request a tool or function call, do not finish
 with `stop`, do not carry an `assistant` message, refuse without content, or
-exceed the 60,000-byte review limit. Hidden reasoning output is never read. Model
+exceed the 60,000-byte review limit. `finish_reason` `length` has its own
+message saying the completion budget was exhausted, so a budget problem is not
+mistaken for a provider fault. Hidden reasoning output is never read. Model
 output is stored and posted only as Markdown text. The reviewer analyzes the
 diff only and does not run tests.
 

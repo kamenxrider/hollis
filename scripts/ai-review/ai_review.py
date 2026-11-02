@@ -29,12 +29,23 @@ GITHUB_API_ORIGIN = "https://api.github.com"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_HOST = "api.openai.com"
 OPENAI_MODEL = "gpt-6-luna"
-OPENAI_REASONING_EFFORT = "low"
-MAX_COMPLETION_TOKENS = 20_000
+# The reasoning guide lists "security and code review" as an xhigh use case and
+# the model page lists xhigh among the efforts gpt-6-luna accepts.
+OPENAI_REASONING_EFFORT = "xhigh"
+# max_completion_tokens also covers hidden reasoning tokens. The model caps
+# output at 128000 tokens and OpenAI recommends reserving at least 25000 for
+# reasoning, so 64000 covers xhigh reasoning plus a long review, stays at half
+# the maximum, and bounds the worst-case output cost at about $0.03 per review.
+MAX_COMPLETION_TOKENS = 64_000
+# One blocking socket operation. A non-streamed xhigh completion sends nothing
+# until it finishes, so this wait must outlast deep reasoning: spending the full
+# 64000-token budget at a conservative 100 tokens/s takes 640 seconds.
+PROVIDER_TIMEOUT_SECONDS = 900
 OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
 # -----------------------------------------------------------------------------
 
 MAX_GITHUB_RESPONSE_BYTES = 16 * 1024 * 1024
+GITHUB_TIMEOUT_SECONDS = 30
 MAX_DIFF_BYTES = 120_000
 MAX_DIFF_ARTIFACT_BYTES = MAX_DIFF_BYTES * 6 + 4096
 MAX_MODEL_RESPONSE_BYTES = 1024 * 1024
@@ -100,7 +111,7 @@ class HttpResponse:
     body: bytes
 
 
-Transport = Callable[[str, str, Mapping[str, str], bytes | None, int], HttpResponse]
+Transport = Callable[[str, str, Mapping[str, str], bytes | None, int, int], HttpResponse]
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -138,6 +149,7 @@ def urllib_transport(
     headers: Mapping[str, str],
     body: bytes | None,
     max_bytes: int,
+    timeout_seconds: int,
 ) -> HttpResponse:
     request = urllib.request.Request(url, data=body, headers=dict(headers), method=method)
     opener = urllib.request.build_opener(_NoRedirect())
@@ -148,7 +160,7 @@ def urllib_transport(
     response_error = None
     failed_phase = "open"
     try:
-        with opener.open(request, timeout=30) as response:
+        with opener.open(request, timeout=timeout_seconds) as response:
             headers_received = True
             phase = "metadata"
             try:
@@ -340,12 +352,13 @@ def _request_json(
     payload: Mapping[str, Any] | None,
     max_bytes: int,
     service: str,
+    timeout_seconds: int,
 ) -> Any:
     _validate_fixed_url(url, expected_host)
     body = None
     if payload is not None:
         body = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-    response = transport(method, url, headers, body, max_bytes)
+    response = transport(method, url, headers, body, max_bytes, timeout_seconds)
     if 300 <= response.status < 400:
         raise ReviewError(f"{service} redirect refused")
     if not 200 <= response.status < 300:
@@ -371,10 +384,11 @@ def _request_bytes(
     headers: Mapping[str, str],
     max_bytes: int,
     service: str,
+    timeout_seconds: int,
 ) -> bytes:
     _validate_fixed_url(url, expected_host)
     try:
-        response = transport(method, url, headers, None, max_bytes)
+        response = transport(method, url, headers, None, max_bytes, timeout_seconds)
     except ResponseTooLarge:
         raise ReviewSkipped(f"{service} exceeded the 120000-byte review limit; split it") from None
     if 300 <= response.status < 400:
@@ -476,6 +490,7 @@ def fetch_diff(
         payload=None,
         max_bytes=MAX_GITHUB_RESPONSE_BYTES,
         service="GitHub",
+        timeout_seconds=GITHUB_TIMEOUT_SECONDS,
     )
     _validate_pull_binding(
         pull,
@@ -496,6 +511,7 @@ def fetch_diff(
         headers=compare_headers,
         max_bytes=MAX_DIFF_BYTES,
         service="GitHub compare",
+        timeout_seconds=GITHUB_TIMEOUT_SECONDS,
     )
     try:
         raw_diff = compare_bytes.decode("utf-8")
@@ -552,7 +568,15 @@ def _extract_review(response: Any) -> str:
         if not isinstance(choices, list) or len(choices) != 1:
             raise TypeError
         choice = choices[0]
-        if choice["finish_reason"] != "stop":
+        finish_reason = choice["finish_reason"]
+        if finish_reason == "length":
+            # Say why it stopped, so a budget problem is not mistaken for a
+            # provider fault.
+            raise ReviewError(
+                "AI provider exhausted the "
+                f"{MAX_COMPLETION_TOKENS}-token completion budget before finishing"
+            )
+        if finish_reason != "stop":
             raise ReviewError("AI provider response was incomplete or did not stop normally")
         message = choice["message"]
         if message["role"] != "assistant":
@@ -609,6 +633,7 @@ def create_review(
         payload=payload,
         max_bytes=MAX_MODEL_RESPONSE_BYTES,
         service="AI provider",
+        timeout_seconds=PROVIDER_TIMEOUT_SECONDS,
     )
     review = _extract_review(response)
     return {

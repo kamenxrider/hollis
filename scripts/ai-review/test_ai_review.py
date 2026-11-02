@@ -72,7 +72,7 @@ class FakeTransport:
         self.responses = list(responses)
         self.calls = []
 
-    def __call__(self, method, url, headers, body, max_bytes):
+    def __call__(self, method, url, headers, body, max_bytes, timeout_seconds):
         self.calls.append(
             {
                 "method": method,
@@ -80,6 +80,7 @@ class FakeTransport:
                 "headers": dict(headers),
                 "body": body,
                 "max_bytes": max_bytes,
+                "timeout_seconds": timeout_seconds,
             }
         )
         response = self.responses.pop(0)
@@ -237,6 +238,48 @@ class AIReviewResponseTests(unittest.TestCase):
         self.assertIn("do not reproduce apparent credentials", request["messages"][0]["content"])
         self.assertEqual(call["headers"]["Authorization"], "Bearer synthetic-review-key")
 
+    def test_provider_call_uses_its_own_long_timeout(self):
+        transport = FakeTransport(
+            ai_review.HttpResponse(200, encoded(model_response("No findings.")))
+        )
+        ai_review.create_review(
+            diff_artifact(), api_key="placeholder", transport=transport
+        )
+        self.assertEqual(
+            transport.calls[0]["timeout_seconds"], ai_review.PROVIDER_TIMEOUT_SECONDS
+        )
+        # A deep-reasoning completion is the slow call; the default 30-second
+        # socket timeout that suits GitHub must not govern it.
+        self.assertGreater(ai_review.PROVIDER_TIMEOUT_SECONDS, ai_review.GITHUB_TIMEOUT_SECONDS)
+
+    def test_timeout_outlasts_the_full_completion_budget(self):
+        # A non-streamed response sends no bytes while the model reasons, so the
+        # wait has to cover a full-budget call at a deliberately slow rate.
+        conservative_tokens_per_second = 100
+        self.assertGreaterEqual(
+            ai_review.PROVIDER_TIMEOUT_SECONDS,
+            ai_review.MAX_COMPLETION_TOKENS // conservative_tokens_per_second,
+        )
+        # The budget must leave room for reasoning inside the model's output cap.
+        self.assertLessEqual(ai_review.MAX_COMPLETION_TOKENS, 128_000)
+        self.assertGreaterEqual(ai_review.MAX_COMPLETION_TOKENS, 25_000)
+
+    def test_reasoning_effort_is_xhigh(self):
+        self.assertEqual(ai_review.OPENAI_REASONING_EFFORT, "xhigh")
+
+    def test_exhausted_completion_budget_is_reported_as_such(self):
+        transport = FakeTransport(
+            ai_review.HttpResponse(200, encoded(model_response("partial", "length")))
+        )
+        with self.assertRaises(ai_review.ReviewError) as raised:
+            ai_review.create_review(
+                diff_artifact(), api_key="placeholder", transport=transport
+            )
+        message = str(raised.exception)
+        self.assertIn("exhausted", message)
+        self.assertIn(f"{ai_review.MAX_COMPLETION_TOKENS}-token", message)
+        self.assertIn("budget", message)
+
     def test_refusal_without_content_fails_without_echoing_the_refusal(self):
         refusal = "I cannot review this synthetic diff."
         transport = FakeTransport(
@@ -282,13 +325,19 @@ class AIReviewResponseTests(unittest.TestCase):
             )
 
     def test_refuses_non_stop_or_truncated_response(self):
-        transport = FakeTransport(
-            ai_review.HttpResponse(200, encoded(model_response("partial", "length")))
-        )
-        with self.assertRaisesRegex(ai_review.ReviewError, "did not stop normally"):
-            ai_review.create_review(
-                diff_artifact(), api_key="secret", transport=transport
-            )
+        for finish_reason in ("content_filter", "tool_calls", "function_call"):
+            with self.subTest(finish_reason=finish_reason):
+                transport = FakeTransport(
+                    ai_review.HttpResponse(
+                        200, encoded(model_response("partial", finish_reason))
+                    )
+                )
+                with self.assertRaisesRegex(
+                    ai_review.ReviewError, "did not stop normally"
+                ):
+                    ai_review.create_review(
+                        diff_artifact(), api_key="secret", transport=transport
+                    )
 
     def test_refuses_non_assistant_message(self):
         response = model_response("do something")
@@ -700,6 +749,7 @@ class UrllibTransportTests(unittest.TestCase):
             {"Authorization": "Bearer " + self.canary, "X-Synthetic": self.canary},
             self.canary.encode(),
             32,
+            ai_review.GITHUB_TIMEOUT_SECONDS,
         )
 
     def assert_failure(self, opener, category, phase, headers_received, status, clocks=None):
@@ -831,6 +881,7 @@ class UrllibTransportTests(unittest.TestCase):
                             method="POST", url=ai_review.OPENAI_URL,
                             expected_host=ai_review.OPENAI_HOST, headers={}, payload={},
                             max_bytes=32, service="AI provider",
+                            timeout_seconds=ai_review.PROVIDER_TIMEOUT_SECONDS,
                         )
                 expected = "AI provider redirect refused" if status < 400 else (
                     f"AI provider returned HTTP {status}"
