@@ -101,11 +101,22 @@ Run `hollis chat` with no argument in a terminal for an interactive session — 
 ```
 $ hollis chat
 New chat · auto · 6f2c…
+Type /help for commands; Ctrl-D leaves.
 > What is a closure?
 < A closure is a function that captures variables from its surrounding scope.
 > Give me one in Go.
 < func counter() func() int { i := 0; return func() int { i++; return i } }
 ```
+
+Interactive sessions accept a few commands instead of sending the line to the model:
+
+| Input | Effect |
+| --- | --- |
+| `/help` | Show the commands |
+| `/image <prompt>` | Generate an image (needs `--output` and a style or bridge) |
+| `quit`, `exit`, `/quit`, `/exit` | Leave the chat; Ctrl-D also leaves |
+
+Anything else is a prompt. Commands are matched exactly after case folding, so `/imageology` and `help me` still go to the model.
 
 Managing them:
 
@@ -120,6 +131,17 @@ hollis chats delete <id> --yes
 The whole search query is treated as one phrase, so hyphenated tokens like `VANTA-ORBIT` match verbatim. Archived conversations are skipped.
 
 A continuation always uses the model stored with that conversation. Combining `--continue` with a positional model or explicit `--model` is rejected. Hollis stores complete turns atomically and preserves complete history; when a chat reaches 256 stored messages or its rendered prompt exceeds 128 KiB, it fails clearly instead of trimming or summarizing it.
+
+## Code output
+
+`--code` prints only the first fenced code block, so an answer can go straight into a file:
+
+```bash
+hollis respond --code "Write a Go function that reverses a slice" > reverse.go
+hollis respond --code --model local "A shell one-liner that lists PNG files"
+```
+
+A response without a fence is printed unchanged, with one trailing newline. When there is nothing to print, the command exits 7 with a message that says no code was printed; 7 is otherwise the timeout exit, and `--code` rejects JSON and agent output, so no machine code is emitted. `--code` is complete output only: it is refused with `--stream` and `--schema`, and a terminal local run does not stream.
 
 ## Scripts and agents
 
@@ -166,7 +188,7 @@ Exit codes are stable and parseable:
 | 2 | Usage error — bad flag, unknown model, empty prompt, near-miss command name |
 | 3 | Missing resource — unknown conversation id, no search hits, bridge not installed |
 | 5 | Discovery, transport, Shortcut execution, declined request, or Apple rate-limit failure |
-| 7 | Timeout — the run exceeded its deadline and was killed |
+| 7 | Timeout — the run exceeded its deadline and was killed; also `--code` when there is no code to print |
 | 10 | Config or database error |
 
 Specific JSON codes such as `request_declined`, `shortcut_failed`,
@@ -250,6 +272,7 @@ it on startup failure or an executable switch. To recover deliberately:
 hollis respond "prompt"                    # one-shot response
 hollis "prompt"                            # same as hollis respond "prompt"
 hollis respond --model cloud-pro "prompt"  # explicit Cloud Pro
+hollis respond --code "prompt" > file.go   # first fenced code block
 hollis respond --image photo.jpg "describe" # image input; defaults to Cloud
 hollis respond --file notes.md "summarize"   # attach a text document
 hollis image generate "A lighthouse" --style sketch --output lighthouse.png

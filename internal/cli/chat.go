@@ -473,6 +473,7 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 	} else {
 		fmt.Fprintf(errOut, "New chat · %s\n", model)
 	}
+	fmt.Fprintln(errOut, "Type /help for commands; Ctrl-D leaves.")
 
 	// bufio.Reader, not Scanner: Scanner caps a line at 64KB and reports the
 	// overflow as EOF, so pasting a long prompt silently ended the session.
@@ -486,6 +487,15 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 			return usageErr(readErr)
 		}
 		if line := strings.TrimSpace(raw); line != "" {
+			switch replCommand(line, errOut) {
+			case replLeave:
+				return nil
+			case replHandled:
+				if readErr != nil {
+					return nil
+				}
+				continue
+			}
 			if imagePrompt, isImage := parseInteractiveImagePrompt(line); isImage {
 				if model == string(runner.ModelLocal) || conv.Model == string(runner.ModelLocal) {
 					return usageErr(errors.New("local does not support image generation"))
@@ -558,6 +568,33 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 			return nil
 		}
 	}
+}
+
+// replAction is how the interactive loop treats one typed line.
+type replAction int
+
+const (
+	// replPrompt sends the line to the model, the default for anything that is
+	// not a recognized command.
+	replPrompt replAction = iota
+	// replHandled ran the line as a command and stays in the session.
+	replHandled
+	// replLeave ends the session with success, like Ctrl-D.
+	replLeave
+)
+
+// replCommand recognizes the word and slash commands the REPL owns. Commands are
+// matched exactly after case folding, so ordinary text such as "/imageology" or
+// "help me" still goes to the model.
+func replCommand(line string, errOut io.Writer) replAction {
+	switch strings.ToLower(line) {
+	case "quit", "exit", "/quit", "/exit":
+		return replLeave
+	case "/help":
+		fmt.Fprintln(errOut, replHelp)
+		return replHandled
+	}
+	return replPrompt
 }
 
 func readBoundedPromptLine(rd *bufio.Reader, limit int) (string, error) {

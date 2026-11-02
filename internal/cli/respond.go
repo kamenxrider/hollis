@@ -32,6 +32,7 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		images     []string
 		stream     bool
 		schemaFile string
+		code       bool
 	)
 	cmd := &cobra.Command{
 		Use:   "respond [prompt]",
@@ -59,7 +60,12 @@ hollis models. Select local for Apple's native system model with genuine
 streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.
 Guide the native response with --schema <file>: the supported JSON Schema
 subset is validated before anything runs, and the returned object is checked
-again before it is reported as success.`,
+again before it is reported as success.
+Use --code to print only the first fenced code block, so the answer can be
+redirected into a source file. A response without a fence is printed as it is,
+and an empty response fails with exit 7 and a message that says no code was
+printed. --code is complete-only: it is refused with JSON or agent output,
+--stream and --schema.`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
   hollis respond model cloud-pro "Draft a reply"
   printf 'long prompt from a pipeline' | hollis respond
@@ -72,6 +78,7 @@ again before it is reported as success.`,
   hollis respond --model cloud-pro --image a.png --image b.png "Compare them"
   hollis respond --model cloud-pro "Flag form also works"
   hollis respond --model local --schema person.json "Invent one person"
+  hollis respond --code "Write a Go function that reverses a slice" > reverse.go
   hollis respond --agent "Return strict JSON describing X"`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := validateTimeout(cmd, timeout); err != nil {
@@ -90,6 +97,17 @@ again before it is reported as success.`,
 			}
 			if cmd.Flags().Changed("schema") && len(images) > 0 {
 				return usageErr(errors.New("--schema cannot be combined with --image: guided output is text-only"))
+			}
+			if code {
+				if flags.asJSON || flags.agent {
+					return usageErr(errors.New("--code cannot be combined with JSON or agent output"))
+				}
+				if cmd.Flags().Changed("stream") && stream {
+					return usageErr(errors.New("--code is complete-only and cannot be combined with --stream"))
+				}
+				if cmd.Flags().Changed("schema") {
+					return usageErr(errors.New("--code cannot be combined with --schema: guided output is an object, not code"))
+				}
 			}
 			// File input accepts piped stdin as its instruction, so the
 			// presence of that source is decided in RunE, where stdin can be
@@ -260,6 +278,11 @@ again before it is reported as success.`,
 			if err != nil {
 				return err
 			}
+			if code {
+				// --code needs the complete text to find the block; a terminal
+				// local run would otherwise stream prose into the redirection.
+				streaming = false
+			}
 			r := newRunner()
 			// Handle interruption only after reading the prompt, so idle stdin
 			// retains normal signal behavior while in-flight staging can unwind.
@@ -345,6 +368,20 @@ again before it is reported as success.`,
 				}
 				fmt.Fprintf(cmd.ErrOrStderr(), "hollis: fallback %s: answered with %s\n", reason, used)
 			}
+			if code {
+				// --code is an output contract, not a rewrite: the first fenced
+				// block when the answer has one, the answer itself otherwise.
+				codeText := text
+				if block, ok := firstFencedBlock(text); ok {
+					codeText = block
+				}
+				codeText = strings.TrimRight(codeText, "\n")
+				if strings.TrimSpace(codeText) == "" {
+					return codeAbsentErr()
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), humanTerminalText(cmd.OutOrStdout(), codeText))
+				return nil
+			}
 			if len(structured) != 0 {
 				// Human guided output is the object itself, indented; the raw
 				// text field is the same JSON, so printing both would duplicate
@@ -379,6 +416,7 @@ again before it is reported as success.`,
 	cmd.Flags().StringArrayVar(&documents, "file", nil, "UTF-8 .txt or .md document to include; repeat to preserve source order")
 	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (ChatGPT accepts one; unavailable with auto/on-device)")
 	cmd.Flags().StringVar(&schemaFile, "schema", "", "JSON Schema file for guided native-local output; requires --model local and completes without streaming")
+	cmd.Flags().BoolVar(&code, "code", false, "Print only the first fenced code block (or the whole answer when there is no fence); exit 7 when there is nothing to print")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	return cmd
 }

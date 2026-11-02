@@ -177,6 +177,10 @@ See README.md for recipes.`,
 			return unknownRootCommandError(cmd, args)
 		},
 	}
+	// Examples, environment and exit codes are appended from the same tables
+	// agent-context publishes, so the human help cannot drift from the
+	// machine-readable contract.
+	rootCmd.Long = rootLongHelp(rootCmd.Long)
 	rootCmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return usageErr(fmt.Errorf("invalid command flags: %w", err))
 	})

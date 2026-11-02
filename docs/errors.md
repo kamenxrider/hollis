@@ -64,6 +64,11 @@ deadline alone. Preserve the uncertain result and do not automatically retry.
 For a future request, `--timeout` can be raised up to the 120-second ceiling.
 CLI timeout remains exit 7 with machine code `timeout`.
 
+`respond --code` shares exit 7 when the response contains no code block and no
+text to print. That message says no code was printed and never reports a
+timeout; `--code` rejects JSON and agent output, so it does not emit a machine
+code.
+
 Runtime `auto` tries Cloud once and can try On-Device once **only** after a
 confirmed missing bridge or recognized rate limit. Declines, unknown failures,
 empty output, timeouts, cancellations and crashes stop without a second model
