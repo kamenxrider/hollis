@@ -15,7 +15,11 @@ and agent schema version remain unchanged.
 `native_protocol` is a component mismatch, not a bad invocation: the command
 was understood and the installed helper cannot serve it. It deliberately shares
 exit 5 with the transport family so a script can treat a stale pairing like any
-other failed execution, while the machine code names the cause.
+other failed execution, while the machine code names the cause. `hollis serve`
+keeps the classification from its startup status probe, so a paired helper that
+answers with another protocol or version is 502 `native_protocol` for every
+`local` request, guided or plain; a missing or unavailable helper stays 400
+`model_unavailable`.
 
 `request_declined` does **not** establish why Apple declined. It is not proof of
 a safety-filter rejection, a rate limit, or a broken bridge. Hollis recognizes

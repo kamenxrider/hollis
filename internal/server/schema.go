@@ -203,6 +203,14 @@ func (s *Server) validateGuidedModel(w http.ResponseWriter, name string) (runner
 			"the configured runner does not support guided output")
 		return "", false
 	}
+	// A startup probe that already classified the paired helper as a
+	// protocol/version mismatch is reported as that mismatch. The availability
+	// map only records "not available" and would turn a component mismatch into
+	// a generic unavailability, which is a different remedy.
+	if mismatch := s.localProtocolMismatch(); mismatch != nil {
+		writeNativeError(w, mismatch)
+		return "", false
+	}
 	if s.Available != nil {
 		if available, ok := s.Available[name]; !ok || !available {
 			writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "model_unavailable", "the selected model is unavailable")

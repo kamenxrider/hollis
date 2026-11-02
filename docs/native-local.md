@@ -143,7 +143,11 @@ asked which protocol it speaks before a schema request spawns, so an older helpe
 costs no inference: it is refused, pointing at the matching bundle.
 Pairing the CLI with any other helper release is a
 mismatch for every operation, guided or not; the refusal names the cause instead
-of degrading to plain text.
+of degrading to plain text. The HTTP server carries the same rule: a startup
+status probe that names another protocol or version is reported as 502
+`native_protocol` for every `local` request, guided or plain, while a missing or
+unavailable helper stays 400 `model_unavailable`. Nothing reaches inference
+either way; see [the API guide](api.md#native-local-helper-mismatch).
 
 ## Install the matching helper
 

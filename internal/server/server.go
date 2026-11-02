@@ -44,8 +44,14 @@ type Server struct {
 	// expose model execution without authentication.
 	AllowUnauthenticated bool
 	Available            map[string]bool
-	MaxConcurrency       int
-	ImageGenerator       imagegen.Generator
+	// LocalStatusError is the classified failure of the startup native status
+	// probe, nil when it succeeded or never ran. A protocol/version mismatch is
+	// kept so the local routes can report the mismatch itself instead of the
+	// generic unavailability the Available gate would give; every other error
+	// stays behind that gate, where a missing helper is an availability fact.
+	LocalStatusError error
+	MaxConcurrency   int
+	ImageGenerator   imagegen.Generator
 	// ImageBridge is one parameterized JSON Shortcut supporting every style.
 	ImageBridge string
 	// ImageBridges is an explicit style-to-Shortcut allowlist. HTTP callers
@@ -547,11 +553,32 @@ func (s *Server) validateModel(w http.ResponseWriter, name string) (runner.Model
 		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_parameter", fmt.Sprintf("unsupported model %q", name))
 		return "", false
 	}
+	// A helper the startup probe already classified as a protocol/version
+	// mismatch answers every local request the same way, guided or plain: the
+	// paired component disagrees with this CLI, which is native_protocol/502,
+	// not an availability fact about the model.
+	if model == runner.ModelLocal {
+		if mismatch := s.localProtocolMismatch(); mismatch != nil {
+			writeNativeError(w, mismatch)
+			return "", false
+		}
+	}
 	if !s.modelAvailable(name) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "model_unavailable", "the selected model is unavailable")
 		return "", false
 	}
 	return model, true
+}
+
+// localProtocolMismatch reports the startup status probe's error when it
+// classified the helper as a protocol/version mismatch. Any other probe
+// failure, including a missing helper, keeps the availability contract.
+func (s *Server) localProtocolMismatch() error {
+	var classified *runner.Error
+	if errors.As(s.LocalStatusError, &classified) && classified.Kind == runner.KindNativeProtocol {
+		return classified
+	}
+	return nil
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, destination any) bool {
