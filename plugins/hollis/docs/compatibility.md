@@ -8,6 +8,8 @@
 | Apple readiness | Enable Apple Intelligence and complete Apple's downloads/first-use approvals; inference is the final check |
 | Text | Shortcuts Cloud, Cloud Pro, On-Device, ChatGPT; explicit native `local` in 0.2.0 |
 | Native Local | Matching bundled helper; no Shortcut import; human text streaming, complete agent/JSON replies |
+| Guided output (`--schema`) | Native local only; requires helper 0.5.0/protocol 2 matched to the CLI, reported as `helper_protocol: 2` and `capabilities.guided_output: true` |
+| Local diagnostics | Measured `usage` on complete responses; measured `context_size` from protocol-2 availability checks; no streaming usage, allowance or reset time |
 | Image understanding | Cloud, Cloud Pro, ChatGPT; not On-Device |
 | Generation | Animation, Illustration, Sketch, Genmoji, Any Style; unlocked session required |
 | Host integration | Claude Code first; Codex shares the same source skills and scripts |
