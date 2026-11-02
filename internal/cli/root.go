@@ -97,7 +97,7 @@ run 'hollis image generate --help' for setup and limits.
 
 Model tiers: run 'hollis models' to see what resolves on this machine
 (cloud-pro is macOS 27+). Bridge shortcuts are resolved at runtime:
-config override > installed name; a compiled development UUID is retained only
+config override > installed name; a compiled placeholder UUID is retained only
 as an unverified candidate ('hollis config set bridge <tier> <name-or-uuid>'
 to override).
 Default model: auto (cloud first, then one on-device fallback only for an

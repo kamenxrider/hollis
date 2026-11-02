@@ -58,9 +58,9 @@ type RouteSpec struct {
 	// BridgeNames are the expected import display names, most specific
 	// first (the ".signed" spelling before the bare name). nil for native.
 	BridgeNames []string
-	// CompiledUUID is the compile-time fallback reference: a private
-	// artifact of the measured macOS 27 machine, never availability
-	// evidence on another host. Empty for native.
+	// CompiledUUID is the compile-time placeholder reference: synthetic,
+	// never a captured workflow ID, and never availability evidence on a
+	// host. Empty for native.
 	CompiledUUID string
 	// MinOSMajor is the measured minimum macOS major version, or 0 when
 	// no such constraint was measured (only cloud-pro carries 27 today).

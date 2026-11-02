@@ -18,7 +18,7 @@ Shortcuts UUIDs differ on every Mac, so hollis resolves each tier at runtime, in
 
 1. An explicit configured bridge
 2. A stable bridge name found via `shortcuts list`
-3. A compiled development UUID — kept only as an unverified candidate, never treated as proof the bridge exists
+3. A compiled placeholder UUID — a synthetic, well-formed identifier that names no shortcut on any Mac, kept only as an unverified candidate and never treated as proof the bridge exists
 
 ```bash
 hollis config set bridge cloud "AFM Bridge - Cloud.signed"

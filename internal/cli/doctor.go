@@ -16,8 +16,8 @@ import (
 // defect when the fields were unexported.
 type bridgeCheck struct {
 	Model string `json:"model"`
-	// UUID is the compiled fallback reference — a private artifact of the
-	// measured macOS 27 machine, not necessarily what Run invokes.
+	// UUID is the compiled placeholder reference — a synthetic identifier
+	// that names no shortcut on any Mac, not necessarily what Run invokes.
 	UUID string `json:"uuid"`
 	// Name is the expected import name from make-bridge.py.
 	Name string `json:"name"`

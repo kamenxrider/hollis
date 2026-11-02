@@ -111,8 +111,8 @@ func bridgeOverrides(c config) map[runner.Model]string {
 
 // resolveBridges computes the runtime bridge resolution used across the
 // CLI: config override > `shortcuts
-// list` name match > compiled UUID. The list subprocess is skipped only
-// when every tier has a config override.
+// list` name match > compiled placeholder UUID. The list subprocess is skipped
+// only when every tier has a config override.
 func resolveBridges(ctx context.Context) (map[runner.Model]runner.ResolvedBridge, error) {
 	c, err := loadConfig()
 	if err != nil {
@@ -163,8 +163,8 @@ func checkModelAvailable(resolved map[runner.Model]runner.ResolvedBridge, m runn
 }
 
 // canAttemptAfterDiscoveryFailure is deliberately narrow: only explicit
-// user-configured references survive a failed `shortcuts list`. Compiled UUIDs
-// are candidates, never installation proof.
+// user-configured references survive a failed `shortcuts list`. Compiled
+// placeholders are candidates, never installation proof.
 func canAttemptAfterDiscoveryFailure(resolved map[runner.Model]runner.ResolvedBridge, m runner.Model) bool {
 	configured := func(tier runner.Model) bool {
 		rb, ok := resolved[tier]
