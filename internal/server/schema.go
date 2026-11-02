@@ -195,6 +195,16 @@ func (s *Server) validateGuidedModel(w http.ResponseWriter, name string) (runner
 			"guided output requires model \"local\"; other routes cannot enforce a schema and never fall back to plain text")
 		return "", false
 	}
+	// A startup probe that already classified the paired helper as a
+	// protocol/version mismatch is reported as that mismatch, ahead of the
+	// interface check: the diagnosis belongs to the helper, not to how this
+	// server was constructed. The availability map only records "not
+	// available" and would turn a component mismatch into a generic
+	// unavailability, which is a different remedy.
+	if s.localProtocolMismatch() {
+		writeLocalProtocolMismatch(w)
+		return "", false
+	}
 	// Guided output needs the schema interface, not the complete interface a
 	// plain local completion needs. A runner without it is a configuration
 	// failure, not a usage error, and never a reason to answer in plain text.

@@ -44,8 +44,14 @@ type Server struct {
 	// expose model execution without authentication.
 	AllowUnauthenticated bool
 	Available            map[string]bool
-	MaxConcurrency       int
-	ImageGenerator       imagegen.Generator
+	// LocalStatusError is the classified failure of the startup native status
+	// probe, nil when it succeeded or never ran. A protocol/version mismatch is
+	// kept so the local routes can report the mismatch itself instead of the
+	// generic unavailability the Available gate would give; every other error
+	// stays behind that gate, where a missing helper is an availability fact.
+	LocalStatusError error
+	MaxConcurrency   int
+	ImageGenerator   imagegen.Generator
 	// ImageBridge is one parameterized JSON Shortcut supporting every style.
 	ImageBridge string
 	// ImageBridges is an explicit style-to-Shortcut allowlist. HTTP callers
@@ -547,11 +553,44 @@ func (s *Server) validateModel(w http.ResponseWriter, name string) (runner.Model
 		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_parameter", fmt.Sprintf("unsupported model %q", name))
 		return "", false
 	}
+	// A helper the startup probe already classified as a protocol/version
+	// mismatch answers every local request the same way, guided or plain: the
+	// paired component disagrees with this CLI, which is native_protocol/502,
+	// not an availability fact about the model.
+	if model == runner.ModelLocal && s.localProtocolMismatch() {
+		writeLocalProtocolMismatch(w)
+		return "", false
+	}
 	if !s.modelAvailable(name) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "model_unavailable", "the selected model is unavailable")
 		return "", false
 	}
 	return model, true
+}
+
+// localMismatchMessage is the HTTP sentence for a paired helper the startup
+// status probe classified as a protocol/version mismatch. The shared
+// native_protocol sentence describes a malformed payload from a correctly
+// paired helper, which is not this case: the helper answered validly, in
+// another protocol. The remedy matches the CLI's runner error.
+const localMismatchMessage = "the native local helper does not match this Hollis version; install the matching bundle"
+
+// localProtocolMismatch reports whether the startup status probe classified
+// the helper as a protocol/version mismatch. Any other probe failure,
+// including a missing helper, keeps the availability contract.
+func (s *Server) localProtocolMismatch() bool {
+	var classified *runner.Error
+	return errors.As(s.LocalStatusError, &classified) && classified.Kind == runner.KindNativeProtocol
+}
+
+// writeLocalProtocolMismatch answers with the component-mismatch diagnostic.
+// It deliberately does not reuse the shared native_protocol sentence, which
+// describes a bad or incomplete payload rather than a helper that disagreed
+// about its protocol.
+func writeLocalProtocolMismatch(w http.ResponseWriter) {
+	writeJSON(w, http.StatusBadGateway, map[string]any{"error": map[string]any{
+		"type": "server_error", "code": "native_protocol", "message": localMismatchMessage,
+	}})
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, destination any) bool {

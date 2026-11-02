@@ -259,6 +259,7 @@ curl -sS http://127.0.0.1:1978/v1/chat/completions \
 - Through Shortcuts, answers are complete and token usage is unavailable; `stream: true` returns 400.
 - Native `local` supports real SSE streaming on both endpoints and measured token usage on complete responses. Streaming usage is not promised.
 - Guided JSON output on `local` is available through `--schema` on the CLI and through `response_format` / `text.format` on both HTTP endpoints. It is current source, not in the pinned 0.4.0 runtime, and the object is returned as a JSON string.
+- A paired native helper that speaks another protocol or version is 502 `native_protocol` on `local` requests, guided or plain, matching CLI exit 5 and naming the matching bundle; a missing or unavailable helper stays 400 `model_unavailable`.
 - CLI `--json` and `--agent` output never stream; explicit streaming with either is rejected.
 - No API tools/function calls. `system` and `instructions` are advisory prompt content.
 
