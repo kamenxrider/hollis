@@ -1,5 +1,6 @@
 // Copyright 2026 kamenxrider and contributors. Licensed under Apache-2.0. See LICENSE.
-// Adapted from the Printing Press agent contract (delpher internal/cli/agent_context.go).
+// Implements the agent contract: a machine-readable description of every
+// command, its flags, result fields and stable exit codes.
 
 package cli
 

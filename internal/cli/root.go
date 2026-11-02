@@ -1,7 +1,7 @@
 // Copyright 2026 kamenxrider and contributors. Licensed under Apache-2.0. See LICENSE.
 
-// Package cli implements the hollis command surface in the Printing Press
-// conventions (cobra, --agent/--json/--select, stable exit codes, agent-context).
+// Package cli implements the hollis command surface with cobra,
+// --agent/--json/--select and stable exit codes, and exposes agent-context.
 package cli
 
 import (
