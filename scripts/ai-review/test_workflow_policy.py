@@ -3,8 +3,38 @@ import unittest
 from pathlib import Path
 
 
-WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "poolside-review.yml"
-SMOKE_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "poolside-smoke.yml"
+WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "ai-review.yml"
+SMOKE_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "ai-review-smoke.yml"
+HELPER = Path(__file__).parents[2] / "scripts" / "ai-review" / "ai_review.py"
+
+# Headroom over the helper's socket timeout for checkout, the GitHub calls, the
+# artifact upload, and runner scheduling.
+JOB_TIMEOUT_MARGIN_SECONDS = 300
+
+
+def provider_timeout_seconds():
+    match = re.search(
+        r"^PROVIDER_TIMEOUT_SECONDS = ([\d_]+)$", HELPER.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if match is None:
+        raise AssertionError("helper does not define PROVIDER_TIMEOUT_SECONDS")
+    return int(match.group(1).replace("_", ""))
+
+
+def job_timeout_errors(workflow, label):
+    """A cancelled job would hide the helper's own diagnostic."""
+    match = re.search(r"^    timeout-minutes: (\d+)$", workflow, re.MULTILINE)
+    if match is None:
+        return [f"{label} has no job timeout"]
+    budget = int(match.group(1)) * 60
+    required = provider_timeout_seconds() + JOB_TIMEOUT_MARGIN_SECONDS
+    if budget < required:
+        return [
+            f"{label} job timeout {budget}s does not cover the provider timeout "
+            f"plus margin ({required}s)"
+        ]
+    return []
 
 
 def step_block(workflow, name):
@@ -30,8 +60,9 @@ def policy_errors(workflow):
         errors.append("draft guard is not enforced in both jobs")
     if "persist-credentials: false" not in workflow or "path: trusted-source" not in workflow:
         errors.append("trusted checkout policy is incomplete")
-    if "python3 trusted-source/scripts/poolside-review/poolside_review.py" not in workflow:
-        errors.append("helper is not run from trusted source")
+    for command in ("fetch-diff", "create-review"):
+        if f"python3 trusted-source/scripts/ai-review/ai_review.py {command}" not in workflow:
+            errors.append(f"helper {command} is not run from trusted source")
     lowered = workflow.lower()
     for forbidden in ("curl ", "| sh", "pool exec", "unsafe-auto-allow"):
         if forbidden in lowered:
@@ -43,6 +74,7 @@ def policy_errors(workflow):
     if "\n  review:\n" not in workflow or "\n  post:\n" not in workflow:
         return errors + ["separate review and post jobs are required"]
     review_job, post_job = workflow.split("\n  review:\n", 1)[1].split("\n  post:\n", 1)
+    errors.extend(job_timeout_errors(review_job, "review"))
     if "issues: write" in review_job or "pull-requests: write" in review_job:
         errors.append("review job has comment write permission")
     if re.search(r"^\s{6}(?!issues: write$)[a-z-]+:\s+(?:read|write)$", post_job, re.MULTILINE):
@@ -51,20 +83,22 @@ def policy_errors(workflow):
         errors.append("post job lacks issue comment permission")
 
     fetch = step_block(workflow, "Fetch the validated pull request diff")
-    inference = step_block(workflow, "Request a text-only Poolside review")
+    inference = step_block(workflow, "Request a text-only AI review")
     validate = step_block(workflow, "Validate the artifact as inert data")
     post = step_block(workflow, "Post the review comment")
-    if "GH_TOKEN:" not in fetch or "POOLSIDE_API_KEY" in fetch:
+    if "GH_TOKEN:" not in fetch or "OPENAI_API_KEY" in fetch:
         errors.append("fetch credential scope is unsafe")
-    if "POOLSIDE_API_KEY:" not in inference or "GH_TOKEN:" in inference:
-        errors.append("Poolside credential scope is unsafe")
-    if "GH_TOKEN:" in validate or "POOLSIDE_API_KEY" in validate:
+    if "OPENAI_API_KEY:" not in inference or "GH_TOKEN:" in inference:
+        errors.append("AI provider credential scope is unsafe")
+    if "GH_TOKEN:" in validate or "OPENAI_API_KEY" in validate:
         errors.append("artifact validation receives a credential")
-    if "GH_TOKEN:" not in post or "POOLSIDE_API_KEY" in post:
+    if "GH_TOKEN:" not in post or "OPENAI_API_KEY" in post:
         errors.append("posting credential scope is unsafe")
-    if workflow.count("POOLSIDE_API_KEY:") != 1:
-        errors.append("Poolside credential must appear in one step only")
-    if "${{ runner.temp }}/poolside-review/review.json" not in workflow:
+    if workflow.count("OPENAI_API_KEY:") != 1:
+        errors.append("AI provider credential must appear in one step only")
+    if "OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}" not in workflow:
+        errors.append("AI provider credential is not wired to its secret")
+    if "${{ runner.temp }}/ai-review/review.json" not in workflow:
         errors.append("artifact is not outside trusted source")
     if "keys == [\"base_sha\", \"head_sha\", \"pull_request\", \"repository\", \"review_markdown\", \"schema_version\"]" not in workflow:
         errors.append("posting artifact schema is not exact")
@@ -113,12 +147,19 @@ def smoke_policy_errors(workflow):
     if not action_uses or any(not re.fullmatch(r"[^@]+@[0-9a-f]{40}", use) for use in action_uses):
         errors.append("action is not pinned to a full commit")
 
+    errors.extend(job_timeout_errors(jobs, "smoke"))
+
     steps = re.split(r"\n      - name:", jobs)[1:]
-    secret_steps = [step for step in steps if "POOLSIDE_API_KEY:" in step]
+    secret_steps = [step for step in steps if "OPENAI_API_KEY:" in step]
     if len(secret_steps) != 1:
-        errors.append("Poolside credential must appear in exactly one step")
-    elif "poolside_review.py create-review" not in secret_steps[0]:
-        errors.append("Poolside credential step does not run the review helper")
+        errors.append("AI provider credential must appear in exactly one step")
+    else:
+        if "ai_review.py create-review" not in secret_steps[0]:
+            errors.append("AI provider credential step does not run the review helper")
+        if '[ -z "${OPENAI_API_KEY:-}" ]' not in secret_steps[0]:
+            errors.append("AI provider credential step has no empty-secret guard")
+    if "OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}" not in workflow:
+        errors.append("AI provider credential is not wired to its secret")
     return errors
 
 
@@ -138,17 +179,24 @@ class WorkflowPolicyTests(unittest.TestCase):
         )
         self.assertIn("checkout is not bound to base SHA", policy_errors(unsafe))
 
-    def test_fixture_with_poolside_secret_in_post_job_is_rejected(self):
+    def test_fixture_with_provider_secret_in_post_job_is_rejected(self):
         unsafe = self.workflow.replace(
             "          GH_TOKEN: ${{ github.token }}\n          REVIEW_REQUEST:",
             "          GH_TOKEN: ${{ github.token }}\n"
-            "          POOLSIDE_API_KEY: ${{ secrets.POOLSIDE_API_KEY }}\n"
+            "          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}\n"
             "          REVIEW_REQUEST:",
             1,
         )
         errors = policy_errors(unsafe)
         self.assertIn("posting credential scope is unsafe", errors)
-        self.assertIn("Poolside credential must appear in one step only", errors)
+        self.assertIn("AI provider credential must appear in one step only", errors)
+
+    def test_fixture_with_short_review_job_timeout_is_rejected(self):
+        unsafe = self.workflow.replace("    timeout-minutes: 20\n", "    timeout-minutes: 10\n", 1)
+        self.assertIn(
+            "review job timeout 600s does not cover the provider timeout plus margin",
+            " ".join(policy_errors(unsafe)),
+        )
 
     def test_verified_action_commits_are_recorded(self):
         self.assertIn("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683", self.workflow)
@@ -221,11 +269,37 @@ class SmokeWorkflowPolicyTests(unittest.TestCase):
     def test_fixture_with_second_secret_step_is_rejected(self):
         unsafe = self.workflow.replace(
             '        run: echo "commit=$(git -C trusted-source rev-parse HEAD)" >>"$GITHUB_OUTPUT"',
-            "        env:\n          POOLSIDE_API_KEY: ${{ secrets.POOLSIDE_API_KEY }}\n"
+            "        env:\n          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}\n"
             '        run: echo "commit=$(git -C trusted-source rev-parse HEAD)" >>"$GITHUB_OUTPUT"',
             1,
         )
-        self.assertIn("Poolside credential must appear in exactly one step", smoke_policy_errors(unsafe))
+        self.assertIn("AI provider credential must appear in exactly one step", smoke_policy_errors(unsafe))
+
+    def test_fixture_without_empty_secret_guard_is_rejected(self):
+        guard = (
+            '          if [ -z "${OPENAI_API_KEY:-}" ]; then\n'
+            '            echo "OPENAI_API_KEY is not configured for this repository; '
+            'add the secret and dispatch again." >&2\n'
+            "            exit 1\n"
+            "          fi\n"
+        )
+        self.assertIn(guard, self.workflow)
+        unsafe = self.workflow.replace(guard, "", 1)
+        self.assertIn(
+            "AI provider credential step has no empty-secret guard",
+            smoke_policy_errors(unsafe),
+        )
+
+    def test_fixture_with_short_job_timeout_is_rejected(self):
+        unsafe = self.workflow.replace("    timeout-minutes: 20\n", "    timeout-minutes: 10\n", 1)
+        self.assertIn(
+            "smoke job timeout 600s does not cover the provider timeout plus margin",
+            " ".join(smoke_policy_errors(unsafe)),
+        )
+
+    def test_provider_timeout_and_budget_are_sized_for_xhigh(self):
+        self.assertGreaterEqual(provider_timeout_seconds(), 640)
+        self.assertGreater(provider_timeout_seconds(), 30)
 
 
 if __name__ == "__main__":
