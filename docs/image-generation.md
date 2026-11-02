@@ -89,9 +89,17 @@ provider refusals and build-specific behavior recorded rather than hidden.
 **ChatGPT image generation is blocked on the tested build** (`26A5425a`). Fixed
 and parameterized Shortcuts failed before inference with a Shortcuts ToolKit
 database sandbox denial (`SQLite error 23`), while native Image Playground
-worked. This does not affect the separate ChatGPT text/image-understanding
-bridge. No supported repair was established; Hollis does not silently substitute
-a provider. Recheck after a supported Apple update.
+worked. That is the historical signature, kept for comparison.
+
+A later check on 2026-11-02, on the current source, saw the same request refused
+in under a second with exit 5 `request_declined` ("Apple asked for a different
+description; the underlying reason was not specified.") before any image was
+made. The observed signature differs; the conclusion does not. The style stays
+blocked, Hollis still does not silently substitute a provider, and neither
+signature is claimed as permanent. Recheck after a supported Apple update.
+
+This does not affect the separate ChatGPT text/image-understanding
+bridge.
 
 A native “This shortcut requires your Mac to be unlocked” error becomes
 `image_session_locked` (HTTP409). Hollis does not manipulate the session or retry.

@@ -41,7 +41,10 @@ answer, and do not treat the refusal as a missing bridge.
 a safety-filter rejection, a rate limit, or a broken bridge. Hollis recognizes
 only the complete recorded failed-process diagnostic. It never classifies a
 successful answer by refusal-like wording. Public messages for declined and
-unknown execution errors omit raw stderr, private paths and credentials.
+unknown execution errors omit raw stderr, private paths and credentials. The
+blocked ChatGPT image style reports this code when the Shortcut declines the
+request; observed signatures have changed between builds, and the code names
+the refusal, not its cause.
 
 The mapping covers direct text/image commands, stored conversations, and the
 chat, Responses and image HTTP endpoints. Existing timeout, missing-resource,
