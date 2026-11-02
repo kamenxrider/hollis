@@ -196,6 +196,36 @@ func TestNativeSchemaRejectsStructuredOutsideTerminalCompletion(t *testing.T) {
 	requireNativeKind(t, err, KindNativeProtocol)
 }
 
+// TestNativeStatusClassifiesAPairedMismatch pins what the startup status probe
+// sees. The classification the HTTP server preserves is this error: a helper
+// that answered with another protocol or version is a component mismatch
+// (native_protocol/exit 5), not an unavailable model. Both sides of the version
+// are covered because the shipped protocol-1 helper fails the request guard the
+// same way a future helper's identity check does.
+func TestNativeStatusClassifiesAPairedMismatch(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		protocol int
+		version  string
+	}{
+		{"older helper", 1, "0.4.0"},
+		{"newer helper", 3, "9.9.9"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			event := nativeLineFor(tc.protocol, tc.version, "error", map[string]any{"kind": "native_failed"})
+			r := nativeProtocolHelper(t, "1", "cat >/dev/null\n"+nativePrint(event))
+			status, err := r.NativeStatus(t.Context())
+			requireNativeKind(t, err, KindNativeProtocol)
+			if !strings.Contains(err.Error(), "version, protocol or model mismatch") {
+				t.Fatalf("error = %v; want the mismatch sentence", err)
+			}
+			if status.Available {
+				t.Fatalf("status %#v; a refused event must not report available", status)
+			}
+		})
+	}
+}
+
 func TestNativeSchemaRefusesOldHelperBeforeSpawn(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "request-received")
 	// A protocol-1 helper answers the probe with 1 and would write the marker

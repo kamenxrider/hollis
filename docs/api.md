@@ -95,10 +95,13 @@ truncated value.
 - Only `model:"local"` supports it. Any other model, including an omitted model
   (which means `auto`) and an explicit `auto`, is **400** `unsupported_parameter`
   with a message that a schema requires `local`. There is never a silent
-  fallback to plain text. If `local` is marked unavailable, the request is
-  **400** `model_unavailable`; a server whose runner has no guided-output
-  interface answers **503** `model_unavailable` rather than answering in plain
-  text.
+  fallback to plain text. If `local` is marked unavailable because the helper or
+  its Apple model is missing, the request is **400** `model_unavailable`; a
+  paired helper that answered with a different protocol is **502**
+  `native_protocol` instead, on every local request, guided or plain (see
+  [Native local helper mismatch](#native-local-helper-mismatch)). A server whose
+  runner has no guided-output interface answers **503** `model_unavailable`
+  rather than answering in plain text.
 - Pairing with a helper older than protocol 2 is refused before the request
   spawns and reported as **502** `native_protocol`, the same class as the CLI's
   `native_protocol` / exit 5.
@@ -106,6 +109,28 @@ truncated value.
   `native_protocol`; no partial or repaired value is written.
 - The usual HTTP limits still apply: an 8 MiB request body and a 128 KiB
   rendered prompt return **413** `context_too_large` before any model work.
+
+## Native local helper mismatch
+
+`local` requests need a paired `hollis-native` helper that speaks the protocol
+and version this build expects. At startup `hollis serve` asks the helper for
+its status without generating anything. When that answer names a different
+protocol or version, the server keeps the classification, and every request
+that selects `local` - guided or plain, complete or streamed - is **502**
+`native_protocol`:
+
+```json
+{"error":{"type":"server_error","code":"native_protocol","message":"the native local helper returned an invalid or incomplete response"}}
+```
+
+That is the same class as the CLI's `native_protocol` / exit 5, and the remedy
+is the same: install the matching bundle. The request stops before inference,
+and no route falls back to another model or to plain text.
+
+Availability still describes the model. A helper that is missing, not
+executable, or whose Apple model is unavailable keeps the availability
+contract: **400** `model_unavailable`, the status `/v1/models` reports. Only a
+helper that answered and disagreed about its protocol is a mismatch.
 
 ## Inline image input
 

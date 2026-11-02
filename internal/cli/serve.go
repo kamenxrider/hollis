@@ -123,7 +123,12 @@ such as Tailscale, WireGuard, or an SSH tunnel. Native local supports streaming;
 			api.ImageGenerator = generator
 			api.ImageBridge = imageConfig.ImageBridge
 			api.ImageBridges = imageConfig.ImageBridges
-			localStatus, _ := probeNativeStatus(cmd.Context(), r)
+			// Keep the probe's classification. Available records only whether
+			// local resolved; a helper that answered but disagreed about its
+			// protocol is a component mismatch the local routes must report as
+			// native_protocol instead of as an unavailable model.
+			localStatus, localStatusErr := probeNativeStatus(cmd.Context(), r)
+			api.LocalStatusError = localStatusErr
 			if resolved, resolveErr := resolveForRunner(cmd.Context(), newRunner); resolveErr != nil && !canAttemptAfterDiscoveryFailure(resolved, "auto") && !localStatus.Available {
 				return resolutionCLIError(resolveErr)
 			} else if resolved != nil {
