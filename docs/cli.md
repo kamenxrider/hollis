@@ -58,12 +58,14 @@ the complete-only rule are in [native local](native-local.md#guided-output).
 
 ```bash
 hollis respond --prompt-file instructions.txt
+printf 'Summarize the notes' | hollis respond --prompt-file -
+printf 'Summarize the notes' | hollis respond --file notes.md
 hollis respond "Summarize the differences" --file first.md --file second.txt
 ```
 
-`--prompt-file` reads the instruction exactly as UTF-8 text. Repeat `--file` to append local `.txt` and `.md` documents in order, with their basenames and explicit boundaries. The instruction, boundaries and document contents together must fit the 128 KiB prompt limit; Hollis rejects oversized input without truncation. Empty, invalid UTF-8 and nonregular files are rejected. PDF is not supported.
+`--prompt-file` reads the instruction exactly as UTF-8 text; `--prompt-file -` reads it from stdin. Repeat `--file` to append local `.txt` and `.md` documents in order, with their basenames and explicit boundaries. The instruction, boundaries and document contents together must fit the 128 KiB prompt limit; Hollis rejects oversized input without truncation. Empty, invalid UTF-8 and nonregular files are rejected. PDF is not supported.
 
-Choose one instruction source. File requests require positional text or `--prompt-file` and reject nonempty piped stdin. Documents cannot be mixed with `--image` in one request. Documents are prompt content; their boundaries do not isolate untrusted instructions.
+Choose exactly one instruction source: positional text, `--prompt-file`, or piped stdin. With `--file` or `--image` and no positional text or `--prompt-file`, piped stdin supplies the instruction, so `cat task.txt | hollis respond --file notes.md` works without `/dev/null`. Passing positional text and piped stdin together with file input, or `--prompt-file` and piped stdin, is refused instead of silently dropping one source; positional text alone still ignores an incidental pipe, as before. A pipe held open with no data is not waited on: Hollis checks stdin briefly, then reports the missing instruction. Documents cannot be mixed with `--image` in one request. Documents are prompt content; their boundaries do not isolate untrusted instructions.
 
 ## Images
 
@@ -78,7 +80,7 @@ An image request with no selected or configured model defaults directly to Cloud
 
 Images must be direct regular PNG/JPEG files, at most 64 MiB and 64 million pixels each. Hollis rejects symlinks in the file or its parent directories, apart from macOS's standard root-owned `/var`, `/tmp` and `/etc` aliases. Use the real path for an image reached through a custom directory link. The runner validates a private byte snapshot and passes only that snapshot to Shortcuts; staged images are removed after success, failure or cancellation.
 
-When images are present, give the prompt as an argument or with `--prompt-file`. Hollis passes the private prompt file first, followed by the images as repeated Shortcuts inputs, and cleans up staging after the run subject to the limits described above. Do not pipe a second prompt through stdin with `--image`. Image chat history remains unsupported. The same model tiers accept inline images through the API, described in the [API guide](api.md#inline-image-input).
+When images are present, give the prompt as an argument, with `--prompt-file`, or through piped stdin. Hollis passes the private prompt file first, followed by the images as repeated Shortcuts inputs, and cleans up staging after the run subject to the limits described above. Image chat history remains unsupported. The same model tiers accept inline images through the API, described in the [API guide](api.md#inline-image-input).
 
 ## Persistent chats
 

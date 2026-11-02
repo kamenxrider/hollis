@@ -19,6 +19,7 @@ import (
 	"github.com/kamenxrider/hollis/internal/docinput"
 	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 )
 
 func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
@@ -37,11 +38,14 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		Long: `Send one prompt to Apple Intelligence and print the plain-text response.
 
 The instruction comes from the positional argument, --prompt-file, or stdin
-when neither is provided (multi-line safe). Add local UTF-8 .txt or .md source
-material with repeatable --file flags. Documents cannot be mixed with images.
-File and image requests require an argument or --prompt-file instruction and
-reject nonempty piped stdin. Each call is stateless; use "hollis chat" for
-persistent, SQLite-backed conversations.
+when neither is provided (multi-line safe); --prompt-file - reads the
+instruction from stdin explicitly. Add local UTF-8 .txt or .md source material
+with repeatable --file flags. Documents cannot be mixed with images. With
+--file or --image and no positional text or --prompt-file, piped stdin is the
+instruction, so exactly one instruction source is used; passing positional text
+and piped stdin together with file input is refused rather than silently
+dropping one. A pipe held open with no data is not waited on. Each call is
+stateless; use "hollis chat" for persistent, SQLite-backed conversations.
 
 The default model is auto: cloud first, with automatic fallback to the
 on-device model if the cloud run fails. Explicit choices: cloud (AFM 3
@@ -58,7 +62,9 @@ again before it is reported as success.`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
   hollis respond model cloud-pro "Draft a reply"
   printf 'long prompt from a pipeline' | hollis respond
+  printf 'Summarize the notes' | hollis respond --file notes.md
   hollis respond --prompt-file instructions.txt
+  printf 'Summarize this' | hollis respond --prompt-file -
   hollis respond "Summarize the differences" --file first.md --file second.txt
   hollis respond --prompt-file instructions.txt --image photo.png --model cloud
   hollis respond --image photo.jpg "What is this?"
@@ -84,13 +90,9 @@ again before it is reported as success.`,
 			if cmd.Flags().Changed("schema") && len(images) > 0 {
 				return usageErr(errors.New("--schema cannot be combined with --image: guided output is text-only"))
 			}
-			if (len(documents) > 0 || len(images) > 0) && len(promptArgs) == 0 && !hasPromptFile {
-				inputFlag := "--file"
-				if len(images) > 0 {
-					inputFlag = "--image"
-				}
-				return usageErr(fmt.Errorf("%s requires an explicit instruction: pass positional text or --prompt-file", inputFlag))
-			}
+			// File input accepts piped stdin as its instruction, so the
+			// presence of that source is decided in RunE, where stdin can be
+			// probed without blocking. Here only explicit sources are checked.
 			if len(promptArgs) > 0 {
 				if err := chat.ValidatePrompt(strings.Join(promptArgs, " ")); err != nil {
 					return usageErr(err)
@@ -104,21 +106,59 @@ again before it is reported as success.`,
 			}
 			posModel, promptArgs, hasPosModel := splitRespondModelArgs(cmd, args)
 			hasPromptFile := cmd.Flags().Changed("prompt-file")
-			if hasPromptFile || len(documents) > 0 || len(images) > 0 {
-				if err := rejectFileInputStdin(cmd); err != nil {
-					return err
-				}
-			}
+			hasFileInput := len(documents) > 0 || len(images) > 0
 			var prompt string
 			switch {
 			case len(promptArgs) > 0:
 				prompt = strings.Join(promptArgs, " ")
+				if hasFileInput {
+					// A second instruction may be sitting in the pipe. Refuse
+					// it instead of silently dropping one of the two sources.
+					piped, err := readInstructionStdin(cmd)
+					if err != nil {
+						return usageErr(err)
+					}
+					if piped != "" {
+						return usageErr(errors.New("file input cannot be combined with positional text and piped stdin; choose exactly one instruction source"))
+					}
+				}
+			case hasPromptFile && promptFile == "-":
+				piped, err := readPromptFileStdin(cmd)
+				if err != nil {
+					return usageErr(err)
+				}
+				prompt = piped
 			case hasPromptFile:
-				var err error
+				// --prompt-file is explicit, so a second instruction in the
+				// pipe is refused rather than silently ignored. The probe is
+				// bounded, so a pipe with nothing in it costs one short check.
+				piped, err := readInstructionStdin(cmd)
+				if err != nil {
+					return usageErr(err)
+				}
+				if piped != "" {
+					return usageErr(errors.New("--prompt-file cannot be combined with piped stdin; choose exactly one instruction source"))
+				}
 				prompt, err = docinput.ReadPromptFile(promptFile, int64(chat.MaxRenderedPromptBytes))
 				if err != nil {
 					return usageErr(err)
 				}
+			case hasFileInput:
+				// With file or image input, piped stdin is the instruction.
+				// The probe is bounded, so an open pipe with nothing in it
+				// reports the missing instruction instead of hanging.
+				piped, err := readInstructionStdin(cmd)
+				if err != nil {
+					return usageErr(err)
+				}
+				if piped == "" {
+					inputFlag := "--file"
+					if len(images) > 0 {
+						inputFlag = "--image"
+					}
+					return usageErr(fmt.Errorf("%s requires an instruction: pass positional text, --prompt-file, or pipe it via stdin", inputFlag))
+				}
+				prompt = piped
 			default:
 				// --no-input never waits on a terminal (measured: it would
 				// otherwise block on stdin forever).
@@ -134,6 +174,9 @@ again before it is reported as success.`,
 				prompt = string(b)
 			}
 			if strings.TrimSpace(prompt) == "" {
+				if hasPromptFile && promptFile == "-" {
+					return usageErr(errors.New("--prompt-file - requires the instruction on stdin"))
+				}
 				return usageErr(errors.New("empty prompt: give a prompt as an argument or pipe it via stdin"))
 			}
 			if err := chat.ValidatePrompt(prompt); err != nil {
@@ -328,7 +371,7 @@ again before it is reported as success.`,
 	}
 	cmd.Flags().BoolVar(&stream, "stream", false, "Stream native-local human text (default on terminals); --stream=false waits for completion")
 	cmd.Flags().StringVar(&model, "model", string(runner.ModelAuto), "Model tier: auto (default: cloud first, on-device fallback), cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro; macOS 27+), on-device (AFM 3 Core / Core Advanced by hardware), chatgpt (ChatGPT extension), or local (native SDK; Apple Silicon/macOS 27); see hollis models")
-	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "UTF-8 file containing the instruction (instead of positional text or stdin)")
+	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "UTF-8 file containing the instruction (instead of positional text or stdin); '-' reads the instruction from stdin")
 	cmd.Flags().StringArrayVar(&documents, "file", nil, "UTF-8 .txt or .md document to include; repeat to preserve source order")
 	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (ChatGPT accepts one; unavailable with auto/on-device)")
 	cmd.Flags().StringVar(&schemaFile, "schema", "", "JSON Schema file for guided native-local output; requires --model local and completes without streaming")
@@ -351,6 +394,72 @@ func splitRespondModelArgs(cmd *cobra.Command, args []string) (string, []string,
 // normalized bound in source bytes.
 const schemaFileReadLimit = 1 << 20
 
+// stdinInstructionWindow is how long a file or image request waits for the
+// first byte of a piped instruction. A pipe that stays open with no data is not
+// an instruction source, and waiting for it would stall the command: the
+// previous check blocked until the writer produced a byte or closed.
+const stdinInstructionWindow = 200 * time.Millisecond
+
+// readInstructionStdin returns piped stdin as the instruction, or "" when stdin
+// carries nothing. A terminal is never read here; --prompt-file - is the
+// explicit way to read the instruction from stdin interactively. The readiness
+// probe only decides whether to read at all; once data is present the whole
+// instruction is read up to the shared prompt limit, exactly like a plain
+// piped prompt.
+func readInstructionStdin(cmd *cobra.Command) (string, error) {
+	in := cmd.InOrStdin()
+	if file, ok := in.(*os.File); ok {
+		if in == os.Stdin && interactiveStdin() {
+			return "", nil
+		}
+		ready, err := waitReadable(file, stdinInstructionWindow)
+		if err != nil {
+			return "", fmt.Errorf("check stdin for an instruction: %w", err)
+		}
+		if !ready {
+			return "", nil
+		}
+	}
+	b, err := io.ReadAll(io.LimitReader(in, chat.MaxRenderedPromptBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read instruction from stdin: %w", err)
+	}
+	return string(b), nil
+}
+
+// readPromptFileStdin reads --prompt-file - as an ordinary stdin read. The
+// caller asked for stdin explicitly, so an interactive terminal is a valid
+// source and the read waits for end of input like any other file read.
+func readPromptFileStdin(cmd *cobra.Command) (string, error) {
+	b, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), chat.MaxRenderedPromptBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read --prompt-file - from stdin: %w", err)
+	}
+	return string(b), nil
+}
+
+// waitReadable reports whether the file has data, or its writer has closed,
+// within the window. Regular files are always ready; pipes and terminals are
+// polled so an open pipe with no data cannot block the command.
+func waitReadable(file *os.File, window time.Duration) (bool, error) {
+	deadline := time.Now().Add(window)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false, nil
+		}
+		poll := []unix.PollFd{{Fd: int32(file.Fd()), Events: unix.POLLIN}}
+		n, err := unix.Poll(poll, int(remaining/time.Millisecond)+1)
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		return n > 0, nil
+	}
+}
+
 // readSchemaFile parses and validates a guided-output schema. Every rejection
 // is a usage error naming the offending JSON pointer, and it happens before the
 // helper is spawned.
@@ -372,23 +481,4 @@ func readSchemaFile(path string) (*runner.Schema, error) {
 		return nil, usageErr(err)
 	}
 	return schema, nil
-}
-
-// rejectFileInputStdin prevents a second instruction source from being hidden
-// in a pipe. A closed or empty non-terminal stdin is harmless, which keeps
-// file and image calls usable from agents and CI processes that do not own a
-// TTY. Positional-only requests do not call this helper, preserving their
-// established behavior.
-func rejectFileInputStdin(cmd *cobra.Command) error {
-	if cmd.InOrStdin() == os.Stdin && interactiveStdin() {
-		return nil
-	}
-	b, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 1))
-	if err != nil {
-		return usageErr(fmt.Errorf("check stdin for file input: %w", err))
-	}
-	if len(b) > 0 {
-		return usageErr(errors.New("file input cannot be combined with nonempty piped stdin; pass exactly one instruction using positional text or --prompt-file"))
-	}
-	return nil
 }

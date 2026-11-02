@@ -200,6 +200,24 @@ func TestRespondPromptFileContract(t *testing.T) {
 	}
 }
 
+func TestRespondPipedInstructionWithDocumentContract(t *testing.T) {
+	document := writeDocumentInputFile(t, "note.md", documentInputFirstBody)
+	r := &documentRecordingRunner{}
+
+	err := executeDocumentInput(t, r, []string{"respond", "--file", document}, "summarize the note\n")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if r.calls != 1 {
+		t.Fatalf("runner calls = %d, want 1", r.calls)
+	}
+	for _, marker := range []string{"summarize the note", "note.md", documentInputFirstBody} {
+		if !strings.Contains(r.prompt, marker) {
+			t.Fatalf("prompt missing %q:\n%s", marker, r.prompt)
+		}
+	}
+}
+
 func TestRespondDocumentContract(t *testing.T) {
 	first := writeDocumentInputFile(t, "first note.md", documentInputFirstBody)
 	second := writeDocumentInputFile(t, "second note.txt", documentInputSecondBody)
@@ -260,7 +278,6 @@ func TestRespondDocumentInputValidationPreventsRunnerCalls(t *testing.T) {
 	}{
 		{name: "positional with prompt file", args: []string{"respond", "--prompt-file", promptPath, "extra"}},
 		{name: "stdin with prompt file", args: []string{"respond", "--prompt-file", promptPath}, in: "stdin instruction\n"},
-		{name: "documents with stdin", args: []string{"respond", "--file", document}, in: "stdin instruction\n"},
 		{name: "documents and images", args: []string{"respond", "summarize", "--file", document, "--image", document}},
 		{name: "missing prompt file", args: []string{"respond", "--prompt-file", missing}},
 		{name: "directory prompt file", args: []string{"respond", "--prompt-file", dir}},
@@ -314,5 +331,19 @@ func TestDocumentInputProcessLevelJSONContract(t *testing.T) {
 	want := fmt.Sprintf("fixture response for %s", documentInputPrompt)
 	if response["response"] != want {
 		t.Fatalf("response = %#v, want %#v", response["response"], want)
+	}
+}
+
+// TestDocumentInputProcessLevelRequiresInstruction runs the file-input path
+// with an inherited stdin that carries nothing: the process must fail with the
+// instruction message instead of waiting for input.
+func TestDocumentInputProcessLevelRequiresInstruction(t *testing.T) {
+	document := writeDocumentInputFile(t, "document.txt", "body\n")
+	result := runHelper(t, t.TempDir(), "respond", "--json", "--model", "cloud", "--file", document)
+	if result.exit != 2 {
+		t.Fatalf("respond: exit=%d stderr=%s stdout=%s", result.exit, result.stderr, result.stdout)
+	}
+	if !strings.Contains(result.stderr, "pipe it via stdin") {
+		t.Fatalf("error does not name the stdin instruction path: %s", result.stderr)
 	}
 }
