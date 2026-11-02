@@ -4,12 +4,12 @@ package runner
 
 import "fmt"
 
-// MeasuredOSMajor is the macOS major version where hollis's bridge UUIDs,
-// WFLLMModel strings, and transport rules were measured. Compiled UUIDs are
-// artifacts of that install and are never availability evidence on a host.
+// MeasuredOSMajor is the macOS major version where hollis's WFLLMModel strings
+// and transport rules were measured. No compiled value is availability
+// evidence on a host.
 const MeasuredOSMajor = 27
 
-// CompiledUUID returns the measured fallback reference for a concrete route
+// CompiledUUID returns the compiled placeholder reference for a concrete route
 // tier. auto and unknown IDs have no row and return empty.
 func CompiledUUID(m Model) string {
 	return routeSpecs[m].CompiledUUID
@@ -45,7 +45,7 @@ type ResolvedBridge struct {
 	// bridge name. An explicit UUID remains callable but unverified.
 	Verified bool
 	// OSKnown is false only when the host macOS version could not be
-	// measured. Compiled artifacts never become evidence about the host.
+	// measured. Compiled placeholders never become evidence about the host.
 	OSKnown bool
 }
 
@@ -59,6 +59,8 @@ type ResolvedBridge struct {
 //     NAME, so macOS 26 does not depend on UUID-run (unmeasured there).
 //  3. CompiledUUID last resort — still the Ref, so a config override or a
 //     later fix has something to point at, but NOT evidence of presence.
+//     The compiled values are synthetic placeholders, not captured workflow
+//     IDs: a real Shortcuts UUID exists only on the Mac that generated it.
 //
 // listOK reports whether `shortcuts list` could run at all. When it could
 // not, verification is impossible and every tier is unavailable. The caller
@@ -66,24 +68,25 @@ type ResolvedBridge struct {
 // configuration state.
 //
 // When the listing DID work and no name matched, the tier is unavailable.
-// The compiled UUIDs are private artifacts of the machine they were
-// measured on; on any other Mac they name shortcuts that do not exist.
-// Trusting them because the OS generation matched made every fresh macOS
-// 27 install report four healthy bridges and then fail at the first
-// prompt with a bare exit 3 — doctor's own JSON carried the contradiction
-// ("installed": false beside "status": "ok").
+// Trusting a compiled reference because the OS generation matched made
+// every fresh macOS 27 install report four healthy bridges and then fail at
+// the first prompt with a bare exit 3 — doctor's own JSON carried the
+// contradiction ("installed": false beside "status": "ok"). A synthetic
+// placeholder makes that mistake impossible to reintroduce by accident:
+// it names no installed shortcut on any host, including the development Mac.
 //
-// The cost of this is a renamed-away bridge on the measured machine: it
+// The cost of this is a renamed-away bridge on the development Mac: it
 // now reports missing even though `shortcuts run <UUID>` would still
-// work, because a rename and a missing bridge are indistinguishable from
-// the listing alone. That case has a one-command remedy
+// work with the UUID the user saves from Shortcuts.app, because a rename
+// and a missing bridge are indistinguishable from the listing alone. That
+// case has a one-command remedy
 // (`hollis config set bridge <tier> <uuid-or-new-name>`) and affects one
 // machine; the false-OK affected every other machine.
 //
 // osMajor now gates only Cloud Pro, which cannot work below the measured
 // generation no matter how it resolved (see the check below). Zero means
-// "unknown": hollis does not trust the compiled development environment as
-// evidence about the host.
+// "unknown": hollis does not trust the compiled placeholder as evidence about
+// the host.
 func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[Model]string) map[Model]ResolvedBridge {
 	have := map[string]bool{}
 	for _, n := range installed {

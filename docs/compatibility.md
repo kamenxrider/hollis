@@ -53,7 +53,7 @@ hollis doctor (version 0.3.0)
   timeout default: 30s (ceiling 120s)
   bridges (resolved at runtime):
     [OK]        cloud      AFM Bridge - Cloud.signed (shortcuts-list)
-    [MISSING]   cloud-pro  DBB6E472-CBC6-4421-8D32-9D4543D5CDE6 (compiled-uuid)
+    [MISSING]   cloud-pro  00000000-0000-4000-8000-000000000002 (compiled-uuid)
     [OK]        on-device  AFM Bridge - On-Device.signed (shortcuts-list)
     [OK]        chatgpt    AFM Bridge - ChatGPT.signed (shortcuts-list)
 
@@ -63,7 +63,7 @@ hollis doctor (version 0.3.0)
 
 Unscoped `doctor` exits 0 only when every tier supported by the detected macOS version is verified through `shortcuts list`. A missing supported bridge exits 3, discovery or transport failure exits 5, and unknown or unverified state exits 10. Cloud Pro is informationally unsupported on macOS 26. An explicit configured reference may still be attempted, but remains labelled unverified until its name is visible in discovery. [Selected-route diagnostics](selected-route-setup.md) check only the requested capability.
 
-JSON output adds the macOS version and build, each bridge's `resolved_ref`, its resolution `source`, verification state, and `status` (`ok`, `missing`, `unsupported`, or `unverified`).
+JSON output adds the macOS version and build, each bridge's `resolved_ref`, its resolution `source`, verification state, and `status` (`ok`, `missing`, `unsupported`, or `unverified`). The `uuid` field is the compiled placeholder, not the installed shortcut's own identifier: `shortcuts list` reports names only, so Hollis never learns a workflow ID from your Mac. Do not copy that placeholder into config expecting it to run something.
 
 With the current protocol-2 helper, native availability results in `doctor` and
 `models` also report the measured `context_size` when available. The observed

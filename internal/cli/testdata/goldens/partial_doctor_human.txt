@@ -6,7 +6,7 @@ hollis doctor (version dev)
   timeout default: 30s (ceiling 120s)
   bridges (resolved at runtime):
     [OK]        cloud      AFM Bridge - Cloud.signed (shortcuts-list)
-    [MISSING]   cloud-pro  DBB6E472-CBC6-4421-8D32-9D4543D5CDE6 (compiled-uuid)
+    [MISSING]   cloud-pro  00000000-0000-4000-8000-000000000002 (compiled-uuid)
     [OK]        on-device  AFM Bridge - On-Device.signed (shortcuts-list)
     [OK]        chatgpt    AFM Bridge - ChatGPT.signed (shortcuts-list)
 

@@ -4,9 +4,33 @@ package runner
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
+
+// TestCompiledUUIDsAreSyntheticPlaceholders keeps a real workflow ID out of the
+// binary. A Shortcuts UUID exists only on the Mac that generated it, so a
+// compiled one can never match anywhere; the table carries an obviously
+// synthetic placeholder instead, and this test fails if a captured ID ever
+// comes back.
+func TestCompiledUUIDsAreSyntheticPlaceholders(t *testing.T) {
+	const prefix = "00000000-0000-4000-8000-"
+	seen := map[string]Model{}
+	for _, m := range routeOrder {
+		uuid := CompiledUUID(m)
+		if !looksLikeUUID(uuid) {
+			t.Fatalf("%s compiled UUID %q is not a UUID", m, uuid)
+		}
+		if !strings.HasPrefix(uuid, prefix) || uuid == prefix+"000000000000" {
+			t.Fatalf("%s compiled UUID %q is not a synthetic placeholder", m, uuid)
+		}
+		if other, dup := seen[uuid]; dup {
+			t.Fatalf("%s and %s share compiled UUID %q", other, m, uuid)
+		}
+		seen[uuid] = m
+	}
+}
 
 // TestRouteSpecParityWithCurrentConstants pins every table row to the
 // values the current consumers hardcode, so the table can only drift by

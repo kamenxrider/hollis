@@ -28,7 +28,7 @@ type config struct {
 	// Bridges overrides the bridge reference (name or UUID) invoked per
 	// tier. Keys are concrete tier
 	// names; "auto" is not a tier with a bridge. Overrides beat the
-	// `shortcuts list` name match and the compiled UUIDs.
+	// `shortcuts list` name match and the compiled placeholder UUIDs.
 	Bridges map[string]string `json:"bridges,omitempty"`
 	// ImageBridges maps explicit style choices to separately configured image Shortcuts.
 	ImageBridges map[string]string `json:"image_bridges,omitempty"`
