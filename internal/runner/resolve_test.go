@@ -192,11 +192,11 @@ func TestResolveBridgesBareNamesMatch(t *testing.T) {
 func TestLooksLikeUUID(t *testing.T) {
 	cases := map[string]bool{
 		"00000000-0000-4000-8000-000000000001": true,
-		"00000000-0000-4000-8000-000000000001": true,
+		"00000000-0000-4000-8000-00000000000A": true,
 		"AFM Bridge - Cloud":                   false,
 		"":                                     false,
 		"BBBBBBBB-CCCC-DDDD-EEEE":              false,
-		"ZZZZZZZZ-7CB8-418D-9B02-9D33AB911BF0": false,
+		"ZZZZZZZZ-0000-4000-8000-000000000001": false,
 	}
 	for in, want := range cases {
 		if got := looksLikeUUID(in); got != want {

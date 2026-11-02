@@ -13,7 +13,8 @@
 //  5. Treat exit 0 + empty stdout as shortcut_no_output, never as a response.
 //  6. Don't expect a trailing newline; don't store one that wasn't there.
 //  7. Invoke positively discovered bridge names or explicit configured
-//     references. Compiled UUIDs are candidates, never installation proof.
+//     references. Compiled placeholder UUIDs are candidates, never
+//     installation proof.
 //  8. Default concurrency 1, configurable — 4 parallel runs proven clean.
 //  9. Stage exact prompt bytes in a private .txt file and use --input-path,
 //     never child stdin. For images, append their staged paths after the prompt.
@@ -61,10 +62,12 @@ func (m Model) Valid() bool {
 	return ok
 }
 
-// Bridge UUIDs measured from the installed signed shortcuts on the development
-// Mac. UUIDs are stable across
-// renames; the imported display names carry a `.signed` suffix from the file
-// name and can be renamed in Shortcuts.app at any time.
+// Bridge references used only as the last resolution step and as the
+// transport's placeholder defaults. Shortcuts UUIDs are generated per Mac, so a
+// real workflow ID cannot be compiled in: these are deliberately synthetic
+// values that identify no installed shortcut on any host. They give resolution
+// a well-formed candidate to report for an unmatched tier and give a config
+// override something concrete to replace; they are never availability evidence.
 const (
 	BridgeUUIDCloud    = "00000000-0000-4000-8000-000000000001"
 	BridgeUUIDCloudPro = "00000000-0000-4000-8000-000000000002"
