@@ -1,0 +1,151 @@
+"""Contract tests for the native helper's JSON protocol, runnable anywhere.
+
+These tests read the helper and Go runner sources and compare the two halves of
+one contract: version and protocol pins, accepted operations and events, event
+field names, error kinds, and the rule that prompt text only ever travels on
+stdin. They need no Apple SDK, no model, and no network, so they run on every
+CI host and catch a one-sided edit before it ships.
+
+They do not prove the helper behaves as documented; the golden suite in
+test_protocol_events.py does that where the built helper can execute.
+"""
+import re
+import unittest
+
+import helper_protocol as protocol
+
+# Event fields the Go decoder accepts. Kept here as the reviewed contract; the
+# tests below fail if either source grows a field without the other.
+GO_REQUEST_FIELDS = {'protocol', 'operation', 'prompt', 'schema'}
+GO_EVENT_FIELDS = {'protocol', 'version', 'model', 'event', 'available',
+                   'reason', 'text', 'usage', 'kind', 'context_size',
+                   'structured'}
+GO_USAGE_FIELDS = {'input_tokens', 'output_tokens', 'reasoning_tokens'}
+PROTOCOL_TWO_OPERATIONS = {'status', 'complete', 'stream', 'schema'}
+PROTOCOL_EVENTS = {'status', 'snapshot', 'complete', 'error'}
+
+
+def go_struct_tags(source, name):
+    match = re.search(r'type ' + name + r' struct \{(.*?)\n\}', source, re.S)
+    if not match:
+        raise AssertionError(f'Go struct {name} is missing')
+    return set(re.findall(r'`json:"([a-z_]+)', match.group(1)))
+
+
+def go_kind_values():
+    source = protocol.ROOT.joinpath('internal/runner/runner.go').read_text()
+    return {name: value for name, value in
+            re.findall(r'(Kind\w+)\s+Kind\s*=\s*"([a-z_]+)"', source)}
+
+
+def go_accepted_event_error_kinds():
+    source = protocol.GO_NATIVE.read_text()
+    section = source.split('case "error":', 1)
+    if len(section) != 2:
+        raise AssertionError('the native event switch no longer has an error case')
+    section = section[1].split('default:', 1)[0]
+    names = re.findall(r'Kind\w+', section)
+    values = go_kind_values()
+    missing = [name for name in names if name not in values]
+    if missing:
+        raise AssertionError(f'unknown error kind constants: {missing}')
+    return {values[name] for name in names}
+
+
+class PinTests(unittest.TestCase):
+    def test_helper_and_runner_agree_on_version_and_protocol(self):
+        swift_version, swift_protocol = protocol.swift_pins()
+        go_version, go_protocol = protocol.go_pins()
+        self.assertEqual(swift_version, go_version)
+        self.assertEqual(swift_protocol, go_protocol)
+
+    def test_docs_state_the_matched_pins(self):
+        pins = f'{protocol.swift_pins()[0]}'
+        protocol_word = f'protocol {protocol.swift_pins()[1]}'
+        for path in (protocol.ROOT / 'native/README.md',
+                     protocol.ROOT / 'docs/native-local.md'):
+            text = path.read_text()
+            with self.subTest(path=str(path)):
+                self.assertIn(pins, text)
+                self.assertIn(protocol_word, text)
+
+
+class MessageShapeTests(unittest.TestCase):
+    def setUp(self):
+        self.swift = protocol.HELPER_SOURCE.read_text()
+        self.go = protocol.GO_NATIVE.read_text()
+
+    def test_request_fields_match_both_decoders(self):
+        self.assertEqual(go_struct_tags(self.go, 'nativeRequest'), GO_REQUEST_FIELDS)
+        match = re.search(r'struct Request: Decodable \{(.*?)\n    \}', self.swift, re.S)
+        self.assertIsNotNone(match, 'helper Request struct is missing')
+        swift_fields = set(re.findall(r'let `?([a-z_]+)`?:', match.group(1)))
+        self.assertEqual(swift_fields, GO_REQUEST_FIELDS)
+
+    def test_helper_emits_only_fields_the_runner_decodes(self):
+        emitted = set(re.findall(r'"([a-z_]+)":', self.swift))
+        # The helper also builds the status dictionary and the usage object;
+        # both are covered by the Go decoder's tags.
+        self.assertEqual(go_struct_tags(self.go, 'nativeEvent'), GO_EVENT_FIELDS)
+        self.assertEqual(go_struct_tags(self.go, 'nativeUsage'), GO_USAGE_FIELDS)
+        self.assertLessEqual(emitted, GO_EVENT_FIELDS | GO_USAGE_FIELDS)
+
+    def test_helper_emits_only_events_the_runner_handles(self):
+        self.assertEqual(set(protocol.SWIFT_EVENT.findall(self.swift)),
+                         PROTOCOL_EVENTS)
+        for event in PROTOCOL_EVENTS:
+            self.assertIn(f'case "{event}":', self.go)
+
+    def test_helper_failure_kinds_are_accepted_by_the_runner(self):
+        emitted = set(protocol.SWIFT_FAILURE.findall(self.swift))
+        self.assertTrue(emitted, 'helper emits no failure kinds')
+        self.assertLessEqual(emitted, go_accepted_event_error_kinds())
+
+    def test_operations_are_pinned_on_both_sides(self):
+        self.assertIn('var operations = ["status", "complete", "stream"]',
+                      self.swift)
+        self.assertIn('if effective >= 2 { operations.append("schema") }',
+                      self.swift)
+        self.assertIn('"schema", prompt, nil, schema', self.go)
+        self.assertEqual(PROTOCOL_TWO_OPERATIONS,
+                         {'status', 'complete', 'stream', 'schema'})
+
+    def test_runner_rejects_unknown_event_fields(self):
+        self.assertIn('decoder.DisallowUnknownFields()', self.go)
+
+
+class PrivacyOfTheChannelTests(unittest.TestCase):
+    """Prompt text must travel on stdin and errors must stay content-free."""
+
+    def setUp(self):
+        self.swift = protocol.HELPER_SOURCE.read_text()
+
+    def test_prompt_never_travels_in_process_arguments(self):
+        # Two metadata comparisons (two references each) and one guard: no
+        # other argument inspection exists, so a request cannot arrive that way.
+        occurrences = self.swift.count('CommandLine.arguments')
+        self.assertEqual(occurrences, 5, 'unexpected argument handling')
+        self.assertNotIn('CommandLine.arguments[1]', self.swift)
+        self.assertIn('FileHandle.standardInput.read(upToCount:', self.swift)
+
+    def test_helper_writes_no_diagnostics(self):
+        self.assertNotIn('standardError', self.swift)
+        self.assertNotIn('FileHandle.standardError', self.swift)
+
+    def test_helper_prints_only_metadata(self):
+        prints = [line.strip() for line in self.swift.splitlines()
+                  if re.search(r'\bprint\(', line)]
+        self.assertEqual(len(prints), 2, prints)
+        self.assertIn('hollis-native', prints[0])
+        self.assertEqual(prints[1], 'print(protocolVersion)')
+
+    def test_error_events_carry_no_free_text(self):
+        # fail() takes a kind only; an error description could contain input.
+        match = re.search(r'static func fail\((.*?)\n    \}', self.swift, re.S)
+        self.assertIsNotNone(match)
+        self.assertNotIn('error)', match.group(1))
+        self.assertIn('"event": "error", "kind": kind', self.swift)
+
+
+if __name__ == '__main__':
+    unittest.main()

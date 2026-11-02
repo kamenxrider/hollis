@@ -1,0 +1,13 @@
+{
+  "stdin": "{\"protocol\": 2, \"operation\": \"schema\", \"prompt\": \"fixture\", \"schema\": {\"type\": \"object\", \"additionalProperties\": false, \"properties\": {\"kind\": {\"type\": \"integer\", \"enum\": [1]}}, \"required\": [\"kind\"]}}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 2,
+      "version": "0.5.0",
+      "model": "local"
+    }
+  ],
+  "name": "schema integer enum"
+}

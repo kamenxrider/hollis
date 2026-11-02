@@ -1,0 +1,16 @@
+{
+  "stdin_repeat": {
+    "text": "x",
+    "count": 1048577
+  },
+  "events": [
+    {
+      "event": "error",
+      "kind": "context_capacity",
+      "protocol": 2,
+      "version": "0.5.0",
+      "model": "local"
+    }
+  ],
+  "name": "oversized request"
+}

@@ -30,6 +30,9 @@ jobs:
       - name: Race test
         run: go test -race ./...
 
+      - name: Native helper protocol tests (no model calls)
+        run: python3 -m unittest discover -s scripts/native -p 'test_*.py'
+
       - name: AI review boundary tests
         run: python3 -m unittest discover -s scripts/ai-review -p 'test_*.py'
 

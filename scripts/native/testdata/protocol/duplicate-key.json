@@ -1,0 +1,13 @@
+{
+  "stdin": "{\"protocol\":2,\"operation\":\"status\",\"operation\":\"complete\"}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 2,
+      "version": "0.5.0",
+      "model": "local"
+    }
+  ],
+  "name": "duplicate key"
+}

@@ -6,6 +6,9 @@ harnesses, recorded conversations or machine-specific run evidence.
 - `make-bridge.py`, `make-image-bridge.py`, `package-bridges.py` and
   `count_bridges.py` generate and check the installable Shortcuts definitions.
 - `build-native.sh` compiles the native-local helper using an Apple SDK >=27.
+- `native/` checks the helper's JSON protocol offline: a source contract that
+  must match the Go runner, golden event cases for the built helper, and an
+  opt-in live file that CI never runs.
 - `plugin/` verifies manifests, runtime provenance, installation and packaging.
   Its tests use synthetic assets and isolated state.
 - `image-install-check/` checks generated image bridge wiring without inference.
