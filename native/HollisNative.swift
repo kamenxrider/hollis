@@ -6,14 +6,21 @@ import FoundationModels
 // implicit fallback, or diagnostic reflection of the request contents.
 @main
 struct HollisNative {
-    static let version = "0.5.0"
-    static let protocolVersion = 2
+    static let version = "0.6.0"
+    static let protocolVersion = 3
 
     struct Request: Decodable {
         let `protocol`: Int
         let operation: String
         let prompt: String?
         let schema: JSONValue?
+        let toolCalling: String?
+
+        // Member names are the wire contract; the Swift property names are not.
+        enum CodingKeys: String, CodingKey {
+            case `protocol`, operation, prompt, schema
+            case toolCalling = "tool_calling"
+        }
     }
 
     static func emit(_ fields: [String: Any], `protocol` effective: Int) throws {
@@ -67,11 +74,16 @@ struct HollisNative {
             var request: Request
             do { request = try JSONDecoder().decode(Request.self, from: input) }
             catch { fail("native_failed"); return }
-            // A protocol-2 helper also answers protocol-1 requests so a
-            // half-switched managed install fails closed on identity, not on a
-            // misinterpreted request. Events are stamped with the request's
-            // protocol; schema never reaches a protocol-1 request.
-            guard request.`protocol` == 1 || request.`protocol` == protocolVersion else {
+            // The accepted set is explicit and grows by one per era: this
+            // helper answers 1, 2 and 3, and refuses every other value by
+            // value. Serving 2 matters — a protocol-2 CLI from the previous
+            // source era must keep working against a newer helper, because
+            // that is the only upgrade order a managed install can produce.
+            // Events are stamped with the request's protocol; schema never
+            // reaches a protocol-1 request and capabilities never reach a
+            // request below 3.
+            let accepted = [1, 2, protocolVersion]
+            guard accepted.contains(request.`protocol`) else {
                 fail("native_failed"); return
             }
             effective = request.`protocol`
@@ -85,6 +97,13 @@ struct HollisNative {
             }
             if request.operation != "schema", request.schema != nil {
                 fail("native_failed", protocol: effective); return
+            }
+            // tool_calling is a known protocol-3 member with no implementation
+            // here yet. A helper that ignored it would answer a caller who
+            // asked for a tool mode with an ordinary completion, so the whole
+            // request is refused instead of silently downgraded.
+            if request.toolCalling != nil {
+                fail("unsupported_capability", protocol: effective); return
             }
             // The subset is parsed and validated before any model access:
             // an unsupported schema must never reach generation.
@@ -100,6 +119,17 @@ struct HollisNative {
                 // Measured token budget, exposed only on protocol 2 so
                 // protocol-1 events stay byte-compatible with old decoders.
                 status["context_size"] = model.contextSize
+            }
+            if effective >= 3 {
+                // Advertised separately from the protocol era: a capability
+                // this build does not implement is absent, never a zero value
+                // a client could read as support. Extraction, images and tools
+                // join this object when they exist; until then a request that
+                // needs one is refused by name.
+                status["capabilities"] = [
+                    "vision": model.capabilities.contains(.vision),
+                    "macos_major": ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
+                ]
             }
             try emit(status, protocol: effective)
             if request.operation == "status" { return }

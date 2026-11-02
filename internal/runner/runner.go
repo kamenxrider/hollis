@@ -93,20 +93,25 @@ const (
 	KindLocalUnavailable Kind = "local_unavailable"
 	KindContextCapacity  Kind = "context_capacity"
 	KindNativeProtocol   Kind = "native_protocol"
-	KindNativeFailed     Kind = "native_failed"
-	KindEmptyPrompt      Kind = "empty_prompt"       // refused before spawn (hangs forever)
-	KindNoOutput         Kind = "shortcut_no_output" // exit 0 + empty stdout (also what a TTY run looks like)
-	KindShortcutMissing  Kind = "shortcut_missing"   // confirmed by Apple error text
-	KindRateLimited      Kind = "rate_limited"       // explicit rate-limit text from Apple
-	KindUsage            Kind = "usage"              // exit 64
-	KindSIGABRT          Kind = "sigabrt"            // exit 134 (the -o /dev/stdout crash; never used by us)
-	KindSignal           Kind = "signal"             // another real Unix signal terminated the child
-	KindTimeout          Kind = "timeout"            // deadline hit, child killed
-	KindContextCanceled  Kind = "context_canceled"   // caller canceled before/during run
-	KindListFailure      Kind = "list_failure"       // `shortcuts list` transport failure
-	KindTransport        Kind = "transport"          // staging, launch, or pipe failure
-	KindRequestDeclined  Kind = "request_declined"   // Apple asked for a different description; cause unknown
-	KindShortcutFailed   Kind = "shortcut_failed"    // unrecognized unsuccessful execution
+	// KindUnsupportedCapability is a negotiated-capability refusal: the paired
+	// helper speaks this protocol era but did not advertise, or refused, a
+	// capability this request needs. It is deliberately not native_protocol:
+	// the helper's payload was well formed and the pairing is correct.
+	KindUnsupportedCapability Kind = "unsupported_capability"
+	KindNativeFailed          Kind = "native_failed"
+	KindEmptyPrompt           Kind = "empty_prompt"       // refused before spawn (hangs forever)
+	KindNoOutput              Kind = "shortcut_no_output" // exit 0 + empty stdout (also what a TTY run looks like)
+	KindShortcutMissing       Kind = "shortcut_missing"   // confirmed by Apple error text
+	KindRateLimited           Kind = "rate_limited"       // explicit rate-limit text from Apple
+	KindUsage                 Kind = "usage"              // exit 64
+	KindSIGABRT               Kind = "sigabrt"            // exit 134 (the -o /dev/stdout crash; never used by us)
+	KindSignal                Kind = "signal"             // another real Unix signal terminated the child
+	KindTimeout               Kind = "timeout"            // deadline hit, child killed
+	KindContextCanceled       Kind = "context_canceled"   // caller canceled before/during run
+	KindListFailure           Kind = "list_failure"       // `shortcuts list` transport failure
+	KindTransport             Kind = "transport"          // staging, launch, or pipe failure
+	KindRequestDeclined       Kind = "request_declined"   // Apple asked for a different description; cause unknown
+	KindShortcutFailed        Kind = "shortcut_failed"    // unrecognized unsuccessful execution
 )
 
 // Error is a classified runner failure. Kind maps to a stable CLI exit code.

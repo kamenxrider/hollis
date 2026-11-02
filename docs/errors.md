@@ -12,6 +12,7 @@ agent schema version remain unchanged.
 | `shortcut_failed` | The Shortcut executed unsuccessfully without a recognized diagnostic | 5 | 502 | Inspect the failure context before making another call |
 | `transport` | Launch, staging or other transport failure, including Shortcut stdout that exceeded the 1 MiB capture cap | 5 | 502 for typed launch/transport errors | Check host access and process setup; for an oversized response, narrow the request instead of expecting a partial answer |
 | `native_protocol` | The paired native helper and this CLI disagree about their contract: an older or newer helper, an event that breaks the sequence, or a guided object that does not match the requested schema | 5 | 502 | Install the matching bundle from the same release; do not retry against the same helper |
+| `unsupported_capability` | The paired helper speaks this protocol era but did not advertise, or refused, a capability the request needs (for example native tool calling) | 5 | 502 | Install the matching bundle from the same release; the helper is newer than the request needs or was built without that capability |
 | `local_unavailable` | The native local model or its paired helper is unavailable: no helper is installed or executable, or it cannot answer | 5 | 400 `model_unavailable` at admission; 503 `model_unavailable` mid-run | Install the matching bundle from the same release; do not retry the same invocation |
 
 `native_protocol` is a component mismatch, not a bad invocation: the command
@@ -24,6 +25,11 @@ answers with another protocol or version is 502 `native_protocol` for every
 this Hollis version and a pointer at the matching bundle. A missing or
 unavailable helper stays 400 `model_unavailable`; a malformed payload from a
 matched helper keeps the shared `native_protocol` sentence.
+
+`unsupported_capability` is a component mismatch of the same family but a narrower cause: the helper answered validly, in the
+right protocol, and simply does not offer what the request needs. It is never used for a caller mistake such as too many
+images or an unsupported parameter; those stay usage errors, because telling a caller to reinstall for a bad request would be
+wrong. The remedy is the same matching bundle.
 
 `local_unavailable` is the companion code with a different cause: no paired
 helper is installed or executable, or the helper cannot answer at all. It shares

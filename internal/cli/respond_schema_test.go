@@ -232,8 +232,8 @@ func TestOldHelperGuidedRefusalIsAProtocolFailure(t *testing.T) {
 	if code := errorCode(err); code != "native_protocol" {
 		t.Fatalf("machine code = %q; want native_protocol", code)
 	}
-	if !strings.Contains(err.Error(), "does not support guided output") {
-		t.Fatalf("error = %q; want the refusal message", err)
+	if !strings.Contains(err.Error(), "install the matching bundle") {
+		t.Fatalf("error = %q; want the matching-bundle message", err)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("stdout = %q; a refusal must not print a partial object", out.String())

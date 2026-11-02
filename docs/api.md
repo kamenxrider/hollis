@@ -24,7 +24,7 @@ The Responses reply text is at `output[0].content[0].text`. Its `input` may be a
 
 Both endpoints can ask native `local` for an object that follows a JSON Schema
 subset. This is current source, not in the pinned 0.4.0 runtime: it needs the
-helper from the same release (protocol 2, helper 0.5.0), and it is not
+helper from the same release (protocol 3, helper 0.6.0), and it is not
 available on any Shortcut route.
 
 Chat Completions uses the OpenAI `response_format` shape:
@@ -102,9 +102,10 @@ truncated value.
   [Native local helper mismatch](#native-local-helper-mismatch)). A server whose
   runner has no guided-output interface answers **503** `model_unavailable`
   rather than answering in plain text.
-- Pairing with a helper older than protocol 2 is refused before the request
-  spawns and reported as **502** `native_protocol`, the same class as the CLI's
-  `native_protocol` / exit 5.
+- Pairing with a helper that speaks another protocol is refused before the
+  request spawns and reported as **502** `native_protocol`, the same class as the
+  CLI's `native_protocol` / exit 5. A request that needs a capability the helper
+  did not advertise is **502** `unsupported_capability` instead.
 - A returned object that fails Hollis's independent re-validation is **502**
   `native_protocol`; no partial or repaired value is written.
 - The usual HTTP limits still apply: an 8 MiB request body and a 128 KiB

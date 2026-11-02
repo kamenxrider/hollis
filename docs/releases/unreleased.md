@@ -62,13 +62,22 @@ missing or inventing bridge names. Stderr keeps a bounded head and tail so a
 late diagnostic can still classify the failure. See
 [Shortcuts transport](../shortcuts.md#how-it-works).
 
-## Native local: protocol 2, helper 0.5.0 and guided output
+## Native local: protocol 3, helper 0.6.0 and guided output
 
 `hollis respond --schema` asks the on-device model for a JSON object that
-conforms to a supported schema subset. Guided output needs
-the `local` route, a protocol-2 helper (`hollis-native` 0.5.0 matches this
-source) and `capabilities.guided_output: true` from
-`hollis models --model local --json`.
+conforms to a supported schema subset. Guided output needs the `local` route, a
+protocol-3 helper (`hollis-native` 0.6.0 matches this source) and
+`capabilities.guided_output: true` from `hollis models --model local --json`.
+
+Protocol 3 is one coordinated bump for the capabilities landing in this release
+— document extraction, image attachments and native tool calling — so released
+users move through one compatibility matrix instead of three. The helper accepts
+protocols 1, 2 and 3: a newer helper keeps serving an older CLI, while this CLI
+speaks protocol 3 only and refuses another helper with `native_protocol` (exit
+5, HTTP 502) rather than degrading to plain text. The helper's status event now
+carries `capabilities`, and a request that needs a capability the helper did not
+advertise is refused by name as `unsupported_capability` (exit 5, HTTP 502) —
+a component fault, not a caller mistake.
 
 The subset accepts an object root with `additionalProperties: false` on every
 object; `string`, `integer`, `number` and `boolean` properties; `required`

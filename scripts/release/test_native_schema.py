@@ -231,11 +231,17 @@ class SchemaSubsetTests(HarnessMixin, unittest.TestCase):
 
 
 class HelperProtocolTests(unittest.TestCase):
-    def test_source_pins_protocol_two_and_helper_version(self):
+    def test_source_pins_protocol_three_and_helper_version(self):
         source = HELPER.read_text()
-        self.assertIn('static let protocolVersion = 2', source)
-        self.assertIn('static let version = "0.5.0"', source)
+        self.assertIn('static let protocolVersion = 3', source)
+        self.assertIn('static let version = "0.6.0"', source)
+        # The accepted set is explicit and grows per era: serving 2 is what lets
+        # a previous-era CLI keep working against a newer helper.
+        self.assertIn('let accepted = [1, 2, protocolVersion]', source)
         self.assertIn('request.operation == "schema"', source)
+        # A tool mode this build cannot apply is refused rather than ignored.
+        self.assertIn('case toolCalling = "tool_calling"', source)
+        self.assertIn('fail("unsupported_capability"', source)
 
     def test_built_helper_metadata_and_model_free_rejections(self):
         if platform.system() != 'Darwin' or platform.machine() != 'arm64':
@@ -247,29 +253,34 @@ class HelperProtocolTests(unittest.TestCase):
             helper = Path(folder) / 'hollis-native'
             result = command('bash', str(BUILD), str(helper))
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(command(str(helper), '--version').stdout.strip(), 'hollis-native 0.5.0')
-            self.assertEqual(command(str(helper), '--protocol-version').stdout.strip(), '2')
+            self.assertEqual(command(str(helper), '--version').stdout.strip(), 'hollis-native 0.6.0')
+            self.assertEqual(command(str(helper), '--protocol-version').stdout.strip(), '3')
             if not can_execute_target():
                 raise unittest.SkipTest('the built helper requires macOS 27 to execute')
-            # An unsupported schema is rejected before any model access, so the
-            # error event is the only output and no status event appears.
-            for request in (
-                    {'protocol': 2, 'operation': 'schema', 'prompt': 'fixture',
-                     'schema': {'type': 'array', 'items': {'type': 'string'}}},
-                    {'protocol': 2, 'operation': 'schema', 'prompt': 'fixture',
-                     'schema': root({'kind': {'type': 'integer', 'enum': [1]}})},
-                    {'protocol': 3, 'operation': 'status'},
-                    {'protocol': 2, 'operation': 'stream', 'prompt': 'fixture',
-                     'schema': root({'name': {'type': 'string'}})},
-                    {'protocol': 1, 'operation': 'complete', 'prompt': 'fixture',
-                     'schema': root({'name': {'type': 'string'}})}):
+            # Requests refused before any model access emit one error event and
+            # no status event. A protocol outside the accepted set is refused by
+            # value; a tool mode this build does not implement is a capability
+            # refusal, never a silently plain completion.
+            for request, kind in (
+                    ({'protocol': 2, 'operation': 'schema', 'prompt': 'fixture',
+                      'schema': {'type': 'array', 'items': {'type': 'string'}}}, 'native_failed'),
+                    ({'protocol': 2, 'operation': 'schema', 'prompt': 'fixture',
+                      'schema': root({'kind': {'type': 'integer', 'enum': [1]}})}, 'native_failed'),
+                    ({'protocol': 2, 'operation': 'stream', 'prompt': 'fixture',
+                      'schema': root({'name': {'type': 'string'}})}, 'native_failed'),
+                    ({'protocol': 1, 'operation': 'complete', 'prompt': 'fixture',
+                      'schema': root({'name': {'type': 'string'}})}, 'native_failed'),
+                    ({'protocol': 4, 'operation': 'status'}, 'native_failed'),
+                    ({'protocol': 0, 'operation': 'status'}, 'native_failed'),
+                    ({'protocol': 3, 'operation': 'complete', 'prompt': 'fixture',
+                      'tool_calling': 'allowed'}, 'unsupported_capability')):
                 with self.subTest(request=request):
                     result = command(str(helper), input=json.dumps(request))
                     self.assertEqual(result.returncode, 0, result.stderr)
                     events = [json.loads(line) for line in result.stdout.splitlines() if line]
                     self.assertEqual(len(events), 1, result.stdout)
                     self.assertEqual(events[0]['event'], 'error')
-                    self.assertEqual(events[0]['kind'], 'native_failed')
+                    self.assertEqual(events[0]['kind'], kind)
 
 
 if __name__ == '__main__':
