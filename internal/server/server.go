@@ -371,6 +371,17 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !decodeRequest(w, r, &request) {
 		return
 	}
+	// Guided output is parsed and validated before any route or capacity
+	// decision, so an unsupported schema costs no discovery and no inference.
+	schema, err := parseChatGuided(request.ResponseFormat)
+	if err != nil {
+		writeRequestValidationError(w, err)
+		return
+	}
+	if schema != nil {
+		s.handleChatGuided(w, r, request, schema)
+		return
+	}
 	if request.Stream && (request.Model != string(runner.ModelLocal) || len(request.ImageGeneration) != 0) {
 		unsupportedStreaming(w)
 		return
@@ -411,6 +422,15 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	var request responsesRequest
 	if !decodeRequest(w, r, &request) {
+		return
+	}
+	schema, err := parseResponsesGuided(request.Text)
+	if err != nil {
+		writeRequestValidationError(w, err)
+		return
+	}
+	if schema != nil {
+		s.handleResponsesGuided(w, r, request, schema)
 		return
 	}
 	if request.Stream && (request.Model != string(runner.ModelLocal) || len(request.ImageGeneration) != 0) {

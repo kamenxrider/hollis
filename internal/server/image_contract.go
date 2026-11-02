@@ -57,6 +57,10 @@ type chatCompletionsRequest struct {
 	Messages        json.RawMessage `json:"messages"`
 	Stream          bool            `json:"stream"`
 	ImageGeneration json.RawMessage `json:"image_generation"`
+	// ResponseFormat carries the OpenAI guided-output shape. It is decoded
+	// strictly by parseChatGuided only when present, so the plain-text path is
+	// unchanged.
+	ResponseFormat json.RawMessage `json:"response_format"`
 }
 
 type responsesRequest struct {
@@ -65,6 +69,8 @@ type responsesRequest struct {
 	Input           json.RawMessage `json:"input"`
 	Stream          bool            `json:"stream"`
 	ImageGeneration json.RawMessage `json:"image_generation"`
+	// Text carries the Responses guided-output shape (text.format).
+	Text json.RawMessage `json:"text"`
 }
 
 // Implemented in the endpoint-owned parser files.

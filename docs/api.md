@@ -20,6 +20,93 @@ curl -s localhost:1978/v1/responses \
 
 The Responses reply text is at `output[0].content[0].text`. Its `input` may be a string or a message array, with optional `instructions`. `/v1/models` advertises available routes, including `local` when its native helper and Apple model are available. Shortcut tiers depend on their bridges; native local does not.
 
+## Guided JSON output
+
+Both endpoints can ask native `local` for an object that follows a JSON Schema
+subset. This is current source, not in the pinned 0.4.0 runtime: it needs the
+helper from the same release (protocol 2, helper 0.5.0), and it is not
+available on any Shortcut route.
+
+Chat Completions uses the OpenAI `response_format` shape:
+
+```sh
+curl -s localhost:1978/v1/chat/completions \
+  -H @hollis.headers -H 'Content-Type: application/json' \
+  -d '{"model":"local","messages":[{"role":"user","content":"Invent one person"}],
+       "response_format":{"type":"json_schema","json_schema":{
+         "name":"person",
+         "schema":{"type":"object","additionalProperties":false,
+                   "properties":{"name":{"type":"string"},"age":{"type":"integer"}},
+                   "required":["name"]}}}}'
+```
+
+Responses uses `text.format`:
+
+```sh
+curl -s localhost:1978/v1/responses \
+  -H @hollis.headers -H 'Content-Type: application/json' \
+  -d '{"model":"local","input":"Invent one person",
+       "text":{"format":{"type":"json_schema","name":"person",
+         "schema":{"type":"object","additionalProperties":false,
+                   "properties":{"name":{"type":"string"},"age":{"type":"integer"}},
+                   "required":["name"]}}}}'
+```
+
+The validated object is returned as a JSON **string**: Chat Completions puts it
+in `choices[0].message.content`, so `message.content` is
+`"{\"name\":\"Ada\",\"age\":36}"` rather than an object. Responses puts the same
+string in `output[0].content[0].text` with `"type":"output_text"`. Measured
+usage is reported exactly as for a plain complete response. There is no
+`refusal` field and no partial object: a failure is an error response, never a
+truncated value.
+
+### Field handling
+
+- `name` is required and must be a non-empty string, as upstream requires. It is
+  accepted and ignored: it is a label, not a validation input.
+- `description` is optional, accepted and ignored for the same reason.
+- `strict` is optional and may be `true` or `false`. Both are accepted and
+  ignored: Apple's guided generation always enforces the schema, and Hollis
+  re-validates the returned object either way. `strict:false` does not buy a
+  looser JSON mode, and a non-conforming object is still refused.
+- `type:"text"` keeps the existing plain-text behavior.
+- `type:"json_object"` and any other type are refused with **400**
+  `unsupported_parameter`. Hollis cannot promise a schema-less JSON object on
+  this route, so it refuses instead of pretending.
+- Unknown fields inside `response_format`, `json_schema`, `text` or `format` are
+  refused with **400** `unsupported_parameter`; the top level already rejects
+  unknown fields.
+
+### Limits and refusals
+
+- The schema is parsed and validated before any capacity is taken or helper
+  spawned, so an unsupported schema costs no inference. It must fit the same
+  subset as `hollis respond --schema`, including the 64 KiB normalized bound.
+- Schema rejection is **400** `invalid_schema`, and the message is the CLI's
+  sentence with the same JSON pointer, for example
+  `schema at /properties/p/pattern: unsupported schema keyword` or
+  `schema at /type: schema must not repeat an object key`. Schema values never
+  appear in the response beyond the pointer.
+- Guided output is complete-only. `stream:true` with a schema is **400**
+  `unsupported_parameter`, matching the CLI's refusal to combine `--schema` and
+  `--stream`.
+- Guided output cannot be combined with image input or image generation;
+  that is also **400** `unsupported_parameter`.
+- Only `model:"local"` supports it. Any other model, including an omitted model
+  (which means `auto`) and an explicit `auto`, is **400** `unsupported_parameter`
+  with a message that a schema requires `local`. There is never a silent
+  fallback to plain text. If `local` is marked unavailable, the request is
+  **400** `model_unavailable`; a server whose runner has no guided-output
+  interface answers **503** `model_unavailable` rather than answering in plain
+  text.
+- Pairing with a helper older than protocol 2 is refused before the request
+  spawns and reported as **502** `native_protocol`, the same class as the CLI's
+  `native_protocol` / exit 5.
+- A returned object that fails Hollis's independent re-validation is **502**
+  `native_protocol`; no partial or repaired value is written.
+- The usual HTTP limits still apply: an 8 MiB request body and a 128 KiB
+  rendered prompt return **413** `context_too_large` before any model work.
+
 ## Inline image input
 
 Both endpoints accept PNG/JPEG images as base64 data URLs in the final user message, alongside nonempty text. Earlier messages must remain text-only. Remote URLs and server file paths are rejected.
