@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -710,14 +711,15 @@ Exit codes: 0 hits, 2 empty query, 3 no matches.`,
 				return printJSONArrayFilteredTo(cmd.OutOrStdout(), rows, flags)
 			}
 			w := cmd.OutOrStdout()
-			fmt.Fprintf(w, "%-38s  %-9s  %-17s  %s\n", "ID", "MODEL", "UPDATED", "TITLE / SNIPPET")
+			tableRows := make([][]string, 0, len(matches))
 			for _, m := range matches {
 				line := m.Title
 				if len(m.Hits) > 0 {
 					line = strings.ReplaceAll(m.Hits[0].Snippet, "\n", " ")
 				}
-				fmt.Fprintf(w, "%s  %-9s  %-17s  %s\n", m.ID, m.Model, shortTS(m.UpdatedAt), humanTerminalText(w, line))
+				tableRows = append(tableRows, []string{m.ID, m.Model, shortTS(m.UpdatedAt), humanTerminalText(w, line)})
 			}
+			printTable(w, []string{"ID", "MODEL", "UPDATED", "TITLE / SNIPPET"}, tableRows)
 			return nil
 		},
 	}
@@ -769,10 +771,11 @@ func newChatsListCmd(flags *rootFlags) *cobra.Command {
 				return printJSONArrayFilteredTo(cmd.OutOrStdout(), rows, flags)
 			}
 			w := cmd.OutOrStdout()
-			fmt.Fprintf(w, "%-38s  %-9s  %-9s  %s\n", "ID", "MESSAGES", "MODEL", "TITLE")
+			tableRows := make([][]string, 0, len(convs))
 			for _, c := range convs {
-				fmt.Fprintf(w, "%s  %-9d  %-9s  %s\n", c.ID, c.Messages, c.Model, humanTerminalText(w, c.Title))
+				tableRows = append(tableRows, []string{c.ID, strconv.Itoa(c.Messages), c.Model, humanTerminalText(w, c.Title)})
 			}
+			printTable(w, []string{"ID", "MESSAGES", "MODEL", "TITLE"}, tableRows)
 			return nil
 		},
 	}

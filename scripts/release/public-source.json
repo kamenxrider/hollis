@@ -57,7 +57,7 @@
     "internal/cli/batch_test.go": "6a380077d8009514924b52d15da7fddb97e95bdc96316940c6c9e021684c76cb",
     "internal/cli/bridgegen_test.go": "114201ce83f009506695c3156228482723125aedbe8a77cb27d676b10980b27c",
     "internal/cli/bridges.go": "81392fe5b2b7a87c80bb3c8b3d201f7156f0934a67152a0f9a896f464a4ab5c3",
-    "internal/cli/chat.go": "3b8388a251dfa1a95863bb8c83267472ad9917107884ba60bf1daddb2c88b752",
+    "internal/cli/chat.go": "c2b714dab8d82ad926cbf7df8df97fbff35b3df3b0e01fad81904eb989e6e785",
     "internal/cli/chat_image.go": "49e34109a9ffd5fb539d4de77a1e68fb0c3da666bd10e76cba8e53ce6c4ff9ca",
     "internal/cli/chat_image_test.go": "1f2a39a1c06338ac5fa83ef3af49e906f7b3c10b47a3303b90fd411018d63554",
     "internal/cli/chat_reference_flags_test.go": "1da0964f9f6ea71b4ffe798dd6e0a3d1f8323d4735827de475ac9448a1c0eaaa",
@@ -84,7 +84,7 @@
     "internal/cli/respond_files_test.go": "47a6a889df65c9e5da53fe81b88998821f92c54b66d99ce8ed24ed2b809a3f36",
     "internal/cli/respond_schema_test.go": "2e6f95cd58dc566afb0a9e869551a839cc77add0a31f8443157f6bade5b3274a",
     "internal/cli/root.go": "1f45fdcf8671267944a8bd06f11d3c92707ead13da0a1ef11505f9f2936239c3",
-    "internal/cli/root_test.go": "87479700ed1f84fb05316e9fdbbcc96b8e815e2b4616bec5dc7b5c69c543377b",
+    "internal/cli/root_test.go": "ef24776db8c825e444aee96cc206ebdc852b7d2475c4a7521304397cac01f1c0",
     "internal/cli/route_golden_test.go": "9678d09caeec66ff8e06965b82d433e58a92c73f03b8ad37ba28fbf5a87e4644",
     "internal/cli/runtime_record_pipe_test.go": "2e8919461046110e0439d87ccbd156251076edd23a5760079224e19599b857a5",
     "internal/cli/selection.go": "fc6d328f03648a1a90cea67828c6a789539d3b5b365bba3dfb5c92dc02a6217c",
@@ -270,7 +270,8 @@
     "scripts/release/test_native_schema.py": "aac02379e62870f296aee63f1cb326d3b77a31954b90a263429d15c188628639",
     "scripts/release/test_privacy.py": "d593bcfa851bb79e3d6d9dfba2bcdb6abec22542ffe38a041f707eeb7fff45aa",
     "scripts/release/test_verify_artifacts.py": "5ebc06a756e165169e521d1d6a2bf21d461dc3e2ee791fc0bccee6554bb20a29",
-    "scripts/release/verify_artifacts.py": "4ec7d4b4e8037449b4495308e6b39c4d839a9c714d52c18a3b36a6d39685edcb"
+    "scripts/release/verify_artifacts.py": "4ec7d4b4e8037449b4495308e6b39c4d839a9c714d52c18a3b36a6d39685edcb",
+    "internal/cli/table.go": "3e1bc7e329c3e9edf7660a03d866a1cf3daa882e1622b3dc6b4960b0d84dffff"
   },
   "schema_version": 1
 }
