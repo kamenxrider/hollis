@@ -7,6 +7,15 @@ config path is unverified, not a guessed default. Persist `HOLLIS_PLUGIN_HOME`,
 `HOLLIS_STATE_DIR` and any intentional `HOLLIS_CALLER_PATH` in the test launcher
 or scoped host settings when using an isolated test installation.
 
+`setup.sh status <route>` and `doctor --model <route> --json` are route-scoped:
+read `route`, `status` and `reason_code` together, and treat
+`inference_tested:false` as unproven rather than failed. Plain `doctor --json`
+adds the full bridge table and the `local` row. A helper mismatch is a component
+mismatch (`helper_mismatch` in a route plan;
+`helper_protocol_mismatch`/`helper_version_mismatch` in the runtime record):
+install the matching bundle, and expect Shortcut routes to keep working while
+native `local` is blocked.
+
 `discovery.status: completed` means Shortcuts returned a listing;
 `listed_shortcuts: 0` means that listing was empty. A `failed` listing keeps
 readiness `unknown` and records its exit code. It does not prove missing
@@ -45,6 +54,9 @@ documentation alone does not upgrade their bundled binary.
 | Rollback `none` | The receipt has `version: null` and explains that no candidate is recorded |
 | Repair upgrade | A corrupt older runtime may be retained but not selected; the verified new runtime can still be installed, while rollback stays fail-closed |
 | Oversized input | Narrow the selected context or attachments; never silently truncate |
+| Guided output refused (exit 2) | The schema is outside the supported subset; the message names the JSON pointer. Fix the schema, retry, or ask for plain text; nothing was inferred |
+| `native_protocol` / "does not support guided output" (exit 5) | The helper is missing, older than the CLI, or returned a payload that failed validation. Install the matching bundle; do not retry or repair |
+| `context_size` absent | The helper predates protocol 2 or the model is unavailable. Do not estimate a window; guided output also needs protocol 2 |
 | Wrong/unavailable style | Use one of the five tested styles; do not route ChatGPT generation to another model silently |
 
 Ask the agent for the relevant receipt or `doctor --json` output when needed.
