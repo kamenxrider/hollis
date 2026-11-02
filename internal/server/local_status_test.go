@@ -3,13 +3,20 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/kamenxrider/hollis/internal/runner"
 )
+
+// wantMismatchMessage is the literal HTTP sentence for a preserved helper
+// mismatch, written out here so a change to the production constant is a test
+// failure rather than a silently matching pair.
+const wantMismatchMessage = "the native local helper does not match this Hollis version; install the matching bundle"
 
 // probeProtocolMismatch is what the startup status probe returns for a helper
 // whose protocol or version disagrees with this CLI. It is a runner.Error of
@@ -35,8 +42,27 @@ func localStatusServer(r runner.Runner, probeErr error) *Server {
 	return s
 }
 
+// assertErrorBody pins the whole error object, not just its code: the message
+// is part of the contract callers use to tell a component mismatch from a bad
+// payload.
+func assertErrorBody(t *testing.T, res *httptest.ResponseRecorder, wantType, wantCode, wantMessage string) {
+	t.Helper()
+	var body struct {
+		Error struct {
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("error JSON: %v (%s)", err, res.Body.String())
+	}
+	if body.Error.Type != wantType || body.Error.Code != wantCode || body.Error.Message != wantMessage {
+		t.Fatalf("error=%+v want type=%s code=%s message=%q", body.Error, wantType, wantCode, wantMessage)
+	}
+}
+
 func TestLocalRequestsReportPreservedProtocolMismatch(t *testing.T) {
-	const nativeProtocolMessage = "the native local helper returned an invalid or incomplete response"
 	for path, body := range guidedBodies(guidedTestSchema) {
 		t.Run("guided "+strings.TrimPrefix(path, "/v1/"), func(t *testing.T) {
 			fake := newGuidedFake()
@@ -44,10 +70,7 @@ func TestLocalRequestsReportPreservedProtocolMismatch(t *testing.T) {
 			if res.Code != http.StatusBadGateway {
 				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
 			}
-			assertAPIError(t, res, "server_error", "native_protocol")
-			if !strings.Contains(res.Body.String(), nativeProtocolMessage) {
-				t.Fatalf("body=%s; want the documented native_protocol sentence", res.Body.String())
-			}
+			assertErrorBody(t, res, "server_error", "native_protocol", wantMismatchMessage)
 			if schemaCalls, completeCalls, _ := fake.snapshot(); schemaCalls != 0 || completeCalls != 0 {
 				t.Fatalf("runner calls schema=%d complete=%d", schemaCalls, completeCalls)
 			}
@@ -65,10 +88,7 @@ func TestLocalRequestsReportPreservedProtocolMismatch(t *testing.T) {
 				if res.Code != http.StatusBadGateway {
 					t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
 				}
-				assertAPIError(t, res, "server_error", "native_protocol")
-				if !strings.Contains(res.Body.String(), nativeProtocolMessage) {
-					t.Fatalf("body=%s; want the documented native_protocol sentence", res.Body.String())
-				}
+				assertErrorBody(t, res, "server_error", "native_protocol", wantMismatchMessage)
 				if calls := fake.calls.Load(); calls != 0 {
 					t.Fatalf("runner calls = %d", calls)
 				}
@@ -110,6 +130,30 @@ func TestLocalUnavailabilityWithoutMismatchStaysModelUnavailable(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A preserved mismatch is the helper's diagnosis, so it wins over the
+// construction-time 503 for a runner that has no schema interface. In
+// production the routed runner always has it; the ordering is pinned so a
+// future embedding cannot report the wrong failure first.
+func TestPreservedMismatchWinsOverTheMissingSchemaInterface(t *testing.T) {
+	plain := &echoRunner{}
+	for path, body := range guidedBodies(guidedTestSchema) {
+		res := post(t, localStatusServer(plain, probeProtocolMismatch()).Handler(), path, body)
+		if res.Code != http.StatusBadGateway {
+			t.Fatalf("%s status=%d body=%s", path, res.Code, res.Body.String())
+		}
+		assertErrorBody(t, res, "server_error", "native_protocol", wantMismatchMessage)
+	}
+	// Without a preserved mismatch the same runner is the 503 configuration
+	// failure it always was.
+	for path, body := range guidedBodies(guidedTestSchema) {
+		res := post(t, localStatusServer(plain, probeMissingHelper()).Handler(), path, body)
+		if res.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s status=%d body=%s", path, res.Code, res.Body.String())
+		}
+		assertAPIError(t, res, "server_error", "model_unavailable")
 	}
 }
 

@@ -110,13 +110,19 @@ func TestServeLocalStatusHelper(t *testing.T) {
 // reaches the runner.
 func TestServeLocalStatusClassification(t *testing.T) {
 	cases := []struct {
-		name   string
-		mode   string
-		status int
-		code   string
+		name    string
+		mode    string
+		status  int
+		code    string
+		message string
 	}{
-		{"protocol mismatch", "protocol", http.StatusBadGateway, "native_protocol"},
-		{"missing helper", "missing", http.StatusBadRequest, "model_unavailable"},
+		// The mismatch body names the cause and the remedy: the helper
+		// answered validly, in another protocol, so the shared "invalid or
+		// incomplete response" payload sentence would describe the wrong
+		// failure.
+		{"protocol mismatch", "protocol", http.StatusBadGateway, "native_protocol",
+			"the native local helper does not match this Hollis version; install the matching bundle"},
+		{"missing helper", "missing", http.StatusBadRequest, "model_unavailable", "the selected model is unavailable"},
 	}
 	requests := []struct{ name, path, body string }{
 		{"guided-chat", "/v1/chat/completions", `{"model":"local","messages":[{"role":"user","content":"hi"}],"response_format":{"type":"json_schema","json_schema":{"name":"person","schema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}}}}`},
@@ -180,14 +186,19 @@ func TestServeLocalStatusClassification(t *testing.T) {
 				}
 				var body struct {
 					Error struct {
-						Code string `json:"code"`
+						Type    string `json:"type"`
+						Code    string `json:"code"`
+						Message string `json:"message"`
 					} `json:"error"`
 				}
 				if err := json.Unmarshal(raw, &body); err != nil {
 					t.Fatalf("%s error JSON: %v (%s)", request.name, err, raw)
 				}
-				if body.Error.Code != tc.code {
-					t.Fatalf("%s code=%q want=%q body=%s", request.name, body.Error.Code, tc.code, raw)
+				if body.Error.Code != tc.code || body.Error.Message != tc.message {
+					t.Fatalf("%s error=%+v want code=%q message=%q body=%s", request.name, body.Error, tc.code, tc.message, raw)
+				}
+				if body.Error.Type != "server_error" && body.Error.Type != "invalid_request_error" {
+					t.Fatalf("%s error type=%q body=%s", request.name, body.Error.Type, raw)
 				}
 			}
 			if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {

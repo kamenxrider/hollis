@@ -120,12 +120,15 @@ that selects `local` - guided or plain, complete or streamed - is **502**
 `native_protocol`:
 
 ```json
-{"error":{"type":"server_error","code":"native_protocol","message":"the native local helper returned an invalid or incomplete response"}}
+{"error":{"type":"server_error","code":"native_protocol","message":"the native local helper does not match this Hollis version; install the matching bundle"}}
 ```
 
 That is the same class as the CLI's `native_protocol` / exit 5, and the remedy
-is the same: install the matching bundle. The request stops before inference,
-and no route falls back to another model or to plain text.
+is the same: install the matching bundle. The message names the cause because
+the helper answered validly, in another protocol; it is not the shared
+`native_protocol` sentence for a malformed or incomplete payload, which keeps
+describing that separate failure. The request stops before inference, and no
+route falls back to another model or to plain text.
 
 Availability still describes the model. A helper that is missing, not
 executable, or whose Apple model is unavailable keeps the availability
