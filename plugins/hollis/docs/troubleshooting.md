@@ -55,7 +55,8 @@ documentation alone does not upgrade their bundled binary.
 | Repair upgrade | A corrupt older runtime may be retained but not selected; the verified new runtime can still be installed, while rollback stays fail-closed |
 | Oversized input | Narrow the selected context or attachments; never silently truncate |
 | Guided output refused (exit 2) | The schema is outside the supported subset; the message names the JSON pointer. Fix the schema, retry, or ask for plain text; nothing was inferred |
-| `native_protocol` / "does not support guided output" (exit 5) | The helper is missing, older than the CLI, or returned a payload that failed validation. Install the matching bundle; do not retry or repair |
+| `native_protocol` / "does not support guided output" (exit 5) | The helper is older than the CLI, or the returned payload failed validation. Install the matching bundle; do not retry or repair |
+| `local_unavailable` / "helper is missing or not executable" (exit 5) | The paired helper is absent or not executable. Install the matching bundle; do not retry or repair |
 | `context_size` absent | The helper predates protocol 2 or the model is unavailable. Do not estimate a window; guided output also needs protocol 2 |
 | Wrong/unavailable style | Use one of the five tested styles; do not route ChatGPT generation to another model silently |
 
