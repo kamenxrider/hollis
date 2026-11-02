@@ -28,8 +28,9 @@ Hollis cannot show your remaining allowance or predict recovery.
 **Choose your setup:** [CLI 0.4.0](#install) ·
 [Claude Code / Codex plugin 0.2.0](plugins/hollis/README.md#install), including runtime 0.4.0 and native local.
 
-Current-source additions (`--schema` and protocol-2 context diagnostics) are not
-in those pinned releases. See [native-local version requirements](docs/native-local.md#guided-output).
+Current-source additions (`--schema`, HTTP guided JSON output and protocol-2
+context diagnostics) are not in those pinned releases. See
+[native-local version requirements](docs/native-local.md#guided-output).
 
 Chats and configuration stay on your Mac. Requests go to the model you select.
 If a cloud-hosted agent calls Hollis, its provider can also receive Apple’s answer.
@@ -138,7 +139,7 @@ Five model choices: four through Shortcuts, one native. `auto` is a routing stra
 | `cloud` | Shortcuts → Private Cloud Compute | Apple’s “Great, fast answers” selection |
 | `cloud-pro` | Shortcuts → Private Cloud Compute | Apple’s “Increased reasoning” selection |
 | `on-device` | Shortcuts → your Mac | Works offline; complete responses |
-| `local` | Native SDK → your Mac | Text-only; streams in a terminal; measured usage on complete responses; `--schema` for guided JSON output |
+| `local` | Native SDK → your Mac | Text-only; streams in a terminal; measured usage on complete responses; `--schema` and HTTP guided JSON output (current source, not in pinned 0.4.0) |
 | `chatgpt` | Shortcuts → Apple’s ChatGPT extension | Not an Apple model |
 | `auto` | Cloud, then Shortcuts On-Device | Default; one fallback only for a confirmed missing bridge or recognized Cloud rate limit |
 
@@ -257,7 +258,7 @@ curl -sS http://127.0.0.1:1978/v1/chat/completions \
 
 - Through Shortcuts, answers are complete and token usage is unavailable; `stream: true` returns 400.
 - Native `local` supports real SSE streaming on both endpoints and measured token usage on complete responses. Streaming usage is not promised.
-- Guided JSON output is a CLI-only `--schema` surface on `local` today; the OpenAI-shaped endpoints keep `content` as a string.
+- Guided JSON output on `local` is available through `--schema` on the CLI and through `response_format` / `text.format` on both HTTP endpoints. It is current source, not in the pinned 0.4.0 runtime, and the object is returned as a JSON string.
 - CLI `--json` and `--agent` output never stream; explicit streaming with either is rejected.
 - No API tools/function calls. `system` and `instructions` are advisory prompt content.
 
