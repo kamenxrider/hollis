@@ -13,8 +13,9 @@ Shortcut bridges. Explicit native `local` adds genuine streaming for human
 terminal output and measured token usage on complete responses. Agent/JSON
 replies remain complete; local needs no Shortcut import.
 
-[Download plugin 0.2.0](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.2.0).
-Plugin 0.1.0 bundles runtime 0.3.3 and does not include native local.
+Plugin release 0.2.0 was withdrawn. **Install from this repository's `main`
+branch** until a versioned plugin release follows. Plugin 0.1.0 bundles runtime
+0.3.3 and does not include native local.
 
 **Requires a local Apple-silicon Mac running macOS 27 with Apple Intelligence.**
 Have Claude Code or Codex installed and signed in. The host must execute on this
@@ -27,22 +28,19 @@ See [compatibility](docs/compatibility.md).
 
 ## Install
 
-Download `hollis-plugin-0.2.0.zip` and its `.sha256` file from the release above.
-Verify the checksum before extracting with Archive Utility:
-
-```sh
-shasum -a 256 -c hollis-plugin-0.2.0.sha256
-```
+Use a source checkout of this repository at `main`. Setup downloads the exact
+pinned, checksum-verified runtime 0.4.0 assets from their published release and
+does not need the plugin's own release archive.
 
 | What you have | Folder to give the host | Included runtime |
 | --- | --- | --- |
-| Extracted release archive | Outer `hollis-plugin-0.2.0` folder | ARM64 CLI, matching native helper and all five bridges |
-| Source checkout pinned to `plugin-v0.2.0` | Repository root | Setup downloads the exact authenticated assets in the lock |
+| Source checkout of `main` | Repository root | Downloaded during setup, matching the pinned lock |
+| Extracted 0.1.0 release archive | Outer `hollis-plugin-0.1.0` folder | Runtime 0.3.3, without native local |
 
-Replace `/absolute/path/to/hollis-package` below with that folder. It contains
-the marketplace entries and `plugins/hollis/`. **Do not point marketplace
-installation at the inner `plugins/hollis` folder.** Keep the source/extracted
-folder available for later local marketplace updates.
+Replace `/absolute/path/to/hollis` below with that folder. It contains the
+marketplace entries and `plugins/hollis/`. **Do not point marketplace
+installation at the inner `plugins/hollis` folder.** Keep the source folder
+available for later local marketplace updates.
 
 Beyond the host app, normal setup uses macOS utilities: no Homebrew, GitHub CLI,
 Go, Python, Node, shell configuration edits or administrator installation.
@@ -52,12 +50,11 @@ Go, Python, Node, shell configuration edits or administrator installation.
 Enter these in the **Claude conversation**, one at a time:
 
 ```text
-/plugin marketplace add /absolute/path/to/hollis-package
+/plugin marketplace add /absolute/path/to/hollis
 /plugin install hollis@hollis-plugins
 ```
 
-Use the extracted release folder above so Claude installs the selected release,
-rather than following changes on `main`.
+Use the source checkout above so Claude installs from `main`.
 
 Choose the installation scope in Claude. If the install summary asks for
 `/reload-plugins`, run it; otherwise start a new session if the skills are not
@@ -72,13 +69,13 @@ listed. Then run:
 Run these in a **terminal on the same Mac**:
 
 ```sh
-codex plugin marketplace add kamenxrider/hollis --ref plugin-v0.2.0
+codex plugin marketplace add kamenxrider/hollis
 codex plugin add hollis@hollis-plugins
 ```
 
-For an extracted archive or local checkout, use
-`codex plugin marketplace add "/absolute/path/to/hollis-package"` for the first
-command; omit `--ref` for a local folder.
+For a local checkout, use
+`codex plugin marketplace add "/absolute/path/to/hollis"` for the first
+command; add a branch or tag with `--ref` only when that ref exists.
 
 Start a new Codex conversation and type the following there, **not in the shell**:
 

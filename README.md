@@ -26,7 +26,7 @@ Hollis cannot show your remaining allowance or predict recovery.
 [Limits and routing](#cloud-availability-and-limits).
 
 **Choose your setup:** [CLI 0.4.0](#install) ·
-[Claude Code / Codex plugin 0.2.0](plugins/hollis/README.md#install), including runtime 0.4.0 and native local.
+[Claude Code / Codex plugin](plugins/hollis/README.md#install) from main, including runtime 0.4.0 and native local.
 
 Current-source additions (`--schema`, HTTP guided JSON output and protocol-2
 context diagnostics) are not in those pinned releases. See
@@ -234,10 +234,12 @@ batch choice. A failure stops the run. [Batch guide](docs/batch.md).
 
 ## Use Hollis in Claude Code and Codex
 
-The [plugin 0.2.0](plugins/hollis/README.md) bundles runtime **0.4.0**, its matched
-native helper and five Shortcut bridges. Ask Apple to assess a supplied plan,
-compare documents or create an image, then keep working in the same conversation.
-Guided setup preserves your existing configuration and conversations.
+The [plugin](plugins/hollis/README.md) bundles runtime **0.4.0**, its matched
+native helper and five Shortcut bridges. Plugin release 0.2.0 was withdrawn, so
+install from main until a versioned release follows. Ask Apple to assess a
+supplied plan, compare documents or create an image, then keep working in the
+same conversation. Guided setup preserves your existing configuration and
+conversations.
 Plugin 0.1.0 bundled runtime 0.3.3 and does not include native local; update the
 plugin to get it. [Installation and everyday requests](plugins/hollis/README.md#install).
 
