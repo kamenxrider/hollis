@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,7 @@ func newRunnerDefault() runner.Runner { return runner.NewRouted() }
 // flags or stdin.
 func Execute() error {
 	cmd, flags := newRootCmdWithFlags(newRunnerDefault)
+	cmd.SetArgs(ResolveCommandLine(cmd, os.Args[1:]))
 	return executeCommand(cmd, flags)
 }
 
@@ -105,21 +107,28 @@ unavailable bridge or recognized rate limit).
 Agent mode: add --agent to supported data commands for JSON output + non-interactive mode.
 Native local: --model local uses the Foundation Models SDK on Apple Silicon/macOS 27;
 human terminal output streams, JSON/agent output stays complete.
+Prompt or command: a first argument that names a command runs that command.
+A near-miss of a command name (edit distance two or less) is refused with a
+suggestion. Any other first argument is a prompt, so
+'hollis "Explain closures"' means 'hollis respond "Explain closures"' and
+accepts respond's flags. See docs/cli.md for the full rule table.
 Health check: run 'hollis doctor' to verify the transport and bridges.
 Local OpenAI-compatible endpoint: run 'hollis serve' (127.0.0.1:1978).
 See README.md for recipes.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		// Classify unknown commands and --version extras before deferred help
-		// is rendered, so --help cannot turn invalid input into exit 0.
-		Args: func(_ *cobra.Command, args []string) error {
+		// is rendered, so --help cannot turn invalid input into exit 0. A
+		// near-miss is refused with a suggestion; ResolveCommandLine already
+		// turned every other non-command first argument into a prompt.
+		Args: func(root *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return nil
 			}
 			if showVersion {
 				return usageErr(errors.New("--version does not accept a command or positional arguments"))
 			}
-			return usageErr(fmt.Errorf("unknown command %q: run 'hollis --help' for the command list", args[0]))
+			return unknownRootCommandError(root, args)
 		},
 		// Unknown subcommands are a usage error for agents (stable exit 2),
 		// not a silent help dump with exit 0. Bare `hollis` still prints help.
@@ -140,7 +149,7 @@ See README.md for recipes.`,
 				}
 				return cmd.Help()
 			}
-			return usageErr(fmt.Errorf("unknown command %q: run 'hollis --help' for the command list", args[0]))
+			return unknownRootCommandError(cmd, args)
 		},
 	}
 	rootCmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {

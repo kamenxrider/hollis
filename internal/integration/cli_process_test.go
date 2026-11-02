@@ -45,7 +45,7 @@ func TestCLIHelperProcess(t *testing.T) {
 		}
 	}
 	cmd := cli.NewRootCmd(func() runner.Runner { return processRunner{} })
-	cmd.SetArgs(os.Args[separator:])
+	cmd.SetArgs(cli.ResolveCommandLine(cmd, os.Args[separator:]))
 	cmd.SetIn(os.Stdin)
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
@@ -75,7 +75,7 @@ func TestBuiltBinaryProcessContracts(t *testing.T) {
 		{name: "version", args: []string{"version"}, wantExit: 0, wantStdout: "hollis dev\n"},
 		{name: "version flag", args: []string{"--version"}, wantExit: 0, wantStdout: "hollis dev\n"},
 		{name: "unknown flag", args: []string{"--definitely-unknown"}, wantExit: 2},
-		{name: "unknown command", args: []string{"definitely-unknown"}, wantExit: 2},
+		{name: "near-miss command", args: []string{"respondd"}, wantExit: 2},
 		{name: "extra version argument", args: []string{"version", "extra"}, wantExit: 2},
 		{name: "extra help path", args: []string{"help", "respond", "extra"}, wantExit: 2},
 		{name: "extra completion argument", args: []string{"completion", "zsh", "extra"}, wantExit: 2},
@@ -222,6 +222,43 @@ func TestBuiltBinaryStructuredErrorContracts(t *testing.T) {
 		if helpBody["meta"] == nil || helpBody["results"] == nil {
 			t.Fatalf("agent help %v body=%#v", args, helpBody)
 		}
+	}
+}
+
+func TestCLIProcessBarePrompt(t *testing.T) {
+	state := t.TempDir()
+
+	bare := runHelper(t, state, "bare prompt marker")
+	if bare.exit != 0 {
+		t.Fatalf("bare prompt: exit=%d stderr=%s", bare.exit, bare.stderr)
+	}
+	if want := "fixture response for bare prompt marker\n"; bare.stdout != want {
+		t.Fatalf("bare prompt stdout=%q, want %q", bare.stdout, want)
+	}
+
+	// Respond's flags may precede the prompt, and JSON output keeps the
+	// usual envelope even though no command name was typed.
+	jsonPrompt := runHelper(t, state, "--json", "json prompt marker")
+	if jsonPrompt.exit != 0 {
+		t.Fatalf("bare prompt with --json: exit=%d stderr=%s", jsonPrompt.exit, jsonPrompt.stderr)
+	}
+	var response map[string]any
+	decodeObject(t, jsonPrompt.stdout, &response)
+	if response["response"] != "fixture response for json prompt marker" {
+		t.Fatalf("unexpected bare-prompt JSON: %#v", response)
+	}
+
+	// A near-miss is a usage error with a suggestion, not a model call.
+	nearMiss := runHelper(t, state, "respod", "hello")
+	if nearMiss.exit != 2 {
+		t.Fatalf("near-miss exit=%d stdout=%s stderr=%s", nearMiss.exit, nearMiss.stdout, nearMiss.stderr)
+	}
+	if !strings.Contains(nearMiss.stderr, `did you mean "respond"`) ||
+		!strings.Contains(nearMiss.stderr, `hollis respond "respod hello"`) {
+		t.Fatalf("near-miss stderr=%q", nearMiss.stderr)
+	}
+	if strings.Contains(nearMiss.stdout, "fixture response") {
+		t.Fatalf("near-miss reached the model: %q", nearMiss.stdout)
 	}
 }
 

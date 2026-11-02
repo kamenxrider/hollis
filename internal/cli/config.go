@@ -299,11 +299,11 @@ default model applies whenever neither the positional ` + "`model <tier>`" + `
 prefix nor the --model flag is given.`,
 		Example: `  hollis config show
   hollis config set model cloud-pro`,
-		Args: func(_ *cobra.Command, args []string) error {
+		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return nil
 			}
-			return usageErr(fmt.Errorf("unknown config command %q: run 'hollis config --help'", args[0]))
+			return unknownSubcommandError(cmd, args[0])
 		},
 		// Unknown subcommands are a usage error for agents, not help + exit 0.
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -313,7 +313,7 @@ prefix nor the --model flag is given.`,
 				}
 				return cmd.Help()
 			}
-			return usageErr(fmt.Errorf("unknown config command %q: run 'hollis config --help'", args[0]))
+			return unknownSubcommandError(cmd, args[0])
 		},
 	}
 	cmd.AddCommand(newConfigShowCmd(flags))

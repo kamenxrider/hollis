@@ -6,6 +6,7 @@ Start with the [verified install and first request](../README.md#install-verifie
 
 ```bash
 hollis respond "Summarize this repo in one sentence"
+hollis "Explain closures in Go"          # same as hollis respond "..."
 printf 'Explain closures in Go' | hollis respond
 hollis respond --model cloud-pro "Analyze this bug"
 hollis respond model cloud-pro "same thing, model before the prompt"
@@ -13,6 +14,28 @@ hollis respond --timeout 90s "A question worth waiting for"
 ```
 
 The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple. For Shortcuts routes, all rendered text reaches Shortcuts through a private temporary `.txt` file; see [transport and cleanup details](shortcuts.md#how-it-works).
+
+### Prompt or command
+
+The first argument decides what runs. Hollis never guesses between a command and a prompt by keyword: the rule is mechanical, so a shell history stays predictable.
+
+| First argument | What runs | Example |
+| --- | --- | --- |
+| Names a command | That command | `hollis models`, `hollis chat "hello"` |
+| Within edit distance 2 of a command name (case-insensitive) | Nothing: usage error, exit 2, with the closest command named | `hollis respondd` → `did you mean "respond"?` |
+| Anything else | `respond`, with the whole command line as its arguments | `hollis "Explain closures"` behaves like `hollis respond "Explain closures"` |
+| Follows `--` | `respond`, with the text after `--` taken literally | `hollis -- "--chat"` sends the prompt `--chat` |
+
+Leading global flags are skipped while the first argument is found, and `--select` is skipped with its value. Respond's own flags may come before the prompt, so `hollis --model local "hi"` and `hollis "hi" --model local` both work. A prompt whose first word is exactly a command name must use `respond` explicitly: `hollis chat "chat"` is a chat turn with the stored model, not a bare prompt. Cobra's hidden `__` completion commands are never reinterpreted.
+
+A near-miss is refused rather than sent to a model because a typo inside a prompt would hide which command the caller meant. The error names the closest command and repeats the prompt form, for example:
+
+```
+$ hollis respod "hello"
+unknown command "respod": did you mean "respond"? To send it as a prompt instead, run: hollis respond "respod hello"
+```
+
+The same suggestion appears for the group commands that dispatch their own subcommands, such as `hollis config shwo` and `hollis chats lsit`. JSON and agent output carry the usual `error` object with `"exit_code": 2`.
 
 ## Native local streaming
 
@@ -132,7 +155,7 @@ Exit codes are stable and parseable:
 | --- | --- |
 | 0 | Success |
 | 1 | Unexpected internal error |
-| 2 | Usage error — bad flag, unknown model, empty prompt, no matching command |
+| 2 | Usage error — bad flag, unknown model, empty prompt, near-miss command name |
 | 3 | Missing resource — unknown conversation id, no search hits, bridge not installed |
 | 5 | Discovery, transport, Shortcut execution, declined request, or Apple rate-limit failure |
 | 7 | Timeout — the run exceeded its deadline and was killed |
@@ -217,6 +240,7 @@ it on startup failure or an executable switch. To recover deliberately:
 
 ```bash
 hollis respond "prompt"                    # one-shot response
+hollis "prompt"                            # same as hollis respond "prompt"
 hollis respond --model cloud-pro "prompt"  # explicit Cloud Pro
 hollis respond --image photo.jpg "describe" # image input; defaults to Cloud
 hollis respond --file notes.md "summarize"   # attach a text document
