@@ -10,7 +10,7 @@ Bring Apple's contribution back into this conversation. Lead with the useful ans
 Resolve the package root **two directories above this SKILL.md**, using the skill's actual installed location. Use absolute paths derived from that location; do not assume a working directory or `PLUGIN_ROOT`/`PLUGIN_DATA` environment variables. Below, `KIT` means that resolved root.
 
 1. Run `bash "$KIT/scripts/setup.sh" check`. If setup is required, use the sibling **hollis-setup** skill. A remote host without execution on an eligible Mac cannot call Apple merely because the plugin loaded.
-2. Use `bash "$KIT/scripts/run.sh" agent-context` to discover the actual runtime contract. Expect schema version 2; inspect changed schemas before using them. `setup.sh path` supplies the executable if direct access is needed.
+2. Use `bash "$KIT/scripts/run.sh" agent-context` to discover the actual runtime contract. Expect schema version 2; inspect changed schemas before using them. `setup.sh path` supplies the executable if direct access is needed. Before offering guided output, confirm the installed runtime reports it: `run.sh models --model local --json` must show `available: true`, `helper_protocol: 2` and `capabilities.guided_output: true`, and `agent-context` lists `--schema` on `respond`. A helper pinned to protocol 1 cannot do it.
 3. Use `run.sh` for calls: it verifies the managed binary and its pinned native helper and serializes operations with pacing. Existing explicit route/scope authorization remains valid; explain any forthcoming Apple approval rather than asking again for ordinary authorized calls.
 4. Check the selected capability with `setup.sh status <route>`. If missing or unknown, use setup for that route only. For images, `discovered` with `configured:false` means the shortcut exists but its runtime mapping still needs `setup.sh import image`; that command connects a discovered bridge without opening an import. A user's fixed-style overrides remain intact. Do not mistake runtime installation or discovery for completed route setup.
 
@@ -32,6 +32,19 @@ never combine machine output with `--stream`. Human terminal text can stream.
 A context-capacity error requires a smaller scope chosen with the user. Never
 silently shorten a saved conversation or retry with dropped messages. Local
 complete-response usage is measured by Apple; streaming counts are not promised.
+`models` and `doctor --model local --json` report the measured `context_size`
+when the helper speaks protocol 2; use both to explain headroom, never to invent
+a remaining Apple allowance.
+
+Guided output (`--schema`) is local-only and never a substitute for a requested
+Cloud or Cloud Pro answer: use it only for structured on-device data, when the
+support check above passes, and only with `--model local`. Keep the schema in a
+private file, clean it after, and use the subset and limits in
+[workflows](references/workflows.md). It is complete-only, so `--stream` and
+`--image` are usage errors. A rejected schema is a pre-spawn usage error (exit 2)
+naming a JSON pointer; an older helper is refused as `native_protocol` (exit 5,
+"install the matching bundle"), never degraded to plain text. With `--json`,
+`response` is the decoded object.
 
 ## Other work
 
