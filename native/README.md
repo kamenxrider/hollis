@@ -10,6 +10,11 @@ compile code during a request.
 Normal operation reads exactly one JSON request from stdin and writes NDJSON to
 stdout. Prompt text never appears in process arguments.
 
+`Extraction.swift` is the document library the helper will call: PDF text per
+page with Vision OCR for pages that have none, content-based detection, and
+bounded, symlink-free file input. It performs no inference and knows nothing
+about the protocol. `scripts/native` builds and tests it offline.
+
 Protocol 2 requests have `protocol`, `operation` (`status`, `complete`, `stream`,
 or `schema`), and a `prompt` for generation; a `schema` request also carries
 `schema`. Each event is stamped with the request's protocol, `version: "0.5.0"`,

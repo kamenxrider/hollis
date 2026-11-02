@@ -14,6 +14,11 @@ NDJSON request on stdin, an event stream on stdout.
   non-canonical JSON, unsupported schemas, the request-size cap, the status
   event shape, and prompt guards. Every case fails before a session exists or
   asks only for the non-generative status event.
+- `test_extraction.py` builds `native/Extraction.swift` with a test driver and
+  checks PDF text-layer extraction, Vision OCR of scanned and rotated pages,
+  page selection, the page and text ceilings, the file ceiling, symlink and FIFO
+  refusal, and the no-text case. It creates every fixture itself, calls no
+  model, and needs PDFKit and Vision to be usable (Apple silicon, macOS 27).
 - `test_protocol_live.py` is the only file that generates text. It is skipped
   unless `HOLLIS_NATIVE_LIVE=1`, is never run by CI, and makes three on-device
   calls with synthetic prompts. It asserts protocol behavior, not answer
