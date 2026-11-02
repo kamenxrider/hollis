@@ -30,8 +30,8 @@ jobs:
       - name: Race test
         run: go test -race ./...
 
-      - name: Poolside review boundary tests
-        run: python3 -m unittest discover -s scripts/poolside-review -p 'test_*.py'
+      - name: AI review boundary tests
+        run: python3 -m unittest discover -s scripts/ai-review -p 'test_*.py'
 
       - name: Image bridge and packaging tests
         run: python3 -m unittest discover -s scripts/image-install-check -p 'test_*.py'

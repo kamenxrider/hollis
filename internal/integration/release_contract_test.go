@@ -216,7 +216,7 @@ func TestActionsUseImmutableCommitPins(t *testing.T) {
 	t.Parallel()
 	repo := repoRoot(t)
 	mutable := regexp.MustCompile(`uses:\s+[^\s]+@v[0-9]+(?:\s|$)`)
-	for _, name := range []string{"ci.yml", "poolside-review.yml", "release.yml"} {
+	for _, name := range []string{"ci.yml", "ai-review.yml", "release.yml"} {
 		raw, err := os.ReadFile(filepath.Join(repo, ".github", "workflows", name))
 		if err != nil {
 			t.Fatal(err)
@@ -227,10 +227,10 @@ func TestActionsUseImmutableCommitPins(t *testing.T) {
 	}
 }
 
-func TestPoolsideReviewWorkflowIsSecretSafe(t *testing.T) {
+func TestAIReviewWorkflowIsSecretSafe(t *testing.T) {
 	t.Parallel()
 	repo := repoRoot(t)
-	raw, err := os.ReadFile(filepath.Join(repo, ".github", "workflows", "poolside-review.yml"))
+	raw, err := os.ReadFile(filepath.Join(repo, ".github", "workflows", "ai-review.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,9 +243,9 @@ func TestPoolsideReviewWorkflowIsSecretSafe(t *testing.T) {
 		"ref: ${{ github.event.pull_request.base.sha }}",
 		"persist-credentials: false",
 		"path: trusted-source",
-		"POOLSIDE_API_KEY: ${{ secrets.POOLSIDE_API_KEY }}",
-		"trusted-source/scripts/poolside-review/poolside_review.py fetch-diff",
-		"trusted-source/scripts/poolside-review/poolside_review.py create-review",
+		"OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}",
+		"trusted-source/scripts/ai-review/ai_review.py fetch-diff",
+		"trusted-source/scripts/ai-review/ai_review.py create-review",
 		"actions/upload-artifact@",
 		"needs: review",
 		"issues: write",
@@ -255,7 +255,7 @@ func TestPoolsideReviewWorkflowIsSecretSafe(t *testing.T) {
 		`--input "$REVIEW_REQUEST"`,
 	} {
 		if !strings.Contains(workflow, required) {
-			t.Errorf("Poolside review workflow missing %q", required)
+			t.Errorf("AI review workflow missing %q", required)
 		}
 	}
 	for _, forbidden := range []string{
@@ -264,15 +264,15 @@ func TestPoolsideReviewWorkflowIsSecretSafe(t *testing.T) {
 		"ref: ${{ github.event.pull_request.head.sha }}",
 	} {
 		if strings.Contains(workflow, forbidden) {
-			t.Errorf("Poolside review workflow contains unsafe behavior %q", forbidden)
+			t.Errorf("AI review workflow contains unsafe behavior %q", forbidden)
 		}
 	}
 	postAt := strings.Index(workflow, "\n  post:")
 	if postAt < 0 {
-		t.Fatal("Poolside workflow has no isolated comment-posting job")
+		t.Fatal("AI review workflow has no isolated comment-posting job")
 	}
-	if strings.Contains(workflow[postAt:], "POOLSIDE_API_KEY") {
-		t.Fatal("Poolside API key crossed into the write-capable comment job")
+	if strings.Contains(workflow[postAt:], "OPENAI_API_KEY") {
+		t.Fatal("AI provider API key crossed into the write-capable comment job")
 	}
 }
 

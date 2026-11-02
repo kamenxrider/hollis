@@ -43,7 +43,7 @@ jobs:
           go test ./...
           go test -race ./...
           python3 -m unittest discover -s scripts/image-install-check -p 'test_*.py'
-          python3 -m unittest discover -s scripts/poolside-review -p 'test_*.py'
+          python3 -m unittest discover -s scripts/ai-review -p 'test_*.py'
           python3 -m unittest discover -s scripts/plugin -p 'test_*.py'
           python3 -m unittest discover -s scripts/release -p 'test_*.py'
 
