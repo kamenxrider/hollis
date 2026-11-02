@@ -54,8 +54,11 @@ Image Playground's separate **ChatGPT** style has a different scoped result:
 on macOS 27.0 build `26A5425a`, the fixed, parameterized, native-Shortcuts,
 and fresh-extension routes failed before inference with Apple's Shortcuts
 ToolKit database sandbox denial, while the native Image Playground app worked.
-This does not prove universal impossibility; Hollis does not silently retry or
-substitute that route. See the [image-generation qualification note](image-generation.md#setup).
+A later check on 2026-11-02 saw the same style refused in under a second as
+exit 5 `request_declined`, so the signature changed while the block did not.
+Neither observation proves universal impossibility; Hollis does not silently
+retry or substitute that route. See the
+[image-generation qualification note](image-generation.md#setup).
 
 ## Model notes
 
