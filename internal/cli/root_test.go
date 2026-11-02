@@ -648,6 +648,105 @@ func TestChatsSearchHumanOutput(t *testing.T) {
 	}
 }
 
+// TestChatsTablesAlignHeadersWithDataColumns guards the human tables: every
+// column header must start at the same visible column as the values beneath
+// it, including rows with non-ASCII and empty titles.
+func TestChatsTablesAlignHeadersWithDataColumns(t *testing.T) {
+	// Each Execute opens and closes its own store, so hand out a fresh
+	// handle on the same fixture database per invocation.
+	dbPath := filepath.Join(t.TempDir(), "hollis.db")
+	st, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldOpen := openStore
+	openStore = func() (*store.Store, error) { return store.Open(dbPath) }
+	t.Cleanup(func() { openStore = oldOpen })
+
+	fixtures := []struct{ model, title string }{
+		{"cloud-pro", "what are the odds"},
+		{"local", "naïve café 日本語"},
+		{"auto", ""},
+		{"on-device", "model context"},
+	}
+	ids := make([]string, len(fixtures))
+	for i, f := range fixtures {
+		conv, err := st.CreateConversation(f.model, f.title)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = conv.ID
+		if _, err := st.AppendMessage(conv.ID, "user", "filler"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A double-digit message count must not skew the MESSAGES column.
+	if _, err := st.AppendMessage(ids[0], "assistant", "filler 2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(t *testing.T, args ...string) []string {
+		t.Helper()
+		cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+		cmd.SetArgs(args)
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		return strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	}
+
+	t.Run("list", func(t *testing.T) {
+		lines := run(t, "chats", "list")
+		if len(lines) != 1+len(fixtures) {
+			t.Fatalf("want header + %d rows, got %d lines: %q", len(fixtures), len(lines), lines)
+		}
+		// Rows come back newest-first, so match each line to its
+		// fixture by the leading conversation ID.
+		models := make(map[string]string, len(fixtures))
+		titles := make(map[string]string, len(fixtures))
+		for i, f := range fixtures {
+			models[ids[i]] = f.model
+			titles[ids[i]] = f.title
+		}
+		header := lines[0]
+		for _, line := range lines[1:] {
+			id := line[:36]
+			// The MESSAGES column starts right after the ID and its
+			// two-space gutter on every data line.
+			if got, want := strings.Index(header, "MESSAGES"), len(id)+2; got != want {
+				t.Errorf("row %s: MESSAGES header at %d, values at %d\nheader %q\nrow    %q", id, got, want, header, line)
+			}
+			if got, want := strings.Index(header, "MODEL"), strings.Index(line, models[id]); got != want {
+				t.Errorf("row %s: MODEL header at %d, values at %d\nheader %q\nrow    %q", id, got, want, header, line)
+			}
+			if title := titles[id]; title != "" {
+				if got, want := strings.Index(header, "TITLE"), strings.Index(line, title); got != want {
+					t.Errorf("row %s: TITLE header at %d, values at %d\nheader %q\nrow    %q", id, got, want, header, line)
+				}
+			}
+		}
+	})
+
+	t.Run("search", func(t *testing.T) {
+		lines := run(t, "chats", "search", "filler 2")
+		if len(lines) != 2 {
+			t.Fatalf("want header + 1 row, got %d lines: %q", len(lines), lines)
+		}
+		header, line := lines[0], lines[1]
+		if got, want := strings.Index(header, "MODEL"), strings.Index(line, "cloud-pro"); got != want {
+			t.Errorf("MODEL header at %d, values at %d\nheader %q\nrow    %q", got, want, header, line)
+		}
+		if got, want := strings.Index(header, "TITLE / SNIPPET"), strings.Index(line, "filler 2"); got != want {
+			t.Errorf("TITLE / SNIPPET header at %d, values at %d\nheader %q\nrow    %q", got, want, header, line)
+		}
+	})
+}
+
 func TestChatsSearchEmptyQueryExit2(t *testing.T) {
 	st := openTempStore(t)
 	oldOpen := openStore
