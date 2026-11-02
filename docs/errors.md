@@ -18,8 +18,10 @@ exit 5 with the transport family so a script can treat a stale pairing like any
 other failed execution, while the machine code names the cause. `hollis serve`
 keeps the classification from its startup status probe, so a paired helper that
 answers with another protocol or version is 502 `native_protocol` for every
-`local` request, guided or plain; a missing or unavailable helper stays 400
-`model_unavailable`.
+`local` request, guided or plain, with a message that the helper does not match
+this Hollis version and a pointer at the matching bundle. A missing or
+unavailable helper stays 400 `model_unavailable`; a malformed payload from a
+matched helper keeps the shared `native_protocol` sentence.
 
 `request_declined` does **not** establish why Apple declined. It is not proof of
 a safety-filter rejection, a rate limit, or a broken bridge. Hollis recognizes

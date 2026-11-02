@@ -363,7 +363,9 @@ func TestGuidedLabelsAreAcceptedAndDoNotLoosenValidation(t *testing.T) {
 			if res.Code != http.StatusBadGateway {
 				t.Fatalf("status=%d body=%s; strict:false must not loosen validation", res.Code, res.Body.String())
 			}
-			assertAPIError(t, res, "server_error", "native_protocol")
+			// A non-conforming object keeps the shared native_protocol
+			// sentence even when the request set strict:false.
+			assertErrorBody(t, res, "server_error", "native_protocol", "the native local helper returned an invalid or incomplete response")
 		})
 	}
 }
@@ -402,7 +404,10 @@ func TestGuidedOutputRejectsNonConformingReturnedPayload(t *testing.T) {
 				if res.Code != http.StatusBadGateway {
 					t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
 				}
-				assertAPIError(t, res, "server_error", "native_protocol")
+				// Payload re-validation keeps the shared native_protocol
+				// sentence: a correctly paired helper returned a value that
+				// does not match the schema.
+				assertErrorBody(t, res, "server_error", "native_protocol", "the native local helper returned an invalid or incomplete response")
 				for _, forbidden := range []string{"choice", "output_text", `"content"`, "structured"} {
 					if strings.Contains(res.Body.String(), forbidden) {
 						t.Fatalf("error response leaked %q: %s", forbidden, res.Body.String())
