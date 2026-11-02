@@ -71,7 +71,9 @@ Animation, Illustration, Sketch, Genmoji and Any Style returned valid PNGs in
 paced tests. API generation and CLI/API conversation follow-ups also returned
 images. Earlier reference tests checked bytes at the Hollis boundary but missed
 a connection inside the Shortcut. The corrected connection passed an echo
-control and a live reference generation. See the [corrected evidence](../EVIDENCE.md#reference-correction).
+control and a live reference generation. See the
+[0.3.0 upgrade notes](releases/v0.3.0.md#upgrade), which record the corrected
+connection.
 
 In the 0.3.2 comparisons, both historical prompts generated three times with
 and three times without their references. Controls that omitted the subject
@@ -290,8 +292,9 @@ See [failure codes](errors.md) for runtime 0.3.2's `request_declined` and
 `shortcut_failed` diagnostics. A request for a different description leaves
 the underlying cause unknown; it is not confirmed safety-filter evidence.
 
-The [evidence record](../EVIDENCE.md#v030-validation) separates live model
-results from local contract tests and records the reference-wiring correction.
+The [0.3.0 verification record](releases/v0.3.0.md#verification-and-downloads)
+separates live results from local contract tests, and its upgrade notes record
+the reference-wiring correction.
 The release bridge has a regression test for the exact Decode → Get Images →
 Photo path; the packaging test checks the bridge actually shipped in the ZIP.
 

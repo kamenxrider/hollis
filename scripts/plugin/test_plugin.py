@@ -316,7 +316,7 @@ esac
 
 
 class PlannerStatusTests(unittest.TestCase):
-    """The record producer simulates A4 verification, not published provenance."""
+    """The record producer simulates independent verification, not published provenance."""
     call = InstallerTests.call
     install = InstallerTests.install
     relock = InstallerTests.relock

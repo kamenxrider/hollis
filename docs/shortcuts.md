@@ -12,6 +12,8 @@ Each model bridge configures incoming text, runs **Use Model**, then **Stop and 
 
 Positional prompts, piped stdin, `--prompt-file` and documents keep their existing CLI behavior; staging happens after the final prompt is rendered. The staging file has a unique name and mode `0600`, and receives the bytes without trimming, reflowing or adding a newline. It is removed when the request finishes, including ordinary errors, handled cancellation and timeouts. A forced process kill, host crash or removal failure can leave the private file in the system temporary directory; removal is not secure erasure. Staging failure prevents dispatch, with no retry through stdin. The 30-second default and 120-second maximum request timeout are unchanged.
 
+Each run's stdout is captured up to 1 MiB. A run that produces more is refused as a transport failure with exit 5: the response cannot be delivered faithfully, so Hollis never returns a truncated one. Stderr keeps a bounded head and tail so a late diagnostic can still classify the failure. The same 1 MiB bound applies to `shortcuts list`; an oversized listing is refused rather than turned into invented bridge names.
+
 ### Bridge discovery
 
 Shortcuts UUIDs differ on every Mac, so hollis resolves each tier at runtime, in order:
