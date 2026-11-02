@@ -11,6 +11,7 @@ go test ./...
 go test -race ./...
 go build ./cmd/hollis
 python3 -m unittest discover -s scripts/image-install-check -p 'test_*.py'
+python3 -m unittest discover -s scripts/native -p 'test_*.py'
 python3 -m unittest discover -s scripts/plugin -p 'test_*.py'
 python3 -m unittest discover -s scripts/release -p 'test_*.py'
 python3 scripts/release/privacy.py --source
@@ -20,6 +21,33 @@ Live research harnesses, raw prompts/responses, host transcripts, screenshots
 and historical run receipts are maintained separately and are not distributed.
 Synthetic privacy canaries in tests are fabricated values used to verify that
 errors do not disclose request data.
+
+## Native helper protocol and extraction
+
+The bundled helper (`native/HollisNative.swift`) has its own offline suite in
+`scripts/native`. A source contract compares the helper with the Go runner:
+version and protocol pins, request and event field names, accepted operations
+and events, the accepted error kinds, and the channel's privacy rules (prompt
+text only on stdin, no framework diagnostics, no free text in error events). It
+runs on any host.
+
+The same suite builds the helper with `scripts/build-native.sh` and runs golden
+request cases: protocol and operation guards, malformed and non-canonical JSON,
+unsupported schemas, the request-size cap, the status event shape at each
+supported protocol, and the prompt guards. Every case is rejected before a
+generation session exists or asks only for the non-generative status event, so
+no model call is made. The cases skip themselves where a helper built for macOS
+27 cannot execute; the build is still compiled there.
+
+`native/Extraction.swift` (document extraction) is tested the same way with a
+driver that creates its own fixtures: a text-layer PDF, a scanned PDF whose
+pages carry pixels and no text layer, a rotated scan, a blank page, and
+documents past the page and text ceilings. Those cases need PDFKit and Vision to
+be usable, and skip where the host cannot run a macOS 27 binary.
+
+Generation events are exercised only by the opt-in live file, which is skipped
+unless `HOLLIS_NATIVE_LIVE=1` and is never run in CI. It asserts protocol
+behavior, not answer quality or any reliability rate.
 
 ## Cross-language schema parity
 

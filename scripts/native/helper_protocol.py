@@ -17,6 +17,8 @@ ROOT = Path(__file__).resolve().parents[2]
 HELPER_SOURCE = ROOT / 'native/HollisNative.swift'
 SUBSET_SOURCE = ROOT / 'native/SchemaSubset.swift'
 BUILD = ROOT / 'scripts/build-native.sh'
+EXTRACTION_SOURCE = ROOT / 'native/Extraction.swift'
+HARNESS_SOURCE = ROOT / 'scripts/native/testdata/harness/main.swift'
 GO_NATIVE = ROOT / 'internal/runner/native.go'
 GOLDENS = Path(__file__).resolve().parent / 'testdata/protocol'
 
@@ -66,6 +68,27 @@ def build_helper(folder):
     if result.returncode != 0:
         raise RuntimeError(f'helper build failed: {result.stderr}')
     return helper
+
+
+def build_extraction_harness(folder):
+    """Build the extraction test driver into `folder` and return its path."""
+    harness = Path(folder) / 'harness'
+    sdk_path = command('xcrun', '--sdk', 'macosx', '--show-sdk-path').stdout.strip()
+    result = command(
+        'xcrun', 'swiftc', '-sdk', sdk_path, '-target', 'arm64-apple-macosx27.0',
+        str(EXTRACTION_SOURCE), str(HARNESS_SOURCE), '-o', str(harness))
+    if result.returncode != 0:
+        raise RuntimeError(f'extraction harness build failed: {result.stderr}')
+    return harness
+
+
+def harness(executable, *args, timeout=600):
+    """Run the extraction driver and decode its single JSON answer."""
+    result = subprocess.run([str(executable), *args], capture_output=True,
+                            text=True, timeout=timeout)
+    if result.returncode != 0:
+        raise AssertionError(f'harness exited {result.returncode}: {result.stderr}')
+    return json.loads(result.stdout)
 
 
 def run(helper, args=(), stdin=b'', timeout=120):
