@@ -15,6 +15,7 @@ their accessible local paths; example filenames are not attachments by themselve
 | Documents | Use Cloud to compare brief.md with notes.txt. List decisions that appear in only one document. |
 | Image understanding | Ask Apple Cloud Pro to describe the attached diagram and explain which labels are unclear. |
 | Local text | Use On-Device to shorten this paragraph to 60 words while keeping its meaning. |
+| Structured local data | Use native Local with a schema to return one person as an object with `name`, `age` and `city`. |
 | ChatGPT text | Use Hollis's ChatGPT route to draft an invitation from these eight details without inventing an address or URL. |
 | Image generation | Use Hollis Illustration to create a tiny greenhouse on a brass turtle. Save it as a new image and show it here. |
 | Folder processing | Plan summaries for the .md files in this folder using Cloud. Show the file count first; run at most three calls and keep the job so we can resume. |
@@ -38,6 +39,13 @@ These are Hollis's **Shortcuts routes**. Cloud and Cloud Pro use PCC; they are
 separate from Apple's native Foundation Models developer API. On-Device selects
 local model execution, but your surrounding agent may still be a cloud service.
 See [privacy](privacy.md).
+
+Guided output is a native `local` capability, not a Shortcut route: it returns an
+object that follows a supported JSON Schema subset, only when the installed
+runtime reports helper protocol 2 with `capabilities.guided_output: true`.
+Guided output never replaces a requested Cloud or Cloud Pro answer. Limits,
+rejections and diagnostic fields are in the
+[skill workflows](../skills/hollis/references/workflows.md#guided-output-native-local-only).
 
 Your explicit selection wins. Otherwise Hollis's plugin uses an existing concrete
 model preference, then Cloud. A saved `auto` preference is not a concrete model;
