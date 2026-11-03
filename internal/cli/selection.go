@@ -94,7 +94,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 	local := resultFields("model", "backend", "apple_model", "available", "status",
 		"inference_verified", "helper_protocol", "helper_version", "context_size")
 	local.fields["capabilities"] = resultFields("streaming", "complete_usage", "stream_usage", "images", "tools", "guided_output")
-	models := resultFields("wfllm_model", "resolved_ref", "source", "verified")
+	models := resultFields("wfllm_model", "resolved_ref", "source", "verified", "default", "readiness", "reason_code", "reason")
 	for name, field := range local.fields {
 		models.fields[name] = field
 	}

@@ -2,16 +2,19 @@
 
 package cli
 
-// Route output goldens lock the byte-for-byte output shape that the RouteSpec
+// Route output goldens lock the output shape that the RouteSpec
 // table must preserve (roadmap §13.2, issues #18/#20/#30): `hollis models`
 // human/JSON/agent rows, doctor bridge rows, and `config show` bridge
-// ordering. Every fixture was generated from unmodified main (5ccde23)
+// ordering. The original fixtures were generated from unmodified main (5ccde23)
 // before any route-table code existed; regenerating a fixture after a
 // refactor proves nothing, so treat regeneration as a deliberate contract
-// change that must be reviewed, never a way to fix drift.
+// change that must be reviewed, never a way to fix drift. Models JSON fixtures
+// remain unchanged baselines: new output must strictly contain their rows and
+// fields. Human fixtures include the default marker and next-command hints.
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"os"
@@ -46,7 +49,7 @@ var fullEnv = goldenEnv{
 	build:  "27F99",
 }
 
-// partialEnv omits cloud-pro: models must omit the tier, doctor must report
+// partialEnv omits cloud-pro: models must explain the tier, doctor must report
 // a MISSING row with the remedy line, and /v1/models (server side) must
 // drop it from the literal list.
 var partialEnv = goldenEnv{
@@ -138,7 +141,12 @@ func TestRouteOutputGoldens(t *testing.T) {
 				if err != nil {
 					t.Fatalf("%s: %v", tc.name, err)
 				}
-				compareGolden(t, envName(env)+"_"+tc.name+".txt", out, tokens...)
+				name := envName(env) + "_" + tc.name + ".txt"
+				if tc.name == "models_human" {
+					compareGolden(t, name, out, tokens...)
+				} else {
+					compareModelsJSONBaseline(t, name, out)
+				}
 			}
 
 			// doctor: full output including bridge rows. The exit code is
@@ -163,6 +171,74 @@ func TestRouteOutputGoldens(t *testing.T) {
 			}
 		})
 	}
+}
+
+func compareModelsJSONBaseline(t *testing.T, name string, got []byte) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "goldens", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldValue, newValue any
+	if err := json.Unmarshal(raw, &oldValue); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(got, &newValue); err != nil {
+		t.Fatal(err)
+	}
+	if !assertJSONSubset(t, oldValue, newValue) {
+		t.Fatal("models JSON must add fields without removing or changing existing data")
+	}
+}
+
+// Returns whether at least one field or row was added.
+func assertJSONSubset(t *testing.T, oldValue, newValue any) bool {
+	t.Helper()
+	added := false
+	switch old := oldValue.(type) {
+	case map[string]any:
+		current, ok := newValue.(map[string]any)
+		if !ok {
+			t.Fatalf("object changed type: %T", newValue)
+		}
+		added = len(current) > len(old)
+		for key, value := range old {
+			next, exists := current[key]
+			if !exists {
+				t.Fatalf("existing field %q was removed", key)
+			}
+			if assertJSONSubset(t, value, next) {
+				added = true
+			}
+		}
+	case []any:
+		current, ok := newValue.([]any)
+		if !ok || len(current) < len(old) {
+			t.Fatalf("array lost rows: %v", newValue)
+		}
+		added = len(current) > len(old)
+		for _, row := range old {
+			model := row.(map[string]any)["model"]
+			found := false
+			for _, candidate := range current {
+				if candidate.(map[string]any)["model"] == model {
+					found = true
+					if assertJSONSubset(t, row, candidate) {
+						added = true
+					}
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("existing model %v was removed", model)
+			}
+		}
+	default:
+		if oldValue != newValue {
+			t.Fatalf("existing value changed: want %v, got %v", oldValue, newValue)
+		}
+	}
+	return added
 }
 
 func TestRouteConfigShowGolden(t *testing.T) {

@@ -12,3 +12,5 @@ hollis doctor (version dev)
 
   MISSING: install that bridge (README “Quickstart” step 2), or point config at one you already have:
   hollis config set bridge <tier> <name-or-uuid>
+
+Next: hollis respond --model cloud "hello"

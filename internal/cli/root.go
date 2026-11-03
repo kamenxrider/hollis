@@ -348,7 +348,7 @@ type reportedError struct{ err error }
 func (e *reportedError) Error() string { return e.err.Error() }
 func (e *reportedError) Unwrap() error { return e.err }
 
-// ErrorReported is true when Execute already emitted a JSON error on stdout.
+// ErrorReported is true when Execute already emitted the diagnostic on stdout.
 func ErrorReported(err error) bool {
 	var reported *reportedError
 	return errors.As(err, &reported)

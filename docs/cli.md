@@ -119,6 +119,19 @@ hollis chats delete <id> --yes
 
 The whole search query is treated as one phrase, so hyphenated tokens like `VANTA-ORBIT` match verbatim. Archived conversations are skipped.
 
+Empty human output suggests one next command:
+
+```text
+$ hollis chats list
+No chats yet. Run: hollis chat "hello"
+$ hollis chats search missing
+No matching chats. Run: hollis chats list
+```
+
+JSON remains an empty array (`[]`), wrapped under `results` with `--agent`,
+without a text hint. An empty list exits 0; a no-match search still exits 3,
+but now returns the empty array rather than an error object.
+
 A continuation always uses the model stored with that conversation. Combining `--continue` with a positional model or explicit `--model` is rejected. Hollis stores complete turns atomically and preserves complete history; when a chat reaches 256 stored messages or its rendered prompt exceeds 128 KiB, it fails clearly instead of trimming or summarizing it.
 
 ## Scripts and agents
@@ -129,6 +142,42 @@ hollis models --json
 hollis doctor --json --select bridges
 hollis agent-context                                  # machine-readable CLI description
 ```
+
+### Model discovery and next steps
+
+`hollis models` lists all text routes, even when unavailable. The configured
+default has a `(default)` marker, or `auto` is marked when no default is saved.
+Unavailable rows explain the missing prerequisite, such as a Shortcut not
+imported, an unsupported macOS version, or native availability/settings.
+Configured references that discovery cannot verify are labeled unverified,
+not assumed missing.
+
+`--json` and `--agent` add `default` and `available` booleans. Concrete routes
+also include `readiness`; non-ready routes include `reason_code` and a short
+`reason`. `auto` reports availability when either Cloud or On-Device is
+callable, and includes a reason when neither is available. Existing row fields
+and metadata schema version 2 are unchanged. A configured UUID may remain
+`available: true` while its readiness is unknown: it is callable but not
+discovery-verified. `--select model,default,available,reason` can project these
+fields. `--model local` limits discovery to native availability.
+
+Discovery uses read-only status and bridge diagnostics, never an inference
+request. Availability does not establish a successful model response.
+
+Human `hollis doctor`, including `--model <route>`, ends with one `Next:`
+command. The overview prefers a ready native route, then the first ready
+Shortcut route. Otherwise it suggests a command for the first unresolved
+native prerequisite. Selected-route diagnostics target only that route:
+platform inspection, configuration/discovery, System Settings, or selected
+setup, as appropriate. For example, when local is ready:
+
+```text
+Next: hollis respond --model local "hello"
+```
+
+The command is only suggested, never executed. Doctor JSON and exit codes
+are unchanged, including a nonzero overview exit when a bridge is missing
+even if local is ready.
 
 JSON output carries both `model_requested` (what you asked for) and `model_used` (what
 answered). They differ when `auto` falls back from Cloud to On-Device — the two
@@ -263,7 +312,7 @@ hollis serve --token-file hollis.token      # authenticated local API
 hollis doctor                               # check transport and bridges
 hollis doctor --model local --json          # route-scoped diagnostics
 hollis setup --model cloud-pro --agent      # plan setup for one route
-hollis models                               # show available tiers
+hollis models                               # show all tiers, default and unavailable reasons
 hollis config set model cloud-pro           # save a default tier
 ```
 

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 
 	"github.com/kamenxrider/hollis/internal/runner"
+	"github.com/kamenxrider/hollis/internal/setup"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +52,9 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 			if cmd.Flags().Changed("model") {
 				return runSelectedDoctor(cmd, flags, model, newRunner)
 			}
-			localStatus, localErr := probeNativeStatus(cmd.Context(), newRunner())
+			native := newRunner()
+			localStatus, localErr := probeNativeStatus(cmd.Context(), native)
+			nativeFacts := nativeAvailabilityFacts(native, localStatus, localErr)
 			report := map[string]any{"local": localModelRow(localStatus, localErr)}
 			var diagnosticErr error
 
@@ -190,9 +193,45 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 			if missing {
 				fmt.Fprintf(w, "\n  %s\n", missingBridgeRemedy)
 			}
+			next := modelReadiness(runner.ModelLocal, runner.ResolvedBridge{}, nil, osMajor, nativeFacts)
+			if next.Status != "ready" {
+				for _, spec := range runner.Specs() {
+					p := modelReadiness(spec.ID, resolved[spec.ID], resErr, osMajor, nativeFacts)
+					if p.Status == "ready" {
+						next = p
+						break
+					}
+				}
+			}
+			if diagnosticErr != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), diagnosticErr)
+				diagnosticErr = &reportedError{err: diagnosticErr}
+			}
+			fmt.Fprintf(w, "\nNext: %s\n", doctorNextCommand(next))
 			return diagnosticErr
 		},
 	}
 	cmd.Flags().StringVar(&model, "model", "", "Check only local, cloud, cloud-pro, on-device, chatgpt or image")
 	return cmd
+}
+
+func doctorNextCommand(p setup.Plan) string {
+	if p.Status == "ready" {
+		if p.Route == "image" {
+			return `hollis image generate "A lighthouse" --output lighthouse.png`
+		}
+		return fmt.Sprintf("hollis respond --model %s \"hello\"", p.Route)
+	}
+	switch p.ReasonCode {
+	case "platform_unknown", "platform_unsupported":
+		return "sw_vers -productVersion"
+	case "config_unknown":
+		return "hollis config show"
+	case "transport_missing", "discovery_unknown", "configured_reference_unverified":
+		return "shortcuts list"
+	case "model_unavailable":
+		return `open -a "System Settings"`
+	default:
+		return "hollis setup --model " + p.Route
+	}
 }

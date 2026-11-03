@@ -50,6 +50,8 @@ type agentContextContracts struct {
 	Stderr        string         `json:"stderr"`
 	// CommandResolution describes bare prompts without requiring help parsing.
 	CommandResolution string `json:"command_resolution"`
+	Models            string `json:"models"`
+	EmptyChats        string `json:"empty_chats"`
 }
 
 type agentContextCommand struct {
@@ -120,6 +122,8 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 			JSONSchema:        "agent meta schema_version=2; data under results; --select filters declared result fields; unknown field paths are usage errors (exit 2), including for empty results",
 			ErrorSchema:       "{meta:{source,schema_version},error:{code,message,exit_code}}",
 			ModelDefaults:     "positional model <tier> > explicit --model flag > config model > built-in default; text defaults to auto, --image defaults directly to cloud",
+			Models:            "models lists auto and every text route, including unavailable routes; default marks the configured model or auto if unset; available is transport/native availability, not inference proof; readiness, reason_code and reason describe non-generative diagnostics; configured UUIDs may be callable but unverified; --model local limits discovery to native availability",
+			EmptyChats:        "empty chats list returns [] with exit 0; no-match chats search returns [] with exit 3; agent mode wraps arrays under results; next-command hints appear only in human output",
 			Fallback:          "auto tries cloud once, then on-device once, only for confirmed missing bridges or recognized rate limits; all other failures stop without another model call",
 			Network:           "HTTP defaults to loopback; remote bind requires --allow-remote plus bearer authentication and an external encrypted tunnel",
 			Local:             "local is explicit and independent of Shortcuts; streaming human text and HTTP SSE only; JSON/agent and batch outputs remain complete; complete usage is Apple-measured; context overflow fails without shortening history",
@@ -211,8 +215,10 @@ func commandSideEffects(command *cobra.Command) []string {
 		return []string{"deletes one local conversation transactionally"}
 	case "hollis config set", "hollis config set image-bridge":
 		return []string{"updates the private local config atomically"}
-	case "hollis models", "hollis doctor":
-		return []string{"runs read-only local Shortcuts discovery"}
+	case "hollis models":
+		return []string{"runs read-only native availability and Shortcuts discovery without inference; --model local skips Shortcuts discovery"}
+	case "hollis doctor":
+		return []string{"runs read-only native availability and Shortcuts discovery without inference; --model limits discovery to the selected route", "human output ends with a suggested next command, without executing it"}
 	case "hollis serve":
 		return []string{"opens an HTTP listener", "invokes Shortcut model runs for valid model requests"}
 	default:
