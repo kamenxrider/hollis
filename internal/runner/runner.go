@@ -104,6 +104,8 @@ const (
 	// page_out_of_range are caller faults the CLI reports as usage errors.
 	KindInvalidDocument      Kind = "invalid_document"
 	KindExtractNoText        Kind = "extract_no_text"
+	KindInvalidImage         Kind = "invalid_image"
+	KindUnsupportedOS        Kind = "unsupported_os"
 	KindUnsupportedMedia     Kind = "unsupported_media"
 	KindExtractMediaMismatch Kind = "extract_media_mismatch"
 	KindPageOutOfRange       Kind = "page_out_of_range"

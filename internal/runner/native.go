@@ -169,6 +169,9 @@ func requireAdvertised(status LocalStatus, opts nativeOptions) *Error {
 	if opts.Source != "" {
 		return requireExtract(status, opts)
 	}
+	if len(opts.Images) > 0 {
+		return requireImages(status)
+	}
 	if opts.ToolCalling == "" {
 		return nil
 	}
@@ -425,9 +428,10 @@ type nativeRequest struct {
 	// the helper never learns a tool's name.
 	ToolCalling string `json:"tool_calling,omitempty"`
 	// Source, Pages and Media belong to extract alone.
-	Source *nativeSource `json:"source,omitempty"`
-	Pages  []int         `json:"pages,omitempty"`
-	Media  string        `json:"media,omitempty"`
+	Source *nativeSource  `json:"source,omitempty"`
+	Pages  []int          `json:"pages,omitempty"`
+	Media  string         `json:"media,omitempty"`
+	Images []nativeSource `json:"images,omitempty"`
 }
 
 // nativeOptions carries the request members beyond prompt and schema. The zero
@@ -443,6 +447,7 @@ type nativeOptions struct {
 	Source string
 	Pages  []int
 	Media  string
+	Images []nativeSource
 }
 
 func (o nativeOptions) validate() error {
@@ -514,6 +519,12 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	if (operation == "extract") != (opts.Source != "") || (operation == "extract" && !filepath.IsAbs(opts.Source)) {
 		return fail(nativeError(KindUsage, "native extract requires one staged absolute source"))
 	}
+	if len(opts.Images) > 0 {
+		if (operation != "complete" && operation != "stream") || schema != nil || opts.ToolCalling != "" ||
+			len(opts.Images) != NativeMaxImages || !filepath.IsAbs(opts.Images[0].Path) {
+			return fail(nativeError(KindUsage, "native images require one staged absolute image on plain generation"))
+		}
+	}
 	if operation != "status" && operation != "extract" {
 		if strings.TrimSpace(prompt) == "" {
 			return fail(nativeError(KindEmptyPrompt, "empty prompt"))
@@ -559,6 +570,7 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		requestSchema = schema.Bytes()
 	}
 	wire := nativeRequest{Protocol: NativeProtocol, Operation: operation, Prompt: prompt, Schema: requestSchema, ToolCalling: opts.ToolCalling}
+	wire.Images = opts.Images
 	if opts.Source != "" {
 		wire.Source, wire.Pages, wire.Media = &nativeSource{Path: opts.Source}, opts.Pages, opts.Media
 	}
@@ -724,7 +736,20 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 				return nativeError(KindNativeProtocol, "unexpected native extraction data")
 			}
 			switch event.Kind {
-			case KindInvalidDocument, KindExtractNoText, KindUnsupportedMedia, KindExtractMediaMismatch, KindPageOutOfRange:
+			case KindInvalidImage, KindUnsupportedOS:
+				if len(opts.Images) == 0 || event.Limit != nil || event.Actual != nil {
+					return nativeError(KindNativeProtocol, "unexpected native image failure")
+				}
+				return nativeError(event.Kind, "native image request failed: "+string(event.Kind))
+			case KindUnsupportedMedia:
+				if len(opts.Images) > 0 {
+					return nativeError(event.Kind, "native images support PNG and JPEG only")
+				}
+				if operation != "extract" {
+					return nativeError(KindNativeProtocol, "unexpected native media failure")
+				}
+				return extractFailure(event)
+			case KindInvalidDocument, KindExtractNoText, KindExtractMediaMismatch, KindPageOutOfRange:
 				if operation != "extract" {
 					return nativeError(KindNativeProtocol, "unrecognized native failure")
 				}
@@ -831,7 +856,7 @@ func (r *RoutedRunner) RunWithFallback(ctx context.Context, model Model, prompt 
 }
 func (r *RoutedRunner) RunWithImages(ctx context.Context, model Model, prompt string, images []string) (string, Model, error) {
 	if model == ModelLocal {
-		return "", model, nativeError(KindUsage, "native local does not support image input")
+		return r.Native.RunWithImages(ctx, model, prompt, images)
 	}
 	return r.ShortcutRunner.RunWithImages(ctx, model, prompt, images)
 }

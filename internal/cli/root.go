@@ -423,7 +423,7 @@ func toCLIError(err error) error {
 		return codedUsageErr(string(re.Kind), err)
 	case runner.KindLocalUnavailable:
 		return executionErr("local_unavailable", err.Error())
-	case runner.KindNativeProtocol, runner.KindNativeFailed:
+	case runner.KindNativeProtocol, runner.KindNativeFailed, runner.KindInvalidImage, runner.KindUnsupportedOS:
 		return executionErr(string(re.Kind), err.Error())
 	case runner.KindUnsupportedCapability:
 		// A capability refusal is a component mismatch like native_protocol:

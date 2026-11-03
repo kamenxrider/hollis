@@ -1,0 +1,13 @@
+{
+  "name": "image attachments refuse tool calling",
+  "stdin": "{\"protocol\":3,\"operation\":\"complete\",\"prompt\":\"fixture\",\"images\":[{\"path\":\"/absent/image.png\"}],\"tool_calling\":\"allowed\"}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ]
+}

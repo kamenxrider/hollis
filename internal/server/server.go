@@ -498,6 +498,10 @@ func (s *Server) validatePreparedModel(w http.ResponseWriter, request preparedRe
 	}
 	limit := spec.Capabilities.MaxImages
 	if len(request.Images) > limit {
+		if spec.Transport == runner.TransportNative {
+			writeRequestValidationError(w, unsupportedParameter(fmt.Sprintf("model %q accepts at most %d image(s)", model, limit)))
+			return "", false
+		}
 		writeRequestValidationError(w, imageLimitExceeded(fmt.Sprintf("model %q accepts at most %d image(s)", model, limit)))
 		return "", false
 	}

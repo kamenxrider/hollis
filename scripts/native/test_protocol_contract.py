@@ -21,7 +21,7 @@ import helper_protocol as protocol
 # Event fields the Go decoder accepts. Kept here as the reviewed contract; the
 # tests below fail if either source grows a field without the other.
 GO_REQUEST_FIELDS = {'protocol', 'operation', 'prompt', 'schema', 'tool_calling',
-                     'source', 'pages', 'media'}
+                     'source', 'pages', 'media', 'images'}
 GO_EVENT_FIELDS = {'protocol', 'version', 'model', 'event', 'available',
                    'reason', 'text', 'usage', 'kind', 'context_size',
                    'structured', 'capability', 'capabilities', 'media',
@@ -31,6 +31,7 @@ GO_CAPABILITY_FIELDS = {'extract', 'images', 'tools', 'vision', 'macos_major'}
 GO_EXTRACT_CAPABILITY_FIELDS = {'pdf', 'ocr', 'pages', 'max_pages', 'max_text_bytes'}
 GO_PAGE_FIELDS = {'page', 'text', 'method'}
 GO_SOURCE_FIELDS = {'path'}
+GO_IMAGE_CAPABILITY_FIELDS = {'supported', 'max_images', 'formats', 'max_side_px', 'reason'}
 GO_USAGE_FIELDS = {'input_tokens', 'output_tokens', 'reasoning_tokens'}
 PROTOCOL_THREE_OPERATIONS = {'status', 'complete', 'stream', 'schema', 'extract'}
 PROTOCOL_EVENTS = {'status', 'snapshot', 'complete', 'error'}
@@ -141,10 +142,11 @@ class MessageShapeTests(unittest.TestCase):
         self.assertEqual(go_struct_tags(extract_go, 'ExtractCapability'),
                          GO_EXTRACT_CAPABILITY_FIELDS)
         self.assertEqual(go_struct_tags(extract_go, 'nativePage'), GO_PAGE_FIELDS)
+        self.assertEqual(go_struct_tags(self.go, 'ImageCapability'), GO_IMAGE_CAPABILITY_FIELDS)
         self.assertEqual(go_struct_tags(extract_go, 'nativeSource'), GO_SOURCE_FIELDS)
         self.assertLessEqual(emitted, GO_EVENT_FIELDS | GO_USAGE_FIELDS |
                              GO_CAPABILITY_FIELDS | GO_EXTRACT_CAPABILITY_FIELDS |
-                             GO_PAGE_FIELDS)
+                             GO_PAGE_FIELDS | GO_IMAGE_CAPABILITY_FIELDS)
 
     def test_helper_emits_only_events_the_runner_handles(self):
         self.assertEqual(set(protocol.SWIFT_EVENT.findall(self.swift)),

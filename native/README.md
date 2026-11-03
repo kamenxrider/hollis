@@ -42,10 +42,22 @@ bundle; accepting an older request format does not bypass this check.
   and above (the measured token budget of the local model), and, on protocol 3,
   `capabilities`: `vision`, `macos_major`, and an `extract` block (`pdf`,
   `ocr`, `pages`, `max_pages` 2000, `max_text_bytes` 131072), with a block per
-  capability that a later build may add. A capability is advertised as absent rather than
+  capability that a later build may add. `images` reports `supported`,
+  `max_images` 1, `formats` (`png`, `jpeg`) and `max_side_px` 4096, or a fixed
+  negative reason (`macos_26` or `no_vision`). A capability is advertised as absent rather than
   zero-filled, and clients read the object leniently so a new flag needs no
   protocol bump. Status operations stop here without creating a session or
   generating a response.
+- Image-bearing `complete` and `stream` requests carry
+  `images: [{"path": "/absolute/private/staged.png"}]`, protocol 3 only.
+  `ImageInput.swift` opens direct regular files without following a final
+  symlink or blocking on a FIFO, caps input at 64 MiB and 64 million pixels,
+  and decodes PNG/JPEG with EXIF orientation and a 4096-pixel longest-side cap.
+  The resulting pixels enter a `Prompt` attachment, never OCR text. Images
+  cannot accompany `schema`, `extract`, `status`, or tool calling.
+  Prompt-only token preflight does not estimate attachment tokens.
+  The public local route remains image-disabled until live qualification;
+  helper and transport support alone do not advertise CLI/HTTP availability.
 - `snapshot`: cumulative `text` from streaming. The Go runner suppresses duplicate
   snapshots and emits append-only differences; revisions fail the stream.
 - `complete`: final `text`, plus measured `usage` for complete requests. Usage

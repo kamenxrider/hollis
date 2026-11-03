@@ -24,7 +24,7 @@ import (
 func TestProtocolCompatibilityMatrix(t *testing.T) {
 	t.Run("row 3: current CLI against an older helper refuses every operation", func(t *testing.T) {
 		for _, older := range []int{1, 2} {
-			for _, operation := range []string{"status", "complete", "stream", "schema", "extract"} {
+			for _, operation := range []string{"status", "complete", "stream", "schema", "extract", "images"} {
 				t.Run(strconv.Itoa(older)+"/"+operation, func(t *testing.T) {
 					marker := filepath.Join(t.TempDir(), "request-received")
 					r := fakeNativeAt(t, older, ": > '"+marker+"'\ncat >/dev/null\n")
@@ -402,6 +402,9 @@ func runNativeOperation(t *testing.T, r *NativeRunner, operation string) error {
 		return err
 	case "extract":
 		_, err := r.ExtractPDF(t.Context(), []byte(pdfFixture), nil)
+		return err
+	case "images":
+		_, err := r.RunCompleteWithImages(t.Context(), ModelLocal, "prompt", []string{writeTestImage(t, "fixture.png")})
 		return err
 	}
 	t.Fatalf("unknown operation %q", operation)

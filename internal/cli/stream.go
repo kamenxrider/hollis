@@ -54,6 +54,29 @@ func runLocalText(ctx context.Context, r runner.Runner, prompt string, streaming
 	return runner.Completion{Text: text, Model: model}, err
 }
 
+func runLocalImages(ctx context.Context, r runner.Runner, prompt string, images []string, streaming bool, out io.Writer) (runner.Completion, error) {
+	if streaming {
+		sr, ok := r.(runner.ImageStreamRunner)
+		if !ok {
+			return runner.Completion{}, errors.New("configured runner does not support native-local image streaming")
+		}
+		safe := &terminalStreamWriter{out: out}
+		completion, err := sr.StreamWithImages(ctx, runner.ModelLocal, prompt, images, func(delta string) error {
+			_, err := safe.Write([]byte(delta))
+			return err
+		})
+		flushErr := safe.Flush()
+		if err != nil {
+			return completion, err
+		}
+		return completion, flushErr
+	}
+	if cr, ok := r.(runner.ImageCompleteRunner); ok {
+		return cr.RunCompleteWithImages(ctx, runner.ModelLocal, prompt, images)
+	}
+	return runner.Completion{}, errors.New("configured runner does not support native-local image completion")
+}
+
 // runLocalSchema asks the native runner for guided output. The schema was
 // already validated before this call, and the returned object is re-validated
 // by the runner; no partial or unrepaired value can reach the caller.

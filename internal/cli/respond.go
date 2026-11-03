@@ -340,7 +340,10 @@ or agent output, --stream and --schema.`,
 			var used runner.Model
 			var usage *runner.Usage
 			var structured json.RawMessage
-			if len(images) > 0 {
+			if len(images) > 0 && m == runner.ModelLocal {
+				completion, runErr := runLocalImages(ctx, r, prompt, images, streaming, cmd.OutOrStdout())
+				text, used, usage, err = completion.Text, completion.Model, completion.Usage, runErr
+			} else if len(images) > 0 {
 				imageRunner, ok := r.(runner.ImageRunner)
 				if !ok {
 					return transportErr(errors.New("configured runner does not support image input"))

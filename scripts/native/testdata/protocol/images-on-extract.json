@@ -1,0 +1,13 @@
+{
+  "name": "images-on-extract",
+  "stdin": "{\"protocol\":3,\"operation\":\"extract\",\"source\":{\"path\":\"/absent/file.pdf\"},\"images\":[{\"path\":\"/absent/image.png\"}]}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ]
+}

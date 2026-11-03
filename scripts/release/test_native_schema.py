@@ -333,7 +333,7 @@ struct ProtocolGolden {
             result = command(
                 'xcrun', 'swiftc', '-parse-as-library', '-sdk', sdk_path,
                 '-target', 'arm64-apple-macosx27.0', str(source), str(SUBSET),
-                str(EXTRACTION), str(harness), '-o', str(binary))
+                str(EXTRACTION), str(ROOT / 'native/ImageInput.swift'), str(harness), '-o', str(binary))
             self.assertEqual(result.returncode, 0, result.stderr)
             result = command(str(binary))
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -347,6 +347,8 @@ struct ProtocolGolden {
                 if protocol >= 3:
                     event['capabilities'] = {
                         'vision': True, 'macos_major': 27,
+                        'images': {'supported': True, 'max_images': 1,
+                                   'formats': ['png', 'jpeg'], 'max_side_px': 4096},
                         'extract': {'pdf': True, 'ocr': True, 'pages': True,
                                     'max_pages': 2000, 'max_text_bytes': 131072}}
                 expected.append(event)

@@ -1,0 +1,13 @@
+{
+  "name": "images-relative",
+  "stdin": "{\"protocol\":3,\"operation\":\"complete\",\"prompt\":\"fixture\",\"images\":[{\"path\":\"relative.png\"}]}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ]
+}

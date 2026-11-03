@@ -1,0 +1,13 @@
+{
+  "name": "images-protocol-two",
+  "stdin": "{\"protocol\":2,\"operation\":\"complete\",\"prompt\":\"fixture\",\"images\":[{\"path\":\"/absent/image.png\"}]}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 2,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ]
+}

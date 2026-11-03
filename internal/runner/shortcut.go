@@ -150,7 +150,7 @@ func validateImageRequestShape(model Model, prompt string, imagePaths []string) 
 	if model == ModelAuto {
 		return usage(errors.New("--image is unavailable with auto because auto can fall back to on-device"))
 	}
-	if !ok || spec.Transport != TransportShortcuts {
+	if !ok || (spec.Transport != TransportShortcuts && !spec.Capabilities.Images) {
 		return usage(fmt.Errorf("%w: %q", ErrUnknownModel, model))
 	}
 	if !spec.Capabilities.Images {
@@ -158,6 +158,12 @@ func validateImageRequestShape(model Model, prompt string, imagePaths []string) 
 	}
 	if spec.Capabilities.MaxImages == 1 && len(imagePaths) != 1 {
 		return usage(fmt.Errorf("%s accepts exactly one --image; multiple image paths were unreliable in testing", model))
+	}
+	if spec.Transport == TransportNative {
+		// Native staging owns content and descriptor validation and returns
+		// path-free failures. Do not expose Shortcuts pathname diagnostics at
+		// the CLI's earlier shape-only validation boundary.
+		return nil
 	}
 
 	for _, path := range imagePaths {
@@ -251,6 +257,20 @@ func writeStagedImage(path string, contents []byte) error {
 	return nil
 }
 
+var errUnsupportedImageMedia = errors.New("image content must be PNG or JPEG")
+
+type imageInputLimitError struct {
+	limit, actual int64
+	pixels        bool
+}
+
+func (e *imageInputLimitError) Error() string {
+	if e.pixels {
+		return fmt.Sprintf("image exceeds %d pixel limit", e.limit)
+	}
+	return fmt.Sprintf("image file exceeds %d byte limit", e.limit)
+}
+
 func readValidatedImage(path string) ([]byte, error) {
 	// Lstat rejects a final symlink before opening. O_NOFOLLOW protects the
 	// open itself if the final component is swapped between these operations;
@@ -285,7 +305,7 @@ func readValidatedImage(path string) ([]byte, error) {
 	}
 	if info.Size() > maxImageBytes {
 		_ = file.Close()
-		return nil, fmt.Errorf("image file exceeds %d byte limit", maxImageBytes)
+		return nil, &imageInputLimitError{limit: maxImageBytes, actual: info.Size()}
 	}
 
 	contents, err := io.ReadAll(io.LimitReader(file, maxImageBytes+1))
@@ -297,24 +317,27 @@ func readValidatedImage(path string) ([]byte, error) {
 		return nil, fmt.Errorf("close image: %w", closeErr)
 	}
 	if int64(len(contents)) > maxImageBytes {
-		return nil, fmt.Errorf("image file exceeds %d byte limit", maxImageBytes)
+		return nil, &imageInputLimitError{limit: maxImageBytes, actual: int64(len(contents))}
 	}
 	if int64(len(contents)) != info.Size() {
 		return nil, errors.New("image file changed while reading")
 	}
 
+	if !bytes.HasPrefix(contents, []byte("\x89PNG\r\n\x1a\n")) && !bytes.HasPrefix(contents, []byte{0xff, 0xd8, 0xff}) {
+		return nil, errUnsupportedImageMedia
+	}
 	config, format, err := image.DecodeConfig(bytes.NewReader(contents))
 	if err != nil {
 		return nil, fmt.Errorf("decode image header: %w", err)
 	}
 	if format != "png" && format != "jpeg" {
-		return nil, errors.New("image content must be PNG or JPEG")
+		return nil, errUnsupportedImageMedia
 	}
 	if config.Width <= 0 || config.Height <= 0 {
 		return nil, errors.New("image dimensions are empty")
 	}
 	if int64(config.Width) > maxImagePixels/int64(config.Height) {
-		return nil, fmt.Errorf("image exceeds %d pixel limit", maxImagePixels)
+		return nil, &imageInputLimitError{limit: maxImagePixels, actual: int64(config.Width) * int64(config.Height), pixels: true}
 	}
 	if _, _, err := image.Decode(bytes.NewReader(contents)); err != nil {
 		return nil, fmt.Errorf("decode image pixels: %w", err)

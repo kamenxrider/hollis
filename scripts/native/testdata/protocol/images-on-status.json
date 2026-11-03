@@ -1,0 +1,13 @@
+{
+  "name": "images-on-status",
+  "stdin": "{\"protocol\":3,\"operation\":\"status\",\"images\":[{\"path\":\"/absent/image.png\"}]}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ]
+}

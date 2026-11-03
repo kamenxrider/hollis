@@ -1,6 +1,7 @@
 // Copyright 2026 kamenxrider and contributors. Licensed under Apache-2.0. See LICENSE.
 import Foundation
 import FoundationModels
+import CoreGraphics
 
 // One request per process. No tools, persistent session, instructions, truncation,
 // implicit fallback, or diagnostic reflection of the request contents.
@@ -18,12 +19,13 @@ struct HollisNative {
         let source: Source?
         let pages: [Int]?
         let media: String?
+        let images: [Source]?
 
         // Member names are the wire contract; the Swift property names are not.
         enum CodingKeys: String, CodingKey {
             case `protocol`, operation, prompt, schema
             case toolCalling = "tool_calling"
-            case source, pages, media
+            case source, pages, media, images
         }
     }
 
@@ -35,6 +37,13 @@ struct HollisNative {
         "pdf": true, "ocr": true, "pages": true,
         "max_pages": Extraction.maxPages, "max_text_bytes": Extraction.maxTextBytes,
     ]
+
+    static func imageCapability(vision: Bool, macOSMajor: Int) -> [String: Any] {
+        guard macOSMajor >= 27 else { return ["supported": false, "reason": "macos_26"] }
+        guard vision else { return ["supported": false, "reason": "no_vision"] }
+        return ["supported": true, "max_images": 1, "formats": ["png", "jpeg"],
+                "max_side_px": ImageInput.maxSidePixels]
+    }
 
     static func emit(_ fields: [String: Any], `protocol` effective: Int) throws {
         var event = fields
@@ -56,7 +65,8 @@ struct HollisNative {
         if effective >= 3 {
             // Unimplemented capabilities stay absent, not zero-filled.
             fields["capabilities"] = ["vision": vision, "macos_major": macOSMajor,
-                                      "extract": extractCapability]
+                                      "extract": extractCapability,
+                                      "images": imageCapability(vision: vision, macOSMajor: macOSMajor)]
         }
         return fields
     }
@@ -152,7 +162,7 @@ struct HollisNative {
             // malformed rather than partly served.
             let extractMembers = request.source != nil || request.pages != nil || request.media != nil
             if request.operation == "extract" {
-                guard request.prompt == nil, request.schema == nil, request.toolCalling == nil,
+                guard request.prompt == nil, request.schema == nil, request.toolCalling == nil, request.images == nil,
                       let source = request.source, source.path.hasPrefix("/") else {
                     fail("native_failed", protocol: effective); return
                 }
@@ -186,6 +196,13 @@ struct HollisNative {
             }
             if extractMembers {
                 fail("native_failed", protocol: effective); return
+            }
+            if let images = request.images {
+                guard effective >= 3, request.toolCalling == nil,
+                      request.operation == "complete" || request.operation == "stream",
+                      images.count == 1, images[0].path.hasPrefix("/") else {
+                    fail("native_failed", protocol: effective); return
+                }
             }
             if request.operation == "schema", request.schema == nil {
                 fail("native_failed", protocol: effective); return
@@ -227,6 +244,18 @@ struct HollisNative {
             guard prompt.utf8.count <= 131_072 else {
                 fail("context_capacity", protocol: effective); return
             }
+            var image: CGImage?
+            if let images = request.images {
+                guard #available(macOS 27, *) else {
+                    fail("unsupported_os", protocol: effective); return
+                }
+                guard model.capabilities.contains(.vision) else {
+                    try emit(["event": "error", "kind": "unsupported_capability",
+                              "capability": "images", "reason": "no_vision"], protocol: effective)
+                    return
+                }
+                image = try ImageInput.load(path: images[0].path)
+            }
             guard model.isAvailable else { return }
             // This is tokenisation, not generation. It rejects known excess;
             // SDK context errors still cover its own transcript overhead.
@@ -234,6 +263,12 @@ struct HollisNative {
                 fail("context_capacity", protocol: effective); return
             }
             let session = LanguageModelSession(model: model)
+            let generationPrompt = Prompt {
+                prompt
+                if let image {
+                    Attachment<ImageAttachmentContent>(image)
+                }
+            }
             if request.operation == "schema" {
                 let response = try await session.respond(
                     to: prompt, schema: try SchemaSubset.schema(for: requested!))
@@ -254,7 +289,7 @@ struct HollisNative {
                                     "reasoning_tokens": response.usage.output.reasoningTokenCount]],
                          protocol: effective)
             } else if request.operation == "complete" {
-                let response = try await session.respond(to: prompt)
+                let response = try await session.respond(to: generationPrompt)
                 try emit(["event": "complete", "text": response.content,
                           "usage": ["input_tokens": response.usage.input.totalTokenCount,
                                     "output_tokens": response.usage.output.totalTokenCount,
@@ -262,13 +297,17 @@ struct HollisNative {
                          protocol: effective)
             } else {
                 var last = ""
-                for try await snapshot in session.streamResponse(to: prompt) {
+                for try await snapshot in session.streamResponse(to: generationPrompt) {
                     last = snapshot.content
                     try emit(["event": "snapshot", "text": last], protocol: effective)
                 }
                 // Streaming usage has not been qualified; omit it.
                 try emit(["event": "complete", "text": last], protocol: effective)
             }
+        } catch ImageInput.Failure.unsupportedMedia {
+            fail("unsupported_media", protocol: effective)
+        } catch ImageInput.Failure.invalidImage {
+            fail("invalid_image", protocol: effective)
         } catch let error as LanguageModelError {
             switch error {
             case .contextSizeExceeded: fail("context_capacity", protocol: effective)

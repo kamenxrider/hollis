@@ -116,7 +116,7 @@ class HelperEventTests(unittest.TestCase):
                 if number == 3:
                     capabilities = status['capabilities']
                     self.assertEqual(set(capabilities),
-                                     {'vision', 'macos_major', 'extract'})
+                                     {'vision', 'macos_major', 'extract', 'images'})
                     self.assertEqual(capabilities['extract'], {
                         'pdf': True, 'ocr': True, 'pages': True,
                         'max_pages': 2000, 'max_text_bytes': 131072})

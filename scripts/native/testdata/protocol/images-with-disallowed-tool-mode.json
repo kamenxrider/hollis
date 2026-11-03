@@ -1,0 +1,13 @@
+{
+  "name": "image attachments refuse explicit tool mode even when disallowed",
+  "stdin": "{\"protocol\":3,\"operation\":\"complete\",\"prompt\":\"fixture\",\"images\":[{\"path\":\"/absent/image.png\"}],\"tool_calling\":\"disallowed\"}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ]
+}

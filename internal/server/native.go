@@ -54,7 +54,23 @@ func (s *Server) completePrepared(ctx context.Context, w http.ResponseWriter, mo
 	defer release()
 	ctx, cancel := context.WithTimeout(ctx, runner.MaxTimeout)
 	defer cancel()
-	result, err := complete.RunComplete(ctx, model, request.Prompt)
+	var result runner.Completion
+	var err error
+	if request.hasImages() {
+		imageRunner, ok := s.Runner.(runner.ImageCompleteRunner)
+		if !ok {
+			writeNativeError(w, errors.New("native image runner unavailable"))
+			return runner.Completion{}, false
+		}
+		staged, ok := s.stageNativeImages(ctx, w, request)
+		if !ok {
+			return runner.Completion{}, false
+		}
+		defer staged.Cleanup()
+		result, err = imageRunner.RunCompleteWithImages(ctx, model, request.Prompt, staged.Paths)
+	} else {
+		result, err = complete.RunComplete(ctx, model, request.Prompt)
+	}
 	if err == nil && (result.Model != model || strings.TrimSpace(result.Text) == "") {
 		err = errors.New("invalid native completion")
 	}
@@ -90,6 +106,12 @@ func nativeError(err error) (int, map[string]any) {
 			code, message = "unsupported_capability", classified.CapabilityRefusalMessage()
 		case runner.KindTransport:
 			code, message = "transport", "the native local transport could not complete the request"
+		case runner.KindInvalidImage:
+			code, message = "invalid_image", "the native helper could not decode the image"
+		case runner.KindUnsupportedOS:
+			code, message = "unsupported_os", "native image input requires macOS 27 or later"
+		case runner.KindUnsupportedMedia:
+			status, kind, code, message = http.StatusBadRequest, "invalid_request_error", "unsupported_media", "native image input supports PNG and JPEG only"
 		}
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -226,7 +248,8 @@ func (e *streamEvents) failed(err error) {
 
 func (s *Server) streamPrepared(w http.ResponseWriter, r *http.Request, model runner.Model, request preparedRequest, responses bool) {
 	stream, ok := s.Runner.(runner.StreamRunner)
-	if model != runner.ModelLocal || request.hasImages() || !ok {
+	imageStream, imageOK := s.Runner.(runner.ImageStreamRunner)
+	if model != runner.ModelLocal || (!request.hasImages() && !ok) || (request.hasImages() && !imageOK) {
 		unsupportedStreaming(w)
 		return
 	}
@@ -237,6 +260,15 @@ func (s *Server) streamPrepared(w http.ResponseWriter, r *http.Request, model ru
 	defer release()
 	ctx, cancel := context.WithTimeout(r.Context(), runner.MaxTimeout)
 	defer cancel()
+	var staged stagedImages
+	if request.hasImages() {
+		var ok bool
+		staged, ok = s.stageNativeImages(ctx, w, request)
+		if !ok {
+			return
+		}
+		defer staged.Cleanup()
+	}
 	// A stalled HTTP reader must not keep a callback and model process alive past
 	// the request's deadline. ResponseController reaches standard wrapped writers.
 	controller := http.NewResponseController(w)
@@ -252,7 +284,7 @@ func (s *Server) streamPrepared(w http.ResponseWriter, r *http.Request, model ru
 	}
 	events := streamEvents{w: w, responses: responses, id: prefix + randomID(), itemID: "msg_" + randomID(), created: time.Now().Unix()}
 	var accumulated strings.Builder
-	result, err := stream.Stream(ctx, model, request.Prompt, func(delta string) error {
+	emit := func(delta string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -265,7 +297,14 @@ func (s *Server) streamPrepared(w http.ResponseWriter, r *http.Request, model ru
 		}
 		accumulated.WriteString(delta)
 		return nil
-	})
+	}
+	var result runner.Completion
+	var err error
+	if request.hasImages() {
+		result, err = imageStream.StreamWithImages(ctx, model, request.Prompt, staged.Paths, emit)
+	} else {
+		result, err = stream.Stream(ctx, model, request.Prompt, emit)
+	}
 	if err == nil {
 		err = ctx.Err()
 	}

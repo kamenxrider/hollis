@@ -1,0 +1,13 @@
+{
+  "name": "images-empty",
+  "stdin": "{\"protocol\":3,\"operation\":\"complete\",\"prompt\":\"fixture\",\"images\":[]}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ]
+}

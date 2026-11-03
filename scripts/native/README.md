@@ -27,6 +27,11 @@ NDJSON request on stdin, an event stream on stdout.
   render and recognition failures, which a test-only seam injects and which must
   fail the whole document rather than read as an empty page. It creates every fixture itself, calls no
   model, and needs PDFKit and Vision to be usable (Apple silicon, macOS 27).
+- `test_image_input.py` uses generated PNG/JPEG fixtures to check bounded
+  decoding, EXIF orientation, downscaling, pixel/file ceilings, direct-file
+  checks and typed errors. Its damaged-image helper request stops before any
+  model session. Golden cases also refuse image members on the wrong operation,
+  old protocol eras, relative paths, empty lists and multiple images.
 - `test_protocol_live.py` is the only file that generates text. It is skipped
   unless `HOLLIS_NATIVE_LIVE=1`, never makes model calls in CI, and makes three
   on-device calls with synthetic prompts. It asserts protocol behavior, not answer
