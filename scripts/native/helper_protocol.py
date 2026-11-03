@@ -7,10 +7,10 @@ non-generative status event. Nothing in this module, and no test that imports
 it, calls the on-device model.
 """
 import json
+import os
 import platform
 import re
 import subprocess
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -52,11 +52,23 @@ def can_build():
 def can_execute():
     """True where a helper built for macOS 27 can run.
 
-    The release image compiles the helper on a macOS 26 host, so building and
-    executing are separate questions. Tests that only compile are allowed to
-    run anywhere `can_build()` holds.
+    Building and executing are separate questions on older hosts with SDK 27.
+    The macOS 27 CI jobs require both.
     """
     return can_build() and (host_major() or 0) >= 27
+
+
+def configured_helper():
+    """Use the job's built artifact, failing rather than skipping if unusable."""
+    value = os.environ.get('HOLLIS_NATIVE_HELPER')
+    if value is None:
+        return None
+    helper = Path(value).resolve()
+    if not can_execute():
+        raise RuntimeError('HOLLIS_NATIVE_HELPER requires Apple silicon macOS 27 and SDK 27')
+    if not helper.is_file() or not os.access(helper, os.X_OK):
+        raise RuntimeError('HOLLIS_NATIVE_HELPER must name a built executable')
+    return helper
 
 
 def build_helper(folder):

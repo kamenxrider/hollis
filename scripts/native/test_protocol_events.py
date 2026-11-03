@@ -5,11 +5,11 @@ drives it: one NDJSON request on stdin, an event stream on stdout. Every case
 here fails before a generation session exists, or asks only for the
 non-generative status event, so no test in this file calls the on-device model.
 
-Cases run where the built helper can execute (Apple silicon, macOS 27). The
-release image compiles on a macOS 26 host, so building without executing is
-covered by BuildTests, and a build-only host skips the event cases instead of
-failing them. Generation behavior lives in test_protocol_live.py, which is
-opt-in and never runs in CI.
+Cases run where the built helper can execute (Apple silicon, macOS 27).
+The macOS 27 CI jobs set HOLLIS_NATIVE_HELPER to their built artifact, making
+an unsupported host or missing helper a failure, not a skip. Other hosts may
+skip the event cases. Generation behavior lives in test_protocol_live.py,
+which is opt-in and never makes model calls in CI.
 """
 import json
 import shutil
@@ -29,6 +29,11 @@ class BuildTests(unittest.TestCase):
     """The checked-in sources compile with the release build script."""
 
     def test_helper_builds(self):
+        helper = protocol.configured_helper()
+        if helper is not None:
+            self.assertTrue(helper.is_file())
+            self.assertTrue(helper.stat().st_mode & 0o111)
+            return
         if not protocol.can_build():
             self.skipTest('macOS SDK 27 on Apple silicon is required to build')
         folder = fresh_folder('hollis-protocol-build-')
@@ -41,6 +46,9 @@ class BuildTests(unittest.TestCase):
 class HelperEventTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.helper = protocol.configured_helper()
+        if cls.helper is not None:
+            return
         if not protocol.can_execute():
             raise unittest.SkipTest(
                 'the built helper requires Apple silicon macOS 27 to execute')
@@ -72,6 +80,7 @@ class HelperEventTests(unittest.TestCase):
                 self.assert_clean(process)
                 self.assertEqual(protocol.events(process.stdout),
                                  case['events'], path.name)
+        print(f'Validated {len(cases)} golden request cases.', flush=True)
 
     def test_status_event_shape(self):
         version, _ = protocol.swift_pins()
@@ -87,22 +96,23 @@ class HelperEventTests(unittest.TestCase):
                 events = protocol.events(process.stdout)
                 self.assertEqual(len(events), 1, process.stdout)
                 status = events[0]
-                self.assertEqual(set(status), expected_keys)
+                if number == 2 and not status['available']:
+                    self.assertLessEqual(expected_keys - {'context_size'}, set(status))
+                    self.assertLessEqual(set(status), expected_keys)
+                else:
+                    self.assertEqual(set(status), expected_keys)
                 self.assertEqual(status['event'], 'status')
                 self.assertEqual(status['protocol'], number)
                 self.assertEqual(status['version'], version)
+                self.assertEqual(status['model'], 'local')
                 self.assertIsInstance(status['available'], bool)
                 self.assertIsInstance(status['reason'], str)
-                if number == 2:
+                if 'context_size' in status:
                     self.assertIsInstance(status['context_size'], int)
-                    self.assertGreater(status['context_size'], 0)
+                    if status['available']:
+                        self.assertGreater(status['context_size'], 0)
 
     def test_prompt_guards_run_before_generation(self):
-        status = protocol.events(protocol.run(
-            self.helper,
-            stdin=protocol.request_bytes(2, 'status')).stdout)
-        if not status or not status[0]['available']:
-            self.skipTest('the local model is not available on this host')
         cases = (
             ('empty prompt', '', 'native_failed'),
             ('whitespace prompt', ' \n\t ', 'native_failed'),

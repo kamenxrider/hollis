@@ -103,7 +103,6 @@ struct HollisNative {
             }
             try emit(status, protocol: effective)
             if request.operation == "status" { return }
-            guard model.isAvailable else { return }
             guard let prompt = request.prompt,
                   !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 fail("native_failed", protocol: effective); return
@@ -111,6 +110,7 @@ struct HollisNative {
             guard prompt.utf8.count <= 131_072 else {
                 fail("context_capacity", protocol: effective); return
             }
+            guard model.isAvailable else { return }
             // This is tokenisation, not generation. It rejects known excess;
             // SDK context errors still cover its own transcript overhead.
             guard try await model.tokenCount(for: prompt) < model.contextSize else {

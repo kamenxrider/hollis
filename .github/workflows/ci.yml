@@ -69,8 +69,7 @@ jobs:
           ! grep -q "Apple Intelligence Pro" "$RUNNER_TEMP/bridges26"/*.shortcut
 
   native-package:
-    # This preview image supplies SDK 27 while its host still runs macOS 26.
-    # Compile and inspect the helper here; real inference is qualified on macOS 27.
+    # macOS 27 and SDK 27 run the built helper's model-free protocol cases.
     runs-on: xcode-27
     permissions:
       contents: read
@@ -95,3 +94,10 @@ jobs:
           python3 scripts/plugin/package_runtime.py dist --version 0.4.0
           python3 scripts/release/privacy.py --archive dist/hollis-0.4.0-darwin-arm64.zip --kind bundle
           python3 scripts/release/privacy.py --archive dist/hollis-bridges.zip --kind bridges
+      - name: Native helper protocol tests (no model calls)
+        env:
+          HOLLIS_NATIVE_HELPER: ${{ github.workspace }}/dist/hollis-native-darwin-arm64
+        run: |
+          sw_vers -productVersion
+          test -x "$HOLLIS_NATIVE_HELPER"
+          python3 -m unittest discover -s scripts/native -p 'test_*.py'

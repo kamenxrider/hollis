@@ -15,8 +15,8 @@ NDJSON request on stdin, an event stream on stdout.
   event shape, and prompt guards. Every case fails before a session exists or
   asks only for the non-generative status event.
 - `test_protocol_live.py` is the only file that generates text. It is skipped
-  unless `HOLLIS_NATIVE_LIVE=1`, is never run by CI, and makes three on-device
-  calls with synthetic prompts. It asserts protocol behavior, not answer
+  unless `HOLLIS_NATIVE_LIVE=1`, never makes model calls in CI, and makes three
+  on-device calls with synthetic prompts. It asserts protocol behavior, not answer
   quality or any reliability rate.
 
 Run the offline suites with:
@@ -25,10 +25,17 @@ Run the offline suites with:
 python3 -m unittest discover -s scripts/native -p 'test_*.py'
 ```
 
-The event cases skip themselves where a helper built for macOS 27 cannot
-execute (the release image compiles on a macOS 26 host). The build itself is
-still checked there. Golden files are exact: an added or renamed event field
-fails the case, because the Go decoder rejects unknown event fields.
+The macOS 27 native-package and release jobs run the offline suites against
+their built artifact by setting `HOLLIS_NATIVE_HELPER` to its executable path.
+With this variable set, an unsupported host or missing helper fails the suite
+instead of skipping it. Only the three opt-in live tests skip in those jobs;
+Apple Intelligence need not be available for any offline case. Status checks
+require a positive context size only when the model is available.
+
+On other hosts, event cases skip where a helper built for macOS 27 cannot
+execute. The build is still checked wherever SDK 27 and Apple silicon are
+available. Golden files are exact: an added or renamed event field fails the
+case, because the Go decoder rejects unknown event fields.
 
 Adding a case means adding one JSON file to `testdata/protocol/` with a
 `stdin` string (or a `stdin_repeat` object for size cases) and the exact

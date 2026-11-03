@@ -9,8 +9,12 @@ CI host and catch a one-sided edit before it ships.
 They do not prove the helper behaves as documented; the golden suite in
 test_protocol_events.py does that where the built helper can execute.
 """
+import os
 import re
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 import helper_protocol as protocol
 
@@ -50,6 +54,31 @@ def go_accepted_event_error_kinds():
     if missing:
         raise AssertionError(f'unknown error kind constants: {missing}')
     return {values[name] for name in names}
+
+
+class ConfiguredHelperTests(unittest.TestCase):
+    def test_default_leaves_building_to_the_suite(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(protocol.configured_helper())
+
+    def test_configured_helper_requires_execution_support(self):
+        with mock.patch.dict(os.environ, {'HOLLIS_NATIVE_HELPER': 'helper'}):
+            with mock.patch.object(protocol, 'can_execute', return_value=False):
+                with self.assertRaisesRegex(RuntimeError, 'requires Apple silicon'):
+                    protocol.configured_helper()
+
+    def test_configured_helper_requires_an_executable_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            helper = Path(folder) / 'helper'
+            with mock.patch.dict(os.environ, {'HOLLIS_NATIVE_HELPER': str(helper)}):
+                with mock.patch.object(protocol, 'can_execute', return_value=True):
+                    with self.assertRaisesRegex(RuntimeError, 'built executable'):
+                        protocol.configured_helper()
+                    helper.write_text('#!/bin/sh\nexit 0\n')
+                    with self.assertRaisesRegex(RuntimeError, 'built executable'):
+                        protocol.configured_helper()
+                    helper.chmod(0o700)
+                    self.assertEqual(protocol.configured_helper(), helper.resolve())
 
 
 class PinTests(unittest.TestCase):
@@ -102,13 +131,17 @@ class MessageShapeTests(unittest.TestCase):
         self.assertLessEqual(emitted, go_accepted_event_error_kinds())
 
     def test_operations_are_pinned_on_both_sides(self):
-        self.assertIn('var operations = ["status", "complete", "stream"]',
-                      self.swift)
-        self.assertIn('if effective >= 2 { operations.append("schema") }',
-                      self.swift)
-        self.assertIn('"schema", prompt, nil, schema', self.go)
-        self.assertEqual(PROTOCOL_TWO_OPERATIONS,
-                         {'status', 'complete', 'stream', 'schema'})
+        match = re.search(r'var operations = \[(.*?)\](.*?)guard operations.contains',
+                          self.swift, re.S)
+        self.assertIsNotNone(match, 'helper operation guard is missing')
+        swift_operations = set(re.findall(r'"([a-z_]+)"', match.group(1)))
+        swift_operations.update(re.findall(r'operations.append\("([a-z_]+)"\)',
+                                           match.group(2)))
+        go_operations = set(re.findall(
+            r'r\.invoke\(ctx,\s*(?:model|ModelLocal),\s*"([a-z_]+)"', self.go))
+        self.assertEqual(swift_operations, PROTOCOL_TWO_OPERATIONS)
+        self.assertEqual(go_operations, PROTOCOL_TWO_OPERATIONS)
+        self.assertEqual(swift_operations, go_operations)
 
     def test_runner_rejects_unknown_event_fields(self):
         self.assertIn('decoder.DisallowUnknownFields()', self.go)
