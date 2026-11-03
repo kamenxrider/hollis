@@ -296,7 +296,7 @@ func (meta mcpRunMetadata) addTo(data map[string]any) {
 	data["mcp_servers"], data["tool_calls"], data["tool_dispositions"] = meta.Servers, meta.ToolCalls, meta.Dispositions
 }
 
-func (s *mcpSession) ExecuteTools(ctx context.Context, calls []runner.ToolCall) (runner.ToolExecution, error) {
+func (s *mcpSession) ExecuteTools(ctx context.Context, calls []runner.ToolCall, admit func(runner.ToolResult) error) (runner.ToolExecution, error) {
 	s.round++
 	execution := runner.ToolExecution{}
 	start := len(s.dispositions)
@@ -328,7 +328,11 @@ func (s *mcpSession) ExecuteTools(ctx context.Context, calls []runner.ToolCall) 
 			return execution, mcpCLIError(err)
 		}
 		disposition.State = "completed"
-		execution.Results = append(execution.Results, runner.ToolResult{CallID: call.ID, Output: s.framer.Frame(tool.Server, tool.Name, result)})
+		framed := runner.ToolResult{CallID: call.ID, Output: s.framer.Frame(tool.Server, tool.Name, result)}
+		execution.Results = append(execution.Results, framed)
+		if err := admit(framed); err != nil {
+			return execution, err
+		}
 	}
 	return execution, nil
 }

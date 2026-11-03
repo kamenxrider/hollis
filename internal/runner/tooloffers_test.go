@@ -201,8 +201,76 @@ func TestHybridPhysicalCapStillPreventsDispatch(t *testing.T) {
 
 type toolExecutorFunc func(context.Context, []ToolCall) (ToolExecution, error)
 
-func (f toolExecutorFunc) ExecuteTools(ctx context.Context, calls []ToolCall) (ToolExecution, error) {
-	return f(ctx, calls)
+func TestHybridIncrementalBudgetIncludesHistoryCallsAndMetadata(t *testing.T) {
+	calls := []ToolCall{
+		{ID: "one", Name: "server__raw", Arguments: "{}"},
+		{ID: "two", Name: "server__raw", Arguments: "{}"},
+		{ID: "three", Name: "server__raw", Arguments: "{}"},
+	}
+	raw := mustMCPOffer(t, "server__raw", true)
+	raw.description = strings.Repeat("metadata", 100)
+	conversation := ToolConversation{
+		Tools: mustTools(t), Offers: []ToolOffer{raw}, Choice: ToolChoiceAuto,
+		Messages: []store.Message{{Role: "user", Content: strings.Repeat("history", 1000)}, {Role: "assistant", Content: "Prior answer"}, {Role: "user", Content: "Now use tools"}},
+	}
+	_, request, err := prepareToolOffers(conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := append([]store.Message(nil), conversation.Messages...)
+	messages = append(messages,
+		store.Message{Role: "assistant", Content: chat.EncodeToolCalls(toolCallRecords(calls))},
+		store.Message{Role: chat.RoleTool, Content: chat.EncodeToolResult("one", "")})
+	request.Prompt = chat.RenderToolTranscript("", messages, "")
+	room := NativeMaxPromptBytes - request.inputBytes()
+	for _, tc := range []struct {
+		name             string
+		size, dispatched int
+		fail             bool
+	}{
+		{"one-byte-over", room + 1, 1, true},
+		{"exact-first-limit", room, 2, true},
+		{"valid", 10, 3, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &scriptedRounds{replies: []string{
+				`{"tool_calls":[{"id":"one","function":"server__raw","arguments":{}},{"id":"two","function":"server__raw","arguments":{}},{"id":"three","function":"server__raw","arguments":{}}]}`, "Done."}}
+			executor := &recordingExecutor{output: strings.Repeat("x", tc.size)}
+			out, err := RunToolLoop(t.Context(), r, ModelLocal, conversation, executor)
+			if tc.fail {
+				requireNativeKind(t, err, KindContextCapacity)
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			wantRounds := 2
+			if tc.fail {
+				wantRounds = 1
+			}
+			if executor.calls != tc.dispatched || len(r.requests) != wantRounds ||
+				len(out.Messages) != len(conversation.Messages)+1+tc.dispatched {
+				t.Fatalf("wrong partial result accounting: dispatched=%d rounds=%d messages=%d", executor.calls, len(r.requests), len(out.Messages))
+			}
+			if !reflect.DeepEqual(out.Messages[:len(conversation.Messages)], conversation.Messages) {
+				t.Fatal("input history changed")
+			}
+			id, output, ok := chat.DecodeToolResult(out.Messages[len(out.Messages)-1].Content)
+			if !ok || id != calls[tc.dispatched-1].ID || output != executor.output {
+				t.Fatal("last completed result was lost or truncated")
+			}
+		})
+	}
+}
+
+func (f toolExecutorFunc) ExecuteTools(ctx context.Context, calls []ToolCall, admit func(ToolResult) error) (ToolExecution, error) {
+	execution, err := f(ctx, calls)
+	if err == nil {
+		for _, result := range execution.Results {
+			if err = admit(result); err != nil {
+				break
+			}
+		}
+	}
+	return execution, err
 }
 
 func TestHybridPendingStopsAndOrdersTranscript(t *testing.T) {

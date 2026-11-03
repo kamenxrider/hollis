@@ -332,6 +332,16 @@ they do not control Image Playground's native generation canvas.`,
 			if err != nil {
 				return err
 			}
+			invocationContext := cmd.Context()
+			requestContext := invocationContext
+			var cancelRequest context.CancelFunc
+			if mcpOptions.enabled() {
+				var stop context.CancelFunc
+				invocationContext, stop = signal.NotifyContext(invocationContext, os.Interrupt, syscall.SIGTERM)
+				defer stop()
+				requestContext, cancelRequest = context.WithTimeout(invocationContext, timeout)
+				defer cancelRequest()
+			}
 			posModel, promptArgs, hasPosModel := splitModelArgs(args)
 			if continueID != "" && (hasPosModel || cmd.Flags().Changed("model")) {
 				return usageErr(errors.New("--continue uses the conversation's stored model; do not pass --model or a positional model"))
@@ -452,7 +462,7 @@ they do not control Image Playground's native generation canvas.`,
 			// Runtime bridge resolution:
 			// explicit tiers refuse to run when their bridge did not resolve,
 			// and every turn's transport is retargeted at the resolved refs.
-			resolved, err := resolveForModel(cmd.Context(), newRunner, selectedModel)
+			resolved, err := resolveForModel(requestContext, newRunner, selectedModel)
 			if err != nil && !canAttemptAfterDiscoveryFailure(resolved, selectedModel) {
 				return resolutionCLIError(err)
 			}
@@ -460,16 +470,25 @@ they do not control Image Playground's native generation canvas.`,
 				return err
 			}
 			useRunner := resolvedNewRunnerFunc(newRunner, resolved)
-			turnContext := cmd.Context()
+			turnContext := requestContext
 			if mcpOptions.enabled() {
-				var stop context.CancelFunc
-				turnContext, stop = signal.NotifyContext(turnContext, os.Interrupt, syscall.SIGTERM)
-				defer stop()
-				session, err = mcpOptions.attach(turnContext, cmd, flags, nil)
+				session, err = mcpOptions.attach(requestContext, cmd, flags, nil)
 				if err != nil {
 					return err
 				}
 				defer session.Close()
+				if err := requestContext.Err(); err != nil {
+					if errors.Is(err, context.DeadlineExceeded) {
+						return timeoutErr(err)
+					}
+					return transportErr(err)
+				}
+				if interactive {
+					// Attachment has a bounded startup phase, but idle time must
+					// not consume any subsequent REPL turn's deadline.
+					cancelRequest()
+					turnContext = invocationContext
+				}
 				stopClose := context.AfterFunc(turnContext, session.Close)
 				defer stopClose()
 				turnContext = context.WithValue(turnContext, mcpChatSessionKey{}, session)

@@ -70,14 +70,17 @@ type ToolExecution struct {
 }
 
 // ToolExecutor dispatches externally; runner never imports an MCP transport.
+// After appending each completed result, executors must call admit and stop on
+// error before any later approval or dispatch. Keep that result in the partial
+// execution returned on error; admission does not undo a completed operation.
 type ToolExecutor interface {
-	ExecuteTools(ctx context.Context, calls []ToolCall) (ToolExecution, error)
+	ExecuteTools(ctx context.Context, calls []ToolCall, admit func(ToolResult) error) (ToolExecution, error)
 }
 
 // ReturnToCaller hands every validated call back to the caller.
 type ReturnToCaller struct{}
 
-func (ReturnToCaller) ExecuteTools(_ context.Context, calls []ToolCall) (ToolExecution, error) {
+func (ReturnToCaller) ExecuteTools(_ context.Context, calls []ToolCall, _ func(ToolResult) error) (ToolExecution, error) {
 	return ToolExecution{Pending: append([]ToolCall(nil), calls...)}, nil
 }
 
@@ -166,6 +169,9 @@ func RunToolLoop(ctx context.Context, r ToolRoundRunner, model Model, conversati
 		if err != nil {
 			return completion, err
 		}
+		if err := nativeContextError(ctx); err != nil {
+			return completion, err
+		}
 		if completion.Usage == nil {
 			measured = false
 		} else {
@@ -234,14 +240,25 @@ func RunToolLoop(ctx context.Context, r ToolRoundRunner, model Model, conversati
 		if consumed >= ToolRoundCap {
 			return outcome, capFailure()
 		}
+		assistant := store.Message{Role: "assistant", Content: chat.EncodeToolCalls(toolCallRecords(result.calls))}
+		admitted := append(append([]store.Message(nil), messages...), assistant)
+		admit := func(result ToolResult) error {
+			admitted = append(admitted, store.Message{Role: chat.RoleTool, Content: chat.EncodeToolResult(result.CallID, result.Output)})
+			next := request
+			next.Prompt = chat.RenderToolTranscript("", admitted, "")
+			if err := toolResultBudget(next); err != nil {
+				return err
+			}
+			return nativeContextError(ctx)
+		}
 		// An executor must not be able to mutate the originals used to verify
 		// its pending dispositions or the assistant envelope.
-		execution, execErr := executor.ExecuteTools(ctx, append([]ToolCall(nil), result.calls...))
+		execution, execErr := executor.ExecuteTools(ctx, append([]ToolCall(nil), result.calls...), admit)
 		results, pending, matchErr := matchExecution(result.calls, execution, execErr != nil)
 		if matchErr != nil {
 			return outcome, matchErr
 		}
-		appendMessage(store.Message{Role: "assistant", Content: chat.EncodeToolCalls(toolCallRecords(result.calls))})
+		appendMessage(assistant)
 		for _, call := range result.calls {
 			used[call.ID] = true
 		}
@@ -252,11 +269,13 @@ func RunToolLoop(ctx context.Context, r ToolRoundRunner, model Model, conversati
 			finish()
 			return outcome, execErr
 		}
+		if err := nativeContextError(ctx); err != nil {
+			finish()
+			return outcome, err
+		}
 		if len(results) > 0 {
 			request.Prompt = chat.RenderToolTranscript("", messages, "")
-			if size := request.inputBytes(); size > NativeMaxPromptBytes {
-				budgetErr := nativeError(KindContextCapacity, fmt.Sprintf("tool results render to %d bytes; the limit is %d bytes; nothing was truncated", size, NativeMaxPromptBytes))
-				budgetErr.PromptBytes = size
+			if budgetErr := toolResultBudget(request); budgetErr != nil {
 				finish()
 				return outcome, budgetErr
 			}
@@ -268,6 +287,15 @@ func RunToolLoop(ctx context.Context, r ToolRoundRunner, model Model, conversati
 		}
 		round++
 	}
+}
+
+func toolResultBudget(request ToolRoundRequest) error {
+	if size := request.inputBytes(); size > NativeMaxPromptBytes {
+		err := nativeError(KindContextCapacity, fmt.Sprintf("tool results render to %d bytes; the limit is %d bytes; nothing was truncated", size, NativeMaxPromptBytes))
+		err.PromptBytes = size
+		return err
+	}
+	return nil
 }
 
 // priorToolRounds counts the assistant tool-call turns since the last user

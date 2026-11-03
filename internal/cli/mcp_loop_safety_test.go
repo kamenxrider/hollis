@@ -242,7 +242,10 @@ func TestMCPModelLoopNoCallsAfterCanceledContext(t *testing.T) {
 	defer session.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	execution, err := session.ExecuteTools(ctx, []runner.ToolCall{{ID: "cancelled", Name: "fixture__read", Arguments: `{"page":"one"}`}})
+	execution, err := session.ExecuteTools(ctx, []runner.ToolCall{{ID: "cancelled", Name: "fixture__read", Arguments: `{"page":"one"}`}}, func(runner.ToolResult) error {
+		t.Fatal("cancelled call produced a result")
+		return nil
+	})
 	if err == nil || calls.Load() != 0 || len(execution.Results) != 0 ||
 		len(session.calls) != 1 || session.calls[0].Executed {
 		t.Fatalf("cancellation dispatched: %v %#v", err, session.calls)
