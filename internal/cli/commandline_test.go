@@ -245,7 +245,7 @@ func TestRootHelpAndVersionExtrasRemainErrors(t *testing.T) {
 
 func TestBarePromptPathsAreFlagValues(t *testing.T) {
 	t.Chdir(t.TempDir())
-	for _, name := range []string{"chat", "-"} {
+	for _, name := range []string{"chat", "./-"} {
 		if err := os.WriteFile(name, []byte("fixture instruction"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -257,7 +257,7 @@ func TestBarePromptPathsAreFlagValues(t *testing.T) {
 	}
 	r := &recordingRunner{}
 	_, _, err := runResolvedCLI(t, r, "--image", "setup")
-	if ExitCode(err) != 2 || !strings.Contains(err.Error(), "--image requires an explicit instruction") || r.calls != 0 {
+	if ExitCode(err) != 2 || !strings.Contains(err.Error(), "--image requires an instruction") || r.calls != 0 {
 		t.Fatalf("error=%v calls=%d", err, r.calls)
 	}
 }
@@ -341,7 +341,7 @@ func TestAgentContextDescribesCommandResolution(t *testing.T) {
 	if ctx.SchemaVersion != "2" {
 		t.Fatalf("schema version = %q, want 2", ctx.SchemaVersion)
 	}
-	for _, rule := range []string{"sole positional", "edit distance 1", "edit distance 2", "7 or more", "adjacent swap", "--flag=value", "boolean", "leading flags", "no model-prefix parsing", "--help/--version", "lone -"} {
+	for _, rule := range []string{"sole positional", "edit distance 1", "edit distance 2", "7 or more", "adjacent swap", "--flag=value", "boolean", "leading flags", "no model-prefix parsing", "--help/--version", "a lone positional - is literal prompt text, not stdin", "--prompt-file - reads the instruction from stdin", "refused on a terminal under --no-input or --agent"} {
 		if !strings.Contains(ctx.Contracts.CommandResolution, rule) {
 			t.Fatalf("command resolution lacks %q: %q", rule, ctx.Contracts.CommandResolution)
 		}

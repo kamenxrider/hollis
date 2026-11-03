@@ -133,8 +133,10 @@ An adjacent letter swap counts as one edit. Other non-command text is a prompt:
 'hollis "Explain closures"' means 'hollis respond "Explain closures"' and
 accepts respond's flags. After --, text is literal, including model prefixes.
 Root --help/--version keep strict argument checks; use 'hollis respond --help'
-for prompt help. A lone '-' is prompt text, not stdin; pipe to 'hollis respond'
-without a prompt to read stdin. See docs/cli.md for the full rule table.
+for prompt help. A lone positional '-' is prompt text, not stdin.
+--prompt-file - reads the instruction from stdin; it is refused on a terminal
+under --no-input or --agent. Omit the prompt to read piped stdin instead.
+See docs/cli.md for the full rule table.
 Health check: run 'hollis doctor' to verify the transport and bridges.
 Local OpenAI-compatible endpoint: run 'hollis serve' (127.0.0.1:1978).
 See README.md for recipes.`,

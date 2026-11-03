@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kamenxrider/hollis/internal/chat"
 	"github.com/kamenxrider/hollis/internal/docinput"
@@ -126,10 +127,10 @@ func TestRespondNewInputConflictsExit2BeforeRunner(t *testing.T) {
 	}{
 		{name: "positional and prompt file", args: []string{"respond", "--prompt-file", promptPath, "also positional"}},
 		{name: "document and image", args: []string{"respond", "--file", documentPath, "--image", imagePath, "Explain"}},
-		{name: "document without explicit instruction", args: []string{"respond", "--file", documentPath}, in: "piped instruction"},
-		{name: "image without explicit instruction", args: []string{"respond", "--image", imagePath}},
+		{name: "document without any instruction", args: []string{"respond", "--file", documentPath}},
+		{name: "image without any instruction", args: []string{"respond", "--image", imagePath}},
 		{name: "prompt file and piped stdin", args: []string{"respond", "--prompt-file", promptPath}, in: "second instruction"},
-		{name: "document and piped stdin", args: []string{"respond", "--file", documentPath, "Explain"}, in: "second instruction"},
+		{name: "positional and piped stdin with a document", args: []string{"respond", "--file", documentPath, "Explain"}, in: "second instruction"},
 		{name: "explicit empty prompt file", args: []string{"respond", "--prompt-file="}},
 		{name: "explicit empty document", args: []string{"respond", "--file=", "Explain"}},
 	}
@@ -216,6 +217,268 @@ func TestRespondLegacyPositionalAndStdinBehaviorRemainsValid(t *testing.T) {
 				t.Fatalf("runner calls=%d prompt=%q, want %q", r.calls, r.prompt, tc.wantPrompt)
 			}
 		})
+	}
+}
+
+func TestRespondPipedStdinSuppliesDocumentInstruction(t *testing.T) {
+	withNonInteractiveStdin(t)
+	stubConfigPath(t)
+	documentPath := writeRespondFile(t, "notes.md", "alpha\n")
+	document, err := docinput.ReadDocument(documentPath, int64(chat.MaxRenderedPromptBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := docinput.Prepare("Summarize this\n", []docinput.Document{document}, chat.MaxRenderedPromptBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &documentRecordingRunner{}
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs([]string{"respond", "--file", documentPath})
+	cmd.SetIn(strings.NewReader("Summarize this\n"))
+	cmd.SetOut(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if r.calls != 1 || r.prompt != want {
+		t.Fatalf("runner calls=%d prompt=%q, want %q", r.calls, r.prompt, want)
+	}
+}
+
+func TestRespondPipedStdinSuppliesImageInstruction(t *testing.T) {
+	withNonInteractiveStdin(t)
+	stubConfigPath(t)
+	imagePath := writeCLIImage(t, "fixture image.png")
+	r := &imageRecordingRunner{}
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs([]string{"respond", "--image", imagePath})
+	cmd.SetIn(strings.NewReader("Describe this"))
+	cmd.SetOut(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if r.calls != 1 || r.prompt != "Describe this" || len(r.imagePaths) != 1 {
+		t.Fatalf("image runner call = %+v", r)
+	}
+}
+
+func TestRespondPromptFileDashReadsStdin(t *testing.T) {
+	withNonInteractiveStdin(t)
+	stubConfigPath(t)
+	documentPath := writeRespondFile(t, "source.md", "source material")
+	document, err := docinput.ReadDocument(documentPath, int64(chat.MaxRenderedPromptBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := docinput.Prepare("First line\nsecond line\n", []docinput.Document{document}, chat.MaxRenderedPromptBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &documentRecordingRunner{}
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs([]string{"respond", "--prompt-file", "-", "--file", documentPath})
+	cmd.SetIn(strings.NewReader("First line\nsecond line\n"))
+	cmd.SetOut(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if r.calls != 1 || r.prompt != want {
+		t.Fatalf("runner calls=%d prompt=%q, want %q", r.calls, r.prompt, want)
+	}
+}
+
+func TestRespondPromptFileDashRefusesTerminalInNonInteractiveModes(t *testing.T) {
+	old := interactiveStdin
+	interactiveStdin = func() bool { return true }
+	t.Cleanup(func() { interactiveStdin = old })
+	stubConfigPath(t)
+
+	for _, mode := range []string{"--no-input", "--agent"} {
+		t.Run(mode, func(t *testing.T) {
+			r := &documentRecordingRunner{}
+			cmd := NewRootCmd(func() runner.Runner { return r })
+			cmd.SetArgs([]string{mode, "respond", "--prompt-file", "-"})
+			in := bytes.NewBufferString("terminal instruction")
+			cmd.SetIn(in)
+			cmd.SetOut(&bytes.Buffer{})
+			err := cmd.Execute()
+			if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), "refusing to wait on a terminal") {
+				t.Fatalf("err=%v exit=%d, want terminal refusal with usage exit 2", err, ExitCode(err))
+			}
+			if in.String() != "terminal instruction" || r.calls != 0 {
+				t.Fatalf("remaining stdin=%q calls=%d, want unread stdin and no runner calls", in.String(), r.calls)
+			}
+		})
+	}
+}
+
+func TestRespondPromptFileDashRejectsInvalidUTF8(t *testing.T) {
+	withNonInteractiveStdin(t)
+	stubConfigPath(t)
+	r := &documentRecordingRunner{}
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs([]string{"respond", "--prompt-file", "-"})
+	cmd.SetIn(bytes.NewReader([]byte{'x', 0xff}))
+	cmd.SetOut(&bytes.Buffer{})
+	err := cmd.Execute()
+	if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), "valid UTF-8") || r.calls != 0 {
+		t.Fatalf("err=%v exit=%d calls=%d, want UTF-8 usage error before running", err, ExitCode(err), r.calls)
+	}
+}
+
+func TestRespondInstructionConflictDoesNotWaitForPipeEOF(t *testing.T) {
+	withNonInteractiveStdin(t)
+	stubConfigPath(t)
+	documentPath := writeRespondFile(t, "source.md", "source material")
+	promptPath := writeRespondFile(t, "instructions.txt", "Summarize")
+	imagePath := writeCLIImage(t, "image.png")
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "positional document", args: []string{"respond", "--file", documentPath, "Summarize"}},
+		{name: "positional image", args: []string{"respond", "--image", imagePath, "Describe"}},
+		{name: "prompt file", args: []string{"respond", "--prompt-file", promptPath}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			readEnd, writeEnd, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer readEnd.Close()
+			defer writeEnd.Close()
+			if _, err := writeEnd.Write([]byte{'x'}); err != nil {
+				t.Fatal(err)
+			}
+
+			r := &documentRecordingRunner{}
+			cmd := NewRootCmd(func() runner.Runner { return r })
+			cmd.SetArgs(tc.args)
+			cmd.SetIn(readEnd)
+			cmd.SetOut(&bytes.Buffer{})
+			done := make(chan error, 1)
+			go func() { done <- cmd.Execute() }()
+			select {
+			case execErr := <-done:
+				if execErr == nil || ExitCode(execErr) != 2 || !strings.Contains(execErr.Error(), "choose exactly one instruction source") {
+					t.Fatalf("err=%v exit=%d, want instruction conflict with usage exit 2", execErr, ExitCode(execErr))
+				}
+				if r.calls != 0 {
+					t.Fatalf("runner calls=%d, want 0", r.calls)
+				}
+			case <-time.After(time.Second):
+				writeEnd.Close()
+				<-done
+				t.Fatal("instruction conflict waited for EOF after receiving one byte")
+			}
+		})
+	}
+}
+
+// TestRespondOpenEmptyPipeDoesNotBlockFileInput is the regression test for the
+// measured hang: a pipe held open with no data used to stall file input until
+// the writer produced a byte or closed.
+func TestRespondOpenEmptyPipeDoesNotBlockFileInput(t *testing.T) {
+	withNonInteractiveStdin(t)
+	stubConfigPath(t)
+	documentPath := writeRespondFile(t, "source.md", "source material")
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readEnd.Close()
+	defer writeEnd.Close() // deliberately left open with no data
+
+	r := &documentRecordingRunner{}
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs([]string{"respond", "--file", documentPath})
+	cmd.SetIn(readEnd)
+	cmd.SetOut(&bytes.Buffer{})
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute() }()
+	select {
+	case execErr := <-done:
+		if execErr == nil || ExitCode(execErr) != 2 {
+			t.Fatalf("err=%v exit=%d, want usage exit 2", execErr, ExitCode(execErr))
+		}
+		if !strings.Contains(execErr.Error(), "pipe it via stdin") {
+			t.Fatalf("error %q does not name the stdin instruction path", execErr)
+		}
+		if r.calls != 0 {
+			t.Fatalf("runner calls=%d, want 0", r.calls)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("file input blocked on an open empty pipe")
+	}
+}
+
+// TestRespondOpenEmptyPipeDoesNotBlockPositionalFileInput covers the same
+// regression when the instruction is positional: the probe that looks for a
+// competing piped instruction must not wait for data that never arrives.
+func TestRespondOpenEmptyPipeDoesNotBlockPositionalFileInput(t *testing.T) {
+	withNonInteractiveStdin(t)
+	stubConfigPath(t)
+	documentPath := writeRespondFile(t, "source.md", "source material")
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readEnd.Close()
+	defer writeEnd.Close()
+
+	r := &documentRecordingRunner{}
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs([]string{"respond", "--file", documentPath, "Summarize"})
+	cmd.SetIn(readEnd)
+	cmd.SetOut(&bytes.Buffer{})
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute() }()
+	select {
+	case execErr := <-done:
+		if execErr != nil {
+			t.Fatalf("Execute: %v", execErr)
+		}
+		if r.calls != 1 || !strings.HasPrefix(r.prompt, "Summarize\n\n") {
+			t.Fatalf("runner calls=%d prompt=%q", r.calls, r.prompt)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("positional file input blocked on an open empty pipe")
+	}
+}
+
+func TestRespondPipedInstructionArrivingShortlyAfterStart(t *testing.T) {
+	withNonInteractiveStdin(t)
+	stubConfigPath(t)
+	documentPath := writeRespondFile(t, "notes.md", "alpha\n")
+	document, err := docinput.ReadDocument(documentPath, int64(chat.MaxRenderedPromptBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := docinput.Prepare("Summarize this", []docinput.Document{document}, chat.MaxRenderedPromptBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readEnd.Close()
+	go func() {
+		defer writeEnd.Close()
+		time.Sleep(50 * time.Millisecond)
+		_, _ = writeEnd.WriteString("Summarize this")
+	}()
+	r := &documentRecordingRunner{}
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs([]string{"respond", "--file", documentPath})
+	cmd.SetIn(readEnd)
+	cmd.SetOut(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if r.calls != 1 || r.prompt != want {
+		t.Fatalf("runner calls=%d prompt=%q, want %q", r.calls, r.prompt, want)
 	}
 }
 
