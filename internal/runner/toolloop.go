@@ -21,16 +21,19 @@ type ToolRoundRunner interface {
 
 // ToolRoundRequest keeps native metadata separate from the conversation.
 type ToolRoundRequest struct {
-	Prompt       string
-	Mode         string
-	Instructions string
-	Definitions  []ToolDefinition
+	Prompt         string
+	Mode           string
+	Instructions   string
+	Definitions    []ToolDefinition
+	RawDefinitions []RawToolDefinition
+	Hybrid         bool
 }
 
 type ToolDefinition struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Parameters  json.RawMessage `json:"parameters"`
+	Source      string          `json:"source,omitempty"`
 }
 
 func (r ToolRoundRequest) inputBytes() int {
@@ -38,13 +41,16 @@ func (r ToolRoundRequest) inputBytes() int {
 	for _, tool := range r.Definitions {
 		total += len(tool.Name) + len(tool.Description) + len(tool.Parameters)
 	}
+	for _, tool := range r.RawDefinitions {
+		total += len(rawToolInstruction(tool))
+	}
 	return total
 }
 
 func nativeToolDefinitions(tools []Tool) []ToolDefinition {
 	definitions := make([]ToolDefinition, len(tools))
 	for i, tool := range tools {
-		definitions[i] = ToolDefinition{tool.Name, tool.Description, tool.Parameters.Bytes()}
+		definitions[i] = ToolDefinition{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters.Bytes()}
 	}
 	return definitions
 }
@@ -55,18 +61,24 @@ type ToolResult struct {
 	Output string
 }
 
-// ToolExecutor is the loop's one seam. Today every caller returns calls to
-// whoever asked (handled=false); an executor that runs tools returns one
-// result per call and the loop continues with them.
+// ToolExecution accounts for each original call exactly once on success.
+// Pending calls must be unchanged originals. On error, Results may contain
+// completed calls only; missing calls are not retried or continued.
+type ToolExecution struct {
+	Results []ToolResult
+	Pending []ToolCall
+}
+
+// ToolExecutor dispatches externally; runner never imports an MCP transport.
 type ToolExecutor interface {
-	ExecuteTools(ctx context.Context, calls []ToolCall) (results []ToolResult, handled bool, err error)
+	ExecuteTools(ctx context.Context, calls []ToolCall) (ToolExecution, error)
 }
 
 // ReturnToCaller hands every validated call back to the caller.
 type ReturnToCaller struct{}
 
-func (ReturnToCaller) ExecuteTools(context.Context, []ToolCall) ([]ToolResult, bool, error) {
-	return nil, false, nil
+func (ReturnToCaller) ExecuteTools(_ context.Context, calls []ToolCall) (ToolExecution, error) {
+	return ToolExecution{Pending: append([]ToolCall(nil), calls...)}, nil
 }
 
 // ToolConversation is one tool-enabled request. Messages is the whole
@@ -75,6 +87,7 @@ func (ReturnToCaller) ExecuteTools(context.Context, []ToolCall) ([]ToolResult, b
 // hollis_tool envelope.
 type ToolConversation struct {
 	Tools    []Tool
+	Offers   []ToolOffer
 	Choice   ToolChoice
 	Messages []store.Message
 }
@@ -84,6 +97,10 @@ type ToolOutcome struct {
 	Text  string
 	Calls []ToolCall
 	Model Model
+	// Messages contains the input transcript plus appended call/result messages,
+	// excluding correction notices and the final answer (Text). Available
+	// completed messages are preserved on error, not as a durable execution log.
+	Messages []store.Message
 	// Usage sums every round's measured counts, and is nil unless every
 	// round reported them.
 	Usage  *Usage
@@ -112,6 +129,11 @@ func RunToolLoop(ctx context.Context, r ToolRoundRunner, model Model, conversati
 		return outcome, nativeError(KindUsage, "tool conversation must not be empty")
 	}
 	messages := append([]store.Message(nil), conversation.Messages...)
+	outcome.Messages = append([]store.Message(nil), conversation.Messages...)
+	appendMessage := func(message store.Message) {
+		messages = append(messages, message)
+		outcome.Messages = append(outcome.Messages, message)
+	}
 	used := map[string]bool{}
 	for _, message := range messages {
 		if calls, ok := chat.DecodeToolCalls(message.Content); ok && message.Role == "assistant" {
@@ -174,10 +196,13 @@ func RunToolLoop(ctx context.Context, r ToolRoundRunner, model Model, conversati
 	if conversation.Choice != ToolChoiceAuto {
 		return outcome, nativeError(KindUsage, "tool_choice accepts only auto or none")
 	}
-	if len(conversation.Tools) == 0 {
+	tools, request, err := prepareToolOffers(conversation)
+	if err != nil {
+		return outcome, err
+	}
+	if len(tools) == 0 {
 		return outcome, nativeError(KindUsage, "tool loop requires at least one tool")
 	}
-	request := ToolRoundRequest{Mode: "allowed", Instructions: toolInstructions, Definitions: nativeToolDefinitions(conversation.Tools)}
 	round := prior + 1
 	for {
 		request.Prompt = chat.RenderToolTranscript("", messages, "")
@@ -185,7 +210,7 @@ func RunToolLoop(ctx context.Context, r ToolRoundRunner, model Model, conversati
 		if err != nil {
 			return outcome, err
 		}
-		result := interpretRound(completion.Text, conversation.Tools, round, used)
+		result := interpretOfferedRound(completion.Text, tools, round, used)
 		if !result.plain && result.fault != "" && !result.framing {
 			notice := toolRepairNotice(round, result.fault)
 			request.Prompt = chat.RenderToolTranscript("", messages, notice)
@@ -193,7 +218,7 @@ func RunToolLoop(ctx context.Context, r ToolRoundRunner, model Model, conversati
 			if err != nil {
 				return outcome, err
 			}
-			result = interpretRound(completion.Text, conversation.Tools, round, used)
+			result = interpretOfferedRound(completion.Text, tools, round, used)
 			if !result.plain && result.fault != "" {
 				return outcome, loopFault(KindToolCallInvalid, fmt.Sprintf("round %d produced an invalid tool call after its repair round: %s", round, result.fault))
 			}
@@ -209,24 +234,37 @@ func RunToolLoop(ctx context.Context, r ToolRoundRunner, model Model, conversati
 		if consumed >= ToolRoundCap {
 			return outcome, capFailure()
 		}
-		results, handled, err := executor.ExecuteTools(ctx, result.calls)
-		if err != nil {
-			return outcome, err
+		// An executor must not be able to mutate the originals used to verify
+		// its pending dispositions or the assistant envelope.
+		execution, execErr := executor.ExecuteTools(ctx, append([]ToolCall(nil), result.calls...))
+		results, pending, matchErr := matchExecution(result.calls, execution, execErr != nil)
+		if matchErr != nil {
+			return outcome, matchErr
 		}
-		if !handled {
-			outcome.Calls = result.calls
-			finish()
-			return outcome, nil
-		}
-		if err := matchResults(result.calls, results); err != nil {
-			return outcome, err
-		}
-		messages = append(messages, store.Message{Role: "assistant", Content: chat.EncodeToolCalls(toolCallRecords(result.calls))})
+		appendMessage(store.Message{Role: "assistant", Content: chat.EncodeToolCalls(toolCallRecords(result.calls))})
 		for _, call := range result.calls {
 			used[call.ID] = true
 		}
 		for _, toolResult := range results {
-			messages = append(messages, store.Message{Role: chat.RoleTool, Content: chat.EncodeToolResult(toolResult.CallID, toolResult.Output)})
+			appendMessage(store.Message{Role: chat.RoleTool, Content: chat.EncodeToolResult(toolResult.CallID, toolResult.Output)})
+		}
+		if execErr != nil {
+			finish()
+			return outcome, execErr
+		}
+		if len(results) > 0 {
+			request.Prompt = chat.RenderToolTranscript("", messages, "")
+			if size := request.inputBytes(); size > NativeMaxPromptBytes {
+				budgetErr := nativeError(KindContextCapacity, fmt.Sprintf("tool results render to %d bytes; the limit is %d bytes; nothing was truncated", size, NativeMaxPromptBytes))
+				budgetErr.PromptBytes = size
+				finish()
+				return outcome, budgetErr
+			}
+		}
+		if len(pending) > 0 {
+			outcome.Calls = pending
+			finish()
+			return outcome, nil
 		}
 		round++
 	}
@@ -261,21 +299,54 @@ func toolCallRecords(calls []ToolCall) []chat.ToolCallRecord {
 // ToolCallRecords converts validated calls to their stored form.
 func ToolCallRecords(calls []ToolCall) []chat.ToolCallRecord { return toolCallRecords(calls) }
 
-func matchResults(calls []ToolCall, results []ToolResult) error {
-	if len(results) != len(calls) {
-		return nativeError(KindUsage, "tool executor must return one result per call")
-	}
-	want := map[string]bool{}
+// matchExecution verifies before appending anything, then restores call order
+// independently of executor result/pending ordering.
+func matchExecution(calls []ToolCall, execution ToolExecution, partial bool) ([]ToolResult, []ToolCall, error) {
+	want := make(map[string]ToolCall, len(calls))
 	for _, call := range calls {
-		want[call.ID] = true
+		want[call.ID] = call
 	}
-	for _, result := range results {
-		if !want[result.CallID] {
-			return nativeError(KindUsage, "tool executor returned a result for an unknown call")
+	results := map[string]ToolResult{}
+	pending := map[string]ToolCall{}
+	bad := func() ([]ToolResult, []ToolCall, error) {
+		return nil, nil, nativeError(KindUsage, "tool executor returned invalid or incomplete call dispositions")
+	}
+	for _, result := range execution.Results {
+		if _, ok := want[result.CallID]; !ok {
+			return bad()
 		}
-		delete(want, result.CallID)
+		if _, ok := results[result.CallID]; ok {
+			return bad()
+		}
+		results[result.CallID] = result
 	}
-	return nil
+	for _, call := range execution.Pending {
+		original, ok := want[call.ID]
+		if !ok || original != call {
+			return bad()
+		}
+		if _, ok := results[call.ID]; ok {
+			return bad()
+		}
+		if _, ok := pending[call.ID]; ok {
+			return bad()
+		}
+		pending[call.ID] = call
+	}
+	if !partial && len(results)+len(pending) != len(calls) {
+		return bad()
+	}
+	var orderedResults []ToolResult
+	var orderedPending []ToolCall
+	for _, call := range calls {
+		if result, ok := results[call.ID]; ok {
+			orderedResults = append(orderedResults, result)
+		}
+		if _, ok := pending[call.ID]; ok {
+			orderedPending = append(orderedPending, call)
+		}
+	}
+	return orderedResults, orderedPending, nil
 }
 
 func loopFault(kind Kind, message string) *Error {
@@ -288,7 +359,7 @@ func (r *NativeRunner) RunToolRound(ctx context.Context, model Model, request To
 	if request.Mode == "" {
 		return Completion{Model: model}, nativeError(KindUsage, "tool round requires a tool-calling mode")
 	}
-	return r.RunCompleteWithOptions(ctx, model, request.Prompt, nativeOptions{ToolCalling: request.Mode, ToolInstructions: request.Instructions, ToolDefinitions: request.Definitions})
+	return r.RunCompleteWithOptions(ctx, model, request.Prompt, nativeOptions{ToolCalling: request.Mode, ToolInstructions: request.Instructions, ToolDefinitions: request.Definitions, RawToolDefinitions: request.RawDefinitions, HybridTools: request.Hybrid})
 }
 
 // RunToolRound is native-only: Shortcut routes have no tool surface.

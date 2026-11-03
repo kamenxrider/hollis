@@ -68,7 +68,7 @@ struct HollisNative {
                                       "extract": extractCapability,
                                       "images": imageCapability(vision: vision, macOSMajor: macOSMajor),
                                       "tools": ["supported": tools, "tool_calling_mode": true,
-                                                "native_definitions": tools]]
+                                                "native_definitions": tools, "hybrid_tools": tools]]
         }
         return fields
     }
@@ -117,7 +117,8 @@ struct HollisNative {
             print(protocolVersion)
             return
         }
-        let metadataMode = CommandLine.arguments == [CommandLine.arguments[0], "--native-definitions"]
+        let hybridMode = CommandLine.arguments == [CommandLine.arguments[0], "--hybrid-tools"]
+        let metadataMode = hybridMode || CommandLine.arguments == [CommandLine.arguments[0], "--native-definitions"]
         guard CommandLine.arguments.count == 1 || metadataMode else { fail("native_failed"); return }
         var effective = protocolVersion
         do {
@@ -157,7 +158,7 @@ struct HollisNative {
             let metadata: NativeToolMetadata.Prepared
             do {
                 metadata = try NativeToolMetadata.prepare(
-                    JSONDecoder().decode(JSONValue.self, from: input), enabled: metadataMode)
+                    JSONDecoder().decode(JSONValue.self, from: input), enabled: metadataMode, hybridEnabled: hybridMode)
             } catch NativeToolMetadata.Failure.capacity {
                 fail("context_capacity", protocol: effective); return
             } catch { fail("native_failed", protocol: effective); return }

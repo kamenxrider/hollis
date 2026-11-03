@@ -21,6 +21,14 @@ agent schema version remain unchanged.
 | `mcp_protocol` | An MCP server broke the protocol, published a malformed tool list, redirected, or exceeded a size cap | 5 | n/a | Treat the server as broken for this run; Hollis never retries or uses a partial listing |
 | `mcp_auth` | An HTTP MCP server rejected the credential read from the configured environment variable | 5 | n/a | Set a valid value in the variable `hollis mcp list` names; the credential is never printed |
 | `mcp_schema_unvalidated` | An `auto` server would allow a tool whose arguments only the server can validate | 5 | n/a | Keep the server in `ask` mode, or remove the tool with `hollis mcp deny` |
+| `approval_required` | An MCP call needs approval but this invocation cannot ask | 5 | n/a | Use an interactive invocation or a reviewed configured auto allow list; nothing was run |
+| `approval_args_too_large` | The complete arguments exceed the approval display cap | 5 | n/a | Narrow the call; Hollis never asks approval for a truncated preview |
+| `tool_denied` | The MCP call was not explicitly approved | 5 | n/a | The run stops; later calls do not execute |
+| `tool_not_allowlisted` | An automatic MCP call has no current reviewed allow-list entry | 5 | n/a | Review its definition with `hollis mcp tools` and pin it with `hollis mcp allow` |
+| `tool_definition_changed` | An automatic MCP tool no longer matches its reviewed definition pin | 5 | n/a | Review the changed definition before pinning again |
+| `tool_result_too_large` | An MCP result exceeds its cap or cannot fit the next bounded transcript | 5 | n/a | Narrow the request; nothing was truncated |
+| `tool_name_conflict` | Caller and MCP tools share a rendered name | 2 | n/a | Rename the caller tool or select noncolliding servers |
+| `tool_count_limit` | The combined offer exceeds 128, or caller tools exceed 32 | 2 | n/a | Select fewer servers or caller tools; no automatic pruning occurs |
 
 `native_protocol` is a component mismatch, not a bad invocation: the command
 was understood and the installed helper cannot serve it. It deliberately shares
@@ -38,7 +46,8 @@ right protocol, and simply does not offer what the request needs. It is never us
 images or an unsupported parameter; those stay usage errors, because telling a caller to reinstall for a bad request would be
 wrong. The remedy is the same matching bundle.
 
-The `mcp_*` codes come from `hollis mcp` commands. `hollis serve` never reads
+The `mcp_*` codes come from `hollis mcp` commands and explicitly attached
+`respond`/`chat` tools. `hollis serve` never reads
 `mcp.json` or starts an MCP server, so none of them has an HTTP status. See
 [MCP servers](mcp.md) for the configuration rules behind each refusal.
 

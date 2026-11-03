@@ -20,7 +20,8 @@ import helper_protocol as protocol
 
 # Event fields the Go decoder accepts. Kept here as the reviewed contract; the
 # tests below fail if either source grows a field without the other.
-METADATA_REQUEST_FIELDS = {'tool_instructions', 'tool_definitions'}
+METADATA_REQUEST_FIELDS = {'tool_instructions', 'tool_definitions',
+                           'raw_tool_definitions', 'hybrid_tools'}
 GO_REQUEST_FIELDS = {'protocol', 'operation', 'prompt', 'schema', 'tool_calling',
                      'source', 'pages', 'media', 'images'} | METADATA_REQUEST_FIELDS
 GO_EVENT_FIELDS = {'protocol', 'version', 'model', 'event', 'available',
@@ -33,7 +34,8 @@ GO_EXTRACT_CAPABILITY_FIELDS = {'pdf', 'ocr', 'pages', 'max_pages', 'max_text_by
 GO_PAGE_FIELDS = {'page', 'text', 'method'}
 GO_SOURCE_FIELDS = {'path'}
 GO_IMAGE_CAPABILITY_FIELDS = {'supported', 'max_images', 'formats', 'max_side_px', 'reason'}
-GO_TOOL_CAPABILITY_FIELDS = {'supported', 'reason', 'tool_calling_mode', 'native_definitions'}
+GO_TOOL_CAPABILITY_FIELDS = {'supported', 'reason', 'tool_calling_mode',
+                             'native_definitions', 'hybrid_tools'}
 GO_USAGE_FIELDS = {'input_tokens', 'output_tokens', 'reasoning_tokens'}
 PROTOCOL_THREE_OPERATIONS = {'status', 'complete', 'stream', 'schema', 'extract'}
 PROTOCOL_EVENTS = {'status', 'snapshot', 'complete', 'error'}
@@ -205,10 +207,11 @@ class PrivacyOfTheChannelTests(unittest.TestCase):
         self.swift = protocol.HELPER_SOURCE.read_text()
 
     def test_prompt_never_travels_in_process_arguments(self):
-        # Three fixed metadata/mode comparisons and one argument-count guard.
+        # Four fixed metadata/mode comparisons and one argument-count guard.
         occurrences = self.swift.count('CommandLine.arguments')
-        self.assertEqual(occurrences, 7, 'unexpected argument handling')
+        self.assertEqual(occurrences, 9, 'unexpected argument handling')
         self.assertIn('CommandLine.arguments == [CommandLine.arguments[0], "--native-definitions"]', self.swift)
+        self.assertIn('CommandLine.arguments == [CommandLine.arguments[0], "--hybrid-tools"]', self.swift)
         self.assertNotIn('CommandLine.arguments[1]', self.swift)
         self.assertIn('FileHandle.standardInput.read(upToCount:', self.swift)
 

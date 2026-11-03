@@ -41,7 +41,11 @@ type turnResult struct {
 	FallbackReason string
 	Usage          *runner.Usage
 	Streamed       bool
+	ToolMessages   []store.Message
+	MCP            *mcpRunMetadata
 }
+
+type mcpChatSessionKey struct{}
 
 // executeTurn builds and runs one turn, but does not persist it. Keeping the
 // transport step separate lets a first chat run before a conversation row is
@@ -70,9 +74,28 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 	var used runner.Model
 	var runErr error
 	var usage *runner.Usage
+	var toolMessages []store.Message
+	var metadata *mcpRunMetadata
+	session, _ := ctx.Value(mcpChatSessionKey{}).(*mcpSession)
 	streamOut, streamed := ctx.Value(streamOutputKey{}).(io.Writer)
-	streamed = streamed && requested == runner.ModelLocal
-	if requested == runner.ModelLocal {
+	streamed = streamed && requested == runner.ModelLocal && session == nil
+	if session != nil {
+		messages := append(append([]store.Message(nil), history...), store.Message{Role: "user", Content: prompt})
+		outcome, err := session.run(ctx, r, messages, nil, runner.ToolChoiceAuto)
+		text, used, usage, runErr = outcome.Text, outcome.Model, outcome.Usage, err
+		meta := session.metadata()
+		metadata = &meta
+		if runErr == nil {
+			if len(outcome.Messages) < len(history)+1 {
+				runErr = executionErr("native_protocol", "tool loop returned an incomplete conversation transcript")
+			} else if len(outcome.Messages)+1 > chat.MaxHistoryMessages {
+				runErr = usageErr(fmt.Errorf("completed turn would store %d messages; maximum is %d", len(outcome.Messages)+1, chat.MaxHistoryMessages))
+			} else {
+				toolMessages = append([]store.Message(nil), outcome.Messages[len(history):]...)
+				toolMessages = append(toolMessages, store.Message{Role: "assistant", Content: text})
+			}
+		}
+	} else if requested == runner.ModelLocal {
 		completion, err := runLocalText(ctx, r, transcript, streamed, streamOut)
 		text, used, usage, runErr = completion.Text, completion.Model, completion.Usage, err
 	} else if rich, ok := r.(runner.FallbackRunner); ok {
@@ -106,9 +129,15 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 		if errors.As(runErr, &re) {
 			record.ExitCode = re.ExitCode
 			record.ErrorClass = string(re.Kind)
+		} else if session != nil {
+			record.ExitCode = ExitCode(runErr)
+			record.ErrorClass = errorCode(runErr)
 		}
 		// Never persist prompt, response, or raw stderr. The stable class and
 		// exit code are enough for private diagnostics.
+		if session != nil {
+			return turnResult{}, record, runErr
+		}
 		return turnResult{}, record, toCLIError(runErr)
 	}
 	return turnResult{
@@ -116,6 +145,7 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 		ModelUsed:      used,
 		FallbackReason: fallbackReason(requested, used, fallback),
 		Usage:          usage, Streamed: streamed,
+		ToolMessages: toolMessages, MCP: metadata,
 	}, record, nil
 }
 
@@ -151,7 +181,11 @@ func runTurnResult(ctx context.Context, st *store.Store, conv store.Conversation
 		}
 		return turnResult{}, runErr
 	}
-	if err := st.AppendTurn(conv.ID, prompt, result.Text, record); err != nil {
+	messages := result.ToolMessages
+	if messages == nil {
+		messages = []store.Message{{Role: "user", Content: prompt}, {Role: "assistant", Content: result.Text}}
+	}
+	if err := st.AppendToolTurn(conv.ID, messages, record); err != nil {
 		return turnResult{}, configErr(fmt.Errorf("store chat turn: %w", err))
 	}
 	return result, nil
@@ -175,7 +209,11 @@ func runFirstTurn(ctx context.Context, st *store.Store, model runner.Model, prom
 		}
 		return turnResult{}, store.Conversation{}, runErr
 	}
-	conv, err := st.CreateConversationWithTurn(string(model), truncateTitle(prompt), prompt, result.Text, record)
+	messages := result.ToolMessages
+	if messages == nil {
+		messages = []store.Message{{Role: "user", Content: prompt}, {Role: "assistant", Content: result.Text}}
+	}
+	conv, err := st.CreateConversationWithToolTurn(string(model), truncateTitle(prompt), messages, record)
 	if err != nil {
 		return turnResult{}, store.Conversation{}, configErr(fmt.Errorf("store new chat: %w", err))
 	}
@@ -221,6 +259,7 @@ func newChatCmdWithImageGenerator(flags *rootFlags, newRunner newRunnerFunc, gen
 		imageOutput    string
 		imageReference string
 		outputOptions  imagegen.OutputOptions
+		mcpOptions     mcpFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "chat [prompt]",
@@ -253,6 +292,9 @@ they do not control Image Playground's native generation canvas.`,
   printf 'question' | hollis chat --continue <id>
   hollis chat --continue <id> --generate-image --image-style illustration --output scene.png "Draw that scene"`,
 		Args: func(cmd *cobra.Command, args []string) error {
+			if err := mcpOptions.validate(cmd); err != nil {
+				return err
+			}
 			if err := validateTimeout(cmd, timeout); err != nil {
 				return err
 			}
@@ -279,7 +321,13 @@ they do not control Image Playground's native generation canvas.`,
 			}
 			return nil
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
+			var session *mcpSession
+			defer func() {
+				if runErr != nil && mcpOptions.enabled() {
+					runErr = writeMCPFailure(cmd, flags, session, runErr, false)
+				}
+			}()
 			timeout, err := effectiveTimeout(cmd, timeout, runner.DefaultTimeout)
 			if err != nil {
 				return err
@@ -364,9 +412,15 @@ they do not control Image Playground's native generation canvas.`,
 				}
 			}
 
-			streaming, err := selectStreaming(cmd, flags, selectedModel, stream)
-			if err != nil {
-				return err
+			if mcpOptions.enabled() && selectedModel != runner.ModelLocal {
+				return usageErr(errors.New("MCP tools require model local"))
+			}
+			streaming := false
+			if !mcpOptions.enabled() {
+				streaming, err = selectStreaming(cmd, flags, selectedModel, stream)
+				if err != nil {
+					return err
+				}
 			}
 			if interactive && flags.asJSON {
 				return usageErr(errors.New("JSON and agent chat require a prompt argument or piped stdin"))
@@ -407,6 +461,19 @@ they do not control Image Playground's native generation canvas.`,
 			}
 			useRunner := resolvedNewRunnerFunc(newRunner, resolved)
 			turnContext := cmd.Context()
+			if mcpOptions.enabled() {
+				var stop context.CancelFunc
+				turnContext, stop = signal.NotifyContext(turnContext, os.Interrupt, syscall.SIGTERM)
+				defer stop()
+				session, err = mcpOptions.attach(turnContext, cmd, flags, nil)
+				if err != nil {
+					return err
+				}
+				defer session.Close()
+				stopClose := context.AfterFunc(turnContext, session.Close)
+				defer stopClose()
+				turnContext = context.WithValue(turnContext, mcpChatSessionKey{}, session)
+			}
 			if streaming {
 				turnContext = context.WithValue(turnContext, streamOutputKey{}, cmd.OutOrStdout())
 			}
@@ -448,6 +515,7 @@ they do not control Image Playground's native generation canvas.`,
 	cmd.Flags().StringVar(&outputOptions.AspectRatio, "aspect-ratio", "", "Output ratio W:H; requires --fit crop|pad (local processing, not a model setting)")
 	cmd.Flags().StringVar(&outputOptions.Size, "size", "", "Output size WIDTHxHEIGHT; requires --fit crop|pad, mutually exclusive with --aspect-ratio")
 	cmd.Flags().StringVar(&outputOptions.Fit, "fit", "", "Explicit output processing: crop or pad; requires --aspect-ratio or --size")
+	mcpOptions.addTo(cmd)
 	return cmd
 }
 
@@ -483,7 +551,16 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 	imageTurns := 0
 	for {
 		fmt.Fprint(out, "> ")
-		raw, readErr := readBoundedPromptLine(rd, chat.MaxRenderedPromptBytes)
+		var raw string
+		var readErr error
+		if session, _ := ctx.Value(mcpChatSessionKey{}).(*mcpSession); session != nil {
+			raw, readErr = readMCPPromptLine(ctx, rd, in, chat.MaxRenderedPromptBytes)
+		} else {
+			raw, readErr = readBoundedPromptLine(rd, chat.MaxRenderedPromptBytes)
+		}
+		if errors.Is(readErr, context.Canceled) || errors.Is(readErr, context.DeadlineExceeded) {
+			return transportErr(errors.New("MCP chat was interrupted; no pending call was retried"))
+		}
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return usageErr(readErr)
 		}
@@ -498,6 +575,9 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 				continue
 			}
 			if imagePrompt, isImage := parseInteractiveImagePrompt(line); isImage {
+				if session, _ := ctx.Value(mcpChatSessionKey{}).(*mcpSession); session != nil {
+					return usageErr(errors.New("MCP tools cannot be combined with image generation"))
+				}
 				if model == string(runner.ModelLocal) || conv.Model == string(runner.ModelLocal) {
 					return usageErr(errors.New("local does not support image generation"))
 				}
@@ -619,6 +699,44 @@ func readBoundedPromptLine(rd *bufio.Reader, limit int) (string, error) {
 	}
 }
 
+// While idle, an MCP REPL must still close and exit on signal cancellation.
+// Poll only real terminal/pipe descriptors; ordinary in-memory readers stay synchronous.
+func readMCPPromptLine(ctx context.Context, rd *bufio.Reader, in io.Reader, limit int) (string, error) {
+	file, ok := in.(*os.File)
+	if !ok {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return readBoundedPromptLine(rd, limit)
+	}
+	var line strings.Builder
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if rd.Buffered() == 0 {
+			ready, err := waitReadable(file, 100*time.Millisecond)
+			if err != nil {
+				return "", err
+			}
+			if !ready {
+				continue
+			}
+		}
+		b, err := rd.ReadByte()
+		if err != nil {
+			return line.String(), err
+		}
+		if line.Len()+1 > limit {
+			return "", fmt.Errorf("prompt line exceeds %d bytes", limit)
+		}
+		if b == '\n' {
+			return line.String(), nil
+		}
+		line.WriteByte(b)
+	}
+}
+
 func printChatJSON(cmd *cobra.Command, result turnResult, conv store.Conversation, flags *rootFlags) error {
 	data := map[string]any{
 		"conversation_id": conv.ID,
@@ -631,6 +749,9 @@ func printChatJSON(cmd *cobra.Command, result turnResult, conv store.Conversatio
 	}
 	if result.FallbackReason != "" {
 		data["fallback_reason"] = result.FallbackReason
+	}
+	if result.MCP != nil {
+		result.MCP.addTo(data)
 	}
 	return printJSONFilteredTo(cmd.OutOrStdout(), data, flags)
 }

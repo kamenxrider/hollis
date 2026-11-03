@@ -81,6 +81,9 @@ func buildResultSchemas() map[string]*fieldSchema {
 	processing := resultType(reflect.TypeFor[imagegen.OutputOptions]())
 	text := resultFields("model_requested", "model_used", "response", "fallback_reason")
 	text.fields["usage"] = usage
+	text.fields["mcp_servers"] = resultType(reflect.TypeFor[[]mcpServerStatus]())
+	text.fields["tool_calls"] = resultType(reflect.TypeFor[[]mcpCallAudit]())
+	text.fields["tool_dispositions"] = resultType(reflect.TypeFor[[]mcpDisposition]())
 	image := resultFields("path", "format", "bytes", "width", "height", "checksum",
 		"native_width", "native_height", "reference_image_sent", "reference_sha256")
 	image.fields["output_processing"] = processing
@@ -127,7 +130,9 @@ func buildResultSchemas() map[string]*fieldSchema {
 	context := resultType(reflect.TypeFor[agentContext]())
 	context.fields["contracts"].fields["exit_codes"] = resultFields("success", "unexpected", "usage",
 		"missing", "transport", "timeout", "config", "request_declined", "shortcut_failed",
-		"mcp_config", "mcp_unavailable", "mcp_protocol", "mcp_auth", "mcp_schema_unvalidated")
+		"mcp_config", "mcp_unavailable", "mcp_protocol", "mcp_auth", "mcp_schema_unvalidated",
+		"approval_required", "approval_args_too_large", "tool_denied", "tool_not_allowlisted",
+		"tool_definition_changed", "tool_result_too_large", "tool_name_conflict", "tool_count_limit")
 	context.fields["commands"].element.fields["annotations"] = resultFields("mcp:read-only")
 	mcpServer := resultType(reflect.TypeFor[mcpServerView]())
 	mcpList := resultFields("path")

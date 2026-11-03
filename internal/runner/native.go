@@ -94,6 +94,7 @@ type ToolCapability struct {
 	Reason            string `json:"reason,omitempty"`
 	ToolCallingMode   bool   `json:"tool_calling_mode"`
 	NativeDefinitions bool   `json:"native_definitions"`
+	HybridTools       bool   `json:"hybrid_tools"`
 }
 
 // capabilityReasons are the fixed reason identifiers the protocol defines. Only
@@ -179,7 +180,7 @@ func requireAdvertised(status LocalStatus, opts nativeOptions) *Error {
 		return nil
 	}
 	if tools := status.Capabilities.tools(); tools != nil && tools.Supported && tools.ToolCallingMode {
-		if len(opts.ToolDefinitions) == 0 || tools.NativeDefinitions {
+		if (!opts.HybridTools || tools.HybridTools) && (len(opts.ToolDefinitions) == 0 || tools.NativeDefinitions) {
 			return nil
 		}
 	}
@@ -424,13 +425,15 @@ func helperMismatch() *Error {
 func GuidedOutputRefusal() *Error { return helperMismatch() }
 
 type nativeRequest struct {
-	Protocol         int              `json:"protocol"`
-	Operation        string           `json:"operation"`
-	Prompt           string           `json:"prompt,omitempty"`
-	Schema           json.RawMessage  `json:"schema,omitempty"`
-	ToolCalling      string           `json:"tool_calling,omitempty"`
-	ToolInstructions string           `json:"tool_instructions,omitempty"`
-	ToolDefinitions  []ToolDefinition `json:"tool_definitions,omitempty"`
+	Protocol           int                 `json:"protocol"`
+	Operation          string              `json:"operation"`
+	Prompt             string              `json:"prompt,omitempty"`
+	Schema             json.RawMessage     `json:"schema,omitempty"`
+	ToolCalling        string              `json:"tool_calling,omitempty"`
+	ToolInstructions   string              `json:"tool_instructions,omitempty"`
+	ToolDefinitions    []ToolDefinition    `json:"tool_definitions,omitempty"`
+	RawToolDefinitions []RawToolDefinition `json:"raw_tool_definitions,omitempty"`
+	HybridTools        bool                `json:"hybrid_tools,omitempty"`
 	// Source, Pages and Media belong to extract alone.
 	Source *nativeSource  `json:"source,omitempty"`
 	Pages  []int          `json:"pages,omitempty"`
@@ -445,9 +448,11 @@ type nativeOptions struct {
 	// ToolCalling is "allowed", "disallowed", or empty. It is refused outright
 	// when the helper did not advertise that it applies the mode, because a
 	// helper that ignores it would serve a plain answer over a tool request.
-	ToolCalling      string
-	ToolInstructions string
-	ToolDefinitions  []ToolDefinition
+	ToolCalling        string
+	ToolInstructions   string
+	ToolDefinitions    []ToolDefinition
+	RawToolDefinitions []RawToolDefinition
+	HybridTools        bool
 	// Source is the staged absolute path of an extract request, with its page
 	// selection and media hint.
 	Source string
@@ -462,23 +467,59 @@ func (o nativeOptions) validate() error {
 	default:
 		return nativeError(KindUsage, "native tool_calling accepts only allowed or disallowed")
 	}
-	if o.ToolInstructions == "" && len(o.ToolDefinitions) == 0 {
+	if o.ToolInstructions == "" && len(o.ToolDefinitions) == 0 && len(o.RawToolDefinitions) == 0 && !o.HybridTools {
 		return nil
 	}
-	if o.ToolCalling != "allowed" || o.ToolInstructions != toolInstructions || len(o.ToolDefinitions) == 0 || len(o.ToolDefinitions) > MaxTools {
-		return nativeError(KindUsage, "native definitions require allowed mode, fixed instructions and 1 to 32 tools")
+	instructions := toolInstructions
+	if o.HybridTools {
+		instructions = hybridToolInstructions
+	}
+	count := len(o.ToolDefinitions) + len(o.RawToolDefinitions)
+	if o.ToolCalling != "allowed" || o.ToolInstructions != instructions || count == 0 || count > MaxToolOffers || (!o.HybridTools && (len(o.RawToolDefinitions) > 0 || count > MaxTools)) {
+		return nativeError(KindUsage, "tool metadata requires allowed mode, fixed instructions and bounded source-aware offers")
 	}
 	seen := map[string]bool{}
+	callers, rawBytes := 0, 0
 	for _, tool := range o.ToolDefinitions {
-		if !toolNamePattern.MatchString(tool.Name) || seen[tool.Name] || strings.TrimSpace(tool.Description) == "" || !utf8.ValidString(tool.Description) {
+		if !toolNamePattern.MatchString(tool.Name) || seen[tool.Name] || (tool.Source != "mcp" && strings.TrimSpace(tool.Description) == "") || !utf8.ValidString(tool.Description) {
 			return nativeError(KindUsage, "invalid native tool definition")
 		}
 		seen[tool.Name] = true
+		switch tool.Source {
+		case "":
+			callers++
+		case "mcp":
+			if !o.HybridTools {
+				return nativeError(KindUsage, "MCP source requires hybrid capability")
+			}
+		default:
+			return nativeError(KindUsage, "invalid native tool source")
+		}
 		if _, err := ParseSchema(tool.Parameters); err != nil {
 			return nativeError(KindUsage, "invalid native tool parameters")
 		}
 	}
+	if callers > MaxTools {
+		return nativeError(KindUsage, "too many caller tool definitions")
+	}
+	for _, tool := range o.RawToolDefinitions {
+		if tool.Source != "mcp" || seen[tool.Name] || len(tool.Schema) > MaxRawToolSchemaBytes {
+			return nativeError(KindUsage, "invalid raw tool source or duplicate name")
+		}
+		if _, err := NewMCPToolOffer(tool.Name, tool.Description, json.RawMessage(tool.Schema), true); err != nil {
+			return nativeError(KindUsage, "invalid raw tool definition")
+		}
+		rawBytes += len(tool.Schema)
+		if rawBytes > MaxRawToolSchemasBytes {
+			return nativeError(KindUsage, "raw tool schemas exceed aggregate byte limit")
+		}
+		seen[tool.Name] = true
+	}
 	return nil
+}
+
+func (o nativeOptions) hasToolMetadata() bool {
+	return len(o.ToolDefinitions) > 0 || len(o.RawToolDefinitions) > 0 || o.HybridTools
 }
 
 type nativeUsage struct {
@@ -548,7 +589,7 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 			return fail(nativeError(KindUsage, "native images require one staged absolute image on plain generation"))
 		}
 	}
-	if len(opts.ToolDefinitions) != 0 && operation != "complete" {
+	if opts.hasToolMetadata() && (operation != "complete" || schema != nil || len(opts.Images) > 0 || opts.Source != "") {
 		return fail(nativeError(KindUsage, "native definitions require complete generation"))
 	}
 	if operation != "status" && operation != "extract" {
@@ -558,9 +599,9 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		if !utf8.ValidString(prompt) {
 			return fail(nativeError(KindUsage, "native prompt must be valid UTF-8"))
 		}
-		size := (ToolRoundRequest{Prompt: prompt, Instructions: opts.ToolInstructions, Definitions: opts.ToolDefinitions}).inputBytes()
+		size := (ToolRoundRequest{Prompt: prompt, Instructions: opts.ToolInstructions, Definitions: opts.ToolDefinitions, RawDefinitions: opts.RawToolDefinitions}).inputBytes()
 		if size > NativeMaxPromptBytes {
-			if len(opts.ToolDefinitions) == 0 {
+			if !opts.hasToolMetadata() {
 				return fail(nativeError(KindContextCapacity, "rendered conversation exceeds Hollis's 128 KiB input limit; no messages were removed"))
 			}
 			failure := nativeError(KindContextCapacity, "rendered conversation and tool metadata exceed Hollis's 128 KiB input limit; no messages were removed")
@@ -572,7 +613,7 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	if schema != nil {
 		requestSchema = schema.Bytes()
 	}
-	wire := nativeRequest{Protocol: NativeProtocol, Operation: operation, Prompt: prompt, Schema: requestSchema, ToolCalling: opts.ToolCalling, ToolInstructions: opts.ToolInstructions, ToolDefinitions: opts.ToolDefinitions, Images: opts.Images}
+	wire := nativeRequest{Protocol: NativeProtocol, Operation: operation, Prompt: prompt, Schema: requestSchema, ToolCalling: opts.ToolCalling, ToolInstructions: opts.ToolInstructions, ToolDefinitions: opts.ToolDefinitions, RawToolDefinitions: opts.RawToolDefinitions, HybridTools: opts.HybridTools, Images: opts.Images}
 	if opts.Source != "" {
 		wire.Source, wire.Pages, wire.Media = &nativeSource{Path: opts.Source}, opts.Pages, opts.Media
 	}
@@ -600,7 +641,7 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	}
 	// Old helpers must never receive a metadata generation request. This
 	// bounded status request shares the deadline and performs no tokenization.
-	if len(opts.ToolDefinitions) != 0 {
+	if opts.hasToolMetadata() {
 		_, advertised, err := r.invoke(ctx, model, "status", "", nil, nil, nativeOptions{})
 		if err != nil {
 			return fail(err)
@@ -833,10 +874,13 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	// protocol is rejected or the deadline expires, and closes the read end so
 	// a descendant retaining an inherited pipe cannot hold the scan.
 	var args []string
-	if len(opts.ToolDefinitions) != 0 {
+	if opts.hasToolMetadata() {
 		// A replaced 0.6.0 helper rejects this argument before model access,
 		// rather than silently ignoring metadata JSON it does not understand.
 		args = []string{"--native-definitions"}
+		if opts.HybridTools {
+			args = []string{"--hybrid-tools"}
+		}
 	}
 	res, runErr := subproc.Scan(ctx, subproc.Spec{
 		Name:      path,

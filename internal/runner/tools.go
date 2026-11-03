@@ -178,9 +178,10 @@ func isJSONNull(raw []byte) bool { return bytes.Equal(bytes.TrimSpace(raw), []by
 
 // Fixed instructions accompany native definitions, never caller-authored text.
 const (
-	toolFramingOpen = "You can call tools. When a tool is needed, respond with exactly one JSON object and nothing else, in this form:\n" +
+	toolFramingCallFormat = "You can call tools. When a tool is needed, respond with exactly one JSON object and nothing else, in this form:\n" +
 		`{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"<tool name>","arguments":"<arguments>"}}]}` + "\n" +
-		"When no tool is needed, answer in plain text. Call only the tools declared in the native tool definitions."
+		"When no tool is needed, answer in plain text. "
+	toolFramingOpen  = toolFramingCallFormat + "Call only the tools declared in the native tool definitions."
 	toolFramingClose = "The arguments value is a JSON object encoded as a string. Arguments are checked against the parameters schema for types, required properties, allowed values and numeric bounds; string length, pattern and format are not enforced. A property whose schema allows null may be left out."
 	toolInstructions = toolFramingOpen + "\n\n" + toolFramingClose
 )
@@ -207,7 +208,7 @@ func detectToolCalls(text string) ([]schemaValue, bool) {
 		if !strings.Contains(candidate, `"tool_calls"`) {
 			return nil, false
 		}
-		value, err := decodeSchemaDocument([]byte(strings.TrimSpace(candidate)), "tool call")
+		value, err := decodeToolDocument([]byte(strings.TrimSpace(candidate)))
 		if err != nil || value.kind != schemaObject {
 			return nil, false
 		}
@@ -490,11 +491,19 @@ type roundOutcome struct {
 // interpretRound detects, normalizes and validates one round's text. round
 // numbers synthesized ids; used holds every id already in the conversation.
 func interpretRound(text string, tools []Tool, round int, used map[string]bool) roundOutcome {
+	offered := make([]loopTool, len(tools))
+	for i, tool := range tools {
+		offered[i] = loopTool{name: tool.Name, representation: strictTool, parameters: tool.Parameters}
+	}
+	return interpretOfferedRound(text, offered, round, used)
+}
+
+func interpretOfferedRound(text string, tools []loopTool, round int, used map[string]bool) roundOutcome {
 	elements, found := detectToolCalls(text)
 	if !found {
 		offeredName := func(name string) bool {
 			for _, tool := range tools {
-				if tool.Name == name {
+				if tool.name == name {
 					return true
 				}
 			}
@@ -522,9 +531,9 @@ func interpretRound(text string, tools []Tool, round int, used map[string]bool) 
 	if len(elements) == 0 {
 		return roundOutcome{fault: "tool_calls must contain at least one call"}
 	}
-	offered := make(map[string]*Tool, len(tools))
+	offered := make(map[string]*loopTool, len(tools))
 	for index := range tools {
-		offered[tools[index].Name] = &tools[index]
+		offered[tools[index].name] = &tools[index]
 	}
 	type pending struct {
 		id, name  string
@@ -561,7 +570,10 @@ func interpretRound(text string, tools []Tool, round int, used map[string]bool) 
 		}
 		arguments := call.arguments
 		if arguments.kind == schemaString {
-			decoded, err := decodeSchemaDocument([]byte(arguments.text), "arguments")
+			if tool.representation == serverValidatedTool && len(arguments.text) > MaxToolArgumentsBytes {
+				return roundOutcome{fault: label + " exceeds the argument byte limit"}
+			}
+			decoded, err := decodeToolDocument([]byte(arguments.text))
 			if err != nil {
 				return roundOutcome{fault: label + " has arguments that are not a JSON object"}
 			}
@@ -570,16 +582,22 @@ func interpretRound(text string, tools []Tool, round int, used map[string]bool) 
 		if arguments.kind != schemaObject {
 			return roundOutcome{fault: label + " has arguments that are not a JSON object"}
 		}
-		arguments = coerceNumericStrings(arguments, tool.Parameters.root)
-		if fault := checkSchemaValue(arguments, tool.Parameters.root, ""); fault.pointer != "" {
-			return roundOutcome{fault: fmt.Sprintf("%s: the argument at %s %s", label, sanitizeSchemaPointer(fault.at), fault.reason)}
+		if tool.representation == strictTool {
+			arguments = coerceNumericStrings(arguments, tool.parameters.root)
+			if fault := checkSchemaValue(arguments, tool.parameters.root, ""); fault.pointer != "" {
+				return roundOutcome{fault: fmt.Sprintf("%s: the argument at %s %s", label, sanitizeSchemaPointer(fault.at), fault.reason)}
+			}
+		}
+		encoded := encodeArguments(arguments)
+		if tool.representation == serverValidatedTool && len(encoded) > MaxToolArgumentsBytes {
+			return roundOutcome{fault: label + " exceeds the argument byte limit"}
 		}
 		id := call.id
 		if !toolNamePattern.MatchString(id) || used[id] || ids[id] {
 			id = synthesizeCallID(round, index, used, ids)
 		}
 		ids[id] = true
-		calls = append(calls, ToolCall{ID: id, Name: call.name, Arguments: encodeArguments(arguments)})
+		calls = append(calls, ToolCall{ID: id, Name: call.name, Arguments: encoded})
 	}
 	return roundOutcome{calls: calls}
 }

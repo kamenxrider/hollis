@@ -1,10 +1,70 @@
 # MCP servers
 
-Hollis can keep a list of MCP (Model Context Protocol) servers in `mcp.json`
-and inspect them. This release adds configuration and inspection only.
-**No Hollis command runs an MCP tool yet.** Attaching servers to a model
-request will arrive with the local tool loop. `hollis serve` and
+Current source can attach MCP (Model Context Protocol) tools to an explicit
+`local` model request. This is not a claim of live qualification or availability
+in an older installed runtime. Servers in `mcp.json` remain inert until selected.
+`hollis serve` and
 `hollis batch` never read `mcp.json` and never start an MCP server.
+
+## Use tools with the local model
+
+```bash
+hollis respond --model local --mcp files "Summarize notes.md"
+hollis chat --model local --mcp files
+hollis respond --model local --mcp files --mcp wiki "Cross-check this note"
+hollis respond --model local --mcp-server 'program "argument with spaces"' "Read fixture data"
+```
+
+`--mcp <name>` selects a configured server, repeatable in request order.
+`--mcp-server` accepts a command with quoted arguments or an HTTP URL. No
+shell, variable expansion or command substitution is used. Ad-hoc servers
+are named `adhoc-1`, `adhoc-2`, and are always ask-only. `--mcp-timeout`
+sets a positive call deadline up to 120 seconds; the command/turn deadline
+still wins. `--no-mcp` overrides attachment flags and guarantees no MCP
+config read or server attachment. Nothing attaches by default.
+
+MCP is local-only and complete-only: images, image generation, guided output,
+code extraction and streaming cannot be combined with it. Requested servers
+attach all-or-nothing and sessions close on exit. Chat retains attached sessions
+for the invocation, but each turn has its own model/call deadline.
+
+At most 128 combined tools are offered, including at most 32 caller-provided
+`--tools`. Name collisions or excess counts fail before generation; no tool
+is silently selected or dropped to fit the model. Caller and locally validated
+MCP definitions use native metadata. Server-validated definitions use an
+explicit, capability-gated, bounded raw-schema instruction representation,
+including when every tool is server-validated. An old helper refuses this
+capability rather than falling back silently.
+
+Each user turn admits at most three model generations, including argument
+corrections and final synthesis. Arguments for locally validated tools are
+checked before approval or execution. For server-validated tools, Hollis checks
+only a bounded JSON object, without coercion or defaults, then asks with the
+full arguments and a notice that the server validates them.
+
+### Mixed caller and MCP tools
+
+`respond --tools tools.json --mcp files --model local` keeps the existing
+caller-tool JSON document. Hollis executes only authorized MCP calls, serially
+in model order. If any caller calls remain, top-level `tool_calls` contains only
+those pending caller calls with their original IDs; no further model generation
+occurs. The `mcp` member contains server counts, MCP audit records and ordered
+executed/pending dispositions, never raw tool results. Caller-only output is
+unchanged. `--tools` still cannot be combined with `--json` or `--agent`.
+
+A partial failure stops later MCP calls and emits one error document with
+accumulated audit records, not a successful pending-work document. A valid MCP
+`isError` result is tool data, not a transport failure. `executed:true` means
+Manager entered a dispatch attempt, not proof of transmission or completion.
+A failed attempt can have an unknown remote outcome. Hollis never retries it.
+There is no new caller-result input, durable receipt or CLI resume protocol.
+Repeating a command is a new invocation and can repeat side effects.
+
+MCP-only JSON/agent output adds `mcp_servers`, `tool_calls` and
+`tool_dispositions`, also available through `--select`. Agent fields are under
+`results`. Failures retain the collected audit fields alongside the error.
+Arguments appear only in that caller-requested audit output, approval prompts
+and chat transcripts. Raw results remain framed transcript data, not diagnostics.
 
 ## Configure a server
 
@@ -49,7 +109,8 @@ Each server has an approval mode:
 
 - `ask` (the default): every call needs a yes on the terminal. The answer is
   read only from the terminal device, never from piped input. A run that
-  cannot ask fails closed with `approval_required`.
+  cannot ask fails closed with `approval_required`. `--json`, `--agent`,
+  `--no-input` and a missing controlling terminal cannot approve calls.
 - `auto`: only exact tool names in the allow list run without asking.
 
 ```bash
@@ -78,7 +139,12 @@ it. It never runs a tool and never calls a model. For each tool:
 
 ## Limits
 
-- At most 32 servers in `mcp.json` and 64 tools per server.
+- At most 32 attached/configured servers, 64 tools per server and 128 combined offers.
+- Server-validated schema text is capped at 2 KiB per tool and 16 KiB total.
+  Excluded/unsupported tools remain visible in inspection and attachment counts.
+- Native definitions, raw-schema instructions, conversation and framed results
+  share the 128 KiB input bound and native token preflight. The encoded helper
+  request stays within 1 MiB. Oversized input/results fail without truncation.
 - Connect deadline 10 s by default (`--connect-timeout`, up to 60 s); call
   deadline 20 s (`--call-timeout`, up to 120 s).
 - HTTP: TLS 1.2 or newer, no redirects, no retries, no background event

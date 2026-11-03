@@ -226,6 +226,10 @@ func documentError(err error, subject, fallback string) error {
 // decodeSchemaValue reads one value from the token stream, tracking object keys
 // so a duplicate is reported at its own pointer.
 func decodeSchemaValue(decoder *json.Decoder, subject, path string) (schemaValue, error) {
+	return decodeJSONValue(decoder, subject, path, false)
+}
+
+func decodeJSONValue(decoder *json.Decoder, subject, path string, exactNumbers bool) (schemaValue, error) {
 	token, err := decoder.Token()
 	if err != nil {
 		return schemaValue{}, err
@@ -239,7 +243,7 @@ func decodeSchemaValue(decoder *json.Decoder, subject, path string) (schemaValue
 			return schemaValue{kind: schemaBool, boolean: value}, nil
 		case json.Number:
 			converted := schemaValue{kind: schemaNumber, number: value}
-			if _, ok := converted.asFloat(); !ok {
+			if _, ok := converted.asFloat(); !ok && !exactNumbers {
 				return schemaValue{}, &SchemaError{Pointer: path,
 					Reason: subject + " contains a number outside the supported range"}
 			}
@@ -266,7 +270,7 @@ func decodeSchemaValue(decoder *json.Decoder, subject, path string) (schemaValue
 				return schemaValue{}, &SchemaError{Pointer: pointer(path, key),
 					Reason: subject + " must not repeat an object key"}
 			}
-			child, err := decodeSchemaValue(decoder, subject, pointer(path, key))
+			child, err := decodeJSONValue(decoder, subject, pointer(path, key), exactNumbers)
 			if err != nil {
 				return schemaValue{}, err
 			}
@@ -279,7 +283,7 @@ func decodeSchemaValue(decoder *json.Decoder, subject, path string) (schemaValue
 	case '[':
 		var items []schemaValue
 		for index := 0; decoder.More(); index++ {
-			child, err := decodeSchemaValue(decoder, subject, path+"/"+strconv.Itoa(index))
+			child, err := decodeJSONValue(decoder, subject, path+"/"+strconv.Itoa(index), exactNumbers)
 			if err != nil {
 				return schemaValue{}, err
 			}

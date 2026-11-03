@@ -54,7 +54,7 @@ type Message struct {
 	ID             int64
 	ConversationID string
 	Seq            int64
-	Role           string // system | user | assistant
+	Role           string // system | user | assistant | tool
 	ImageArtifact  bool   // trusted local generation provenance; never inferred from content
 	Content        string
 	CreatedAt      string
@@ -972,21 +972,25 @@ func insertRun(db dbConn, convID string, run RunRecord) error {
 
 // AppendTurn atomically records a completed turn and its run diagnostic.
 func (s *Store) AppendTurn(convID, userContent, assistantContent string, run RunRecord) error {
+	return s.AppendToolTurn(convID, []Message{
+		{Role: "user", Content: userContent},
+		{Role: "assistant", Content: assistantContent},
+	}, run)
+}
+
+// AppendToolTurn atomically records a completed user turn, including any
+// assistant call envelopes and tool results, and its non-content diagnostic.
+// messages contains only the new turn, ending with the final assistant text.
+func (s *Store) AppendToolTurn(convID string, messages []Message, run RunRecord) error {
+	if err := validateTurnMessages(messages); err != nil {
+		return err
+	}
 	return s.withWriteTx(func(db dbConn) error {
 		seq, err := nextMessageSeq(db, convID)
 		if err != nil {
 			return err
 		}
-		if err := insertRun(db, convID, run); err != nil {
-			return err
-		}
-		created := now()
-		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at)
-			VALUES (?, ?, 'user', ?, ?)`, convID, seq, userContent, created); err != nil {
-			return err
-		}
-		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at, metadata_json)
-			VALUES (?, ?, 'assistant', ?, ?, ?)`, convID, seq+1, assistantContent, now(), assistantMetadata(run)); err != nil {
+		if err := insertTurnMessages(db, convID, seq, messages, run); err != nil {
 			return err
 		}
 		return touchConversationDB(db, convID)
@@ -996,6 +1000,18 @@ func (s *Store) AppendTurn(convID, userContent, assistantContent string, run Run
 // CreateConversationWithTurn creates a conversation and atomically records
 // its first completed turn. A failed operation leaves no visible chat row.
 func (s *Store) CreateConversationWithTurn(model, title, userContent, assistantContent string, run RunRecord) (Conversation, error) {
+	return s.CreateConversationWithToolTurn(model, title, []Message{
+		{Role: "user", Content: userContent},
+		{Role: "assistant", Content: assistantContent},
+	}, run)
+}
+
+// CreateConversationWithToolTurn creates a conversation with its first
+// completed tool turn in one transaction. Failed turns leave no chat row.
+func (s *Store) CreateConversationWithToolTurn(model, title string, messages []Message, run RunRecord) (Conversation, error) {
+	if err := validateTurnMessages(messages); err != nil {
+		return Conversation{}, err
+	}
 	at := time.Now().UTC()
 	ts := at.Format(time.RFC3339Nano)
 	c := Conversation{ID: newID(), Title: title, Model: model, CreatedAt: ts, UpdatedAt: ts}
@@ -1004,24 +1020,41 @@ func (s *Store) CreateConversationWithTurn(model, title, userContent, assistantC
 			VALUES (?, ?, ?, '', ?, ?, ?, 0)`, c.ID, c.Title, c.Model, c.CreatedAt, c.UpdatedAt, at.UnixNano()); err != nil {
 			return err
 		}
-		if err := insertRun(db, c.ID, run); err != nil {
-			return err
-		}
-		created := now()
-		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at)
-			VALUES (?, 0, 'user', ?, ?)`, c.ID, userContent, created); err != nil {
-			return err
-		}
-		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at, metadata_json)
-			VALUES (?, 1, 'assistant', ?, ?, ?)`, c.ID, assistantContent, now(), assistantMetadata(run)); err != nil {
-			return err
-		}
-		return nil
+		return insertTurnMessages(db, c.ID, 0, messages, run)
 	})
 	if err != nil {
 		return Conversation{}, err
 	}
 	return c, nil
+}
+
+func validateTurnMessages(messages []Message) error {
+	if len(messages) < 2 || messages[0].Role != "user" || messages[len(messages)-1].Role != "assistant" {
+		return errors.New("completed turn must start with a user and end with an assistant message")
+	}
+	for _, message := range messages[1 : len(messages)-1] {
+		if message.Role != "assistant" && message.Role != "tool" {
+			return errors.New("completed tool turn contains an invalid message role")
+		}
+	}
+	return nil
+}
+
+func insertTurnMessages(db dbConn, convID string, seq int64, messages []Message, run RunRecord) error {
+	if err := insertRun(db, convID, run); err != nil {
+		return err
+	}
+	for i, message := range messages {
+		var metadata any
+		if i == len(messages)-1 {
+			metadata = assistantMetadata(run)
+		}
+		if _, err := db.ExecContext(context.Background(), `INSERT INTO messages (conversation_id, seq, role, content, created_at, metadata_json)
+			VALUES (?, ?, ?, ?, ?, ?)`, convID, seq+int64(i), message.Role, message.Content, now(), metadata); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetTitle renames a conversation; not-found yields an error wrapping ErrNotFound.

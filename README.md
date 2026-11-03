@@ -155,11 +155,9 @@ own. Where the request goes depends on the route you select.
 | `auto` | Cloud first; at most one fallback to Shortcuts On-Device. Never native local. |
 | Image generation | Apple’s Image Playground, through your image Shortcut, with the prompt and any reference image. Apple decides where Image Playground processes the request; Hollis has not measured it. |
 | PDF input (current source, not runtime 0.4.0) | The helper extracts text on your Mac. Extracted text, not PDF bytes, travels with the prompt to whichever route answers, including Cloud, Cloud Pro and ChatGPT; `auto` follows its routing policy. Extraction alone does not make the request local. |
+| MCP tools (current source, not a live-qualification claim) | Explicit `--mcp`/`--mcp-server` calls send approved arguments to the selected local program or HTTP server. Framed results go only to the local model and, for chat, its stored transcript. Servers are never attached implicitly or by `serve`/`batch`. See [MCP servers](docs/mcp.md). |
 | `hollis serve` | Listens on `127.0.0.1` by default. Requests go to the route they name, as above. |
 | Agent plugin | Your agent host sees the context it sends and Apple’s answer. A cloud-hosted agent’s provider receives that too, under its own privacy policy. |
-
-<!-- Release step: when MCP tools ship, add a row stating what the shipped
-code sends, and to which server or route. -->
 
 Configuration, chats and run history stay in a local state directory
 ([your data](#your-data-and-uninstalling)). Prompts use private temporary files,

@@ -352,7 +352,7 @@ struct ProtocolGolden {
                         'extract': {'pdf': True, 'ocr': True, 'pages': True,
                                     'max_pages': 2000, 'max_text_bytes': 131072},
                         'tools': {'supported': True, 'tool_calling_mode': True,
-                                  'native_definitions': True}}
+                                  'native_definitions': True, 'hybrid_tools': True}}
                 expected.append(event)
             self.assertEqual(events, expected)
 

@@ -431,14 +431,14 @@ type recordingExecutor struct {
 	output string
 }
 
-func (e *recordingExecutor) ExecuteTools(_ context.Context, calls []ToolCall) ([]ToolResult, bool, error) {
+func (e *recordingExecutor) ExecuteTools(_ context.Context, calls []ToolCall) (ToolExecution, error) {
 	e.calls += len(calls)
 	if e.output == "" {
-		return nil, false, nil
+		return ToolExecution{Pending: calls}, nil
 	}
 	results := make([]ToolResult, len(calls))
 	for index, call := range calls {
 		results[index] = ToolResult{CallID: call.ID, Output: e.output}
 	}
-	return results, true, nil
+	return ToolExecution{Results: results}, nil
 }

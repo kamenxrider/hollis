@@ -31,6 +31,11 @@ var (
 	mcpEnviron    = os.Environ
 )
 
+// connectMCP is the common session boundary for inspection and model requests.
+func connectMCP(ctx context.Context, attachments []mcp.Attachment, options mcp.Options) (*mcp.Manager, error) {
+	return mcp.Attach(ctx, attachments, options)
+}
+
 func defaultMCPConfigPath() (string, error) {
 	base, err := store.DefaultStateDir()
 	if err != nil {
@@ -278,7 +283,7 @@ func inspectServer(ctx context.Context, name string, s mcp.Server) (mcp.ServerSt
 	inspect.Approval, inspect.Allow, inspect.Pins = mcp.ApprovalAsk, nil, nil
 	ctx, cancel := context.WithTimeout(ctx, mcpInspectBudget)
 	defer cancel()
-	m, err := mcp.Attach(ctx, []mcp.Attachment{{Name: name, Server: inspect}}, mcp.Options{
+	m, err := connectMCP(ctx, []mcp.Attachment{{Name: name, Server: inspect}}, mcp.Options{
 		Environ: mcpEnviron(), ClientVersion: version, Interaction: mcp.NonInteractive("inspection never runs tools"),
 	})
 	if err != nil {

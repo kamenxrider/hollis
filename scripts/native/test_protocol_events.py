@@ -122,10 +122,11 @@ class HelperEventTests(unittest.TestCase):
                         'max_pages': 2000, 'max_text_bytes': 131072})
                     tools = capabilities['tools']
                     self.assertEqual(set(tools),
-                                     {'supported', 'tool_calling_mode', 'native_definitions'})
+                                     {'supported', 'tool_calling_mode', 'native_definitions', 'hybrid_tools'})
                     self.assertIsInstance(tools['supported'], bool)
                     self.assertTrue(tools['tool_calling_mode'])
                     self.assertEqual(tools['native_definitions'], tools['supported'])
+                    self.assertEqual(tools['hybrid_tools'], tools['supported'])
                     if not status['available']:
                         self.assertFalse(tools['supported'])
                     self.assertIsInstance(capabilities['vision'], bool)

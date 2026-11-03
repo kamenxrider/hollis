@@ -37,6 +37,7 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		code       bool
 		toolsFile  string
 		toolChoice string
+		mcpOptions mcpFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "respond [prompt]",
@@ -75,12 +76,20 @@ explaining what was empty. --code is complete-only: it is refused with JSON
 or agent output, --stream, --schema and --tools.
 
 Offer tools to the native model with --tools <file>, a JSON array in the
-OpenAI tools shape. Hollis never runs a tool: it prints one JSON document,
+OpenAI tools shape. Hollis never runs caller-provided tools: it prints one JSON document,
 either {"finish_reason":"tool_calls","tool_calls":[...]} with validated
 arguments, or {"finish_reason":"stop","text":"..."}. --tool-choice none keeps
 the tools out of the prompt and disables the model's tool mode. --tools
 requires --model local, completes without streaming, and cannot be combined
-with --image, --schema, --code, --json or --agent.`,
+with --image, --schema, --code, --json or --agent.
+
+Attach configured MCP tools with repeatable --mcp <server>, or an ad-hoc
+command/URL with --mcp-server. MCP requires model local and never streams.
+Every MCP call is approved on the terminal unless a configured auto allow
+list pins its definition. --json/--agent/--no-input cannot approve ask calls.
+--no-mcp guarantees no attachment or MCP config access. Mixed --tools and
+MCP runs execute only the MCP calls and return pending caller calls once,
+without another model round or a new resume protocol.`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
   hollis respond model cloud-pro "Draft a reply"
   printf 'long prompt from a pipeline' | hollis respond
@@ -138,6 +147,9 @@ with --image, --schema, --code, --json or --agent.`,
 				}
 			}
 			if err := validateToolFlags(cmd, flags, len(images) > 0); err != nil {
+				return err
+			}
+			if err := mcpOptions.validate(cmd); err != nil {
 				return err
 			}
 			// File input accepts piped stdin as its instruction, so the
@@ -302,6 +314,9 @@ with --image, --schema, --code, --json or --agent.`,
 			if !m.Valid() {
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", m))
 			}
+			if mcpOptions.enabled() && m != runner.ModelLocal {
+				return usageErr(errors.New("MCP tools require --model local"))
+			}
 			if len(images) > 0 {
 				if err := runner.ValidateImageRequest(m, prompt, images); err != nil {
 					return toCLIError(err)
@@ -342,6 +357,9 @@ with --image, --schema, --code, --json or --agent.`,
 				// local run would otherwise stream prose into the redirection.
 				streaming = false
 			}
+			if mcpOptions.enabled() {
+				streaming = false
+			}
 			r := newRunner()
 			// Handle interruption only after reading the prompt, so idle stdin
 			// retains normal signal behavior while in-flight staging can unwind.
@@ -375,6 +393,9 @@ with --image, --schema, --code, --json or --agent.`,
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
+			}
+			if mcpOptions.enabled() {
+				return withPDFRefusalContext(runRespondMCP(ctx, cmd, flags, r, prompt, toolSet, runner.ToolChoice(toolChoice), &mcpOptions), hasPDF)
 			}
 			if toolSet != nil {
 				return withPDFRefusalContext(runRespondTools(ctx, cmd, r, prompt, toolSet, runner.ToolChoice(toolChoice)), hasPDF)
@@ -502,6 +523,7 @@ with --image, --schema, --code, --json or --agent.`,
 	cmd.Flags().StringVar(&toolsFile, "tools", "", "JSON file with an OpenAI-shaped tools array for native-local tool calling; prints the tool calls or the answer as one JSON document")
 	cmd.Flags().StringVar(&toolChoice, "tool-choice", string(runner.ToolChoiceAuto), "With --tools: auto (default) lets the model call a tool; none keeps tools out of the prompt")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
+	mcpOptions.addTo(cmd)
 	return cmd
 }
 
@@ -703,7 +725,10 @@ func runRespondTools(ctx context.Context, cmd *cobra.Command, r runner.Runner, p
 	if err != nil {
 		return toCLIError(err)
 	}
-	document := toolDocument(outcome)
+	return writeToolDocument(cmd, toolDocument(outcome))
+}
+
+func writeToolDocument(cmd *cobra.Command, document map[string]any) error {
 	encoded, err := json.Marshal(document)
 	if err != nil {
 		return transportErr(errors.New("could not encode the tool result"))

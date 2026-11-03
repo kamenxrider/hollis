@@ -57,6 +57,14 @@ var documentedSemanticCodes = []semanticCodeDoc{
 	{Name: "mcp_protocol", Code: 5},
 	{Name: "mcp_auth", Code: 5},
 	{Name: "mcp_schema_unvalidated", Code: 5},
+	{Name: "approval_required", Code: 5},
+	{Name: "approval_args_too_large", Code: 5},
+	{Name: "tool_denied", Code: 5},
+	{Name: "tool_not_allowlisted", Code: 5},
+	{Name: "tool_definition_changed", Code: 5},
+	{Name: "tool_result_too_large", Code: 5},
+	{Name: "tool_name_conflict", Code: 2},
+	{Name: "tool_count_limit", Code: 2},
 }
 
 // agentExampleCommands is rendered in root help and published by agent-context,
