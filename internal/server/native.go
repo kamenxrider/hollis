@@ -84,7 +84,7 @@ func nativeError(err error) (int, map[string]any) {
 		case runner.KindNativeProtocol:
 			code, message = "native_protocol", "the native local helper returned an invalid or incomplete response"
 		case runner.KindUnsupportedCapability:
-			code, message = "unsupported_capability", "the native local helper does not support a capability this request requires; install the matching bundle"
+			code, message = "unsupported_capability", classified.CapabilityRefusalMessage()
 		case runner.KindTransport:
 			code, message = "transport", "the native local transport could not complete the request"
 		}

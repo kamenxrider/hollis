@@ -45,11 +45,14 @@ CLI and helper from the same source revision for these features; do not mix the
 current CLI with a released 0.4.0 helper.
 
 Protocol 3 adds a `capabilities` object to the helper's status event, and every
-operation negotiates before it runs. The helper accepts protocols 1, 2 and 3, so
-a newer helper keeps serving an older CLI; this CLI speaks protocol 3 only and
-refuses any other helper instead of degrading to plain text, because the CLI and
-helper ship as one bundle. A capability the helper did not advertise (native
-tool calling, for example) is refused by name as `unsupported_capability`, which
+operation negotiates before it runs. The helper accepts request formats 1, 2 and
+3, but stamps all events with version 0.6.0. Older CLIs reject that version;
+accepting their request format does not make them compatible. This CLI speaks
+protocol 3 only and checks strict version identity because the CLI and helper
+ship as one bundle. A mismatched pair fails closed with a clear error asking
+for the matching bundle, never a plain-text downgrade. A capability the helper
+did not advertise (native tool calling, for example) is refused by name as
+`unsupported_capability`, which
 is a component fault at exit 5 and HTTP 502, distinct from a caller mistake.
 
 `--schema` asks the native model for an object that follows a supported subset

@@ -9,6 +9,7 @@ commands are checked.
 Nothing here calls Apple services, initializes a model, or generates text.
 """
 import json
+import os
 import platform
 import subprocess
 from pathlib import Path
@@ -231,17 +232,64 @@ class SchemaSubsetTests(HarnessMixin, unittest.TestCase):
 
 
 class HelperProtocolTests(unittest.TestCase):
+    def test_status_wire_shapes_without_model_access(self):
+        if not can_execute_target():
+            raise unittest.SkipTest('the protocol harness requires Apple silicon macOS 27')
+        sdk = sdk_version()
+        if sdk is None or int(sdk.split('.')[0]) < 27:
+            raise unittest.SkipTest('macOS SDK 27 is required for the protocol harness')
+        with tempfile.TemporaryDirectory(prefix='hollis-protocol-') as folder:
+            folder = Path(folder)
+            # Keep the shipped formatter and encoder, replace only the entry
+            # point. Fixture values never initialize a model or a session.
+            source = folder / 'Helper.swift'
+            source.write_text(HELPER.read_text().replace('@main\n', '', 1))
+            harness = folder / 'ProtocolGolden.swift'
+            harness.write_text('''import Foundation
+@main
+struct ProtocolGolden {
+    static func main() throws {
+        for era in [1, 2, 3] {
+            let fields = HollisNative.statusFields(
+                available: true, reason: "fixture", contextSize: 8192,
+                vision: true, macOSMajor: 27, protocol: era)
+            try HollisNative.emit(fields, protocol: era)
+        }
+    }
+}
+''')
+            binary = folder / 'protocol-golden'
+            sdk_path = command('xcrun', '--sdk', 'macosx', '--show-sdk-path').stdout.strip()
+            result = command(
+                'xcrun', 'swiftc', '-parse-as-library', '-sdk', sdk_path,
+                '-target', 'arm64-apple-macosx27.0', str(source), str(SUBSET),
+                str(harness), '-o', str(binary))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = command(str(binary))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            events = [json.loads(line) for line in result.stdout.splitlines()]
+            expected = []
+            for protocol in (1, 2, 3):
+                event = {'protocol': protocol, 'version': '0.6.0', 'model': 'local',
+                         'event': 'status', 'available': True, 'reason': 'fixture'}
+                if protocol >= 2:
+                    event['context_size'] = 8192
+                if protocol >= 3:
+                    event['capabilities'] = {'vision': True, 'macos_major': 27}
+                expected.append(event)
+            self.assertEqual(events, expected)
+
     def test_source_pins_protocol_three_and_helper_version(self):
         source = HELPER.read_text()
         self.assertIn('static let protocolVersion = 3', source)
         self.assertIn('static let version = "0.6.0"', source)
-        # The accepted set is explicit and grows per era: serving 2 is what lets
-        # a previous-era CLI keep working against a newer helper.
+        # Request-format acceptance is independent of strict bundled version
+        # identity: old CLIs still reject this helper's 0.6.0-stamped events.
         self.assertIn('let accepted = [1, 2, protocolVersion]', source)
         self.assertIn('request.operation == "schema"', source)
         # A tool mode this build cannot apply is refused rather than ignored.
         self.assertIn('case toolCalling = "tool_calling"', source)
-        self.assertIn('fail("unsupported_capability"', source)
+        self.assertIn('"capability": "tools", "reason": "not_implemented"', source)
 
     def test_built_helper_metadata_and_model_free_rejections(self):
         if platform.system() != 'Darwin' or platform.machine() != 'arm64':
@@ -253,10 +301,23 @@ class HelperProtocolTests(unittest.TestCase):
             helper = Path(folder) / 'hollis-native'
             result = command('bash', str(BUILD), str(helper))
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(command(str(helper), '--version').stdout.strip(), 'hollis-native 0.6.0')
-            self.assertEqual(command(str(helper), '--protocol-version').stdout.strip(), '3')
             if not can_execute_target():
                 raise unittest.SkipTest('the built helper requires macOS 27 to execute')
+            self.assertEqual(command(str(helper), '--version').stdout.strip(), 'hollis-native 0.6.0')
+            self.assertEqual(command(str(helper), '--protocol-version').stdout.strip(), '3')
+            # Actual helper bytes pass through Go's runner and the frozen old
+            # decoders. All requests stop before model access.
+            result = command(
+                'go', 'test', './internal/runner', '-count=1', '-run', '^TestBuiltHelper',
+                cwd=ROOT, env={**os.environ, 'HOLLIS_TEST_NATIVE_HELPER': str(helper)})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for protocol in (1, 2, 3):
+                result = command(str(helper), input=json.dumps({
+                    'protocol': protocol, 'operation': 'unsupported'}))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'protocol': protocol, 'version': '0.6.0', 'model': 'local',
+                    'event': 'error', 'kind': 'native_failed'})
             # Requests refused before any model access emit one error event and
             # no status event. A protocol outside the accepted set is refused by
             # value; a tool mode this build does not implement is a capability
@@ -281,6 +342,11 @@ class HelperProtocolTests(unittest.TestCase):
                     self.assertEqual(len(events), 1, result.stdout)
                     self.assertEqual(events[0]['event'], 'error')
                     self.assertEqual(events[0]['kind'], kind)
+                    if kind == 'unsupported_capability':
+                        self.assertEqual(events[0], {
+                            'protocol': 3, 'version': '0.6.0', 'model': 'local',
+                            'event': 'error', 'kind': 'unsupported_capability',
+                            'capability': 'tools', 'reason': 'not_implemented'})
 
 
 if __name__ == '__main__':

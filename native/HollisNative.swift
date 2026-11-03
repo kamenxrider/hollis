@@ -36,6 +36,17 @@ struct HollisNative {
         try? emit(["event": "error", "kind": kind], protocol: effective)
     }
 
+    static func statusFields(available: Bool, reason: String, contextSize: Int,
+                             vision: Bool, macOSMajor: Int, `protocol` effective: Int) -> [String: Any] {
+        var fields: [String: Any] = ["event": "status", "available": available, "reason": reason]
+        if effective >= 2 { fields["context_size"] = contextSize }
+        if effective >= 3 {
+            // Unimplemented capabilities stay absent, not zero-filled.
+            fields["capabilities"] = ["vision": vision, "macos_major": macOSMajor]
+        }
+        return fields
+    }
+
     @MainActor
     static func main() async {
         // These metadata commands do not initialise a model or session.
@@ -74,14 +85,10 @@ struct HollisNative {
             var request: Request
             do { request = try JSONDecoder().decode(Request.self, from: input) }
             catch { fail("native_failed"); return }
-            // The accepted set is explicit and grows by one per era: this
-            // helper answers 1, 2 and 3, and refuses every other value by
-            // value. Serving 2 matters — a protocol-2 CLI from the previous
-            // source era must keep working against a newer helper, because
-            // that is the only upgrade order a managed install can produce.
-            // Events are stamped with the request's protocol; schema never
-            // reaches a protocol-1 request and capabilities never reach a
-            // request below 3.
+            // Request formats 1, 2 and 3 remain accepted, but every event keeps
+            // this build's version. Older CLIs reject that version: only a
+            // matched bundle is supported. Era-specific fields stay omitted
+            // below their protocol, independently of version identity.
             let accepted = [1, 2, protocolVersion]
             guard accepted.contains(request.`protocol`) else {
                 fail("native_failed"); return
@@ -103,7 +110,11 @@ struct HollisNative {
             // asked for a tool mode with an ordinary completion, so the whole
             // request is refused instead of silently downgraded.
             if request.toolCalling != nil {
-                fail("unsupported_capability", protocol: effective); return
+                if effective < 3 { fail("native_failed", protocol: effective); return }
+                try emit(["event": "error", "kind": "unsupported_capability",
+                          "capability": "tools", "reason": "not_implemented"],
+                         protocol: effective)
+                return
             }
             // The subset is parsed and validated before any model access:
             // an unsupported schema must never reach generation.
@@ -113,24 +124,12 @@ struct HollisNative {
                 catch { fail("native_failed", protocol: effective); return }
             }
             let model = SystemLanguageModel.default
-            var status: [String: Any] = ["event": "status", "available": model.isAvailable,
-                                         "reason": String(describing: model.availability)]
-            if effective >= 2 {
-                // Measured token budget, exposed only on protocol 2 so
-                // protocol-1 events stay byte-compatible with old decoders.
-                status["context_size"] = model.contextSize
-            }
-            if effective >= 3 {
-                // Advertised separately from the protocol era: a capability
-                // this build does not implement is absent, never a zero value
-                // a client could read as support. Extraction, images and tools
-                // join this object when they exist; until then a request that
-                // needs one is refused by name.
-                status["capabilities"] = [
-                    "vision": model.capabilities.contains(.vision),
-                    "macos_major": ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
-                ]
-            }
+            let status = statusFields(
+                available: model.isAvailable, reason: String(describing: model.availability),
+                contextSize: effective >= 2 ? model.contextSize : 0,
+                vision: effective >= 3 && model.capabilities.contains(.vision),
+                macOSMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
+                protocol: effective)
             try emit(status, protocol: effective)
             if request.operation == "status" { return }
             guard let prompt = request.prompt,

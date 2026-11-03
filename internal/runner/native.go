@@ -21,12 +21,9 @@ import (
 )
 
 // NativeProtocol and NativeVersion are the matched helper contract this CLI
-// speaks. Protocol 3 is one coordinated bump for three capabilities —
-// extraction, image attachments and tool calling — that the status event
-// advertises separately, so a request needing one the helper did not report is
-// refused with a named capability instead of a generic failure. A protocol-3
-// helper also answers protocol-1 and protocol-2 requests exactly as before, so
-// upgrading the helper first never breaks an older CLI.
+// speaks. Protocol 3 adds capability advertisement and named refusals, not new
+// model features. Older request formats remain accepted by the helper, but
+// strict version identity rejects mismatched CLI/helper pairs in either direction.
 const NativeProtocol = 3
 const NativeVersion = "0.6.0"
 const NativeMaxPromptBytes = 128 << 10
@@ -101,8 +98,9 @@ type ToolCapability struct {
 // diagnostic text echoed from a helper. A capability this build simply does not
 // implement is absent from the advertisement instead of carrying a reason.
 var capabilityReasons = map[string]bool{
-	"macos_26":  true,
-	"no_vision": true,
+	"macos_26":        true,
+	"no_vision":       true,
+	"not_implemented": true,
 }
 
 func fixedReason(reason string) string {
@@ -115,11 +113,24 @@ func fixedReason(reason string) string {
 // capabilityRefusal names the capability a request needed and, when the helper
 // gave a fixed reason, that reason. The remedy is the same either way.
 func capabilityRefusal(capability, reason string) *Error {
+	err := nativeError(KindUnsupportedCapability, "")
+	err.Capability, err.CapabilityReason = capability, fixedReason(reason)
+	err.Err = errors.New(err.CapabilityRefusalMessage())
+	return err
+}
+
+// CapabilityRefusalMessage renders only closed-set identifiers, never helper
+// diagnostics. CLI and HTTP share this wording even when the error is wrapped.
+func (e *Error) CapabilityRefusalMessage() string {
+	capability := "a capability this request requires"
+	if e.Capability == "tools" || e.Capability == "images" {
+		capability = e.Capability
+	}
 	message := "native helper does not support " + capability
-	if reason = fixedReason(reason); reason != "" {
+	if reason := fixedReason(e.CapabilityReason); reason != "" {
 		message += " (" + reason + ")"
 	}
-	return nativeError(KindUnsupportedCapability, message+"; install the matching bundle")
+	return message + "; install the matching bundle"
 }
 
 // decodeCapabilities reads the advertisement leniently. Unknown members are
@@ -157,7 +168,7 @@ func requireAdvertised(status LocalStatus, opts nativeOptions) *Error {
 	if tools := status.Capabilities.tools(); tools != nil && tools.Supported && tools.ToolCallingMode {
 		return nil
 	}
-	return capabilityRefusal("tool calling", status.Capabilities.toolsReason())
+	return capabilityRefusal("tools", status.Capabilities.toolsReason())
 }
 
 func (c *Capabilities) tools() *ToolCapability {
@@ -184,11 +195,10 @@ type NativeRunner struct {
 	Timeout       time.Duration
 	helperPath    string
 	platformCheck func(context.Context) error
-	// probed remembers the negotiated protocol per helper path. It exists so a
-	// loop of up to three rounds probes once; the mutex keeps the server, which
-	// may serve concurrent requests, from racing on it.
+	// probed remembers successfully negotiated file identities. Replacements
+	// and in-place changes must be probed again, including in a running server.
 	mu     sync.Mutex
-	probed map[string]int
+	probed map[string]os.FileInfo
 }
 
 func NewNative() *NativeRunner {
@@ -303,18 +313,21 @@ func nativeContextError(ctx context.Context) error {
 // older helper's status would report a usable route that cannot answer the
 // request that follows. The probe is the non-generative --protocol-version
 // command; its output never travels further than the parsed integer, and the
-// result is cached per helper path so a multi-round loop probes once.
+// result is cached per unchanged file identity so repeated calls probe once.
 func (r *NativeRunner) negotiate(ctx context.Context, path string) error {
+	// An already-expired deadline belongs to the caller, not to the probe.
+	if err := nativeContextError(ctx); err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nativeError(KindNativeFailed, "could not inspect native helper")
+	}
 	r.mu.Lock()
 	known, cached := r.probed[path]
 	r.mu.Unlock()
-	if cached && known == NativeProtocol {
+	if cached && sameHelperFile(known, info) {
 		return nil
-	}
-	// A deadline that has already expired belongs to the caller, not to the
-	// probe: reporting a probe timeout here would hide the real cause.
-	if err := nativeContextError(ctx); err != nil {
-		return err
 	}
 	timeout := helperProbeTimeout
 	if deadline, ok := ctx.Deadline(); ok {
@@ -357,13 +370,21 @@ func (r *NativeRunner) negotiate(ctx context.Context, path string) error {
 		// side of the version the helper sits.
 		return helperMismatch()
 	}
+	after, err := os.Stat(path)
+	if err != nil || !sameHelperFile(info, after) {
+		return helperMismatch()
+	}
 	r.mu.Lock()
 	if r.probed == nil {
-		r.probed = map[string]int{}
+		r.probed = map[string]os.FileInfo{}
 	}
-	r.probed[path] = reported
+	r.probed[path] = info
 	r.mu.Unlock()
 	return nil
+}
+
+func sameHelperFile(a, b os.FileInfo) bool {
+	return os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
 }
 
 // helperMismatch is the component-mismatch refusal: the helper answered
@@ -418,15 +439,16 @@ func (u *nativeUsage) valid() bool {
 }
 
 type nativeEvent struct {
-	Protocol  int          `json:"protocol"`
-	Version   string       `json:"version"`
-	Model     Model        `json:"model"`
-	Event     string       `json:"event"`
-	Available *bool        `json:"available,omitempty"`
-	Reason    string       `json:"reason,omitempty"`
-	Text      *string      `json:"text,omitempty"`
-	Usage     *nativeUsage `json:"usage,omitempty"`
-	Kind      Kind         `json:"kind,omitempty"`
+	Protocol   int          `json:"protocol"`
+	Version    string       `json:"version"`
+	Model      Model        `json:"model"`
+	Event      string       `json:"event"`
+	Available  *bool        `json:"available,omitempty"`
+	Reason     string       `json:"reason,omitempty"`
+	Text       *string      `json:"text,omitempty"`
+	Usage      *nativeUsage `json:"usage,omitempty"`
+	Kind       Kind         `json:"kind,omitempty"`
+	Capability string       `json:"capability,omitempty"`
 	// ContextSize is the measured context window a protocol-2 status reports.
 	ContextSize *int `json:"context_size,omitempty"`
 	// Capabilities is the protocol-3 advertisement, kept as raw JSON so the
@@ -527,6 +549,9 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		}
 		if event.Protocol != NativeProtocol || event.Version != NativeVersion || event.Model != ModelLocal {
 			return nativeError(KindNativeProtocol, "native helper version, protocol or model mismatch; install the matching bundle")
+		}
+		if event.Capability != "" && (event.Event != "error" || event.Kind != KindUnsupportedCapability) {
+			return nativeError(KindNativeProtocol, "unexpected native capability refusal")
 		}
 		// Signals the design pins to one place in the sequence: the context
 		// window belongs to status, and a structured object belongs to a
@@ -632,7 +657,10 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 				// fault; it is not reused for capability refusals.
 				return nativeError(event.Kind, "native local request failed: "+string(event.Kind))
 			case KindUnsupportedCapability:
-				return nativeError(event.Kind, "native helper does not support a capability this request requires; install the matching bundle")
+				if (event.Capability != "tools" && event.Capability != "images") || fixedReason(event.Reason) == "" {
+					return nativeError(KindNativeProtocol, "invalid native capability refusal")
+				}
+				return capabilityRefusal(event.Capability, event.Reason)
 			default:
 				return nativeError(KindNativeProtocol, "unrecognized native failure")
 			}

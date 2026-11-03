@@ -4,11 +4,14 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestProtocolCompatibilityMatrix is the named contract from the protocol-3
@@ -16,9 +19,8 @@ import (
 // that need a real helper's byte output run in the helper golden script; the
 // rows here drive a scripted fake so they stay offline and deterministic.
 //
-// Every row that expects a refusal also asserts that the helper received no
-// request, because a refusal that spawns the request anyway is a silent
-// downgrade with extra latency.
+// Probe mismatch rows assert that no request was sent. Capability refusal rows
+// exercise the error or status event before any generation.
 func TestProtocolCompatibilityMatrix(t *testing.T) {
 	t.Run("row 3: current CLI against an older helper refuses every operation", func(t *testing.T) {
 		for _, older := range []int{1, 2} {
@@ -49,7 +51,7 @@ func TestProtocolCompatibilityMatrix(t *testing.T) {
 		}
 	})
 
-	t.Run("row 6: probing happens once per helper path", func(t *testing.T) {
+	t.Run("row 6: probing happens once per unchanged helper", func(t *testing.T) {
 		count := filepath.Join(t.TempDir(), "probe-count")
 		script := "if [ \"$#\" -eq 1 ] && [ \"$1\" = \"--protocol-version\" ]; then echo x >> '" + count + "'; printf '%d\\n' " + strconv.Itoa(NativeProtocol) + "; exit 0; fi\ncat >/dev/null\n" + nativeReady() + nativeDone("ok", true)
 		r := rawNative(t, script)
@@ -63,7 +65,7 @@ func TestProtocolCompatibilityMatrix(t *testing.T) {
 			t.Fatal(err)
 		}
 		if got := strings.Count(string(probes), "x"); got != 1 {
-			t.Fatalf("probe ran %d times; want once per helper path", got)
+			t.Fatalf("probe ran %d times; want once per unchanged helper", got)
 		}
 	})
 
@@ -77,7 +79,7 @@ func TestProtocolCompatibilityMatrix(t *testing.T) {
 		}
 		_, err := r.RunCompleteWithOptions(t.Context(), ModelLocal, "prompt", nativeOptions{ToolCalling: "allowed"})
 		requireNativeKind(t, err, KindUnsupportedCapability)
-		if !strings.Contains(err.Error(), "tool calling") {
+		if !strings.Contains(err.Error(), "tools") {
 			t.Fatalf("error = %v; want the capability named", err)
 		}
 	})
@@ -85,14 +87,14 @@ func TestProtocolCompatibilityMatrix(t *testing.T) {
 	t.Run("row 8: an advertised-but-unsupported capability carries its fixed reason", func(t *testing.T) {
 		status := nativeLine("status", map[string]any{
 			"available":    true,
-			"capabilities": map[string]any{"tools": map[string]any{"supported": false, "reason": "not_implemented"}},
+			"capabilities": map[string]any{"tools": map[string]any{"supported": false, "reason": "untrusted_diagnostic"}},
 		})
 		r := fakeNative(t, "cat >/dev/null\n"+nativePrint(status))
 		_, err := r.RunCompleteWithOptions(t.Context(), ModelLocal, "prompt", nativeOptions{ToolCalling: "allowed"})
 		requireNativeKind(t, err, KindUnsupportedCapability)
 		// An unknown reason string is dropped rather than echoed: only the
 		// fixed protocol tokens may reach user-facing text.
-		if strings.Contains(err.Error(), "not_implemented") {
+		if strings.Contains(err.Error(), "untrusted_diagnostic") {
 			t.Fatalf("error = %v; want the unknown reason dropped", err)
 		}
 	})
@@ -168,6 +170,198 @@ func TestProtocolCompatibilityMatrix(t *testing.T) {
 			t.Fatal("an unknown top-level event member was accepted")
 		}
 	})
+}
+
+func TestNativeProbeInvalidatedByFileChange(t *testing.T) {
+	for _, change := range []string{"inode", "size", "mtime"} {
+		t.Run(change, func(t *testing.T) {
+			count := filepath.Join(t.TempDir(), "probes")
+			marker := filepath.Join(t.TempDir(), "request")
+			script := "if [ \"$1\" = --protocol-version ]; then echo x >> '" + count +
+				"'; echo 3; exit 0; fi\n: > '" + marker + "'\n"
+			r := rawNative(t, script)
+			if err := r.negotiate(t.Context(), r.helperPath); err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(r.helperPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := os.ReadFile(r.helperPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body = []byte(strings.Replace(string(body), "echo 3;", "echo 2;", 1))
+			target := r.helperPath
+			if change == "inode" {
+				target += ".replacement"
+			}
+			if change == "size" {
+				body = append(body, []byte("# changed size\n")...)
+			}
+			if err := os.WriteFile(target, body, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			mtime := info.ModTime()
+			if change == "mtime" {
+				mtime = mtime.Add(time.Second)
+			}
+			if err := os.Chtimes(target, mtime, mtime); err != nil {
+				t.Fatal(err)
+			}
+			if change == "inode" {
+				if err := os.Rename(target, r.helperPath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err = r.RunComplete(t.Context(), ModelLocal, "fixture")
+			requireNativeKind(t, err, KindNativeProtocol)
+			probes, err := os.ReadFile(count)
+			if err != nil || strings.Count(string(probes), "x") != 2 {
+				t.Fatalf("probes=%q err=%v; want re-probe", probes, err)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatalf("replaced helper received a generation request: %v", err)
+			}
+		})
+	}
+}
+
+func TestNativeCapabilityErrorEvent(t *testing.T) {
+	for _, capability := range []string{"tools", "private diagnostic", ""} {
+		for _, reason := range []string{"not_implemented", "private diagnostic", ""} {
+			t.Run(capability+"/"+reason, func(t *testing.T) {
+				event := nativeLine("error", map[string]any{
+					"kind": "unsupported_capability", "capability": capability, "reason": reason,
+				})
+				r := fakeNative(t, "cat >/dev/null\n"+nativePrint(event))
+				_, err := r.RunComplete(t.Context(), ModelLocal, "fixture")
+				if capability != "tools" || reason != "not_implemented" {
+					requireNativeKind(t, err, KindNativeProtocol)
+					if strings.Contains(err.Error(), "private diagnostic") {
+						t.Fatalf("untrusted identifiers leaked: %v", err)
+					}
+					return
+				}
+				requireNativeKind(t, err, KindUnsupportedCapability)
+				const want = "native helper does not support tools (not_implemented); install the matching bundle"
+				if err.Error() != want {
+					t.Fatalf("error=%v; want %s", err, want)
+				}
+			})
+		}
+	}
+}
+
+// The native golden suite supplies its freshly built helper. No status or
+// generation is requested: tool mode is refused before any model access.
+func TestBuiltHelperNamedCapabilityRefusal(t *testing.T) {
+	path := os.Getenv("HOLLIS_TEST_NATIVE_HELPER")
+	if path == "" {
+		t.Skip("run by the built-helper golden suite")
+	}
+	r := &NativeRunner{helperPath: path, platformCheck: func(context.Context) error { return nil }}
+	_, err := r.RunCompleteWithOptions(t.Context(), ModelLocal, "fixture", nativeOptions{ToolCalling: "allowed"})
+	requireNativeKind(t, err, KindUnsupportedCapability)
+	const want = "native helper does not support tools (not_implemented); install the matching bundle"
+	if err.Error() != want {
+		t.Fatalf("error=%v; want %s", err, want)
+	}
+}
+
+// Frozen event fields and identity checks from v0.4.0 and 0197c2b. Keep these
+// independent of nativeEvent so additive current fields cannot weaken the test.
+type legacyNativeEvent struct {
+	Protocol  int          `json:"protocol"`
+	Version   string       `json:"version"`
+	Model     Model        `json:"model"`
+	Event     string       `json:"event"`
+	Available *bool        `json:"available,omitempty"`
+	Reason    string       `json:"reason,omitempty"`
+	Text      *string      `json:"text,omitempty"`
+	Usage     *nativeUsage `json:"usage,omitempty"`
+	Kind      Kind         `json:"kind,omitempty"`
+}
+
+func decodeLegacyIdentity(data []byte, protocol int, version string) error {
+	var base legacyNativeEvent
+	var event any = &base
+	withSchema := struct {
+		legacyNativeEvent
+		ContextSize *int            `json:"context_size,omitempty"`
+		Structured  json.RawMessage `json:"structured,omitempty"`
+	}{}
+	if protocol == 2 {
+		event = &withSchema
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(event); err != nil {
+		return err
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		return nativeError(KindNativeProtocol, "extra native event data")
+	}
+	if protocol == 2 {
+		base = withSchema.legacyNativeEvent
+	}
+	if base.Protocol != protocol || base.Version != version || base.Model != ModelLocal {
+		return helperMismatch()
+	}
+	return nil
+}
+
+func TestOldEraDecodersRejectCurrentVersion(t *testing.T) {
+	for protocol, version := range map[int]string{1: "0.4.0", 2: "0.5.0"} {
+		for _, stamped := range []string{version, NativeVersion} {
+			data, err := json.Marshal(map[string]any{
+				"protocol": protocol, "version": stamped, "model": "local",
+				"event": "status", "available": true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = decodeLegacyIdentity(data, protocol, version)
+			if stamped == version {
+				if err != nil {
+					t.Fatalf("matched era %d: %v", protocol, err)
+				}
+			} else {
+				requireNativeKind(t, err, KindNativeProtocol)
+			}
+		}
+	}
+}
+
+func TestBuiltHelperOldEraDecoders(t *testing.T) {
+	path := os.Getenv("HOLLIS_TEST_NATIVE_HELPER")
+	if path == "" {
+		t.Skip("run by the built-helper golden suite")
+	}
+	for protocol, version := range map[int]string{1: "0.4.0", 2: "0.5.0"} {
+		// Protocol 1 has no schema operation; protocol 2 rejects this unsupported
+		// schema before model access. Both produce the historical error shape.
+		request, err := json.Marshal(map[string]any{
+			"protocol": protocol, "operation": "schema", "prompt": "fixture",
+			"schema": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.CommandContext(t.Context(), path)
+		cmd.Stdin = strings.NewReader(string(request))
+		data, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		requireNativeKind(t, decodeLegacyIdentity(data, protocol, version), KindNativeProtocol)
+		// Changing only the expected version accepts the exact same bytes:
+		// format compatibility is separate from bundled version identity.
+		if err := decodeLegacyIdentity(data, protocol, NativeVersion); err != nil {
+			t.Fatalf("protocol %d request shape: %v", protocol, err)
+		}
+	}
 }
 
 // runNativeOperation drives one operation through the runner so a matrix row can

@@ -117,6 +117,9 @@ const (
 // Error is a classified runner failure. Kind maps to a stable CLI exit code.
 type Error struct {
 	Kind Kind
+	// Capability and CapabilityReason are closed-set refusal identifiers.
+	Capability       string
+	CapabilityReason string
 	// Ref is the bridge identifier (UUID) that was invoked, when known.
 	Ref string
 	// ExitCode is the child's exit status, or -1 when it never exited.

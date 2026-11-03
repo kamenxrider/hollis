@@ -409,7 +409,7 @@ func toCLIError(err error) error {
 		// A capability refusal is a component mismatch like native_protocol:
 		// the pairing is correct but the helper does not offer what the
 		// request needs, so the remedy is the matching bundle at exit 5.
-		return executionErr(string(re.Kind), err.Error())
+		return executionErr(string(re.Kind), re.CapabilityRefusalMessage())
 	case runner.KindUsage:
 		return usageErr(err)
 	case runner.KindShortcutMissing:
