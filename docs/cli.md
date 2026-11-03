@@ -6,6 +6,7 @@ Start with the [verified install and first request](../README.md#install-verifie
 
 ```bash
 hollis respond "Summarize this repo in one sentence"
+hollis "Explain closures in Go"          # same as hollis respond "..."
 printf 'Explain closures in Go' | hollis respond
 hollis respond --model cloud-pro "Analyze this bug"
 hollis respond model cloud-pro "same thing, model before the prompt"
@@ -13,6 +14,34 @@ hollis respond --timeout 90s "A question worth waiting for"
 ```
 
 The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple. For Shortcuts routes, all rendered text reaches Shortcuts through a private temporary `.txt` file; see [transport and cleanup details](shortcuts.md#how-it-works).
+
+### Prompt or command
+
+The first positional argument decides what runs. Flag values are not positional arguments. Hollis uses the root persistent and `respond` flag definitions: a value-taking flag consumes the next argument unless written `--flag=value`; boolean flags do not consume the next argument.
+
+| Input | What runs | Example |
+| --- | --- | --- |
+| Names a command | That command | `hollis models`, `hollis chat "hello"` |
+| Sole positional argument within edit distance 1 of a command name, or distance 2 for command names of 7 or more characters (case-insensitive) | Nothing: usage error, exit 2, with the closest command named | `hollis chta`, `hollis respnd --json`, `hollis modles`, `hollis doctr` |
+| Anything else | `respond`, with the whole command line as its arguments | `hollis "Explain closures"` behaves like `hollis respond "Explain closures"` |
+| Follows `--` | `respond`, with the text after `--` taken literally | `hollis -- "--chat"` sends the prompt `--chat` |
+| Root `--help` or `--version` with extra positional arguments | Existing root argument validation, exit 2 for an unknown command | `hollis --help explain`, `hollis --version explain` |
+| Lone `-` | `respond`, with the literal prompt `-` | `hollis -` does not read stdin |
+
+Respond's own flags may come before the prompt, so `hollis --model local "hello"` and `hollis --model=local "hello"` both work. Values such as `--prompt-file chat` and `--image setup` are paths, not commands. With an exact command, leading flags belong to that command: `hollis --model cloud chat --help` shows chat help. A prompt whose first positional argument is exactly a command name must use `respond` or `--` explicitly. Cobra's hidden `__` completion commands are never reinterpreted.
+
+An edit is an insertion, deletion, substitution, or adjacent letter swap. Only a sole positional argument can be refused as a near-miss. `hollis what is a closure`, `hollis hello`, `hollis make a plan` and `hollis tell me a joke` are prompts. So is `hollis respod hello`: multiple positional arguments are not typo-checked. To send a refused word literally, use `respond` or `--`. The error preserves leading flags in the prompt form:
+
+```
+$ hollis --json respnd
+{"error":{"code":"usage","exit_code":2,"message":"unknown command \"respnd\": did you mean \"respond\"? To send it as a prompt instead, run: hollis --json respond \"respnd\""}}
+```
+
+The `config` and `chats` groups also suggest close subcommand names, such as `hollis config shwo` and `hollis chats lsit`. The `image` and `batch` groups reject unknown subcommands with exit 2 but do not provide these suggestions. JSON and agent output carry the usual `error` object with `"exit_code": 2`.
+
+After `--`, even `model <tier>` is literal: `hollis -- model cloud hello` sends `model cloud hello` without selecting Cloud. Root help and version flags retain their existing strict argument checks; ask for prompt help with `hollis respond --help`.
+
+A lone `-` is literal prompt text, consistent with `--prompt-file -` naming a regular file rather than aliasing stdin. To read stdin, omit the prompt and pipe to `hollis respond`.
 
 ## Native local streaming
 
@@ -132,7 +161,7 @@ Exit codes are stable and parseable:
 | --- | --- |
 | 0 | Success |
 | 1 | Unexpected internal error |
-| 2 | Usage error — bad flag, unknown model, empty prompt, no matching command |
+| 2 | Usage error — bad flag, unknown model, empty prompt, near-miss command name |
 | 3 | Missing resource — unknown conversation id, no search hits, bridge not installed |
 | 5 | Discovery, transport, Shortcut execution, declined request, or Apple rate-limit failure |
 | 7 | Timeout — the run exceeded its deadline and was killed |
@@ -217,6 +246,7 @@ it on startup failure or an executable switch. To recover deliberately:
 
 ```bash
 hollis respond "prompt"                    # one-shot response
+hollis "prompt"                            # same as hollis respond "prompt"
 hollis respond --model cloud-pro "prompt"  # explicit Cloud Pro
 hollis respond --image photo.jpg "describe" # image input; defaults to Cloud
 hollis respond --file notes.md "summarize"   # attach a text document

@@ -45,7 +45,12 @@ func TestCLIHelperProcess(t *testing.T) {
 		}
 	}
 	cmd := cli.NewRootCmd(func() runner.Runner { return processRunner{} })
-	cmd.SetArgs(os.Args[separator:])
+	args, err := cli.ResolveCommandLine(cmd, os.Args[separator:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(cli.ExitCode(err))
+	}
+	cmd.SetArgs(args)
 	cmd.SetIn(os.Stdin)
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
@@ -74,8 +79,10 @@ func TestBuiltBinaryProcessContracts(t *testing.T) {
 		{name: "help", args: []string{"--help"}, wantExit: 0},
 		{name: "version", args: []string{"version"}, wantExit: 0, wantStdout: "hollis dev\n"},
 		{name: "version flag", args: []string{"--version"}, wantExit: 0, wantStdout: "hollis dev\n"},
+		{name: "version flag extras", args: []string{"--version", "explain"}, wantExit: 2},
+		{name: "help flag extras", args: []string{"--help", "explain"}, wantExit: 2},
 		{name: "unknown flag", args: []string{"--definitely-unknown"}, wantExit: 2},
-		{name: "unknown command", args: []string{"definitely-unknown"}, wantExit: 2},
+		{name: "near-miss command", args: []string{"respondd"}, wantExit: 2},
 		{name: "extra version argument", args: []string{"version", "extra"}, wantExit: 2},
 		{name: "extra help path", args: []string{"help", "respond", "extra"}, wantExit: 2},
 		{name: "extra completion argument", args: []string{"completion", "zsh", "extra"}, wantExit: 2},
@@ -222,6 +229,102 @@ func TestBuiltBinaryStructuredErrorContracts(t *testing.T) {
 		if helpBody["meta"] == nil || helpBody["results"] == nil {
 			t.Fatalf("agent help %v body=%#v", args, helpBody)
 		}
+	}
+}
+
+func TestCLIProcessBarePrompt(t *testing.T) {
+	state := t.TempDir()
+
+	bare := runHelper(t, state, "bare prompt marker")
+	if bare.exit != 0 {
+		t.Fatalf("bare prompt: exit=%d stderr=%s", bare.exit, bare.stderr)
+	}
+	if want := "fixture response for bare prompt marker\n"; bare.stdout != want {
+		t.Fatalf("bare prompt stdout=%q, want %q", bare.stdout, want)
+	}
+
+	// Respond's flags may precede the prompt, and JSON output keeps the
+	// usual envelope even though no command name was typed.
+	jsonPrompt := runHelper(t, state, "--json", "json prompt marker")
+	if jsonPrompt.exit != 0 {
+		t.Fatalf("bare prompt with --json: exit=%d stderr=%s", jsonPrompt.exit, jsonPrompt.stderr)
+	}
+	var response map[string]any
+	decodeObject(t, jsonPrompt.stdout, &response)
+	if response["response"] != "fixture response for json prompt marker" {
+		t.Fatalf("unexpected bare-prompt JSON: %#v", response)
+	}
+
+	// A near-miss is a usage error with a suggestion, not a model call.
+	nearMiss := runHelper(t, state, "respod")
+	if nearMiss.exit != 2 {
+		t.Fatalf("near-miss exit=%d stdout=%s stderr=%s", nearMiss.exit, nearMiss.stdout, nearMiss.stderr)
+	}
+	if !strings.Contains(nearMiss.stderr, `did you mean "respond"`) ||
+		!strings.Contains(nearMiss.stderr, `hollis respond "respod"`) {
+		t.Fatalf("near-miss stderr=%q", nearMiss.stderr)
+	}
+	if strings.Contains(nearMiss.stdout, "fixture response") {
+		t.Fatalf("near-miss reached the model: %q", nearMiss.stdout)
+	}
+}
+
+func TestBuiltBinaryBarePromptWithFakeRunner(t *testing.T) {
+	repo := repoRoot(t)
+	dir := t.TempDir()
+	rootPath := filepath.Join(repo, "internal", "cli", "root.go")
+	source, err := os.ReadFile(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(source), "return runner.NewRouted()") != 1 {
+		t.Fatal("default runner substitution must match exactly once")
+	}
+	replacement := strings.Replace(string(source), "return runner.NewRouted()", "return processFixtureRunner{}", 1)
+	replacement = strings.Replace(replacement, "import (", "import (\n\"context\"", 1)
+	replacement += `
+type processFixtureRunner struct{}
+func (processFixtureRunner) Run(_ context.Context, model runner.Model, prompt string) (string, runner.Model, error) {
+	return "fixture response for " + prompt, runner.ModelCloud, nil
+}
+`
+	overlaySource := filepath.Join(dir, "root.go")
+	if err := os.WriteFile(overlaySource, []byte(replacement), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	overlay, err := json.Marshal(map[string]any{"Replace": map[string]string{rootPath: overlaySource}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlayPath := filepath.Join(dir, "overlay.json")
+	if err := os.WriteFile(overlayPath, overlay, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "hollis")
+	build := exec.Command("go", "build", "-overlay", overlayPath, "-o", bin, "./cmd/hollis")
+	build.Dir = repo
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build fixture CLI: %v\n%s", err, out)
+	}
+	for _, args := range [][]string{
+		{"unfamiliar", "prompt", "marker"}, {"what", "is", "a", "closure"},
+		{"hello"}, {"make", "a", "plan"}, {"tell", "me", "a", "joke"},
+		{"--", "model", "cloud", "hello"},
+	} {
+		result := runProcess(bin, args, t.TempDir(), nil)
+		prompt := strings.Join(args, " ")
+		prompt = strings.TrimPrefix(prompt, "-- ")
+		if result.exit != 0 || result.stdout != "fixture response for "+prompt+"\n" || result.stderr != "" {
+			t.Fatalf("args=%q exit=%d stdout=%q stderr=%q", args, result.exit, result.stdout, result.stderr)
+		}
+	}
+	refused := runProcess(bin, []string{"--json", "--model=local", "respnd"}, t.TempDir(), nil)
+	var body map[string]any
+	decodeObject(t, refused.stdout, &body)
+	failure, ok := body["error"].(map[string]any)
+	if refused.exit != 2 || refused.stderr != "" || !ok ||
+		!strings.Contains(fmt.Sprint(failure["message"]), `hollis --json --model=local respond "respnd"`) {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", refused.exit, refused.stdout, refused.stderr)
 	}
 }
 

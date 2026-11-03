@@ -73,7 +73,7 @@ again before it is reported as success.`,
 			if cmd.Flags().Changed("model") && !runner.Model(model).Valid() {
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", model))
 			}
-			_, promptArgs, _ := splitModelArgs(args)
+			_, promptArgs, _ := splitRespondModelArgs(cmd, args)
 			hasPromptFile := cmd.Flags().Changed("prompt-file")
 			if hasPromptFile && len(promptArgs) > 0 {
 				return usageErr(errors.New("choose exactly one instruction source: positional text or --prompt-file"))
@@ -102,7 +102,7 @@ again before it is reported as success.`,
 			if err := validateTimeout(cmd, timeout); err != nil {
 				return err
 			}
-			posModel, promptArgs, hasPosModel := splitModelArgs(args)
+			posModel, promptArgs, hasPosModel := splitRespondModelArgs(cmd, args)
 			hasPromptFile := cmd.Flags().Changed("prompt-file")
 			if hasPromptFile || len(documents) > 0 || len(images) > 0 {
 				if err := rejectFileInputStdin(cmd); err != nil {
@@ -334,6 +334,15 @@ again before it is reported as success.`,
 	cmd.Flags().StringVar(&schemaFile, "schema", "", "JSON Schema file for guided native-local output; requires --model local and completes without streaming")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	return cmd
+}
+
+func splitRespondModelArgs(cmd *cobra.Command, args []string) (string, []string, bool) {
+	// Both selector tokens must precede "--"; do not consume literal text
+	// even when the separator divides "model" from its tier.
+	if at := cmd.ArgsLenAtDash(); at >= 0 && at < 2 {
+		return "", args, false
+	}
+	return splitModelArgs(args)
 }
 
 // schemaFileReadLimit bounds the raw file before parsing. The subset's own

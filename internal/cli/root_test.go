@@ -1196,9 +1196,11 @@ func TestDoctorConfiguredUUIDIsUnverifiedState(t *testing.T) {
 
 func TestUnknownSubcommandExits2(t *testing.T) {
 	// results review blocker 9: unknown subcommands must be a stable usage
-	// error for agents, not parent help with exit 0.
+	// error for agents, not parent help with exit 0. At the root a near-miss
+	// is refused with a suggestion; every other first argument is a prompt
+	// (see TestResolveCommandLineRules).
 	for _, args := range [][]string{
-		{"bogus"},
+		{"respondd"},
 		{"chats", "bogus"},
 		{"config", "bogus"},
 	} {

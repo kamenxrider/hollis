@@ -48,6 +48,8 @@ type agentContextContracts struct {
 	Local         string         `json:"native_local"`
 	Stdout        string         `json:"stdout"`
 	Stderr        string         `json:"stderr"`
+	// CommandResolution describes bare prompts without requiring help parsing.
+	CommandResolution string `json:"command_resolution"`
 }
 
 type agentContextCommand struct {
@@ -115,14 +117,15 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 				"timeout": 7, "config": 10,
 				"request_declined": 5, "shortcut_failed": 5,
 			},
-			JSONSchema:    "agent meta schema_version=2; data under results; --select filters declared result fields; unknown field paths are usage errors (exit 2), including for empty results",
-			ErrorSchema:   "{meta:{source,schema_version},error:{code,message,exit_code}}",
-			ModelDefaults: "positional model <tier> > explicit --model flag > config model > built-in default; text defaults to auto, --image defaults directly to cloud",
-			Fallback:      "auto tries cloud once, then on-device once, only for confirmed missing bridges or recognized rate limits; all other failures stop without another model call",
-			Network:       "HTTP defaults to loopback; remote bind requires --allow-remote plus bearer authentication and an external encrypted tunnel",
-			Local:         "local is explicit and independent of Shortcuts; streaming human text and HTTP SSE only; JSON/agent and batch outputs remain complete; complete usage is Apple-measured; context overflow fails without shortening history",
-			Stdout:        "successful command output only",
-			Stderr:        "human errors, fallback notices, and newly-created plain-chat IDs only",
+			JSONSchema:        "agent meta schema_version=2; data under results; --select filters declared result fields; unknown field paths are usage errors (exit 2), including for empty results",
+			ErrorSchema:       "{meta:{source,schema_version},error:{code,message,exit_code}}",
+			ModelDefaults:     "positional model <tier> > explicit --model flag > config model > built-in default; text defaults to auto, --image defaults directly to cloud",
+			Fallback:          "auto tries cloud once, then on-device once, only for confirmed missing bridges or recognized rate limits; all other failures stop without another model call",
+			Network:           "HTTP defaults to loopback; remote bind requires --allow-remote plus bearer authentication and an external encrypted tunnel",
+			Local:             "local is explicit and independent of Shortcuts; streaming human text and HTTP SSE only; JSON/agent and batch outputs remain complete; complete usage is Apple-measured; context overflow fails without shortening history",
+			Stdout:            "successful command output only",
+			Stderr:            "human errors, fallback notices, and newly-created plain-chat IDs only",
+			CommandResolution: "the first positional argument names the command if exact; root persistent and respond flag definitions determine which flags consume values, including --flag=value and boolean flags; only a sole positional argument is refused as a near-miss: case-insensitive edit distance 1, or edit distance 2 for command names of 7 or more characters, with an adjacent swap counting as one edit; refusal is a usage error (exit 2) with a suggestion preserving leading flags; other non-command text is a prompt routed to respond; tokens after -- are literal prompt text with no model-prefix parsing; root --help/--version retain strict argument validation; hidden __ completion commands are not reinterpreted; a lone - is literal prompt text, not stdin; stdin is read when no prompt is provided, and --prompt-file - names a regular file",
 		},
 		Commands: collectAgentCommands(rootCmd),
 	}
