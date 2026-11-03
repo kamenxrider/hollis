@@ -17,8 +17,7 @@ xcrun --sdk macosx swiftc -parse-as-library -O \
   -module-cache-path "$module_cache" -sdk "$sdk_path" -target arm64-apple-macosx27.0 \
   "$root/native/HollisNative.swift" "$root/native/SchemaSubset.swift" -o "$output"
 codesign --force --sign - "$output"
-# The SDK 27 GitHub image currently runs macOS 26. Building a macOS 27
-# executable there is supported; executing it there is not. Verify the artifact
-# without loading FoundationModels or invoking the target executable.
+# Verify without loading FoundationModels or invoking the target executable,
+# so build-only hosts with SDK 27 need not run macOS 27.
 codesign --verify --strict "$output"
 xcrun vtool -show-build "$output"

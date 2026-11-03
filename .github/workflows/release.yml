@@ -61,6 +61,14 @@ jobs:
       - name: Build native local helper
         run: bash scripts/build-native.sh dist/hollis-native-darwin-arm64
 
+      - name: Native helper protocol tests (no model calls)
+        env:
+          HOLLIS_NATIVE_HELPER: ${{ github.workspace }}/dist/hollis-native-darwin-arm64
+        run: |
+          sw_vers -productVersion
+          test -x "$HOLLIS_NATIVE_HELPER"
+          python3 -m unittest discover -s scripts/native -p 'test_*.py'
+
       # Ship all four model bridges and the image bridge in the normal bundle.
       # Package from source with explicit membership, excluding diagnostics
       # and machine-specific signed imports.
