@@ -25,6 +25,9 @@ type agentContext struct {
 	Auth          agentContextAuth      `json:"auth"`
 	Commands      []agentContextCommand `json:"commands"`
 	Contracts     agentContextContracts `json:"contracts"`
+	// Examples mirrors the root-help examples so an agent and a person read
+	// the same command list.
+	Examples []string `json:"examples"`
 }
 
 type agentContextCLI struct {
@@ -109,14 +112,10 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 		},
 		Auth: agentContextAuth{
 			Mode:    "local Shortcuts; optional bearer authentication for HTTP",
-			EnvVars: []string{"HOLLIS_API_TOKEN"},
+			EnvVars: environmentNames(),
 		},
 		Contracts: agentContextContracts{
-			ExitCodes: map[string]int{
-				"success": 0, "unexpected": 1, "usage": 2, "missing": 3, "transport": 5,
-				"timeout": 7, "config": 10,
-				"request_declined": 5, "shortcut_failed": 5,
-			},
+			ExitCodes:         exitCodeMap(),
 			JSONSchema:        "agent meta schema_version=2; data under results; --select filters declared result fields; unknown field paths are usage errors (exit 2), including for empty results",
 			ErrorSchema:       "{meta:{source,schema_version},error:{code,message,exit_code}}",
 			ModelDefaults:     "positional model <tier> > explicit --model flag > config model > built-in default; text defaults to auto, --image defaults directly to cloud",
@@ -128,6 +127,7 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 			CommandResolution: "the first positional argument names the command if exact; root persistent and respond flag definitions determine which flags consume values, including --flag=value and boolean flags; only a sole positional argument is refused as a near-miss: case-insensitive edit distance 1, or edit distance 2 for command names of 7 or more characters, with an adjacent swap counting as one edit; refusal is a usage error (exit 2) with a suggestion preserving leading flags; other non-command text is a prompt routed to respond; tokens after -- are literal prompt text with no model-prefix parsing; root --help/--version retain strict argument validation; hidden __ completion commands are not reinterpreted; a lone positional - is literal prompt text, not stdin; stdin is read when no prompt is provided; --prompt-file - reads the instruction from stdin and is refused on a terminal under --no-input or --agent",
 		},
 		Commands: collectAgentCommands(rootCmd),
+		Examples: agentExampleCommands,
 	}
 }
 
