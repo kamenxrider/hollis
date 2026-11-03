@@ -114,6 +114,37 @@ func TestNativeCompleteMeasuredUsage(t *testing.T) {
 	}
 }
 
+func TestNamedCapabilityRefusalHTTP(t *testing.T) {
+	for _, endpoint := range nativeEndpoints {
+		for _, stream := range []bool{false, true} {
+			refusal := &runner.Error{
+				Kind: runner.KindUnsupportedCapability, ExitCode: -1,
+				Capability: "tools", CapabilityReason: "not_implemented",
+				Err: errors.New("untrusted diagnostic"),
+			}
+			fake := &nativeFake{
+				complete: func(context.Context, string) (runner.Completion, error) {
+					return runner.Completion{}, refusal
+				},
+				stream: func(context.Context, string, func(string) error) (runner.Completion, error) {
+					return runner.Completion{}, refusal
+				},
+			}
+			res := post(t, NewUnauthenticated(fake).Handler(), endpoint.path, nativeBody(endpoint.body, stream))
+			var body struct {
+				Error struct{ Code, Message string }
+			}
+			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			want := "native helper does not support tools (not_implemented); install the matching bundle"
+			if res.Code != http.StatusBadGateway || body.Error.Code != "unsupported_capability" || body.Error.Message != want {
+				t.Fatalf("stream=%v: %d %s", stream, res.Code, res.Body.String())
+			}
+		}
+	}
+}
+
 func TestNativeStreamWireLifecycles(t *testing.T) {
 	for i, endpoint := range nativeEndpoints {
 		t.Run(endpoint.path, func(t *testing.T) {

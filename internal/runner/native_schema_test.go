@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,11 +15,12 @@ import (
 
 // nativeProtocolHelper answers the non-generative --protocol-version probe with
 // version and then runs body for a real request, mirroring the shipped helper's
-// metadata commands.
+// metadata commands. It uses rawNative because the script owns the probe
+// answer: a prepended default would shadow it.
 func nativeProtocolHelper(t *testing.T, version, body string) *NativeRunner {
 	t.Helper()
 	probe := "if [ \"${1:-}\" = \"--protocol-version\" ]; then printf '%s\\n' '" + version + "'; exit 0; fi\n"
-	return fakeNative(t, probe+body)
+	return rawNative(t, probe+body)
 }
 
 // nativeLineFor stamps an event for an explicit protocol and version, which is
@@ -58,7 +60,7 @@ func TestNativeSchemaRequestCarriesSchemaAndValidatedObject(t *testing.T) {
 		nativePrint(nativeLine("complete", map[string]any{
 			"text": string(encoded), "structured": structured, "usage": nativeUsageEvent(),
 		}))
-	r := nativeProtocolHelper(t, "2", body)
+	r := nativeProtocolHelper(t, strconv.Itoa(NativeProtocol), body)
 	schema := mustParseSchema(t, guidedSchema)
 	result, err := r.RunSchema(t.Context(), ModelLocal, "produce a record", schema)
 	if err != nil {
@@ -133,7 +135,7 @@ func TestNativeSchemaRejectsNonConformingReturnedPayload(t *testing.T) {
 				nativePrint(nativeLine("complete", map[string]any{
 					"text": string(encoded), "structured": tc.structured, "usage": nativeUsageEvent(),
 				}))
-			r := nativeProtocolHelper(t, "2", body)
+			r := nativeProtocolHelper(t, strconv.Itoa(NativeProtocol), body)
 			result, err := r.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 			requireNativeKind(t, err, KindNativeProtocol)
 			if !strings.Contains(err.Error(), "returned payload does not match the requested schema") {
@@ -166,7 +168,7 @@ func TestNativeSchemaRejectsStructuredOutsideTerminalCompletion(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := nativeProtocolHelper(t, "2", tc.body)
+			r := nativeProtocolHelper(t, strconv.Itoa(NativeProtocol), tc.body)
 			if tc.op == "status" {
 				_, err := r.NativeStatus(t.Context())
 				requireNativeKind(t, err, KindNativeProtocol)
@@ -183,13 +185,13 @@ func TestNativeSchemaRejectsStructuredOutsideTerminalCompletion(t *testing.T) {
 		})
 	}
 	// A complete event without structured output is not a guided success.
-	missing := nativeProtocolHelper(t, "2", "cat >/dev/null\n"+
+	missing := nativeProtocolHelper(t, strconv.Itoa(NativeProtocol), "cat >/dev/null\n"+
 		nativePrint(nativeLine("status", map[string]any{"available": true}))+
 		nativePrint(nativeLine("complete", map[string]any{"text": "plain", "usage": nativeUsageEvent()})))
 	_, err := missing.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	requireNativeKind(t, err, KindNativeProtocol)
 	// Structured output on a plain complete request is equally unexpected.
-	unrequested := nativeProtocolHelper(t, "2", "cat >/dev/null\n"+
+	unrequested := nativeProtocolHelper(t, strconv.Itoa(NativeProtocol), "cat >/dev/null\n"+
 		nativePrint(nativeLine("status", map[string]any{"available": true}))+
 		nativePrint(nativeLine("complete", map[string]any{"text": "plain", "structured": structured, "usage": nativeUsageEvent()})))
 	_, err = unrequested.RunComplete(t.Context(), ModelLocal, "prompt")
@@ -212,8 +214,10 @@ func TestNativeStatusClassifiesAPairedMismatch(t *testing.T) {
 		{"newer helper", 3, "9.9.9"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			event := nativeLineFor(tc.protocol, tc.version, "error", map[string]any{"kind": "native_failed"})
-			r := nativeProtocolHelper(t, "1", "cat >/dev/null\n"+nativePrint(event))
+			// The probe answers this build's protocol, so the refusal comes from
+			// the per-event identity check: the event itself names another era.
+			event := nativeLineFor(tc.protocol, tc.version, "status", map[string]any{"available": true})
+			r := nativeProtocolHelper(t, strconv.Itoa(NativeProtocol), "cat >/dev/null\n"+nativePrint(event))
 			status, err := r.NativeStatus(t.Context())
 			requireNativeKind(t, err, KindNativeProtocol)
 			if !strings.Contains(err.Error(), "version, protocol or model mismatch") {
@@ -241,23 +245,24 @@ func TestNativeSchemaRefusesOldHelperBeforeSpawn(t *testing.T) {
 	// not have to read the exit code differently depending on which side of
 	// the protocol the helper sits.
 	requireNativeKind(t, err, KindNativeProtocol)
-	if !strings.Contains(err.Error(), "does not support guided output") {
-		t.Fatalf("error = %v; want the guided-output refusal", err)
+	if !strings.Contains(err.Error(), "install the matching bundle") {
+		t.Fatalf("error = %v; want the matching-bundle message", err)
 	}
 	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("helper received a request despite the pre-spawn refusal (stat err %v)", statErr)
 	}
-	// Plain completion is unchanged by the probe: the same old helper is asked
-	// and its protocol-1 events fail closed on identity, not on a new path.
+	// Every operation negotiates first, so plain completion is refused before a
+	// request is written too: the pairing is a component fault on this route,
+	// not an operation-specific one.
 	_, err = r.RunComplete(t.Context(), ModelLocal, "prompt")
 	requireNativeKind(t, err, KindNativeProtocol)
-	if _, statErr := os.Stat(marker); statErr != nil {
-		t.Fatalf("plain completion never reached the helper: %v", statErr)
+	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("plain completion reached the helper despite the refusal (stat err %v)", statErr)
 	}
 }
 
 func TestNativeSchemaRefusesUnusableProtocolProbe(t *testing.T) {
-	silent := fakeNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then exit 1; fi\ncat >/dev/null\n")
+	silent := rawNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then exit 1; fi\ncat >/dev/null\n")
 	_, err := silent.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	requireNativeKind(t, err, KindNativeFailed)
 
@@ -269,7 +274,7 @@ func TestNativeSchemaRefusesUnusableProtocolProbe(t *testing.T) {
 	_, err = outOfRange.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	requireNativeKind(t, err, KindNativeFailed)
 
-	newer := nativeProtocolHelper(t, "3", "cat >/dev/null\n")
+	newer := nativeProtocolHelper(t, "4", "cat >/dev/null\n")
 	_, err = newer.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	requireNativeKind(t, err, KindNativeProtocol)
 	if !strings.Contains(err.Error(), "install the matching bundle") {
@@ -281,7 +286,7 @@ func TestNativeSchemaRefusesUnusableProtocolProbe(t *testing.T) {
 	previous := helperProbeTimeout
 	helperProbeTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { helperProbeTimeout = previous })
-	hanging := fakeNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then sleep 30; fi\ncat >/dev/null\n")
+	hanging := rawNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then sleep 30; fi\ncat >/dev/null\n")
 	_, err = hanging.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	requireNativeKind(t, err, KindTimeout)
 }
@@ -302,14 +307,14 @@ func TestNativeProtocolOneHelperFailsClosedOnIdentity(t *testing.T) {
 		t.Fatalf("error = %v; want the matching-bundle message", err)
 	}
 	// The same stale helper reports protocol 1 on the metadata probe.
-	probeOnly := fakeNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then printf '1\\n'; exit 0; fi\ncat >/dev/null\n")
+	probeOnly := rawNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then printf '1\\n'; exit 0; fi\ncat >/dev/null\n")
 	_, err = probeOnly.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	requireNativeKind(t, err, KindNativeProtocol)
 }
 
 func TestNativeSchemaRejectsUnavailableModelWithoutStructuredOutput(t *testing.T) {
 	body := "cat >/dev/null\n" + nativePrint(nativeLine("status", map[string]any{"available": false, "reason": "device_not_eligible"}))
-	r := nativeProtocolHelper(t, "2", body)
+	r := nativeProtocolHelper(t, strconv.Itoa(NativeProtocol), body)
 	_, err := r.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	requireNativeKind(t, err, KindLocalUnavailable)
 }
@@ -317,7 +322,7 @@ func TestNativeSchemaRejectsUnavailableModelWithoutStructuredOutput(t *testing.T
 func TestNativeSchemaDeclinedEmitsNoStructuredOutput(t *testing.T) {
 	body := "cat >/dev/null\n" + nativePrint(nativeLine("status", map[string]any{"available": true})) +
 		nativePrint(nativeLine("error", map[string]any{"kind": "request_declined"}))
-	r := nativeProtocolHelper(t, "2", body)
+	r := nativeProtocolHelper(t, strconv.Itoa(NativeProtocol), body)
 	result, err := r.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	requireNativeKind(t, err, KindRequestDeclined)
 	if result.Structured != nil {
@@ -327,7 +332,7 @@ func TestNativeSchemaDeclinedEmitsNoStructuredOutput(t *testing.T) {
 
 func TestNativeSchemaDeadlineOmitsStructuredOutput(t *testing.T) {
 	body := "cat >/dev/null\n" + nativePrint(nativeLine("status", map[string]any{"available": true})) + "sleep 5\n"
-	r := nativeProtocolHelper(t, "2", body)
+	r := nativeProtocolHelper(t, strconv.Itoa(NativeProtocol), body)
 	r.Timeout = 300 * time.Millisecond
 	result, err := r.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	requireNativeKind(t, err, KindTimeout)
@@ -380,7 +385,7 @@ func TestNativeProbeTimeoutIsNotAModelTimeout(t *testing.T) {
 	previous := helperProbeTimeout
 	helperProbeTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { helperProbeTimeout = previous })
-	r := fakeNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then sleep 30; fi\ncat >/dev/null\n")
+	r := rawNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then sleep 30; fi\ncat >/dev/null\n")
 	_, err := r.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	var re *Error
 	if !errors.As(err, &re) || re.Kind != KindTimeout {
@@ -404,7 +409,7 @@ func TestNativeProbeTimeoutIsNotAModelTimeout(t *testing.T) {
 // being folded into the timeout marker: printing the right version and then
 // failing is a helper failure, and ExitCode carries the child's status.
 func TestNativeProbeNonZeroExitIsNotATimeout(t *testing.T) {
-	r := fakeNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then printf '2\\n'; exit 3; fi\ncat >/dev/null\n")
+	r := rawNative(t, "if [ \"${1:-}\" = \"--protocol-version\" ]; then printf '2\\n'; exit 3; fi\ncat >/dev/null\n")
 	_, err := r.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	var re *Error
 	if !errors.As(err, &re) || re.Kind != KindNativeFailed {

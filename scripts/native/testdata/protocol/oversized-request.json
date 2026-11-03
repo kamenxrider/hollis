@@ -7,8 +7,8 @@
     {
       "event": "error",
       "kind": "context_capacity",
-      "protocol": 2,
-      "version": "0.5.0",
+      "protocol": 3,
+      "version": "0.6.0",
       "model": "local"
     }
   ],

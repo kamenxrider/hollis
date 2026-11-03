@@ -6,14 +6,21 @@ import FoundationModels
 // implicit fallback, or diagnostic reflection of the request contents.
 @main
 struct HollisNative {
-    static let version = "0.5.0"
-    static let protocolVersion = 2
+    static let version = "0.6.0"
+    static let protocolVersion = 3
 
     struct Request: Decodable {
         let `protocol`: Int
         let operation: String
         let prompt: String?
         let schema: JSONValue?
+        let toolCalling: String?
+
+        // Member names are the wire contract; the Swift property names are not.
+        enum CodingKeys: String, CodingKey {
+            case `protocol`, operation, prompt, schema
+            case toolCalling = "tool_calling"
+        }
     }
 
     static func emit(_ fields: [String: Any], `protocol` effective: Int) throws {
@@ -27,6 +34,17 @@ struct HollisNative {
 
     static func fail(_ kind: String, `protocol` effective: Int = protocolVersion) {
         try? emit(["event": "error", "kind": kind], protocol: effective)
+    }
+
+    static func statusFields(available: Bool, reason: String, contextSize: Int,
+                             vision: Bool, macOSMajor: Int, `protocol` effective: Int) -> [String: Any] {
+        var fields: [String: Any] = ["event": "status", "available": available, "reason": reason]
+        if effective >= 2 { fields["context_size"] = contextSize }
+        if effective >= 3 {
+            // Unimplemented capabilities stay absent, not zero-filled.
+            fields["capabilities"] = ["vision": vision, "macos_major": macOSMajor]
+        }
+        return fields
     }
 
     @MainActor
@@ -67,11 +85,12 @@ struct HollisNative {
             var request: Request
             do { request = try JSONDecoder().decode(Request.self, from: input) }
             catch { fail("native_failed"); return }
-            // A protocol-2 helper also answers protocol-1 requests so a
-            // half-switched managed install fails closed on identity, not on a
-            // misinterpreted request. Events are stamped with the request's
-            // protocol; schema never reaches a protocol-1 request.
-            guard request.`protocol` == 1 || request.`protocol` == protocolVersion else {
+            // Request formats 1, 2 and 3 remain accepted, but every event keeps
+            // this build's version. Older CLIs reject that version: only a
+            // matched bundle is supported. Era-specific fields stay omitted
+            // below their protocol, independently of version identity.
+            let accepted = [1, 2, protocolVersion]
+            guard accepted.contains(request.`protocol`) else {
                 fail("native_failed"); return
             }
             effective = request.`protocol`
@@ -86,6 +105,17 @@ struct HollisNative {
             if request.operation != "schema", request.schema != nil {
                 fail("native_failed", protocol: effective); return
             }
+            // tool_calling is a known protocol-3 member with no implementation
+            // here yet. A helper that ignored it would answer a caller who
+            // asked for a tool mode with an ordinary completion, so the whole
+            // request is refused instead of silently downgraded.
+            if request.toolCalling != nil {
+                if effective < 3 { fail("native_failed", protocol: effective); return }
+                try emit(["event": "error", "kind": "unsupported_capability",
+                          "capability": "tools", "reason": "not_implemented"],
+                         protocol: effective)
+                return
+            }
             // The subset is parsed and validated before any model access:
             // an unsupported schema must never reach generation.
             var requested: SchemaSubset.Node?
@@ -94,13 +124,12 @@ struct HollisNative {
                 catch { fail("native_failed", protocol: effective); return }
             }
             let model = SystemLanguageModel.default
-            var status: [String: Any] = ["event": "status", "available": model.isAvailable,
-                                         "reason": String(describing: model.availability)]
-            if effective >= 2 {
-                // Measured token budget, exposed only on protocol 2 so
-                // protocol-1 events stay byte-compatible with old decoders.
-                status["context_size"] = model.contextSize
-            }
+            let status = statusFields(
+                available: model.isAvailable, reason: String(describing: model.availability),
+                contextSize: effective >= 2 ? model.contextSize : 0,
+                vision: effective >= 3 && model.capabilities.contains(.vision),
+                macOSMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
+                protocol: effective)
             try emit(status, protocol: effective)
             if request.operation == "status" { return }
             guard let prompt = request.prompt,

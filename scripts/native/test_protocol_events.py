@@ -85,6 +85,8 @@ class HelperEventTests(unittest.TestCase):
     def test_status_event_shape(self):
         version, _ = protocol.swift_pins()
         for number, expected_keys in (
+                (3, {'event', 'available', 'reason', 'context_size',
+                     'capabilities', 'protocol', 'version', 'model'}),
                 (2, {'event', 'available', 'reason', 'context_size',
                      'protocol', 'version', 'model'}),
                 (1, {'event', 'available', 'reason',
@@ -96,7 +98,7 @@ class HelperEventTests(unittest.TestCase):
                 events = protocol.events(process.stdout)
                 self.assertEqual(len(events), 1, process.stdout)
                 status = events[0]
-                if number == 2 and not status['available']:
+                if number >= 2 and not status['available']:
                     self.assertLessEqual(expected_keys - {'context_size'}, set(status))
                     self.assertLessEqual(set(status), expected_keys)
                 else:
@@ -111,6 +113,13 @@ class HelperEventTests(unittest.TestCase):
                     self.assertIsInstance(status['context_size'], int)
                     if status['available']:
                         self.assertGreater(status['context_size'], 0)
+                if number == 3:
+                    capabilities = status['capabilities']
+                    self.assertEqual(set(capabilities), {'vision', 'macos_major'})
+                    self.assertIsInstance(capabilities['vision'], bool)
+                    self.assertIsInstance(capabilities['macos_major'], int)
+                    self.assertEqual(capabilities['macos_major'],
+                                     protocol.host_major())
 
     def test_prompt_guards_run_before_generation(self):
         cases = (

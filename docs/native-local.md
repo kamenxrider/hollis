@@ -38,11 +38,22 @@ not add image input, image generation or tool/function calls to this route.
 
 ## Guided output
 
-This section describes current source, checked at commit `8a2e4bd` on
-2026-11-01 with helper 0.5.0/protocol 2. Runtime 0.4.0 and plugin 0.2.0's pinned
-runtime use protocol 1 and do not include `--schema` or protocol-2 context
-diagnostics. Build the CLI and helper from the same source revision for these
-features; do not mix the current CLI with a released 0.4.0 helper.
+This section describes current source, with helper 0.6.0/protocol 3. Runtime
+0.4.0 and plugin 0.2.0's pinned runtime use protocol 1 and do not include
+`--schema` or the protocol-2 and protocol-3 diagnostics described here. Build the
+CLI and helper from the same source revision for these features; do not mix the
+current CLI with a released 0.4.0 helper.
+
+Protocol 3 adds a `capabilities` object to the helper's status event, and every
+operation negotiates before it runs. The helper accepts request formats 1, 2 and
+3, but stamps all events with version 0.6.0. Older CLIs reject that version;
+accepting their request format does not make them compatible. This CLI speaks
+protocol 3 only and checks strict version identity because the CLI and helper
+ship as one bundle. A mismatched pair fails closed with a clear error asking
+for the matching bundle, never a plain-text downgrade. A capability the helper
+did not advertise (native tool calling, for example) is refused by name as
+`unsupported_capability`, which
+is a component fault at exit 5 and HTTP 502, distinct from a caller mistake.
 
 `--schema` asks the native model for an object that follows a supported subset
 of JSON Schema. The schema is validated before the helper is spawned, so an
@@ -138,8 +149,8 @@ the object as a JSON string. An old helper maps to HTTP 502 `native_protocol`,
 the same class as the CLI's exit 5. Field handling, error codes and examples are
 in [the API guide](api.md#guided-json-output).
 
-Guided output requires helper 0.5.0/protocol 2 matched to the CLI. The helper is
-asked which protocol it speaks before a schema request spawns, so an older helper
+Guided output requires helper 0.6.0/protocol 3 matched to the CLI. The helper is
+asked which protocol it speaks before any operation spawns, so an older helper
 costs no inference: it is refused, pointing at the matching bundle.
 Pairing the CLI with any other helper release is a
 mismatch for every operation, guided or not; the refusal names the cause instead
@@ -193,7 +204,7 @@ material. Updating it preserves configuration, bridges and conversations.
 availability check is not proof of successful inference or first-use consent.
 Missing Shortcuts do not prevent selecting `local`.
 
-With protocol 2, native availability results also expose measured `context_size`
+With protocol 2 and above, native availability results also expose measured `context_size`
 when available. On 2026-11-01, the checked macOS 27.2 build reported 8,192 tokens;
 this is an observation, not a fixed capacity guarantee. The 128 KiB prompt-byte
 limit remains separate. See the [dated qualification summary](../EVIDENCE.md#dated-qualification-summary).

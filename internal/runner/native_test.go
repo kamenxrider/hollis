@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,13 +13,33 @@ import (
 	"time"
 )
 
+// fakeNative builds a scripted helper that speaks this package's protocol. The
+// probe answer comes first so every operation can negotiate before its request;
+// a script that needs to see the probe can use fakeNativeAt instead.
 func fakeNative(t *testing.T, script string) *NativeRunner {
+	t.Helper()
+	return fakeNativeAt(t, NativeProtocol, script)
+}
+
+// rawNative builds a scripted helper with no probe handling of its own. It is
+// how the tests model a helper that answers the metadata command badly.
+func rawNative(t *testing.T, script string) *NativeRunner {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "hollis-native")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nset -eu\n"+script), 0700); err != nil {
 		t.Fatal(err)
 	}
 	return &NativeRunner{Timeout: 2 * time.Second, helperPath: path, platformCheck: func(context.Context) error { return nil }}
+}
+
+// fakeNativeAt builds a scripted helper that reports the given protocol to
+// --protocol-version and then runs script for every other invocation. It exists
+// so the compatibility matrix can drive both sides of a mismatched pair and a
+// capability advertisement that does not match the era.
+func fakeNativeAt(t *testing.T, protocol int, script string) *NativeRunner {
+	t.Helper()
+	probe := fmt.Sprintf("if [ \"$#\" -eq 1 ] && [ \"$1\" = \"--protocol-version\" ]; then printf '%%s\\n' '%d'; exit 0; fi\n", protocol)
+	return rawNative(t, probe+script)
 }
 func nativeLine(event string, fields map[string]any) string {
 	if fields == nil {

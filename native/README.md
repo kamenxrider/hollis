@@ -10,25 +10,38 @@ compile code during a request.
 Normal operation reads exactly one JSON request from stdin and writes NDJSON to
 stdout. Prompt text never appears in process arguments.
 
-Protocol 2 requests have `protocol`, `operation` (`status`, `complete`, `stream`,
-or `schema`), and a `prompt` for generation; a `schema` request also carries
-`schema`. Each event is stamped with the request's protocol, `version: "0.5.0"`,
-and `model: "local"`. A protocol-1 request is still accepted for its original
-three operations and answered with protocol-1 events (no `context_size`, no
-`structured`, no `schema` operation); a managed install caught between the two
-public symlinks fails closed on the version-and-protocol identity check, never on
-a misinterpreted request.
+The accepted protocol set is explicit: `[1, 2, 3]`. A protocol-3 request has
+`protocol`, `operation` (`status`, `complete`, `stream`, or `schema`), and a
+`prompt` for generation; a `schema` request also carries `schema`, and a
+generation request may carry `tool_calling` (`"allowed"` or `"disallowed"`).
+Older request formats retain their field shapes: protocol-1 requests have three
+operations and no `context_size`/`structured`; protocol-2 requests add `schema`.
+This is not cross-version CLI compatibility. This build does not
+implement tool calling, so a `tool_calling` member is refused with an
+`unsupported_capability` error event naming `capability: "tools"` and the fixed
+`reason: "not_implemented"` rather than ignored: an ignored mode would
+answer a tool request with a plain completion.
 
-- `status`: `available` Boolean, `reason` string, and, on protocol 2,
-  `context_size` (the measured token budget of the local model). Status
-  operations stop here without creating a session or generating a response.
+Each event is stamped with the request's protocol, `version: "0.6.0"`, and
+`model: "local"`. The CLI and helper ship as a matched bundle. A mismatched pair,
+including a 0.4.0 or 0.5.0 CLI with this helper, fails closed on strict version
+identity with a clear mismatch error, before generation. Install the matching
+bundle; accepting an older request format does not bypass this check.
+
+- `status`: `available` Boolean, `reason` string, `context_size` on protocol 2
+  and above (the measured token budget of the local model), and, on protocol 3,
+  `capabilities`: `vision` and `macos_major` today, with a block per capability
+  that a later build may add. A capability is advertised as absent rather than
+  zero-filled, and clients read the object leniently so a new flag needs no
+  protocol bump. Status operations stop here without creating a session or
+  generating a response.
 - `snapshot`: cumulative `text` from streaming. The Go runner suppresses duplicate
   snapshots and emits append-only differences; revisions fail the stream.
 - `complete`: final `text`, plus measured `usage` for complete requests. Usage
   includes integer `input_tokens`, `output_tokens`, and `reasoning_tokens`.
   Streaming completions omit usage because it has not been qualified. A `schema`
   completion also carries `structured`, the generated object.
-- `schema` (protocol 2 only): complete-only guided generation. The helper parses
+- `schema` (protocol 2 and above): complete-only guided generation. The helper parses
   and enforces the supported JSON Schema subset before any model access, builds a
   dynamic `GenerationSchema`, generates the object, re-validates the returned
   object against the same subset, and only then emits `complete` with `structured`
@@ -41,6 +54,8 @@ a misinterpreted request.
   the object independently; structural validity never claims semantic truth.
   See the [full subset rules](../docs/native-local.md#guided-output).
 - `error`: a stable `kind` without input or framework diagnostic text.
+  Protocol-3 capability refusals also carry closed-set `capability` and `reason`
+  identifiers, preserved in the CLI error (exit 5) and HTTP 502 message.
 
 A generation starts with status, then either complete or snapshots followed by
 complete. A schema request follows the same status-then-complete shape. Clean EOF and successful process exit are required; a complete event

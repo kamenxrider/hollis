@@ -11,7 +11,7 @@ An **Apple-silicon Mac** with **Apple Intelligence** enabled, macOS 27 for the m
 **macOS 27 — historical Shortcuts checks.** On `26A5421a` and `26A5425a` the Shortcuts selector exposed Cloud, Cloud Pro, On-Device and ChatGPT, and all four bridges returned responses in those tests. The 0.4.0 candidate was also checked on `26A428`. On 2026-10-31, Cloud and Cloud Pro each succeeded once on the merged runtime; this does not requalify every bridge or guarantee continuing availability.
 
 **macOS 27.2 — native local checked 2026-11-01.** Apple Silicon, build `26B123`,
-SDK 27.0, commit `8a2e4bd`, helper 0.5.0/protocol 2: one plain complete call and
+SDK 27.0, helper 0.5.0/protocol 2 at that time: one plain complete call and
 one guided JSON call succeeded, with measured usage. Diagnostics reported an
 8,192-token context window. See the [qualification scope](../EVIDENCE.md#dated-qualification-summary);
 these current-source features do not update the pinned 0.4.0 downloads.
@@ -34,6 +34,25 @@ A missing helper or unavailable Apple model is reported separately from bridge
 readiness. Native local on macOS 26 and Intel is unsupported. The published `hollis-darwin-amd64` download is a legacy CLI artifact; Intel Macs
 do not support Apple Intelligence inference. The primary installer selects the
 ARM64 bundle. A source-only Go install does not install the Swift helper; use the [native-local guide](native-local.md).
+
+Current source uses helper 0.6.0 and protocol 3. CLI and helper always ship as a
+matched bundle, and strict version identity is intentional. A mismatched pair
+fails closed with a clear mismatch error and matching-bundle remedy (exit 5,
+HTTP 502 `native_protocol`), before generation. The helper accepts request
+formats 1, 2 and 3 but stamps every event with 0.6.0; this does not make older
+CLIs compatible.
+
+| CLI | Helper | Result |
+| --- | --- | --- |
+| 0.4.0 / protocol 1 | 0.6.0 | Old decoder rejects the version; no generation |
+| 0.5.0 / protocol 2 | 0.6.0 | Old decoder rejects the version; no generation |
+| Current / protocol 3 | Matching 0.6.0 | Negotiates protocol 3; capabilities checked per request |
+| Current / protocol 3 | Older or mismatched helper | Fails closed; install the matching bundle |
+
+Protocol-format acceptance is tested separately from CLI compatibility: protocol
+1 omits context size and structured output, protocol 2 adds them, and protocol
+3 adds capability advertisement. Status checks and decoder fixtures do not
+establish successful inference.
 
 ## Doctor
 
@@ -65,7 +84,7 @@ Unscoped `doctor` exits 0 only when every tier supported by the detected macOS v
 
 JSON output adds the macOS version and build, each bridge's `resolved_ref`, its resolution `source`, verification state, and `status` (`ok`, `missing`, `unsupported`, or `unverified`). The `uuid` field is the compiled placeholder, not the installed shortcut's own identifier: `shortcuts list` reports names only, so Hollis never learns a workflow ID from your Mac. Do not copy that placeholder into config expecting it to run something.
 
-With the current protocol-2 helper, native availability results in `doctor` and
+With protocol 2 and above, native availability results in `doctor` and
 `models` also report the measured `context_size` when available. The observed
 8,192 tokens are not a fixed promise for every model/build or a replacement for
 the separate 128 KiB rendered-prompt limit. Availability is not inference proof.
