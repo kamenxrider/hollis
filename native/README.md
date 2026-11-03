@@ -55,8 +55,13 @@ bundle; accepting an older request format does not bypass this check.
   and enforces the supported JSON Schema subset before any model access, builds a
   dynamic `GenerationSchema`, generates the object, re-validates the returned
   object against the same subset, and only then emits `complete` with `structured`
-  and measured usage. Unsupported schemas (references, unions, patterns, formats,
-  integer enums, non-object roots, missing `additionalProperties: false`, objects
+  and measured usage. Annotations are ignored for validation, with `description`
+  (or `title`) carried into the `GenerationSchema`; a `default` is never
+  applied; string constraints are
+  accepted and not enforced; an omitted `additionalProperties` means `false`;
+  and a nullable `anyOf`/`oneOf` property collapses to its non-null branch as an
+  optional property. Unsupported schemas (references, other unions, `const`,
+  integer enums, non-object roots, `additionalProperties` other than `false`, objects
   nested deeper than 3, more than 16 schema nodes on a path including the root,
   property/required names or enum choices outside printable ASCII, more than 32
   properties, more than 64 KiB, or contradictory bounds) and schema-plus-`stream`

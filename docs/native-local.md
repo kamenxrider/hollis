@@ -71,10 +71,12 @@ no field is added.
 The subset is deliberately small, and anything outside it is rejected with the
 offending JSON pointer instead of being approximated:
 
-- the root is an object with `"additionalProperties": false`, as is every
-  nested object; nesting stops at three object levels, with arrays adding none
-  object level. On top of that, at most sixteen schema nodes fit on one path,
-  root included, so an array chain (`items` inside `items`) cannot nest without
+- the root is an object, and every object is closed: `"additionalProperties"`
+  may be `false` or omitted, and omitted means `false`, so a returned object
+  with an undeclared member is refused either way. `true` or a schema value is
+  rejected. Nesting stops at three object levels, with arrays adding no object
+  level. On top of that, at most sixteen schema nodes fit on one path, root
+  included, so an array chain (`items` inside `items`) cannot nest without
   bound;
 - properties are `string`, `integer`, `number` or `boolean`; `required` names
   declared properties; at most 32 properties are declared across the schema;
@@ -89,9 +91,29 @@ offending JSON pointer instead of being approximated:
   kind), and choices must be non-empty and unique;
 - arrays declare `items`, with `minItems`/`maxItems` between 0 and 100;
 - `minimum`/`maximum` are integral for integers and finite for numbers;
-- rejections include references, `anyOf`/`oneOf`/`allOf`/`not`, patterns,
-  formats, string bounds, defaults, descriptions and contradictions such as
-  `maxItems < minItems`. The normalized schema is capped at 64 KiB, measured
+- annotations are accepted on any schema node and change nothing about
+  validation: `description`, `title`, `$schema`, `$id`, `$comment`, `default`,
+  `examples`, `deprecated`, `readOnly`, `writeOnly` and any `x-` key.
+  `description` (or `title` when there is no description) is passed to the
+  on-device model as the meaning of that object or property; the others are
+  not sent to the helper. **A `default` is never applied**: a property the
+  model leaves out stays out, and a required one is still missing;
+- string constraints are accepted on `string` properties and **not enforced**:
+  `format`, `minLength`, `maxLength`, `pattern`, `contentEncoding` and
+  `contentMediaType`. Hollis checks that the value is a string (and in the
+  `enum`, when there is one); it does not check length, pattern or format.
+  Their values must still be well formed (strings, or whole non-negative
+  lengths);
+- a property may be a nullable union: `anyOf` or `oneOf` whose branches are one
+  supported schema plus `{"type": "null"}`. It is treated as that one schema,
+  the property becomes optional even when `required` names it, and `null` is
+  accepted for it. The union stands alone on the property, apart from
+  annotations; a union of two non-null types, a union at the root or in
+  `items`, and a union next to `type` are rejected;
+- rejections include references, `allOf`/`not`, other uses of
+  `anyOf`/`oneOf`, `const`, string constraints on non-string nodes,
+  integer enums and contradictions such as `maxItems < minItems`. The 64 KiB
+  cap applies to the whole normalized schema, annotations included, measured
   the way the helper measures it: sorted keys, `/` escaped, 17 significant
   digits.
 - an object that repeats a key is rejected rather than resolved. Foundation
@@ -103,6 +125,11 @@ offending JSON pointer instead of being approximated:
   an object or array, or a second top-level value is refused as
   "schema is not valid JSON". Foundation's decoder is more permissive than
   Go's, so both sides run the same strictness check before decoding.
+
+The annotation, string-constraint, omitted-`additionalProperties` and
+nullable-union rules are a compatible relaxation: every schema accepted before
+them is still accepted, sent to the helper as the same bytes, and validated
+identically.
 
 Every rule in that list is enforced by Hollis before the helper is spawned, and
 by the helper's own parser as well. A schema Hollis accepts is therefore a

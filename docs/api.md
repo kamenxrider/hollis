@@ -84,7 +84,7 @@ truncated value.
   subset as `hollis respond --schema`, including the 64 KiB normalized bound.
 - Schema rejection is **400** `invalid_schema`, and the message is the CLI's
   sentence with the same JSON pointer, for example
-  `schema at /properties/p/pattern: unsupported schema keyword` or
+  `schema at /properties/p/const: unsupported schema keyword` or
   `schema at /type: schema must not repeat an object key`. Schema values never
   appear in the response beyond the pointer.
 - Guided output is complete-only. `stream:true` with a schema is **400**

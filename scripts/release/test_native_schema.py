@@ -40,6 +40,13 @@ do {
         let node = try SchemaSubset.parse(schema)
         if request.mode == "assemble" { _ = try SchemaSubset.schema(for: node) }
         print("ok")
+    case "encode":
+        // The assembled SDK schema, encoded: shows what the model is given.
+        guard let schema = request.schema else { print("fail missing schema"); exit(0) }
+        let assembled = try SchemaSubset.schema(for: try SchemaSubset.parse(schema))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        print("ok " + String(decoding: try encoder.encode(assembled), as: UTF8.self))
     case "validate":
         guard let schema = request.schema, let value = request.value else {
             print("fail missing"); exit(0)
@@ -170,14 +177,12 @@ class SchemaSubsetTests(HarnessMixin, unittest.TestCase):
         self.reject(root({'value': 'not a schema'}), 'schema node must be an object')
         self.reject(root({'a': {'type': 'object', 'properties': {}, 'additionalProperties': True}}),
                     'additionalProperties:false is required')
-        self.reject({'type': 'object', 'properties': {}}, 'additionalProperties:false is required')
         for keyword, node in (
                 ('$ref', {'type': 'string', '$ref': '#/definitions/x'}),
                 ('anyOf', {'type': 'string', 'anyOf': [{'type': 'string'}]}),
-                ('pattern', {'type': 'string', 'pattern': '^a'}),
-                ('format', {'type': 'string', 'format': 'uuid'}),
-                ('default', {'type': 'string', 'default': 'x'}),
-                ('minLength', {'type': 'string', 'minLength': 1})):
+                ('const', {'type': 'string', 'const': 'a'}),
+                ('allOf', {'type': 'string', 'allOf': [{'type': 'string'}]}),
+                ('minLength', {'type': 'integer', 'minLength': 1})):
             with self.subTest(keyword=keyword):
                 self.reject(root({'value': node}), 'unsupported schema keyword')
 
@@ -201,6 +206,70 @@ class SchemaSubsetTests(HarnessMixin, unittest.TestCase):
         self.accept(root({f'f{index}': {'type': 'string'} for index in range(32)}))
         huge_enum = ['v' + str(index) + 'x' * 40 for index in range(2500)]
         self.reject(root({'kind': {'type': 'string', 'enum': huge_enum}}), 'larger than 64 KiB')
+
+    def test_annotations_are_accepted_at_every_node(self):
+        annotations = {'title': 'T', 'description': 'D', '$comment': 'c', 'default': {'a': [1, None]},
+                       'examples': ['e'], 'deprecated': True, 'readOnly': False, 'writeOnly': False,
+                       'x-vendor': {'k': 'v'}}
+        schema = root({'name': {'type': 'string', **annotations},
+                       'count': {'type': 'integer', 'minimum': 0, **annotations},
+                       'tags': {'type': 'array', 'items': {'type': 'string', **annotations}, **annotations},
+                       'child': {**root({'leaf': {'type': 'boolean', **annotations}}), **annotations}},
+                      required=['name'])
+        schema.update({'$schema': 'https://json-schema.org/draft/2020-12/schema', '$id': 'urn:x', **annotations})
+        self.accept(schema)
+        self.reject(root({'p': {'type': 'string', 'description': 1}}), 'description and title must be strings')
+
+    def test_string_constraints_are_accepted_and_not_enforced(self):
+        schema = root({'p': {'type': 'string', 'format': 'email', 'minLength': 5, 'maxLength': 6,
+                             'pattern': '^z', 'contentEncoding': 'base64', 'contentMediaType': 'text/plain'}},
+                      required=['p'])
+        self.accept(schema)
+        self.assertEqual(self.run_mode('validate', schema, {'p': 'a'}), 'ok')
+        self.assertTrue(self.run_mode('validate', schema, {'p': 1}).startswith('mismatch'))
+        self.reject(root({'p': {'type': 'integer', 'pattern': 'x'}}), 'unsupported schema keyword')
+        self.reject(root({'p': {'type': 'string', 'minLength': 1.5}}), 'string length bounds must be whole numbers')
+        self.reject(root({'p': {'type': 'string', 'pattern': 1}}), 'string constraints must be strings')
+
+    def test_absent_additional_properties_closes_the_object(self):
+        schema = {'type': 'object', 'properties': {'p': {'type': 'object', 'properties': {'q': {'type': 'string'}}}}}
+        self.accept(schema)
+        self.assertEqual(self.run_mode('validate', schema, {'p': {'q': 'a'}}), 'ok')
+        self.assertEqual(self.run_mode('validate', schema, {'x': 1}), 'mismatch /x')
+        self.assertEqual(self.run_mode('validate', schema, {'p': {'q': 'a', 'r': 1}}), 'mismatch /p/r')
+        self.reject({'type': 'object', 'additionalProperties': True}, 'additionalProperties:false is required')
+        self.reject({'type': 'object', 'additionalProperties': {'type': 'string'}},
+                    'additionalProperties:false is required')
+
+    def test_nullable_unions_collapse_to_an_optional_property(self):
+        schema = {'type': 'object', 'required': ['p'], 'properties': {
+            'p': {'anyOf': [{'type': 'string', 'enum': ['a']}, {'type': 'null'}], 'default': None}}}
+        self.accept(schema)
+        self.assertEqual(self.run_mode('validate', schema, {}), 'ok')
+        self.assertEqual(self.run_mode('validate', schema, {'p': None}), 'ok')
+        self.assertEqual(self.run_mode('validate', schema, {'p': 'a'}), 'ok')
+        self.assertEqual(self.run_mode('validate', schema, {'p': 'b'}), 'mismatch /p')
+        self.accept({'type': 'object', 'properties': {'p': {'oneOf': [{'type': 'null'}, {'type': 'integer'}]}}})
+        # Rejections that must not become acceptances.
+        self.reject(root({'p': {'anyOf': [{'type': 'string'}, {'type': 'array', 'items': {'type': 'string'}}]}}),
+                    'only nullable unions are supported')
+        self.reject(root({'p': {'anyOf': [{'type': 'string'}, {'type': 'integer'}, {'type': 'null'}]}}),
+                    'only nullable unions are supported')
+        self.reject(root({'p': {'anyOf': [{'type': 'integer', 'enum': [1]}, {'type': 'null'}]}}),
+                    'enums must be strings')
+
+    def test_description_and_title_reach_the_sdk_schema(self):
+        output = self.run_mode('encode', {'type': 'object', 'title': 'Weather query', 'properties': {
+            'city': {'type': 'string', 'description': 'City to look up', 'title': 'ignored when described'},
+            'days': {'type': 'integer', 'title': 'Forecast days'},
+            'unit': {'anyOf': [{'type': 'string', 'enum': ['c', 'f']}, {'type': 'null'}],
+                     'description': 'Temperature unit'}},
+            'required': ['city']})
+        self.assertTrue(output.startswith('ok '), output)
+        encoded = output[3:]
+        for text in ('Weather query', 'City to look up', 'Forecast days', 'Temperature unit'):
+            self.assertIn(text, encoded)
+        self.assertNotIn('ignored when described', encoded)
 
     def test_returned_payload_validation_accepts_conforming_objects(self):
         schema = root({'name': {'type': 'string'}, 'count': {'type': 'integer', 'minimum': 0, 'maximum': 10},

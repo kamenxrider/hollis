@@ -81,7 +81,7 @@ func deepArraySchema(levels int) string {
 func TestRespondSchemaRejectionsHappenBeforeTheRunner(t *testing.T) {
 	valid := writeSchemaFixture(t, cliGuidedSchema)
 	badPointer := writeSchemaFixture(t, `{"type":"object","additionalProperties":false,`+
-		`"properties":{"p":{"type":"string","pattern":"x"}},"required":["p"]}`)
+		`"properties":{"p":{"type":"string","const":"x"}},"required":["p"]}`)
 	intEnum := writeSchemaFixture(t, `{"type":"object","additionalProperties":false,`+
 		`"properties":{"p":{"type":"integer","enum":[1,2]}}}`)
 	notJSON := writeSchemaFixture(t, `not a schema`)
@@ -107,7 +107,7 @@ func TestRespondSchemaRejectionsHappenBeforeTheRunner(t *testing.T) {
 		wantIn   string
 		wantExit int
 	}{
-		{"pattern keyword", []string{"respond", "--model", "local", "--schema", badPointer, "hi"}, "/properties/p/pattern", 2},
+		{"const keyword", []string{"respond", "--model", "local", "--schema", badPointer, "hi"}, "/properties/p/const", 2},
 		{"integer enum", []string{"respond", "--model", "local", "--schema", intEnum, "hi"}, "/properties/p/enum", 2},
 		{"depth four", []string{"respond", "--model", "local", "--schema", deep, "hi"}, "object nesting exceeds depth 3", 2},
 		{"600 nested arrays", []string{"respond", "--model", "local", "--schema", deepArrays, "hi"}, "schema nesting exceeds depth 16", 2},

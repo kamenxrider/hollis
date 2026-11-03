@@ -22,6 +22,14 @@ func objectChain(levels int) string {
 	return schema
 }
 
+// objectChainNullable nests four object levels with the third written as a
+// nullable union, so the collapsed branch is what exceeds the object depth.
+func objectChainNullable() string {
+	leaf := `{"type":"object","properties":{"p":{"type":"string"}}}`
+	third := `{"type":"object","properties":{"p":` + leaf + `}}`
+	return `{"type":"object","properties":{"p":{"type":"object","properties":{"p":{"anyOf":[` + third + `,{"type":"null"}]}}}}}`
+}
+
 func TestParseSchemaAcceptsSupportedSubset(t *testing.T) {
 	cases := map[string]string{
 		"empty object":     `{"type":"object","additionalProperties":false}`,
@@ -61,7 +69,6 @@ func TestParseSchemaRejectsUnsupportedSubset(t *testing.T) {
 		{"array root", `{"type":"array","items":{"type":"string"}}`, "", "root schema must be an object"},
 		{"scalar root", `"hello"`, "", "root schema must be an object"},
 		{"null root", `null`, "", "root schema must be an object"},
-		{"missing additionalProperties", `{"type":"object"}`, "/additionalProperties", "additionalProperties:false is required"},
 		{"additionalProperties true", `{"type":"object","additionalProperties":true}`, "/additionalProperties", "additionalProperties:false is required"},
 		{"additionalProperties zero", `{"type":"object","additionalProperties":0}`, "/additionalProperties", "additionalProperties:false is required"},
 		{"reference", schemaWithProperty(`{"type":"object","additionalProperties":false,"$ref":"#/x"}`), "/properties/p/$ref", "unsupported schema keyword"},
@@ -70,11 +77,34 @@ func TestParseSchemaRejectsUnsupportedSubset(t *testing.T) {
 		{"oneOf", schemaWithProperty(`{"type":"object","additionalProperties":false,"oneOf":[]}`), "/properties/p/oneOf", "unsupported schema keyword"},
 		{"allOf", schemaWithProperty(`{"type":"object","additionalProperties":false,"allOf":[]}`), "/properties/p/allOf", "unsupported schema keyword"},
 		{"not", schemaWithProperty(`{"type":"string","not":{}}`), "/properties/p/not", "unsupported schema keyword"},
-		{"pattern", schemaWithProperty(`{"type":"string","pattern":"a"}`), "/properties/p/pattern", "unsupported schema keyword"},
-		{"format", schemaWithProperty(`{"type":"string","format":"date"}`), "/properties/p/format", "unsupported schema keyword"},
-		{"default", schemaWithProperty(`{"type":"string","default":"a"}`), "/properties/p/default", "unsupported schema keyword"},
-		{"string bounds", schemaWithProperty(`{"type":"string","minLength":2}`), "/properties/p/minLength", "unsupported schema keyword"},
-		{"descriptions", schemaWithProperty(`{"type":"string","description":"x"}`), "/properties/p/description", "unsupported schema keyword"},
+		{"const", schemaWithProperty(`{"type":"string","const":"a"}`), "/properties/p/const", "unsupported schema keyword"},
+		{"string constraint on an integer", schemaWithProperty(`{"type":"integer","pattern":"a"}`), "/properties/p/pattern", "unsupported schema keyword"},
+		{"length bound on an array", schemaWithProperty(`{"type":"array","items":{"type":"string"},"maxLength":2}`), "/properties/p/maxLength", "unsupported schema keyword"},
+		{"additionalProperties schema", `{"type":"object","additionalProperties":{"type":"string"}}`, "/additionalProperties", "additionalProperties:false is required"},
+		{"nested additionalProperties true", schemaWithProperty(`{"type":"object","additionalProperties":true}`), "/properties/p/additionalProperties", "additionalProperties:false is required"},
+		{"non-string description", schemaWithProperty(`{"type":"string","description":1}`), "/properties/p/description", "description and title must be strings"},
+		{"non-string title", `{"type":"object","title":["x"]}`, "/title", "description and title must be strings"},
+		{"non-string pattern", schemaWithProperty(`{"type":"string","pattern":1}`), "/properties/p/pattern", "string constraints must be strings"},
+		{"non-string format", schemaWithProperty(`{"type":"string","format":true}`), "/properties/p/format", "string constraints must be strings"},
+		{"fractional minLength", schemaWithProperty(`{"type":"string","minLength":1.5}`), "/properties/p/minLength", "string length bounds must be whole numbers"},
+		{"negative maxLength", schemaWithProperty(`{"type":"string","maxLength":-1}`), "/properties/p/maxLength", "string length bounds must be whole numbers"},
+		{"string maxLength", schemaWithProperty(`{"type":"string","maxLength":"2"}`), "/properties/p/maxLength", "string length bounds must be whole numbers"},
+		{"multi-type anyOf", schemaWithProperty(`{"anyOf":[{"type":"string"},{"type":"array","items":{"type":"string"}}]}`), "/properties/p/anyOf", "only nullable unions are supported"},
+		{"multi-type anyOf with null", schemaWithProperty(`{"anyOf":[{"type":"string"},{"type":"integer"},{"type":"null"}]}`), "/properties/p/anyOf", "only nullable unions are supported"},
+		{"null-only anyOf", schemaWithProperty(`{"anyOf":[{"type":"null"}]}`), "/properties/p/anyOf", "only nullable unions are supported"},
+		{"single-branch anyOf", schemaWithProperty(`{"anyOf":[{"type":"string"}]}`), "/properties/p/anyOf", "only nullable unions are supported"},
+		{"empty anyOf", schemaWithProperty(`{"anyOf":[]}`), "/properties/p/anyOf", "union must be an array of schemas"},
+		{"anyOf not array", schemaWithProperty(`{"anyOf":{"type":"string"}}`), "/properties/p/anyOf", "union must be an array of schemas"},
+		{"anyOf beside oneOf", schemaWithProperty(`{"anyOf":[{"type":"string"},{"type":"null"}],"oneOf":[]}`), "/properties/p/oneOf", "unsupported schema keyword"},
+		{"anyOf beside a constraint", schemaWithProperty(`{"anyOf":[{"type":"string"},{"type":"null"}],"minLength":1}`), "/properties/p/minLength", "unsupported schema keyword"},
+		{"null branch with a constraint", schemaWithProperty(`{"anyOf":[{"type":"string"},{"type":"null","enum":["a"]}]}`), "/properties/p/anyOf/1/enum", "unsupported schema keyword"},
+		{"anyOf beside a type", schemaWithProperty(`{"type":"string","anyOf":[{"type":"string"},{"type":"null"}]}`), "/properties/p/anyOf", "unsupported schema keyword"},
+		{"nullable branch dropping an enum", schemaWithProperty(`{"anyOf":[{"type":"integer","enum":[1]},{"type":"null"}]}`), "/properties/p/anyOf/0/enum", "enums must be strings"},
+		{"nullable branch at depth 4", objectChainNullable(), "/properties/p/properties/p/anyOf/0/properties/p", "object nesting exceeds depth 3"},
+		{"anyOf at the root", `{"type":"object","anyOf":[{"type":"object"},{"type":"null"}]}`, "/anyOf", "unsupported schema keyword"},
+		{"anyOf in array items", schemaWithProperty(`{"type":"array","items":{"anyOf":[{"type":"string"},{"type":"null"}]}}`), "/properties/p/items/type", "unsupported schema type"},
+		{"type list", schemaWithProperty(`{"type":["string","null"]}`), "/properties/p/type", "unsupported schema type"},
+		{"ref beside annotations", schemaWithProperty(`{"$ref":"#/x","description":"d"}`), "/properties/p/type", "unsupported schema type"},
 		{"missing type", schemaWithProperty(`{"properties":{}}`), "/properties/p/type", "unsupported schema type"},
 		{"unknown type", schemaWithProperty(`{"type":"null"}`), "/properties/p/type", "unsupported schema type"},
 		{"depth 4", objectChain(4), "/properties/p/properties/p/properties/p", "object nesting exceeds depth 3"},
@@ -475,13 +505,13 @@ func TestParseSchemaNormalizesEncoding(t *testing.T) {
 }
 
 func TestParseSchemaEscapesPointers(t *testing.T) {
-	schema := `{"type":"object","additionalProperties":false,"properties":{"a/b~c":{"type":"string","pattern":"x"}}}`
+	schema := `{"type":"object","additionalProperties":false,"properties":{"a/b~c":{"type":"string","const":"x"}}}`
 	_, err := ParseSchema([]byte(schema))
 	var failure *SchemaError
 	if !asSchemaError(err, &failure) {
 		t.Fatalf("error = %v; want *SchemaError", err)
 	}
-	if failure.Pointer != "/properties/a~1b~0c/pattern" {
+	if failure.Pointer != "/properties/a~1b~0c/const" {
 		t.Fatalf("pointer = %q; want the escaped property path", failure.Pointer)
 	}
 }
@@ -540,5 +570,241 @@ func TestSchemaValidateChecksStructureNotTruth(t *testing.T) {
 				t.Fatalf("Validate(%s) reason = %q", tc.payload, failure.Reason)
 			}
 		})
+	}
+}
+
+// strictCoreSchemas are every schema the pre-widening accept table listed, plus
+// a required array-of-objects variant and one mixed schema. They must still be
+// accepted, still reach the helper as the same bytes, and still judge every
+// payload the same way.
+func strictCoreSchemas() map[string]string {
+	return map[string]string{
+		"empty object":               `{"type":"object","additionalProperties":false}`,
+		"string":                     schemaWithProperty(`{"type":"string"}`),
+		"integer":                    schemaWithProperty(`{"type":"integer","minimum":0,"maximum":10}`),
+		"number":                     schemaWithProperty(`{"type":"number","minimum":-1.5,"maximum":1.5}`),
+		"boolean":                    schemaWithProperty(`{"type":"boolean"}`),
+		"string enum":                schemaWithProperty(`{"type":"string","enum":["a","b"]}`),
+		"array of string":            schemaWithProperty(`{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":2}`),
+		"array bounds 0":             schemaWithProperty(`{"type":"array","items":{"type":"string"},"minItems":0,"maxItems":0}`),
+		"array bounds 100":           schemaWithProperty(`{"type":"array","items":{"type":"string"},"maxItems":100}`),
+		"array of objects":           schemaWithProperty(`{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"a":{"type":"string"}}}}`),
+		"array of objects, required": schemaWithProperty(`{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"a":{"type":"string"}},"required":["a"]}}`),
+		"nested depth 3":             objectChain(3),
+		"object inside array at depth 3": `{"type":"object","additionalProperties":false,"properties":{"a":{"type":"object",` +
+			`"additionalProperties":false,"properties":{"b":{"type":"array","items":{"type":"object","additionalProperties":false,` +
+			`"properties":{"c":{"type":"string"}}}}}}}}`,
+		"optional property":      `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string"}}}`,
+		"integer without bounds": schemaWithProperty(`{"type":"integer"}`),
+		"mixed": `{"type":"object","additionalProperties":false,"required":["name","age"],"properties":{` +
+			`"name":{"type":"string","enum":["a","b"]},"age":{"type":"integer","minimum":0,"maximum":10},` +
+			`"score":{"type":"number","minimum":0,"maximum":1},"tags":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":2},` +
+			`"flag":{"type":"boolean"}}}`,
+	}
+}
+
+var strictCorePayloads = []string{
+	`{}`, `[]`, `null`, `"x"`, `{"p":"a"}`, `{"p":"c"}`, `{"p":3}`, `{"p":11}`, `{"p":-1}`, `{"p":1.5}`, `{"p":0.5}`,
+	`{"p":true}`, `{"p":null}`, `{"p":[]}`, `{"p":["x"]}`, `{"p":["x","y","z"]}`, `{"p":[1]}`, `{"p":[{"a":"x"}]}`,
+	`{"p":[{"a":1}]}`, `{"p":[{}]}`, `{"p":[{"a":"x","b":1}]}`, `{"p":{"p":{"p":"x"}}}`, `{"p":{"p":{"p":1}}}`,
+	`{"p":"a","q":1}`, `{"a":{"b":[{"c":"x"}]}}`, `{"a":{"b":[{"c":1}]}}`, `{"a":{"b":[{"d":"x"}]}}`, `{"a":{"b":{}}}`,
+	`{"p":[{"a":"x"},{"a":"y"}]}`, `{"p":9007199254740993}`, `{"name":"a","age":3}`, `{"name":"c","age":3}`, `{"name":"a","age":3,"score":2}`,
+	`{"name":"a","age":3,"tags":[]}`, `{"name":"a","age":3,"flag":"true"}`, `{"name":"a"}`, `{"name":"a","age":3,"other":1}`,
+}
+
+func validationVerdict(schema *Schema, payload string) string {
+	if err := schema.Validate(json.RawMessage(payload)); err != nil {
+		return err.Error()
+	}
+	return "ok"
+}
+
+// compactSorted is the normalized encoding of a document with no annotations.
+func compactSorted(t *testing.T, document string) string {
+	t.Helper()
+	value, err := decodeSchemaDocument([]byte(document), "schema")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, ok := value.encode()
+	if !ok {
+		t.Fatal("encode failed")
+	}
+	return string(encoded)
+}
+
+// annotateEveryNode adds every ignored annotation and an x-* key to each
+// schema node of a strict-core document, plus description and title.
+func annotateEveryNode(t *testing.T, document string) string {
+	t.Helper()
+	var tree map[string]any
+	if err := json.Unmarshal([]byte(document), &tree); err != nil {
+		t.Fatal(err)
+	}
+	var walk func(node map[string]any)
+	walk = func(node map[string]any) {
+		node["description"] = "described"
+		node["title"] = "Titled"
+		node["$comment"] = "c"
+		node["default"] = map[string]any{"nested": []any{1, "x", nil}}
+		node["examples"] = []any{"e"}
+		node["deprecated"] = false
+		node["readOnly"] = false
+		node["writeOnly"] = false
+		node["x-vendor"] = map[string]any{"k": "v"}
+		if properties, ok := node["properties"].(map[string]any); ok {
+			for _, property := range properties {
+				walk(property.(map[string]any))
+			}
+		}
+		if items, ok := node["items"].(map[string]any); ok {
+			walk(items)
+		}
+	}
+	walk(tree)
+	tree["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+	tree["$id"] = "urn:example:schema"
+	encoded, err := json.Marshal(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
+
+// withoutAdditionalProperties removes every additionalProperties:false.
+func withoutAdditionalProperties(document string) string {
+	document = strings.ReplaceAll(document, `"additionalProperties":false,`, "")
+	return strings.ReplaceAll(document, `,"additionalProperties":false`, "")
+}
+
+func TestParseSchemaWideningKeepsStrictCoreBehavior(t *testing.T) {
+	for name, document := range strictCoreSchemas() {
+		t.Run(name, func(t *testing.T) {
+			strict, err := ParseSchema([]byte(document))
+			if err != nil {
+				t.Fatalf("previously accepted schema rejected: %v", err)
+			}
+			// The helper receives exactly what it received before.
+			if got, want := string(strict.Bytes()), compactSorted(t, document); got != want {
+				t.Fatalf("helper bytes changed:\n%s\nwant\n%s", got, want)
+			}
+			variants := map[string]string{
+				"annotated":                    annotateEveryNode(t, document),
+				"additionalProperties omitted": withoutAdditionalProperties(document),
+			}
+			for variant, text := range variants {
+				widened, err := ParseSchema([]byte(text))
+				if err != nil {
+					t.Fatalf("%s variant rejected: %v", variant, err)
+				}
+				for _, payload := range strictCorePayloads {
+					if got, want := validationVerdict(widened, payload), validationVerdict(strict, payload); got != want {
+						t.Fatalf("%s variant judges %s as %q; strict schema judges it %q", variant, payload, got, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestParseSchemaAcceptsWidenedKeywords(t *testing.T) {
+	cases := map[string]string{
+		"annotations on root and property": `{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:x","$comment":"c",` +
+			`"title":"T","description":"D","type":"object","properties":{"p":{"type":"string","title":"P","description":"d",` +
+			`"default":"a","examples":["a"],"deprecated":true,"readOnly":true,"writeOnly":false,"x-mcp-header":"h"}}}`,
+		"string constraints": schemaWithProperty(`{"type":"string","format":"uri","minLength":1,"maxLength":2000,` +
+			`"pattern":"^a","contentEncoding":"base64","contentMediaType":"image/png"}`),
+		"constraints beside an enum":    schemaWithProperty(`{"type":"string","enum":["a"],"maxLength":1}`),
+		"default on an array":           schemaWithProperty(`{"type":"array","items":{"type":"string"},"default":[]}`),
+		"default on an integer":         schemaWithProperty(`{"type":"integer","minimum":1,"default":5}`),
+		"nested object without closure": schemaWithProperty(`{"type":"object","properties":{"q":{"type":"string"}}}`),
+		"nullable anyOf":                `{"type":"object","properties":{"p":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"P"}}}`,
+		"nullable oneOf, null first":    `{"type":"object","properties":{"p":{"oneOf":[{"type":"null"},{"type":"integer","maximum":3}]}}}`,
+		"nullable object branch":        `{"type":"object","properties":{"p":{"anyOf":[{"type":"object","properties":{"q":{"type":"string"}}},{"type":"null"}]}}}`,
+		"two null branches":             `{"type":"object","properties":{"p":{"anyOf":[{"type":"null"},{"type":"string"},{"type":"null","description":"none"}]}}}`,
+	}
+	for name, schema := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseSchema([]byte(schema)); err != nil {
+				t.Fatalf("ParseSchema(%s) = %v; want accepted", schema, err)
+			}
+		})
+	}
+}
+
+func TestSchemaValidateWidenedRules(t *testing.T) {
+	schema := mustParseSchema(t, `{"type":"object","required":["name","note","limit"],"properties":{`+
+		`"name":{"type":"string","minLength":5,"maxLength":6,"pattern":"^z","format":"email","default":"zzzzz"},`+
+		`"note":{"anyOf":[{"type":"string","enum":["a","b"]},{"type":"null"}]},`+
+		`"limit":{"oneOf":[{"type":"null"},{"type":"integer","minimum":1,"maximum":3}]},`+
+		`"inner":{"type":"object","properties":{"q":{"type":"string"}}}}}`)
+	cases := []struct {
+		name    string
+		payload string
+		pointer string
+	}{
+		// String constraints are carried, not enforced: only the type counts.
+		{"constraints not enforced", `{"name":"a","note":"a","limit":1}`, ""},
+		// A default is never applied: an absent optional stays absent, and
+		// an absent required member is still missing.
+		{"collapsed properties are optional", `{"name":"x"}`, ""},
+		{"required kept for ordinary properties", `{"note":"a"}`, "/name"},
+		{"null accepted for a nullable property", `{"name":"x","note":null,"limit":null}`, ""},
+		{"null refused for an ordinary property", `{"name":null}`, "/name"},
+		{"collapsed branch still validates its enum", `{"name":"x","note":"c"}`, "/note"},
+		{"collapsed branch still validates its bounds", `{"name":"x","limit":4}`, "/limit"},
+		{"collapsed branch still validates its type", `{"name":"x","limit":"1"}`, "/limit"},
+		{"absent additionalProperties closes the root", `{"name":"x","other":1}`, "/other"},
+		{"absent additionalProperties closes nested objects", `{"name":"x","inner":{"q":"a","r":1}}`, "/inner/r"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := schema.Validate(json.RawMessage(tc.payload))
+			if tc.pointer == "" {
+				if err != nil {
+					t.Fatalf("Validate(%s) = %v; want conforming", tc.payload, err)
+				}
+				return
+			}
+			var failure *SchemaError
+			if !asSchemaError(err, &failure) || failure.Pointer != tc.pointer {
+				t.Fatalf("Validate(%s) = %v; want a mismatch at %s", tc.payload, err, tc.pointer)
+			}
+		})
+	}
+}
+
+func TestParseSchemaCarriesDescriptionAndTitle(t *testing.T) {
+	schema := mustParseSchema(t, `{"type":"object","title":"Root","properties":{`+
+		`"a":{"type":"string","description":"first","title":"A"},`+
+		`"b":{"type":"integer","title":"Bee"},`+
+		`"c":{"anyOf":[{"type":"string","description":"inner"},{"type":"null"}]},`+
+		`"d":{"anyOf":[{"type":"string","description":"inner"},{"type":"null"}],"description":"outer"},`+
+		`"e":{"type":"boolean"}}}`)
+	if schema.root.description != "Root" {
+		t.Fatalf("root description = %q; want the title", schema.root.description)
+	}
+	want := map[string]string{"a": "first", "b": "Bee", "c": "inner", "d": "outer", "e": ""}
+	for _, property := range schema.root.properties {
+		if property.description != want[property.name] {
+			t.Fatalf("property %s description = %q; want %q", property.name, property.description, want[property.name])
+		}
+	}
+}
+
+func TestParseSchemaSendsOnlyCarriedAnnotations(t *testing.T) {
+	// Annotation values are arbitrary JSON and never reach the helper: a
+	// default nested deeper than the helper's decoder allows must not turn a
+	// pre-spawn acceptance into a post-spawn failure.
+	deepDefault := strings.Repeat("[", 600) + strings.Repeat("]", 600)
+	schema := mustParseSchema(t, `{"type":"object","$schema":"s","x-a":1,"description":"d","properties":{"p":{"type":"string",`+
+		`"title":"t","default":`+deepDefault+`,"examples":[1],"format":"uri"},"q":{"anyOf":[{"type":"string","default":"x"},{"type":"null","$comment":"c"}]}}}`)
+	want := `{"description":"d","properties":{"p":{"format":"uri","title":"t","type":"string"},` +
+		`"q":{"anyOf":[{"type":"string"},{"type":"null"}]}},"type":"object"}`
+	if string(schema.Bytes()) != want {
+		t.Fatalf("helper bytes =\n%s\nwant\n%s", schema.Bytes(), want)
+	}
+	if _, err := ParseSchema(schema.Bytes()); err != nil {
+		t.Fatalf("helper bytes do not re-parse: %v", err)
 	}
 }

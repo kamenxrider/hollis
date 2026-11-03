@@ -107,6 +107,19 @@ happens before any process exists. Foundation's own decoder fails at roughly 512
 levels; the 16-node bound is far below it, so through Hollis that limit is
 unreachable.
 
+The table also covers each widening of the subset: annotations on root,
+property and `items` nodes; string constraints; `additionalProperties` omitted
+at the root and when nested, with payloads that carry an undeclared member; and
+nullable `anyOf`/`oneOf` collapse, with payloads that send `null`, omit a
+property `required` names, and violate the collapsed branch. It keeps the
+rejections that must not become acceptances: a multi-type union,
+`additionalProperties: true` or a schema value, and an integer `enum` inside a
+nullable branch. `TestParseSchemaWideningKeepsStrictCoreBehavior` checks, in Go
+alone, that every schema in the pre-widening accept table, plus two added
+strict-core schemas, still reaches the helper as the same bytes and judges a
+fixed payload set exactly as before, both with annotations added at every node
+and with `additionalProperties` omitted.
+
 ## SQLite migration gates
 
 Storage tests use temporary SQLite fixtures, not user databases. Run the two

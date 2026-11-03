@@ -174,7 +174,7 @@ func TestGuidedOutputRejectsUnsupportedSchemasBeforeTheRunner(t *testing.T) {
 		schema string
 		wantIn string
 	}{
-		{"unknown keyword", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string","pattern":"x"}}}`, "/properties/p/pattern"},
+		{"unknown keyword", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string","const":"x"}}}`, "/properties/p/const"},
 		{"duplicate key", `{"type":"object","additionalProperties":false,"type":"array"}`, "schema at /type: schema must not repeat an object key"},
 		{"root not object", `"not a schema"`, "root schema must be an object"},
 		{"non-ascii name", `{"type":"object","additionalProperties":false,"properties":{"caf\u00e9":{"type":"string"}}}`, "property names must be printable ASCII"},
@@ -209,7 +209,7 @@ func TestGuidedSchemaValidationPrecedesCapacity(t *testing.T) {
 	srv.slots() <- struct{}{}
 	defer func() { <-srv.slots() }()
 
-	res := post(t, srv.Handler(), "/v1/responses", guidedBodies(`{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string","pattern":"x"}}}`)["/v1/responses"])
+	res := post(t, srv.Handler(), "/v1/responses", guidedBodies(`{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string","const":"x"}}}`)["/v1/responses"])
 	if res.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s; want 400 from schema validation", res.Code, res.Body.String())
 	}

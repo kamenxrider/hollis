@@ -232,6 +232,9 @@ func TestSchemaSwiftParity(t *testing.T) {
 
 // swiftParityCases is one table of accepted, rejected and non-conforming
 // inputs. Every case has a single fault so both parsers report the same one.
+// Cases written before the widenings stay as they were: "missing
+// additionalProperties" and "unknown keyword" are now acceptances on both
+// sides, and the table still requires the two sides to agree on them.
 func swiftParityCases() []swiftParityCase {
 	object := func(properties, required string) string {
 		schema := `{"type":"object","additionalProperties":false`
@@ -383,9 +386,69 @@ func swiftParityCases() []swiftParityCase {
 		withValue("payload array item fault", typed(`{"type":"array","items":{"type":"integer"}}`), `{"p":[1,"b"]}`),
 		withValue("payload missing required", typed(`{"type":"string"}`), `{}`),
 		withValue("payload extra property", typed(`{"type":"string"}`), `{"p":"a","q":1}`),
+		withValue("payload two extra properties", typed(`{"type":"string"}`), `{"p":"a","b":1,"a":2}`),
 		withValue("payload nested fault", object(`{"p":`+typed(`{"type":"string"}`)+`}`, ""), `{"p":{"p":1}}`),
 		withValue("payload root mismatch", object("", ""), `[1]`),
 		withValue("payload duplicate key", typed(`{"type":"string"}`), `{"p":"a","p":"b"}`),
 		withValue("payload trailing comma", typed(`{"type":"string"}`), `{"p":"a",}`),
+
+		// The widenings. Annotations are ignored at any node, string
+		// constraints are accepted and not enforced, an absent
+		// additionalProperties means false, and a nullable union collapses to
+		// its one non-null branch as an optional property.
+		now("annotations on root and property", `{"$schema":"s","$id":"i","$comment":"c","title":"T","description":"D",`+
+			`"type":"object","additionalProperties":false,"properties":{"p":{"type":"integer","title":"P","description":"d",`+
+			`"default":1,"examples":[1],"deprecated":true,"readOnly":true,"writeOnly":false,"x-mcp-header":"h"}}}`),
+		now("annotations on array items", typed(`{"type":"array","default":[],"items":{"type":"string","x-k":{"a":[1]}}}`)),
+		now("string constraints", typed(`{"type":"string","format":"uri","minLength":1,"maxLength":9,"pattern":"^a",`+
+			`"contentEncoding":"base64","contentMediaType":"text/plain"}`)),
+		now("additionalProperties absent at the root", `{"type":"object","properties":{"p":{"type":"string"}}}`),
+		now("additionalProperties absent when nested", typed(`{"type":"object","properties":{"q":{"type":"string"}}}`)),
+		now("nullable anyOf", `{"type":"object","properties":{"p":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null}}}`),
+		now("nullable oneOf, null first", `{"type":"object","properties":{"p":{"oneOf":[{"type":"null"},{"type":"integer","maximum":3}]}}}`),
+		now("nullable anyOf named required", `{"type":"object","properties":{"p":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["p"]}`),
+		withValue("payload ignores string constraints", typed(`{"type":"string","minLength":5,"pattern":"^z"}`), `{"p":"a"}`),
+		withValue("payload extra property without additionalProperties", `{"type":"object","properties":{"p":{"type":"string"}}}`, `{"p":"a","q":1}`),
+		withValue("payload nested extra property without additionalProperties", typed(`{"type":"object","properties":{"q":{"type":"string"}}}`), `{"p":{"q":"a","r":1}}`),
+		withValue("payload null for a nullable property", `{"type":"object","properties":{"p":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["p"]}`, `{"p":null}`),
+		withValue("payload nullable property omitted", `{"type":"object","properties":{"p":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["p"]}`, `{}`),
+		withValue("payload nullable branch enum mismatch", `{"type":"object","properties":{"p":{"anyOf":[{"type":"string","enum":["a"]},{"type":"null"}]}}}`, `{"p":"b"}`),
+		withValue("payload nullable branch bound", `{"type":"object","properties":{"p":{"oneOf":[{"type":"null"},{"type":"integer","maximum":3}]}}}`, `{"p":4}`),
+		withValue("payload null for an ordinary property", typed(`{"type":"string"}`), `{"p":null}`),
+		withValue("payload default is not applied", `{"type":"object","properties":{"p":{"type":"string","default":"a"}},"required":["p"]}`, `{}`),
+		// Rejections that must not become acceptances.
+		now("null branch description not a string", `{"type":"object","properties":{"p":{"anyOf":[{"type":"string"},{"type":"null","description":{"no":1}}]}}}`),
+		now("null branch title not a string", `{"type":"object","properties":{"p":{"anyOf":[{"type":"string"},{"type":"null","title":["x"]}]}}}`),
+		now("additionalProperties true when nested", typed(`{"type":"object","additionalProperties":true}`)),
+		now("additionalProperties schema", `{"type":"object","additionalProperties":{"type":"string"}}`),
+		now("additionalProperties zero", `{"type":"object","additionalProperties":0}`),
+		now("multi-type union", typed(`{"anyOf":[{"type":"string"},{"type":"array","items":{"type":"string"}}]}`)),
+		now("multi-type union with null", typed(`{"anyOf":[{"type":"string"},{"type":"integer"},{"type":"null"}]}`)),
+		now("null-only union", typed(`{"anyOf":[{"type":"null"}]}`)),
+		now("single-branch union", typed(`{"oneOf":[{"type":"string"}]}`)),
+		now("empty union", typed(`{"anyOf":[]}`)),
+		now("union not an array", typed(`{"anyOf":{"type":"string"}}`)),
+		now("anyOf beside oneOf", typed(`{"anyOf":[{"type":"string"},{"type":"null"}],"oneOf":[]}`)),
+		now("union beside a constraint", typed(`{"anyOf":[{"type":"string"},{"type":"null"}],"minLength":1}`)),
+		now("union beside a type", typed(`{"type":"string","anyOf":[{"type":"string"},{"type":"null"}]}`)),
+		now("null branch with a keyword", typed(`{"anyOf":[{"type":"string"},{"type":"null","enum":["a"]}]}`)),
+		now("non-object union branch", typed(`{"anyOf":["x",{"type":"null"}]}`)),
+		now("union at the root", `{"type":"object","anyOf":[{"type":"object"},{"type":"null"}]}`),
+		now("union in array items", typed(`{"type":"array","items":{"anyOf":[{"type":"string"},{"type":"null"}]}}`)),
+		now("dropped integer enum in a nullable branch", typed(`{"anyOf":[{"type":"integer","enum":[1]},{"type":"null"}]}`)),
+		now("integer enum beside annotations", typed(`{"type":"integer","description":"d","enum":[1,2]}`)),
+		now("nullable branch past depth 3", `{"type":"object","properties":{"p":{"type":"object","properties":{"p":{"anyOf":[`+
+			`{"type":"object","properties":{"p":{"type":"object","properties":{"p":{"type":"string"}}}}},{"type":"null"}]}}}}}`),
+		now("nullable branch past nesting 16", typed(`{"anyOf":[`+strings.Repeat(`{"type":"array","items":`, 14)+`{"type":"string"}`+strings.Repeat("}", 14)+`,{"type":"null"}]}`)),
+		now("string constraint on an integer", typed(`{"type":"integer","maxLength":1}`)),
+		now("const", typed(`{"type":"string","const":"a"}`)),
+		now("type list", typed(`{"type":["string","null"]}`)),
+		now("non-string description", typed(`{"type":"string","description":1}`)),
+		now("non-string title in a union", typed(`{"anyOf":[{"type":"string"},{"type":"null"}],"title":2}`)),
+		now("non-string pattern", typed(`{"type":"string","pattern":1}`)),
+		now("fractional minLength", typed(`{"type":"string","minLength":1.5}`)),
+		now("boolean maxLength", typed(`{"type":"string","maxLength":true}`)),
+		now("negative maxLength", typed(`{"type":"string","maxLength":-1}`)),
+		now("annotation then unsupported keyword", typed(`{"type":"string","$comment":"c","const":"a","default":"b"}`)),
 	}
 }

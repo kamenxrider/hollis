@@ -4,6 +4,14 @@ package runner
 
 // Guided output: the supported JSON Schema subset and its validation.
 //
+// The subset is the one vocabulary for guided output and tool parameters. It
+// admits four widenings over the strict core: annotation keywords are accepted
+// and ignored for validation (description and title are carried), string
+// constraints are accepted but not enforced, an absent additionalProperties
+// means false, and a property whose anyOf/oneOf is one schema plus null
+// collapses to that schema as an optional, nullable property. A default is
+// never applied.
+//
 // native/SchemaSubset.swift is the helper's half of this contract. The rules,
 // limits, JSON pointers and rejection reasons here mirror it node for node so a
 // schema accepted by the CLI is accepted by the helper, and a returned object is
@@ -85,7 +93,9 @@ func sanitizeSchemaPointer(pointer string) string {
 }
 
 // Schema is a parsed, validated request schema. It is immutable and safe to
-// reuse: Bytes returns the normalized encoding that is sent to the helper.
+// reuse: Bytes returns the normalized encoding that is sent to the helper,
+// which omits every annotation except description and title. The 64 KiB bound
+// is measured on the whole document, before that omission.
 type Schema struct {
 	root *schemaNode
 	raw  []byte
@@ -116,25 +126,32 @@ type schemaValue struct {
 	boolean bool
 }
 
+// schemaProperty is one declared property. nullable marks a collapsed
+// nullable union: null is accepted for it, and it is never required.
+// description is the carried annotation: description, or title when no
+// description is given.
 type schemaProperty struct {
-	name     string
-	node     *schemaNode
-	required bool
+	name        string
+	node        *schemaNode
+	required    bool
+	nullable    bool
+	description string
 }
 
 // schemaNode is one validated subset node. Bounds stay float64 because that is
 // the comparison the helper performs.
 type schemaNode struct {
-	kind       string
-	properties []schemaProperty
-	required   map[string]bool
-	items      *schemaNode
-	minItems   *int
-	maxItems   *int
-	choices    []string
-	hasChoices bool
-	minimum    *float64
-	maximum    *float64
+	kind        string
+	description string
+	properties  []schemaProperty
+	required    map[string]bool
+	items       *schemaNode
+	minItems    *int
+	maxItems    *int
+	choices     []string
+	hasChoices  bool
+	minimum     *float64
+	maximum     *float64
 }
 
 // ParseSchema validates data against the supported subset and returns the
@@ -166,7 +183,11 @@ func ParseSchema(data []byte) (*Schema, error) {
 	if root.kind != "object" {
 		return nil, &SchemaError{Reason: "root schema must be an object"}
 	}
-	return &Schema{root: root, raw: normalized}, nil
+	sent, ok := value.withoutIgnoredAnnotations().encode()
+	if !ok {
+		return nil, &SchemaError{Reason: "schema contains a value that cannot be encoded"}
+	}
+	return &Schema{root: root, raw: sent}, nil
 }
 
 // decodeSchemaDocument decodes one JSON document into the generic tree,
@@ -324,7 +345,7 @@ func parseSchemaNode(value schemaValue, path string, objectDepth, nesting int, b
 	case "array":
 		allowed = []string{"type", "items", "minItems", "maxItems"}
 	case "string":
-		allowed = []string{"type", "enum"}
+		allowed = append([]string{"type", "enum"}, schemaStringConstraints...)
 	case "integer", "number":
 		allowed = []string{"type", "minimum", "maximum"}
 	case "boolean":
@@ -335,7 +356,7 @@ func parseSchemaNode(value schemaValue, path string, objectDepth, nesting int, b
 	// The helper asks a dictionary for an arbitrary unknown key; sorting here
 	// keeps a multi-fault rejection reproducible without changing the rule.
 	for _, key := range sortedKeys(value.object) {
-		if !contains(allowed, key) {
+		if !contains(allowed, key) && !isSchemaAnnotation(key) {
 			reason := "unsupported schema keyword"
 			if key == "enum" {
 				reason = "enums must be strings"
@@ -343,13 +364,125 @@ func parseSchemaNode(value schemaValue, path string, objectDepth, nesting int, b
 			return nil, &SchemaError{Pointer: pointer(path, key), Reason: reason}
 		}
 	}
+	description, err := schemaDescription(value.object, path)
+	if err != nil {
+		return nil, err
+	}
+	node, err := parseSchemaKind(kind, value, path, objectDepth, nesting, budget)
+	if err != nil {
+		return nil, err
+	}
+	node.description = description
+	return node, nil
+}
+
+// schemaAnnotations inform nothing about validity. Any x-* key is an
+// annotation too.
+var schemaAnnotations = []string{
+	"$comment", "$id", "$schema", "default", "deprecated", "description",
+	"examples", "readOnly", "title", "writeOnly",
+}
+
+// schemaStringConstraints are accepted on string nodes and not enforced: only
+// the type and an enum are checked against a value.
+var schemaStringConstraints = []string{
+	"contentEncoding", "contentMediaType", "format", "maxLength", "minLength", "pattern",
+}
+
+func isSchemaAnnotation(key string) bool {
+	return contains(schemaAnnotations, key) || strings.HasPrefix(key, "x-")
+}
+
+// schemaDescription returns the text carried into the model-facing schema:
+// description, or title when there is no description.
+func schemaDescription(fields map[string]schemaValue, path string) (string, error) {
+	for _, key := range []string{"description", "title"} {
+		if value, present := fields[key]; present && value.kind != schemaString {
+			return "", &SchemaError{Pointer: pointer(path, key), Reason: "description and title must be strings"}
+		}
+	}
+	if value, present := fields["description"]; present {
+		return value.text, nil
+	}
+	return fields["title"].text, nil
+}
+
+// parsePropertyNode parses one declared property. A property written as a
+// nullable union, with no type of its own, collapses to its single non-null
+// branch; every other property is an ordinary node.
+func parsePropertyNode(value schemaValue, path string, objectDepth, nesting int, budget *int) (schemaProperty, error) {
+	_, typed := value.object["type"]
+	_, anyOf := value.object["anyOf"]
+	_, oneOf := value.object["oneOf"]
+	if value.kind != schemaObject || typed || (!anyOf && !oneOf) || nesting > SchemaMaxNesting {
+		node, err := parseSchemaNode(value, path, objectDepth, nesting, budget)
+		if err != nil {
+			return schemaProperty{}, err
+		}
+		return schemaProperty{node: node, description: node.description}, nil
+	}
+	for _, key := range sortedKeys(value.object) {
+		if (key != "anyOf" && key != "oneOf" && !isSchemaAnnotation(key)) || (key == "oneOf" && anyOf) {
+			return schemaProperty{}, &SchemaError{Pointer: pointer(path, key), Reason: "unsupported schema keyword"}
+		}
+	}
+	description, err := schemaDescription(value.object, path)
+	if err != nil {
+		return schemaProperty{}, err
+	}
+	keyword := "oneOf"
+	if anyOf {
+		keyword = "anyOf"
+	}
+	at := pointer(path, keyword)
+	branches := value.object[keyword]
+	if branches.kind != schemaArray || len(branches.array) == 0 {
+		return schemaProperty{}, &SchemaError{Pointer: at, Reason: "union must be an array of schemas"}
+	}
+	nulls, kept := 0, -1
+	for index, branch := range branches.array {
+		branchType, present := branch.object["type"]
+		if branch.kind != schemaObject || !present || branchType.kind != schemaString || branchType.text != "null" {
+			if kept >= 0 {
+				return schemaProperty{}, &SchemaError{Pointer: at, Reason: "only nullable unions are supported"}
+			}
+			kept = index
+			continue
+		}
+		branchPath := at + "/" + strconv.Itoa(index)
+		for _, key := range sortedKeys(branch.object) {
+			if key != "type" && !isSchemaAnnotation(key) {
+				return schemaProperty{}, &SchemaError{Pointer: pointer(branchPath, key), Reason: "unsupported schema keyword"}
+			}
+		}
+		if _, err := schemaDescription(branch.object, branchPath); err != nil {
+			return schemaProperty{}, err
+		}
+		nulls++
+	}
+	if kept < 0 || nulls == 0 {
+		return schemaProperty{}, &SchemaError{Pointer: at, Reason: "only nullable unions are supported"}
+	}
+	node, err := parseSchemaNode(branches.array[kept], at+"/"+strconv.Itoa(kept), objectDepth, nesting+1, budget)
+	if err != nil {
+		return schemaProperty{}, err
+	}
+	if description == "" {
+		description = node.description
+	}
+	return schemaProperty{node: node, nullable: true, description: description}, nil
+}
+
+func parseSchemaKind(kind string, value schemaValue, path string, objectDepth, nesting int, budget *int) (*schemaNode, error) {
 	switch kind {
 	case "object":
 		if objectDepth > SchemaMaxDepth {
 			return nil, &SchemaError{Pointer: path, Reason: "object nesting exceeds depth 3"}
 		}
-		additional, present := value.object["additionalProperties"]
-		if !present || additional.kind != schemaBool || additional.boolean {
+		// Absent means false. Only an explicit true or a schema value leaves
+		// the object open, and an open object cannot be validated.
+		if additional, present := value.object["additionalProperties"]; present &&
+			(additional.kind != schemaBool || additional.boolean) {
 			return nil, &SchemaError{Pointer: pointer(path, "additionalProperties"),
 				Reason: "additionalProperties:false is required"}
 		}
@@ -379,13 +512,14 @@ func parseSchemaNode(value schemaValue, path string, objectDepth, nesting int, b
 					return nil, &SchemaError{Pointer: pointer(path, "properties"),
 						Reason: "schema declares more than 32 properties"}
 				}
-				child, err := parseSchemaNode(rawProperties.object[name],
+				property, err := parsePropertyNode(rawProperties.object[name],
 					pointer(pointer(path, "properties"), name), objectDepth+1, nesting+1, budget)
 				if err != nil {
 					return nil, err
 				}
 				declared[name] = true
-				node.properties = append(node.properties, schemaProperty{name: name, node: child})
+				property.name = name
+				node.properties = append(node.properties, property)
 			}
 		}
 		if rawRequired, present := value.object["required"]; present {
@@ -412,7 +546,8 @@ func parseSchemaNode(value schemaValue, path string, objectDepth, nesting int, b
 			}
 		}
 		for index := range node.properties {
-			node.properties[index].required = node.required[node.properties[index].name]
+			property := &node.properties[index]
+			property.required = node.required[property.name] && !property.nullable
 		}
 		return node, nil
 	case "array":
@@ -440,6 +575,20 @@ func parseSchemaNode(value schemaValue, path string, objectDepth, nesting int, b
 		return &schemaNode{kind: "array", items: items, minItems: minimum, maxItems: maximum}, nil
 	case "string":
 		node := &schemaNode{kind: "string"}
+		for _, key := range []string{"contentEncoding", "contentMediaType", "format", "pattern"} {
+			if constraint, present := value.object[key]; present && constraint.kind != schemaString {
+				return nil, &SchemaError{Pointer: pointer(path, key), Reason: "string constraints must be strings"}
+			}
+		}
+		for _, key := range []string{"maxLength", "minLength"} {
+			if constraint, present := value.object[key]; present {
+				number, ok := constraint.asFloat()
+				if !ok || number != math.Trunc(number) || number < 0 || number > schemaMaxInteger {
+					return nil, &SchemaError{Pointer: pointer(path, key),
+						Reason: "string length bounds must be whole numbers"}
+				}
+			}
+		}
 		if rawEnum, present := value.object["enum"]; present {
 			if rawEnum.kind != schemaArray || len(rawEnum.array) == 0 {
 				return nil, &SchemaError{Pointer: pointer(path, "enum"), Reason: "enum must not be empty"}
@@ -564,6 +713,9 @@ func validateSchemaValue(value schemaValue, node *schemaNode, path string) strin
 		}
 		for _, property := range node.properties {
 			if child, present := value.object[property.name]; present {
+				if property.nullable && child.kind == schemaNull {
+					continue
+				}
 				if bad := validateSchemaValue(child, property.node, pointer(path, property.name)); bad != "" {
 					return bad
 				}
@@ -661,6 +813,39 @@ func sortedKeys(fields map[string]schemaValue) []string {
 
 func pointer(path, component string) string {
 	return path + "/" + strings.ReplaceAll(strings.ReplaceAll(component, "~", "~0"), "/", "~1")
+}
+
+// withoutIgnoredAnnotations drops the annotation keywords nothing reads, at
+// every schema-node position, keeping description and title. Their values are
+// arbitrary JSON: a deeply nested default would pass Go's decoder and fail the
+// helper's after spawn, so the helper never receives them. Call it only on a
+// tree ParseSchema accepted, whose node positions are known.
+func (v schemaValue) withoutIgnoredAnnotations() schemaValue {
+	fields := make(map[string]schemaValue, len(v.object))
+	for key, child := range v.object {
+		switch {
+		case key == "description" || key == "title":
+			fields[key] = child
+		case isSchemaAnnotation(key):
+		case key == "properties":
+			properties := make(map[string]schemaValue, len(child.object))
+			for name, property := range child.object {
+				properties[name] = property.withoutIgnoredAnnotations()
+			}
+			fields[key] = schemaValue{kind: schemaObject, object: properties}
+		case key == "items":
+			fields[key] = child.withoutIgnoredAnnotations()
+		case key == "anyOf" || key == "oneOf":
+			branches := make([]schemaValue, len(child.array))
+			for index, branch := range child.array {
+				branches[index] = branch.withoutIgnoredAnnotations()
+			}
+			fields[key] = schemaValue{kind: schemaArray, array: branches}
+		default:
+			fields[key] = child
+		}
+	}
+	return schemaValue{kind: schemaObject, object: fields}
 }
 
 // encode is the whitespace-free, sorted-key encoding the helper measures. It

@@ -51,6 +51,13 @@ indirect enum JSONValue: Decodable {
 /// across the whole tree, 64 KiB of normalized encoding, array bounds no
 /// greater than 100, and at most 16 schema nodes on one path counting the root.
 /// Anything outside the subset is rejected, never guessed.
+///
+/// Four widenings over the strict core: annotation keywords are accepted and
+/// ignored for validation (description and title are carried into the SDK
+/// schema), string constraints are accepted but not enforced, an absent
+/// additionalProperties means false, and a property whose anyOf/oneOf is one
+/// schema plus null collapses to that schema as an optional, nullable
+/// property. A default is never applied.
 enum SchemaSubset {
     static let maxEncodedBytes = 64 * 1024
     static let maxDepth = 3
@@ -63,13 +70,38 @@ enum SchemaSubset {
     static let maxNesting = 16
     static let rootName = "HollisResponse"
 
+    /// One declared property. `nullable` marks a collapsed nullable union:
+    /// null is accepted for it and it is never required.
+    struct Property {
+        let name: String
+        let node: Node
+        let required: Bool
+        let nullable: Bool
+        let description: String?
+    }
+
     indirect enum Node {
-        case string([String]?)
+        case string([String]?, description: String?)
         case integer(Int?, Int?)
         case number(Double?, Double?)
         case boolean
-        case object([(name: String, node: Node, required: Bool)])
+        case object([Property], description: String?)
         case array(Node, Int?, Int?)
+    }
+
+    /// Accepted at any node and ignored for validation, as is any `x-*` key.
+    static let annotations: Set<String> = [
+        "$comment", "$id", "$schema", "default", "deprecated", "description",
+        "examples", "readOnly", "title", "writeOnly",
+    ]
+
+    /// Accepted on string nodes and not enforced.
+    static let stringConstraints: Set<String> = [
+        "contentEncoding", "contentMediaType", "format", "maxLength", "minLength", "pattern",
+    ]
+
+    static func isAnnotation(_ key: String) -> Bool {
+        annotations.contains(key) || key.hasPrefix("x-")
     }
 
     /// A rejection carries only a JSON pointer and a fixed reason: schema
@@ -154,24 +186,31 @@ enum SchemaSubset {
         switch kind {
         case "object": allowed = ["type", "properties", "required", "additionalProperties"]
         case "array": allowed = ["type", "items", "minItems", "maxItems"]
-        case "string": allowed = ["type", "enum"]
+        case "string": allowed = stringConstraints.union(["type", "enum"])
         case "integer", "number": allowed = ["type", "minimum", "maximum"]
         default: allowed = ["type"]
         }
-        for key in fields.keys where !allowed.contains(key) {
+        // Sorted so a multi-fault schema reports the key the Go consumer
+        // reports.
+        for key in fields.keys.sorted() where !allowed.contains(key) && !isAnnotation(key) {
             let reason = key == "enum" ? "enums must be strings" : "unsupported schema keyword"
             throw Failure(pointer: pointer(path, key), reason: reason)
         }
+        let description = try carriedDescription(fields, path: path)
         switch kind {
         case "object":
             guard objectDepth <= maxDepth else {
                 throw Failure(pointer: path, reason: "object nesting exceeds depth 3")
             }
-            guard case .boolean(false)? = fields["additionalProperties"] else {
-                throw Failure(pointer: pointer(path, "additionalProperties"),
-                              reason: "additionalProperties:false is required")
+            // Absent means false. Only an explicit true or a schema value
+            // leaves the object open, and an open object cannot be validated.
+            if let additional = fields["additionalProperties"] {
+                guard case .boolean(false) = additional else {
+                    throw Failure(pointer: pointer(path, "additionalProperties"),
+                                  reason: "additionalProperties:false is required")
+                }
             }
-            var declared: [String: SchemaSubset.Node] = [:]
+            var declared: [String: Property] = [:]
             var order: [String] = []
             if let rawProperties = fields["properties"] {
                 guard let propertyFields = rawProperties.fields else {
@@ -198,8 +237,8 @@ enum SchemaSubset {
                         throw Failure(pointer: pointer(path, "properties"),
                                       reason: "schema declares more than 32 properties")
                     }
-                    declared[name] = try parseNode(
-                        propertyFields[name]!, path: pointer(pointer(path, "properties"), name),
+                    declared[name] = try parseProperty(
+                        propertyFields[name]!, name: name, path: pointer(pointer(path, "properties"), name),
                         objectDepth: objectDepth + 1, nesting: nesting + 1, budget: &budget)
                     order.append(name)
                 }
@@ -229,7 +268,12 @@ enum SchemaSubset {
                     }
                 }
             }
-            return .object(order.map { (name: $0, node: declared[$0]!, required: required.contains($0)) })
+            return .object(order.map { name in
+                let property = declared[name]!
+                return Property(name: name, node: property.node,
+                                required: required.contains(name) && !property.nullable,
+                                nullable: property.nullable, description: property.description)
+            }, description: description)
         case "array":
             guard let rawItems = fields["items"] else {
                 throw Failure(pointer: pointer(path, "items"), reason: "array items are required")
@@ -245,6 +289,20 @@ enum SchemaSubset {
             }
             return .array(items, minimum, maximum)
         case "string":
+            for key in ["contentEncoding", "contentMediaType", "format", "pattern"] {
+                if let constraint = fields[key], constraint.text == nil {
+                    throw Failure(pointer: pointer(path, key), reason: "string constraints must be strings")
+                }
+            }
+            for key in ["maxLength", "minLength"] {
+                if let constraint = fields[key] {
+                    guard let number = constraint.number, number.rounded() == number,
+                          number >= 0, number <= 9_007_199_254_740_992 else {
+                        throw Failure(pointer: pointer(path, key),
+                                      reason: "string length bounds must be whole numbers")
+                    }
+                }
+            }
             var choices: [String]?
             if let rawEnum = fields["enum"] {
                 guard let values = rawEnum.elements, !values.isEmpty else {
@@ -271,7 +329,7 @@ enum SchemaSubset {
                     return choice
                 }
             }
-            return .string(choices)
+            return .string(choices, description: description)
         case "integer":
             let low = try integerBound(fields["minimum"], path: pointer(path, "minimum"))
             let high = try integerBound(fields["maximum"], path: pointer(path, "maximum"))
@@ -289,6 +347,72 @@ enum SchemaSubset {
         default:
             return .boolean
         }
+    }
+
+    /// The text carried into the SDK schema: description, or title when there
+    /// is no description.
+    private static func carriedDescription(_ fields: [String: JSONValue], path: String) throws -> String? {
+        for key in ["description", "title"] {
+            if let value = fields[key], value.text == nil {
+                throw Failure(pointer: pointer(path, key), reason: "description and title must be strings")
+            }
+        }
+        return fields["description"]?.text ?? fields["title"]?.text
+    }
+
+    /// One declared property. A property written as a nullable union, with no
+    /// type of its own, collapses to its single non-null branch; every other
+    /// property is an ordinary node.
+    private static func parseProperty(
+        _ value: JSONValue, name: String, path: String, objectDepth: Int, nesting: Int,
+        budget: inout Budget
+    ) throws -> Property {
+        guard let fields = value.fields, fields["type"] == nil,
+              fields["anyOf"] != nil || fields["oneOf"] != nil, nesting <= maxNesting else {
+            let node = try parseNode(value, path: path, objectDepth: objectDepth,
+                                     nesting: nesting, budget: &budget)
+            return Property(name: name, node: node, required: false, nullable: false,
+                            description: rawDescription(value))
+        }
+        let anyOf = fields["anyOf"] != nil
+        for key in fields.keys.sorted()
+        where (key != "anyOf" && key != "oneOf" && !isAnnotation(key)) || (key == "oneOf" && anyOf) {
+            throw Failure(pointer: pointer(path, key), reason: "unsupported schema keyword")
+        }
+        var carried = try carriedDescription(fields, path: path)
+        let at = pointer(path, anyOf ? "anyOf" : "oneOf")
+        guard let branches = fields[anyOf ? "anyOf" : "oneOf"]?.elements, !branches.isEmpty else {
+            throw Failure(pointer: at, reason: "union must be an array of schemas")
+        }
+        var nulls = 0
+        var kept: Int?
+        for (index, branch) in branches.enumerated() {
+            guard let branchFields = branch.fields, branchFields["type"]?.text == "null" else {
+                guard kept == nil else {
+                    throw Failure(pointer: at, reason: "only nullable unions are supported")
+                }
+                kept = index
+                continue
+            }
+            for key in branchFields.keys.sorted() where key != "type" && !isAnnotation(key) {
+                throw Failure(pointer: pointer(at + "/\(index)", key), reason: "unsupported schema keyword")
+            }
+            _ = try carriedDescription(branchFields, path: at + "/\(index)")
+            nulls += 1
+        }
+        guard let kept, nulls > 0 else {
+            throw Failure(pointer: at, reason: "only nullable unions are supported")
+        }
+        let node = try parseNode(branches[kept], path: at + "/\(kept)", objectDepth: objectDepth,
+                                 nesting: nesting + 1, budget: &budget)
+        if carried == nil || carried == "" { carried = rawDescription(branches[kept]) }
+        return Property(name: name, node: node, required: false, nullable: true, description: carried)
+    }
+
+    /// Read only after the node parsed, which already refused a non-string
+    /// description or title.
+    private static func rawDescription(_ value: JSONValue) -> String? {
+        value.fields?["description"]?.text ?? value.fields?["title"]?.text
     }
 
     /// Printable ASCII only: byte identity and canonical equivalence are then
@@ -337,8 +461,10 @@ enum SchemaSubset {
         switch node {
         case .boolean:
             return DynamicGenerationSchema(type: Bool.self)
-        case .string(let choices):
-            if let choices { return DynamicGenerationSchema(name: name, anyOf: choices) }
+        case .string(let choices, let description):
+            if let choices {
+                return DynamicGenerationSchema(name: name, description: description, anyOf: choices)
+            }
             return DynamicGenerationSchema(type: String.self)
         case .integer(let low, let high):
             return DynamicGenerationSchema(type: Int.self, guides: integerGuides(low, high))
@@ -348,13 +474,15 @@ enum SchemaSubset {
             return DynamicGenerationSchema(
                 arrayOf: try dynamic(item, name: name + "Item"),
                 minimumElements: low, maximumElements: high)
-        case .object(let properties):
-            return DynamicGenerationSchema(name: name, properties: try properties.map { property in
-                DynamicGenerationSchema.Property(
-                    name: property.name,
-                    schema: try dynamic(property.node, name: name + "." + property.name),
-                    isOptional: !property.required)
-            })
+        case .object(let properties, let description):
+            return DynamicGenerationSchema(
+                name: name, description: description,
+                properties: try properties.map { property in
+                    DynamicGenerationSchema.Property(
+                        name: property.name, description: property.description,
+                        schema: try dynamic(property.node, name: name + "." + property.name),
+                        isOptional: !property.required)
+                })
         }
     }
 
@@ -380,17 +508,18 @@ enum SchemaSubset {
     /// Returns the first offending pointer, or nil when the object conforms.
     static func validate(_ value: JSONValue, against node: Node, path: String = "") -> String? {
         switch node {
-        case .object(let properties):
+        case .object(let properties, _):
             guard let fields = value.fields else { return path.isEmpty ? "/" : path }
-            var declared: [String: (node: Node, required: Bool)] = [:]
-            for property in properties { declared[property.name] = (property.node, property.required) }
-            for key in fields.keys where declared[key] == nil {
+            var declared: [String: Property] = [:]
+            for property in properties { declared[property.name] = property }
+            for key in fields.keys.sorted() where declared[key] == nil {
                 return pointer(path, key)
             }
             for property in properties where property.required && fields[property.name] == nil {
                 return pointer(path, property.name)
             }
             for property in properties {
+                if property.nullable, case .null? = fields[property.name] { continue }
                 if let child = fields[property.name],
                    let bad = validate(child, against: property.node,
                                       path: pointer(path, property.name)) {
@@ -406,7 +535,7 @@ enum SchemaSubset {
                 if let bad = validate(child, against: item, path: path + "/\(index)") { return bad }
             }
             return nil
-        case .string(let choices):
+        case .string(let choices, _):
             guard let text = value.text else { return path.isEmpty ? "/" : path }
             if let choices, !choices.contains(text) { return path.isEmpty ? "/" : path }
             return nil

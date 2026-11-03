@@ -81,16 +81,28 @@ the helper did not advertise is refused by name as `unsupported_capability`
 `tool_calling` request member is refused before model access with `tools`
 and the fixed reason `not_implemented` in the error message.
 
-The subset accepts an object root with `additionalProperties: false` on every
-object; `string`, `integer`, `number` and `boolean` properties; `required`
-naming declared properties; string enums; arrays with `items` and
-`minItems`/`maxItems`; integral integer bounds and finite number bounds;
-printable-ASCII names; at most three object levels, sixteen schema nodes on any
-path, 32 properties and 64 KiB normalized. References, recursion, composition
-keywords, patterns, formats, string bounds, defaults, descriptions, integer
-enums, duplicate keys and contradictions are rejected before any process
-spawns, with exit 2 naming the offending JSON pointer. Nothing is inferred in
-that case.
+The subset accepts an object root and closed objects (`additionalProperties`
+`false` or omitted, which means `false`); `string`, `integer`, `number` and
+`boolean` properties; `required` naming declared properties; string enums;
+arrays with `items` and `minItems`/`maxItems`; integral integer bounds and
+finite number bounds; printable-ASCII names; at most three object levels,
+sixteen schema nodes on any path, 32 properties and 64 KiB normalized.
+
+It also accepts the keywords real tool and API schemas carry. Annotations
+(`description`, `title`, `$schema`, `$id`, `$comment`, `default`, `examples`,
+`deprecated`, `readOnly`, `writeOnly`, `x-` keys) are ignored for validation,
+and `description` or `title` is passed to the model. String constraints
+(`format`, `minLength`, `maxLength`, `pattern`, `contentEncoding`,
+`contentMediaType`) are accepted and **not enforced**: Hollis checks the type
+only. A nullable `anyOf`/`oneOf` property (one schema plus `null`) is treated as
+that schema, optional, with `null` accepted. **A `default` is never applied.**
+This is a compatible relaxation: every schema accepted before is still accepted
+and validated identically.
+
+References, recursion, `allOf`/`not`, other unions, `const`,
+`additionalProperties` other than `false`, integer enums, duplicate keys and
+contradictions are rejected before any process spawns, with exit 2 naming the
+offending JSON pointer. Nothing is inferred in that case.
 
 Guided output is complete-only: `--schema` refuses `--stream`, `--image` and
 every route except `local` before generation. A returned object is re-validated
