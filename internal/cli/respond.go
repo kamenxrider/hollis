@@ -151,7 +151,8 @@ with --image, --schema, --code, --json or --agent.`,
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateTimeout(cmd, timeout); err != nil {
+			timeout, err := effectiveTimeout(cmd, timeout, runner.DefaultTimeout)
+			if err != nil {
 				return err
 			}
 			// Checked again here because --agent turns on JSON output in the
@@ -296,7 +297,7 @@ with --image, --schema, --code, --json or --agent.`,
 			}
 			m, err := effectiveModelWithDefault(cmd, model, posModel, hasPosModel, builtInModel)
 			if err != nil {
-				return configErr(err)
+				return err
 			}
 			if !m.Valid() {
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", m))

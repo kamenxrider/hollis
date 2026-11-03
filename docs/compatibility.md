@@ -87,7 +87,13 @@ hollis doctor (version 0.3.0)
   hollis config set bridge <tier> <name-or-uuid>
 ```
 
-Unscoped `doctor` exits 0 only when every tier supported by the detected macOS version is verified through `shortcuts list`. A missing supported bridge exits 3, discovery or transport failure exits 5, and unknown or unverified state exits 10. Cloud Pro is informationally unsupported on macOS 26. An explicit configured reference may still be attempted, but remains labelled unverified until its name is visible in discovery. [Selected-route diagnostics](selected-route-setup.md) check only the requested capability.
+Unscoped `doctor` is an overview and exits 0 even with missing bridges or failed
+discovery. This is not a readiness gate. Its JSON reports `overview: true`,
+`readiness: "not_assessed"` and a `diagnostics` array, also under `--select`.
+Use [selected-route diagnostics](selected-route-setup.md) with `--model <route>`
+for a nonzero exit when that route is unready. Cloud Pro is informationally
+unsupported on macOS 26. An explicit configured reference may still be
+attempted, but remains labelled unverified until its name is visible in discovery.
 
 JSON output adds the macOS version and build, each bridge's `resolved_ref`, its resolution `source`, verification state, and `status` (`ok`, `missing`, `unsupported`, or `unverified`). The `uuid` field is the compiled placeholder, not the installed shortcut's own identifier: `shortcuts list` reports names only, so Hollis never learns a workflow ID from your Mac. Do not copy that placeholder into config expecting it to run something.
 

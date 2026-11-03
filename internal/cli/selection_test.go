@@ -404,11 +404,11 @@ func TestSelectionDoctorDiagnosticsPreserved(t *testing.T) {
 			cmd.SetErr(io.Discard)
 			cmd.SetArgs([]string{"doctor", mode, "--select", "bridges.model"})
 			err := executeCommand(cmd, flags)
-			if ExitCode(err) != 3 || !ErrorReported(err) {
+			if err != nil {
 				t.Fatalf("error=%v output=%s", err, out.String())
 			}
 			var payload map[string]any
-			if json.Unmarshal(out.Bytes(), &payload) != nil || payload["error"] == nil {
+			if json.Unmarshal(out.Bytes(), &payload) != nil || payload["error"] != nil {
 				t.Fatalf("lost diagnostics: %s", out.String())
 			}
 			result := payload
@@ -417,6 +417,9 @@ func TestSelectionDoctorDiagnosticsPreserved(t *testing.T) {
 					t.Fatal("lost metadata")
 				}
 				result = payload["results"].(map[string]any)
+			}
+			if result["overview"] != true || result["readiness"] != "not_assessed" || len(result["diagnostics"].([]any)) == 0 {
+				t.Fatalf("lost overview diagnostics: %s", out.String())
 			}
 			for _, row := range result["bridges"].([]any) {
 				if len(row.(map[string]any)) != 1 {

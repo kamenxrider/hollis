@@ -21,6 +21,8 @@ type environmentDoc struct {
 var documentedEnvironment = []environmentDoc{
 	{Name: "HOLLIS_STATE_DIR", Description: "absolute state directory (default: ~/Library/Application Support/hollis)"},
 	{Name: "HOLLIS_API_TOKEN", Description: "bearer token for hollis serve (alternative to --token-file)"},
+	{Name: "HOLLIS_MODEL", Description: "respond/new text chat default: positional model > --model > environment > saved model > built-in"},
+	{Name: "HOLLIS_TIMEOUT", Description: "respond/chat/image generate duration: --timeout > environment > saved timeout > command default; batch and HTTP unchanged"},
 }
 
 // exitCodeDoc is one numeric exit code. Semantic codes below share the

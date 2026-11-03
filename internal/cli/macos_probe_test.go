@@ -35,11 +35,13 @@ func TestMacOSProbeHelper(t *testing.T) {
 		if err := holder.Start(); err != nil {
 			os.Exit(3)
 		}
-		os.Exit(0)
-	case "holder":
-		if err := os.WriteFile(os.Getenv(macosProbePIDEnv), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		// Start already gave the holder its inherited pipes. Record its PID
+		// here, before the deadline can kill it during Go runtime startup.
+		if err := os.WriteFile(os.Getenv(macosProbePIDEnv), []byte(strconv.Itoa(holder.Process.Pid)), 0o600); err != nil {
 			os.Exit(4)
 		}
+		os.Exit(0)
+	case "holder":
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
 	case "current":

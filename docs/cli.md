@@ -21,6 +21,39 @@ hollis respond --timeout 90s "A question worth waiting for"
 
 The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple. For Shortcuts routes, all rendered text reaches Shortcuts through a private temporary `.txt` file; see [transport and cleanup details](shortcuts.md#how-it-works).
 
+### Saved defaults and environment
+
+```sh
+hollis config set model local
+hollis config get model
+hollis config set timeout 45s
+hollis config get timeout --json
+hollis config unset timeout
+hollis config unset model
+hollis config unset bridge cloud
+hollis config unset image-bridge sketch
+```
+
+`config get` and `config unset` accept `model`, `timeout`, `bridge <tier>` and
+`image-bridge [style]`. With no style, the last key names the general image
+bridge; a style names only its fixed-style override. Unset is idempotent and
+preserves unrelated settings under the config lock. Get reads saved values,
+not the effective environment or built-in default, and does not create config
+or change permissions. An unset value prints a blank line (exit 0); JSON
+reports `value: ""` and `configured: false`. Both support JSON, agent output
+and field selection.
+
+For `respond` and new text chats, model precedence is positional
+`model <tier>` > `--model` > `HOLLIS_MODEL` > saved model > built-in default.
+A continued chat always uses its stored model, ignoring `HOLLIS_MODEL`.
+For `respond`, `chat` and `image generate`, timeout precedence is
+`--timeout` > `HOLLIS_TIMEOUT` > saved timeout > command default (30 seconds
+for text, 120 seconds for image generation). All durations must be greater
+than zero and at most 120 seconds. Empty or invalid environment values are
+usage errors unless a higher-priority explicit option overrides them.
+Environment defaults are not saved. Batch manifests and the HTTP API retain
+their own model and timeout contracts; these defaults do not alter them.
+
 ### Prompt or command
 
 The first positional argument decides what runs. Flag values are not positional arguments. Hollis uses the root persistent and `respond` flag definitions: a value-taking flag consumes the next argument unless written `--flag=value`; boolean flags do not consume the next argument.
@@ -88,7 +121,12 @@ hollis respond --image photo.jpg "What is this?"
 hollis respond --model cloud-pro --image a.png --image b.png "Compare them"
 ```
 
-An image request with no selected or configured model defaults directly to Cloud. Cloud and Cloud Pro accept repeated `--image`; ChatGPT accepts one image. `local`, `auto` and On-Device are rejected for images because the tested On-Device Shortcut ignored the pixels, making automatic fallback unsafe.
+An image request with no selected or configured model defaults directly to Cloud.
+A saved `auto` behaves like an unset model for images and also selects Cloud.
+Explicit positional, flag or environment `auto` is still refused.
+Cloud and Cloud Pro accept repeated `--image`; ChatGPT accepts one image.
+`local`, explicit `auto` and On-Device are rejected for images because the tested
+On-Device Shortcut ignored the pixels, making automatic fallback unsafe.
 
 Images must be direct regular PNG/JPEG files, at most 64 MiB and 64 million pixels each. Hollis rejects symlinks in the file or its parent directories, apart from macOS's standard root-owned `/var`, `/tmp` and `/etc` aliases. Use the real path for an image reached through a custom directory link. The runner validates a private byte snapshot and passes only that snapshot to Shortcuts; staged images are removed after success, failure or cancellation.
 
@@ -235,8 +273,10 @@ Next: hollis respond --model local "hello"
 ```
 
 The action is only suggested, never executed. Selected-doctor JSON and models
-use the same native diagnostic reason codes. Exit codes are unchanged,
-including a nonzero overview exit when a bridge is missing even if local is ready.
+use the same native diagnostic reason codes. Plain `hollis doctor` exits 0 as
+an overview, including when a bridge is missing even if local is ready.
+Use `hollis doctor --model <route>` for a nonzero exit when the selected route
+is unready.
 
 JSON output carries both `model_requested` (what you asked for) and `model_used` (what
 answered). They differ when `auto` falls back from Cloud to On-Device — the two
@@ -280,6 +320,20 @@ Exit codes are stable and parseable:
 Specific JSON codes such as `request_declined`, `shortcut_failed`,
 `local_unavailable` and `native_protocol` keep exit 5 while naming the cause.
 See [failure meanings and next actions](errors.md).
+
+### Overview versus readiness gate
+
+Plain `hollis doctor` is an overview and exits 0 even if routes are unavailable.
+Use `hollis doctor --model <route>` as an installation/readiness gate; it exits
+nonzero when that route is unready. Neither command performs inference.
+Overview JSON and agent results include `overview: true`,
+`readiness: "not_assessed"`, `inference_tested: false` and a `diagnostics` array.
+These fields survive `--select`, so a successful overview cannot be mistaken
+for a ready route. Diagnostics do not use a top-level failure envelope.
+
+Plain `hollis setup` prints route guidance. Selected standalone setup still
+reports `runtime_unverified`: it cannot verify installation files, which does
+not prove a helper is missing. Use selected doctor to inspect availability.
 
 ## Shell completions
 

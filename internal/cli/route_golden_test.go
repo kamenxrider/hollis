@@ -150,8 +150,8 @@ func TestRouteOutputGoldens(t *testing.T) {
 			}
 
 			// doctor: full output including bridge rows. The exit code is
-			// part of the contract: 0 when every bridge resolves, 3 when a
-			// bridge is missing.
+			// part of the contract: an overview returns 0 even with missing
+			// bridges; selected-route doctor is the readiness gate.
 			for _, tc := range []struct {
 				name string
 				args []string
@@ -161,9 +161,6 @@ func TestRouteOutputGoldens(t *testing.T) {
 			} {
 				out, err := runGoldenCommand(t, tc.args...)
 				wantCode := 0
-				if !env.listOK || len(env.installed) < 4 {
-					wantCode = 3
-				}
 				if got := ExitCode(err); got != wantCode {
 					t.Fatalf("%s exit = %d, want %d (err=%v)", tc.name, got, wantCode, err)
 				}

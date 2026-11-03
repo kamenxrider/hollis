@@ -280,7 +280,8 @@ they do not control Image Playground's native generation canvas.`,
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateTimeout(cmd, timeout); err != nil {
+			timeout, err := effectiveTimeout(cmd, timeout, runner.DefaultTimeout)
+			if err != nil {
 				return err
 			}
 			posModel, promptArgs, hasPosModel := splitModelArgs(args)
@@ -294,7 +295,7 @@ they do not control Image Playground's native generation canvas.`,
 					var err error
 					m, err = effectiveModel(cmd, modelFlag, posModel, hasPosModel)
 					if err != nil {
-						return configErr(err)
+						return err
 					}
 				}
 				if !m.Valid() {
@@ -326,9 +327,9 @@ they do not control Image Playground's native generation canvas.`,
 			if !interactive && strings.TrimSpace(prompt) == "" {
 				return usageErr(errors.New("empty prompt: give a prompt as an argument or pipe it via stdin"))
 			}
-			imageTimeout := timeout
-			if !cmd.Flags().Changed("timeout") {
-				imageTimeout = imagegen.MaxTimeout
+			imageTimeout, err := effectiveTimeout(cmd, timeout, imagegen.MaxTimeout)
+			if err != nil {
+				return err
 			}
 			imageOptions := chatImageOptions{
 				Enabled: generateImage, Style: imageStyle, Bridge: imageBridge, Reference: imageReference,

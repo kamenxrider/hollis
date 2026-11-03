@@ -13,4 +13,6 @@ hollis doctor (version dev)
   MISSING: add that bridge (README.md#add-shortcuts), or point config at one you already have:
   hollis config set bridge <tier> <name-or-uuid>
 
+Overview only; use hollis doctor --model <route> as the readiness gate.
+
 Next: hollis respond --model cloud "hello"

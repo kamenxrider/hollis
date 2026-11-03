@@ -10,4 +10,6 @@ hollis doctor (version dev)
     [OK]        on-device  AFM Bridge - On-Device.signed (shortcuts-list)
     [OK]        chatgpt    AFM Bridge - ChatGPT.signed (shortcuts-list)
 
+Overview only; use hollis doctor --model <route> as the readiness gate.
+
 Next: hollis respond --model cloud "hello"

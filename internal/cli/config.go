@@ -25,6 +25,7 @@ type config struct {
 	// DefaultModel is the tier used when neither the positional
 	// `model <tier>` prefix nor the --model flag is given.
 	DefaultModel string `json:"default_model"`
+	Timeout      string `json:"timeout,omitempty"`
 	// Bridges overrides the bridge reference (name or UUID) invoked per
 	// tier. Keys are concrete tier
 	// names; "auto" is not a tier with a bridge. Overrides beat the
@@ -99,6 +100,11 @@ func loadConfigAt(path string) (config, error) {
 }
 
 func validateConfig(c config) error {
+	if c.Timeout != "" {
+		if _, err := parseDefaultTimeout(c.Timeout); err != nil {
+			return err
+		}
+	}
 	if c.ImageBridge != "" {
 		ref := strings.TrimSpace(c.ImageBridge)
 		if ref == "" || strings.HasPrefix(ref, "-") || strings.ContainsRune(c.ImageBridge, '\x00') {
@@ -260,7 +266,7 @@ func syncConfigDir(dir string) error {
 }
 
 // effectiveModel resolves the model tier in precedence order:
-// positional `model <tier>` > explicit --model flag > config default >
+// positional `model <tier>` > explicit --model flag > HOLLIS_MODEL > config default >
 // built-in default (auto). Explicit-flag detection uses cobra's
 // Changed, so the flag's static default never masks the config value.
 func effectiveModel(cmd *cobra.Command, flagModel, posModel string, hasPosModel bool) (runner.Model, error) {
@@ -278,11 +284,20 @@ func effectiveModelWithDefault(cmd *cobra.Command, flagModel, posModel string, h
 	if cmd.Flags().Changed("model") {
 		return runner.Model(flagModel), nil
 	}
+	if value, set := os.LookupEnv("HOLLIS_MODEL"); set {
+		if !runner.Model(value).Valid() {
+			return "", usageErr(errors.New("invalid HOLLIS_MODEL: choose auto, cloud, cloud-pro, on-device, chatgpt, or local"))
+		}
+		return runner.Model(value), nil
+	}
 	c, err := loadConfig()
 	if err != nil {
-		return "", err
+		return "", configErr(err)
 	}
 	if c.DefaultModel != "" {
+		if c.DefaultModel == string(runner.ModelAuto) && builtIn == runner.ModelCloud {
+			return builtIn, nil
+		}
 		return runner.Model(c.DefaultModel), nil
 	}
 	return builtIn, nil
@@ -296,7 +311,10 @@ func newConfigCmd(flags *rootFlags, _ newRunnerFunc) *cobra.Command {
 
 Settings live in a small JSON file next to the chat database. The
 default model applies whenever neither the positional ` + "`model <tier>`" + `
-prefix nor the --model flag is given.`,
+prefix nor the --model flag nor HOLLIS_MODEL is given.
+Saved timeout applies to respond, chat and image generate unless --timeout
+or HOLLIS_TIMEOUT overrides it. config get reads saved values only; unset
+removes one saved value without changing the rest.`,
 		Example: `  hollis config show
   hollis config set model cloud-pro`,
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -318,6 +336,8 @@ prefix nor the --model flag is given.`,
 	}
 	cmd.AddCommand(newConfigShowCmd(flags))
 	cmd.AddCommand(newConfigSetCmd(flags))
+	cmd.AddCommand(newConfigAccessCmd(flags, false))
+	cmd.AddCommand(newConfigAccessCmd(flags, true))
 	return cmd
 }
 
@@ -344,6 +364,7 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 					"bridges":       bridgesForShow(c),
 					"image_bridges": c.ImageBridges,
 					"image_bridge":  c.ImageBridge,
+					"timeout":       c.Timeout,
 				}, flags)
 			}
 			w := cmd.OutOrStdout()
@@ -353,6 +374,9 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 				defaultModel = string(runner.ModelAuto) + " (built-in default)"
 			}
 			fmt.Fprintf(w, "default model: %s\n", defaultModel)
+			if c.Timeout != "" {
+				fmt.Fprintf(w, "timeout: %s\n", c.Timeout)
+			}
 			if c.ImageBridge != "" {
 				fmt.Fprintf(w, "image bridge (JSON): %s\n", c.ImageBridge)
 			}
@@ -379,7 +403,7 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 func newConfigSetCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set <key> <value...>",
-		Short: "Set a persisted default (keys: model, bridge, image-bridge)",
+		Short: "Set a persisted default (keys: model, timeout, bridge, image-bridge)",
 		Example: `  hollis config set model cloud-pro
   hollis config set model auto
   hollis config set bridge cloud "AFM Bridge - Cloud"
@@ -389,6 +413,19 @@ func newConfigSetCmd(flags *rootFlags) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 			switch key {
+			case "timeout":
+				value, err := parseDefaultTimeout(args[1])
+				if err != nil {
+					return usageErr(err)
+				}
+				if err := updateConfig(func(c *config) error { c.Timeout = value.String(); return nil }); err != nil {
+					return configErr(err)
+				}
+				if flags.asJSON {
+					return printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{"ok": true, "key": "timeout", "value": value.String()}, flags)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "timeout set to %s\n", value)
+				return nil
 			case "model":
 				if len(args) != 2 {
 					return usageErr(errors.New("usage: hollis config set model <tier>"))
@@ -465,7 +502,7 @@ func newConfigSetCmd(flags *rootFlags) *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "bridge for %s set to %s\n", tier, ref)
 				return nil
 			default:
-				return usageErr(fmt.Errorf("unknown config key %q: only \"model\", \"bridge\" and \"image-bridge\" are supported", key))
+				return usageErr(fmt.Errorf("unknown config key %q: choose model, timeout, bridge or image-bridge", key))
 			}
 		},
 	}
@@ -475,9 +512,16 @@ func newConfigSetCmd(flags *rootFlags) *cobra.Command {
 
 func validateConfigSetArgs(_ *cobra.Command, args []string) error {
 	if len(args) < 1 {
-		return usageErr(errors.New("config set requires a key: model, bridge or image-bridge"))
+		return usageErr(errors.New("config set requires a key: model, timeout, bridge or image-bridge"))
 	}
 	switch args[0] {
+	case "timeout":
+		if len(args) != 2 {
+			return usageErr(errors.New("usage: hollis config set timeout <duration>"))
+		}
+		if _, err := parseDefaultTimeout(args[1]); err != nil {
+			return usageErr(err)
+		}
 	case "model":
 		if len(args) != 2 {
 			return usageErr(errors.New("usage: hollis config set model <tier>"))
@@ -497,7 +541,7 @@ func validateConfigSetArgs(_ *cobra.Command, args []string) error {
 			return usageErr(errors.New("bridge reference must not begin with '-'"))
 		}
 	default:
-		return usageErr(fmt.Errorf("unknown config key %q: only \"model\", \"bridge\" and \"image-bridge\" are supported", args[0]))
+		return usageErr(fmt.Errorf("unknown config key %q: choose model, timeout, bridge or image-bridge", args[0]))
 	}
 	return nil
 }

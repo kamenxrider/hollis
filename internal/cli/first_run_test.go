@@ -278,10 +278,10 @@ func TestDoctorNextCommandOutput(t *testing.T) {
 		names             []string
 		exit              int
 	}{
-		{"local ready overview", "", `hollis respond --model local "hello"`, runner.LocalStatus{Available: true}, nil, nil, 3},
+		{"local ready overview", "", `hollis respond --model local "hello"`, runner.LocalStatus{Available: true}, nil, nil, 0},
 		{"bridge ready overview", "", `hollis respond --model cloud "hello"`, runner.LocalStatus{}, nil, allImportedNames(), 0},
-		{"helper missing overview", "", wantInstallNext, runner.LocalStatus{}, errors.New("helper missing"), nil, 3},
-		{"settings overview", "", `open -a "System Settings"`, runner.LocalStatus{}, nil, nil, 3},
+		{"helper missing overview", "", wantInstallNext, runner.LocalStatus{}, errors.New("helper missing"), nil, 0},
+		{"settings overview", "", `open -a "System Settings"`, runner.LocalStatus{}, nil, nil, 0},
 		{"selected ready", "local", `hollis respond --model local "hello"`, runner.LocalStatus{Available: true}, nil, nil, 0},
 		{"selected settings", "local", `open -a "System Settings"`, runner.LocalStatus{}, nil, nil, 10},
 		{"selected missing", "cloud", "hollis config set bridge cloud <name-or-uuid>", runner.LocalStatus{}, nil, nil, 3},

@@ -16,10 +16,13 @@ is not a setup route. Image is a setup capability, not a text model ID.
 `doctor --model local` checks only native availability. It does not list
 Shortcuts or read bridge configuration. A selected Shortcut route does not
 check the native helper or fail because unrelated bridges are absent.
-Unscoped `hollis doctor` retains its existing full-report exit behavior.
 Human doctor output ends with one suggested `Next:` action for the observed
 state; it never executes that action. Native JSON reasons distinguish platform
 refusals, helper identity mismatches and malformed or incomplete protocol data.
+Unscoped `hollis doctor` is an overview, not a gate: it exits 0 even with
+unready routes. JSON/agent output retains `overview: true`,
+`readiness: "not_assessed"`, `inference_tested: false` and `diagnostics` even
+under field selection. Use selected doctor for readiness exit codes.
 Selected doctor and setup JSON support `--select` under the same declared
 result schemas and strict unknown-field rules as other data commands.
 

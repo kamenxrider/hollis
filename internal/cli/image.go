@@ -88,7 +88,8 @@ permission dialog; --no-input does not suppress those dialogs.`,
 			return validateImageTimeout(cmd, timeout)
 		},
 		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
-			if err := validateImageTimeout(cmd, timeout); err != nil {
+			timeout, err := effectiveTimeout(cmd, timeout, imagegen.MaxTimeout)
+			if err != nil {
 				return err
 			}
 			if !cmd.Flags().Changed("output") || strings.TrimSpace(output) == "" {

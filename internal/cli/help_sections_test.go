@@ -93,7 +93,7 @@ func TestGeneratedSectionsLeaveSubcommandHelpUnchanged(t *testing.T) {
 // tables that render root help feed the machine-readable contract.
 func TestAgentContextSharesHelpData(t *testing.T) {
 	ctx := buildAgentContext(NewRootCmd(func() runner.Runner { return &fakeRunner{} }))
-	if want := []string{"HOLLIS_STATE_DIR", "HOLLIS_API_TOKEN"}; !reflect.DeepEqual(ctx.Auth.EnvVars, want) {
+	if want := []string{"HOLLIS_STATE_DIR", "HOLLIS_API_TOKEN", "HOLLIS_MODEL", "HOLLIS_TIMEOUT"}; !reflect.DeepEqual(ctx.Auth.EnvVars, want) {
 		t.Fatalf("agent env vars = %v, want %v", ctx.Auth.EnvVars, want)
 	}
 	wantCodes := map[string]int{

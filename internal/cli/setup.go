@@ -23,9 +23,12 @@ func newSetupCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 	var pending []string
 	cmd := &cobra.Command{
 		Use: "setup", Short: "Plan setup for one selected route without changing anything",
-		Long: "Return read-only setup actions for a selected route. Runtime verification belongs to the installation owner. This command never downloads, imports, changes Apple settings or requests inference.",
+		Long: "Choose a route with --model: local, cloud, cloud-pro, on-device, chatgpt or image. Without --model, print this help. Standalone setup cannot verify installation files; use doctor --model <route> for availability diagnostics. This command never downloads, imports, changes Apple settings or requests inference.",
 		Args: noExtraArgs("setup"),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !cmd.Flags().Changed("model") && !flags.asJSON && producer == "" && len(pending) == 0 {
+				return cmd.Help()
+			}
 			if err := validateSetupRoute(route); err != nil {
 				return err
 			}
@@ -36,8 +39,8 @@ func newSetupCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 			}
 			p := setup.Plan{SchemaVersion: 1, Source: "bootstrap", Route: route,
 				Status: "unknown", ReasonCode: "runtime_unverified",
-				Message: "Verify the runtime with its installation owner before selected-route planning. Use doctor --model for independent availability diagnostics.",
-				Actions: []setup.Action{{Code: "verify_runtime", Message: "Verify the installed runtime through its installation owner."}},
+				Message: "Standalone setup cannot verify installation files. This does not mean a helper or bridge is missing. Check availability with hollis doctor --model " + route + ".",
+				Actions: []setup.Action{{Code: "verify_runtime", Message: "Use the original installation source to verify the matched CLI/helper pair; availability checks do not verify installed files."}},
 				Bridge:  setup.BridgeFacts{Discovery: "not_attempted"}}
 			if producer != "" {
 				record, err := readRuntimeRecord(cmd.Context(), producer)

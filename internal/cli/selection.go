@@ -98,7 +98,8 @@ func buildResultSchemas() map[string]*fieldSchema {
 	for name, field := range local.fields {
 		models.fields[name] = field
 	}
-	doctor := resultFields("shortcuts_cli", "macos", "macos_build", "support", "resolution", "timeout_default", "version")
+	doctor := resultFields("shortcuts_cli", "macos", "macos_build", "support", "resolution", "timeout_default", "version", "overview", "readiness")
+	doctor.fields["diagnostics"] = resultArray(resultFields("code", "message"))
 	doctor.fields["local"] = local
 	doctor.fields["bridges"] = resultType(reflect.TypeFor[[]bridgeCheck]())
 	doctor.fields["exit_codes"] = resultFields("success", "unexpected", "usage", "missing", "transport", "timeout", "config")
@@ -110,7 +111,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 	for name, field := range readiness.fields {
 		doctor.fields[name] = field
 	}
-	config := resultFields("path", "default_model", "image_bridge")
+	config := resultFields("path", "default_model", "image_bridge", "timeout")
 	config.fields["bridges"] = resultFields("cloud", "cloud-pro", "on-device", "chatgpt")
 	config.fields["image_bridges"] = resultFields(imageStyles...)
 	search := resultFields("id", "title", "model", "updated_at")
@@ -153,6 +154,8 @@ func buildResultSchemas() map[string]*fieldSchema {
 		"hollis chats rename":            resultFields("ok", "conversation_id", "title"),
 		"hollis chats delete":            resultFields("ok", "conversation_id", "deleted"),
 		"hollis config show":             config,
+		"hollis config get":              resultFields("key", "value", "configured", "tier", "style"),
+		"hollis config unset":            resultFields("ok", "key", "value", "configured", "tier", "style"),
 		"hollis config set":              resultFields("ok", "key", "value", "tier", "configured", "ref"),
 		"hollis config set image-bridge": resultFields("ok", "style", "bridge", "protocol", "configured"),
 		"hollis image styles":            resultArray(resultFields("style", "native_style", "bridge", "protocol", "configured", "runtime_verified")),

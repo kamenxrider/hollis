@@ -130,33 +130,30 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 				"timeout": 7, "config": 10,
 			}
 			report["version"] = version
+			report["overview"] = true
+			report["readiness"] = "not_assessed"
+			report["inference_tested"] = false
+			diagnostics := []map[string]any{}
+			if diagnosticErr != nil {
+				diagnostics = append(diagnostics, map[string]any{"code": errorCode(diagnosticErr), "message": diagnosticErr.Error()})
+			}
+			report["diagnostics"] = diagnostics
 
 			if flags.asJSON {
-				if diagnosticErr != nil {
-					errorBody := map[string]any{
-						"code": errorCode(diagnosticErr), "message": diagnosticErr.Error(), "exit_code": ExitCode(diagnosticErr),
-					}
-					projected, err := projectOutput(report, flags)
-					if err != nil {
-						return err
-					}
-					data := projected.(map[string]any)
-					payload := data
-					if flags.agent {
-						payload = map[string]any{"meta": agentMeta(), "results": data}
-					}
-					// Error metadata is never filtered out: callers must not
-					// receive a nonzero exit with an apparently successful body.
-					payload["error"] = errorBody
-					if err := encodeJSON(cmd.OutOrStdout(), payload); err != nil {
-						return err
-					}
-					return &reportedError{err: diagnosticErr}
-				}
-				if err := printJSONFilteredTo(cmd.OutOrStdout(), report, flags); err != nil {
+				projected, err := projectOutput(report, flags)
+				if err != nil {
 					return err
 				}
-				return nil
+				data := projected.(map[string]any)
+				// A projection must not turn a successful overview into a
+				// seemingly successful selected-route readiness check.
+				for _, key := range []string{"overview", "readiness", "inference_tested", "diagnostics"} {
+					data[key] = report[key]
+				}
+				if flags.agent {
+					return encodeJSON(cmd.OutOrStdout(), map[string]any{"meta": agentMeta(), "results": data})
+				}
+				return encodeJSON(cmd.OutOrStdout(), data)
 			}
 
 			w := cmd.OutOrStdout()
@@ -201,10 +198,10 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 			next := overviewNextPlan(localReadiness(osMajor, nativeFacts, localErr), resolved, resErr, transport, osMajor, nativeFacts)
 			if diagnosticErr != nil {
 				fmt.Fprintln(cmd.ErrOrStderr(), diagnosticErr)
-				diagnosticErr = &reportedError{err: diagnosticErr}
 			}
+			fmt.Fprintln(w, "\nOverview only; use hollis doctor --model <route> as the readiness gate.")
 			fmt.Fprintf(w, "\nNext: %s\n", doctorNextCommand(next))
-			return diagnosticErr
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&model, "model", "", "Check only local, cloud, cloud-pro, on-device, chatgpt or image")

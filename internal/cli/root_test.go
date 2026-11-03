@@ -382,7 +382,7 @@ func TestRespondImageUsageErrorsDoNotCallRunner(t *testing.T) {
 	}
 }
 
-func TestRespondImageRejectsConfiguredAuto(t *testing.T) {
+func TestRespondImageConfiguredAutoUsesCloud(t *testing.T) {
 	stubConfigPath(t)
 	if err := saveConfig(config{DefaultModel: string(runner.ModelAuto)}); err != nil {
 		t.Fatal(err)
@@ -394,8 +394,8 @@ func TestRespondImageRejectsConfiguredAuto(t *testing.T) {
 	cmd.SetIn(&bytes.Buffer{})
 	cmd.SetOut(&bytes.Buffer{})
 	err := cmd.Execute()
-	if err == nil || ExitCode(err) != 2 || r.calls != 0 {
-		t.Fatalf("err=%v exit=%d calls=%d, want configured-auto usage error before runner", err, ExitCode(err), r.calls)
+	if err != nil || r.calls != 1 || r.model != runner.ModelCloud {
+		t.Fatalf("err=%v calls=%d, want configured-auto to use cloud", err, r.calls)
 	}
 }
 
@@ -1059,7 +1059,7 @@ func TestDoctorJSONMacosAndStatus(t *testing.T) {
 	}
 }
 
-func TestDoctorMissingTransportExits5(t *testing.T) {
+func TestDoctorMissingTransportIsAnOverviewDiagnostic(t *testing.T) {
 	stubConfigPath(t)
 	stubResolution(t, allImportedNames(), true, 27)
 	lookPath = func(path string) (string, error) {
@@ -1072,7 +1072,7 @@ func TestDoctorMissingTransportExits5(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
 	err := cmd.Execute()
-	if ExitCode(err) != 5 || !ErrorReported(err) {
+	if err != nil {
 		t.Fatalf("exit=%d reported=%v err=%v output=%s", ExitCode(err), ErrorReported(err), err, out.String())
 	}
 
@@ -1083,9 +1083,9 @@ func TestDoctorMissingTransportExits5(t *testing.T) {
 	if got["shortcuts_cli"] != "ERROR not found at /usr/bin/shortcuts" {
 		t.Fatalf("shortcuts_cli=%v", got["shortcuts_cli"])
 	}
-	errorBody, ok := got["error"].(map[string]any)
-	if !ok || errorBody["code"] != "transport" || errorBody["exit_code"] != float64(5) {
-		t.Fatalf("error=%#v", got["error"])
+	diagnostics, ok := got["diagnostics"].([]any)
+	if !ok || len(diagnostics) != 1 || diagnostics[0].(map[string]any)["code"] != "transport" || got["overview"] != true || got["readiness"] != "not_assessed" {
+		t.Fatalf("overview=%#v", got)
 	}
 }
 
@@ -1098,9 +1098,9 @@ func TestDoctorExitContracts(t *testing.T) {
 		wantExit  int
 	}{
 		{"all verified on 27", allImportedNames(), true, 27, 0},
-		{"missing supported bridge", []string{"AFM Bridge - Cloud.signed"}, true, 27, 3},
-		{"discovery failure", nil, false, 27, 5},
-		{"unknown operating system", allImportedNames(), true, 0, 10},
+		{"missing supported bridge", []string{"AFM Bridge - Cloud.signed"}, true, 27, 0},
+		{"discovery failure", nil, false, 27, 0},
+		{"unknown operating system", allImportedNames(), true, 0, 0},
 		{"pro informationally unsupported on 26", allImportedNames(), true, 26, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1122,7 +1122,7 @@ func TestDoctorExitContracts(t *testing.T) {
 	}
 }
 
-func TestDoctorAgentErrorKeepsTopLevelErrorWhenResultsAreSelected(t *testing.T) {
+func TestDoctorAgentOverviewMetadataSurvivesSelection(t *testing.T) {
 	stubConfigPath(t)
 	stubResolution(t, []string{"AFM Bridge - Cloud.signed"}, true, 27)
 	cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
@@ -1131,18 +1131,18 @@ func TestDoctorAgentErrorKeepsTopLevelErrorWhenResultsAreSelected(t *testing.T) 
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
 	err := cmd.Execute()
-	if ExitCode(err) != 3 || !ErrorReported(err) {
+	if err != nil {
 		t.Fatalf("exit=%d reported=%v err=%v", ExitCode(err), ErrorReported(err), err)
 	}
 	var got map[string]any
 	if json.Unmarshal(out.Bytes(), &got) != nil {
 		t.Fatalf("invalid JSON: %q", out.String())
 	}
-	if got["meta"] == nil || got["error"] == nil {
-		t.Fatalf("agent diagnostic lacks top-level meta/error: %#v", got)
+	if got["meta"] == nil || got["error"] != nil {
+		t.Fatalf("agent overview envelope: %#v", got)
 	}
 	results, ok := got["results"].(map[string]any)
-	if !ok || len(results) != 1 || results["bridges"] == nil {
+	if !ok || results["bridges"] == nil || results["overview"] != true || results["readiness"] != "not_assessed" || results["diagnostics"] == nil {
 		t.Fatalf("selected results=%#v", got["results"])
 	}
 }
@@ -1156,7 +1156,7 @@ func TestDoctorDiscoveryFailureReportsSupportedBridgesUnverified(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
 	err := cmd.Execute()
-	if ExitCode(err) != 5 {
+	if ExitCode(err) != 0 {
 		t.Fatalf("exit=%d err=%v output=%s", ExitCode(err), err, out.String())
 	}
 	var got map[string]any
@@ -1186,7 +1186,7 @@ func TestDoctorConfiguredUUIDIsUnverifiedState(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	err := cmd.Execute()
-	if ExitCode(err) != 10 || !strings.Contains(out.String(), `"status":"unverified"`) {
+	if ExitCode(err) != 0 || !strings.Contains(out.String(), `"status":"unverified"`) {
 		t.Fatalf("exit=%d err=%v output=%s", ExitCode(err), err, out.String())
 	}
 }

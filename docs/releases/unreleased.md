@@ -22,6 +22,23 @@ displayed shell block runs verbatim in offline tests with synthetic model
 runners. See [the recipes](../../examples/recipes.md) and
 [their test scope](../testing.md#copyable-job-recipes).
 
+## Config defaults and diagnostic exit behavior
+
+`config get` and `config unset` inspect or remove one saved setting.
+`config set timeout` saves a duration for respond, chat and image generation.
+Explicit options override `HOLLIS_MODEL` / `HOLLIS_TIMEOUT`, which override
+saved values. Continued chats keep their stored model; batch and HTTP defaults
+are unchanged. Saved `auto` now selects Cloud for image input like an unset
+model, while explicitly requested `auto` remains refused.
+
+**Compatibility change:** plain `doctor` now exits 0 as an overview even if
+routes are unavailable. Use `doctor --model <route>` as the nonzero readiness
+gate. Overview JSON/agent output explicitly says readiness was not assessed
+and carries diagnostics rather than a top-level error envelope. `--select`
+cannot remove those overview markers. Plain `setup` prints route help; its
+selected standalone form explains that unverified files do not imply a
+missing helper. See [CLI usage](../cli.md).
+
 ## Database schema v3
 
 > **Changing back to an older Hollis binary does not undo this upgrade.**
