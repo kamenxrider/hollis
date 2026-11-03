@@ -83,6 +83,9 @@ func nativeError(err error) (int, map[string]any) {
 			status, code, message = http.StatusGatewayTimeout, "native_timeout", "the native local model request was canceled or exceeded its deadline"
 		case runner.KindNativeProtocol:
 			code, message = "native_protocol", "the native local helper returned an invalid or incomplete response"
+			if classified.NativeReason == "helper_mismatch" {
+				message = localMismatchMessage
+			}
 		case runner.KindUnsupportedCapability:
 			code, message = "unsupported_capability", classified.CapabilityRefusalMessage()
 		case runner.KindTransport:

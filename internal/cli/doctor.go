@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/kamenxrider/hollis/internal/runner"
+	"github.com/kamenxrider/hollis/internal/setup"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +53,9 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 			if cmd.Flags().Changed("model") {
 				return runSelectedDoctor(cmd, flags, model, newRunner)
 			}
-			localStatus, localErr := probeNativeStatus(cmd.Context(), newRunner())
+			native := newRunner()
+			localStatus, localErr := probeNativeStatus(cmd.Context(), native)
+			nativeFacts := nativeAvailabilityFacts(native, localStatus, localErr)
 			report := map[string]any{"local": localModelRow(localStatus, localErr)}
 			var diagnosticErr error
 
@@ -190,9 +194,92 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 			if missing {
 				fmt.Fprintf(w, "\n  %s\n", missingBridgeRemedy)
 			}
+			transport := "available"
+			if report["shortcuts_cli"] != "ok" {
+				transport = "missing"
+			}
+			next := overviewNextPlan(localReadiness(osMajor, nativeFacts, localErr), resolved, resErr, transport, osMajor, nativeFacts)
+			if diagnosticErr != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), diagnosticErr)
+				diagnosticErr = &reportedError{err: diagnosticErr}
+			}
+			fmt.Fprintf(w, "\nNext: %s\n", doctorNextCommand(next))
 			return diagnosticErr
 		},
 	}
 	cmd.Flags().StringVar(&model, "model", "", "Check only local, cloud, cloud-pro, on-device, chatgpt or image")
 	return cmd
+}
+
+// overviewNextPlan prefers a ready route, then the native prerequisite. Local
+// that the platform can never support yields to the first Shortcut route
+// that can still be fixed here.
+func overviewNextPlan(local setup.Plan, resolved map[runner.Model]runner.ResolvedBridge, resErr error, transport string, osMajor int, native setup.NativeFacts) setup.Plan {
+	if local.Status == "ready" {
+		return local
+	}
+	var fallback *setup.Plan
+	for _, spec := range runner.Specs() {
+		p := modelReadiness(spec.ID, resolved[spec.ID], resErr, transport, osMajor, native)
+		if p.Status == "ready" {
+			return p
+		}
+		if fallback == nil && p.ReasonCode != "platform_unsupported" {
+			fallback = &p
+		}
+	}
+	if local.ReasonCode == "platform_unsupported" && fallback != nil {
+		return *fallback
+	}
+	return local
+}
+
+const nativeRepairAction = "Repair hollis and its sibling hollis-native through the same installation source: the same formula, source revision, or matched release bundle. Do not mix versions or switch installers."
+const platformRepairAction = "Use Apple Silicon with macOS 27 or later for local; Shortcut routes require a working macOS Shortcuts installation."
+const shortcutsRepairAction = "Restore /usr/bin/shortcuts through your macOS installation; local is an alternative only on Apple Silicon with macOS 27 or later."
+
+func doctorNextCommand(p setup.Plan) string {
+	if p.Status == "ready" {
+		if p.Route == "image" {
+			return `hollis image generate "A lighthouse" --output lighthouse.png`
+		}
+		return fmt.Sprintf("hollis respond --model %s \"hello\"", p.Route)
+	}
+	switch p.ReasonCode {
+	case "platform_unknown":
+		return "sw_vers -productVersion"
+	case "platform_unsupported":
+		return platformRepairAction
+	case "config_unknown":
+		return "hollis config show"
+	case "transport_missing":
+		return shortcutsRepairAction
+	case "discovery_unknown", "configured_reference_unverified":
+		return "shortcuts list"
+	case "model_unavailable":
+		return `open -a "System Settings"`
+	case "native_status_unknown", "helper_mismatch":
+		return nativeRepairAction
+	case "native_protocol":
+		return "Inspect the native helper's malformed or incomplete status response before retrying; no version mismatch was established. " + nativeRepairAction
+	case "bridge_missing":
+		if p.Route == "image" {
+			return "hollis config set image-bridge <name-or-uuid>"
+		}
+		return "hollis config set bridge " + p.Route + " <name-or-uuid>"
+	case "import_pending":
+		return "open -a Shortcuts"
+	case "image_configuration_required":
+		ref := p.Bridge.Reference
+		if ref == "" {
+			ref = imageSetupBridge
+		}
+		return "hollis config set image-bridge " + shellQuote(ref)
+	default:
+		return p.Message
+	}
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

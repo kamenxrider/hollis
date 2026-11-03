@@ -553,12 +553,9 @@ func (s *Server) validateModel(w http.ResponseWriter, name string) (runner.Model
 		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_parameter", fmt.Sprintf("unsupported model %q", name))
 		return "", false
 	}
-	// A helper the startup probe already classified as a protocol/version
-	// mismatch answers every local request the same way, guided or plain: the
-	// paired component disagrees with this CLI, which is native_protocol/502,
-	// not an availability fact about the model.
-	if model == runner.ModelLocal && s.localProtocolMismatch() {
-		writeLocalProtocolMismatch(w)
+	// Preserve a startup protocol diagnosis rather than reducing it to an
+	// availability fact. Malformed output does not establish a mismatch.
+	if model == runner.ModelLocal && s.writeLocalProtocolFailure(w) {
 		return "", false
 	}
 	if !s.modelAvailable(name) {
@@ -575,22 +572,15 @@ func (s *Server) validateModel(w http.ResponseWriter, name string) (runner.Model
 // another protocol. The remedy matches the CLI's runner error.
 const localMismatchMessage = "the native local helper does not match this Hollis version; install the matching bundle"
 
-// localProtocolMismatch reports whether the startup status probe classified
-// the helper as a protocol/version mismatch. Any other probe failure,
-// including a missing helper, keeps the availability contract.
-func (s *Server) localProtocolMismatch() bool {
+// writeLocalProtocolFailure preserves both malformed protocol and positively
+// identified helper mismatches. Other failures keep the availability contract.
+func (s *Server) writeLocalProtocolFailure(w http.ResponseWriter) bool {
 	var classified *runner.Error
-	return errors.As(s.LocalStatusError, &classified) && classified.Kind == runner.KindNativeProtocol
-}
-
-// writeLocalProtocolMismatch answers with the component-mismatch diagnostic.
-// It deliberately does not reuse the shared native_protocol sentence, which
-// describes a bad or incomplete payload rather than a helper that disagreed
-// about its protocol.
-func writeLocalProtocolMismatch(w http.ResponseWriter) {
-	writeJSON(w, http.StatusBadGateway, map[string]any{"error": map[string]any{
-		"type": "server_error", "code": "native_protocol", "message": localMismatchMessage,
-	}})
+	if !errors.As(s.LocalStatusError, &classified) || classified.Kind != runner.KindNativeProtocol {
+		return false
+	}
+	writeNativeError(w, s.LocalStatusError)
+	return true
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, destination any) bool {

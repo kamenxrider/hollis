@@ -125,6 +125,9 @@ const (
 // Error is a classified runner failure. Kind maps to a stable CLI exit code.
 type Error struct {
 	Kind Kind
+	// NativeReason distinguishes platform and identity failures without parsing
+	// display text. Other native failures continue to use Kind.
+	NativeReason string
 	// Capability and CapabilityReason are closed-set refusal identifiers.
 	Capability       string
 	CapabilityReason string

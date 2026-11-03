@@ -9,3 +9,5 @@ hollis doctor (version dev)
     [OK]        cloud-pro  AFM Bridge - Cloud Pro.signed (shortcuts-list)
     [OK]        on-device  AFM Bridge - On-Device.signed (shortcuts-list)
     [OK]        chatgpt    AFM Bridge - ChatGPT.signed (shortcuts-list)
+
+Next: hollis respond --model cloud "hello"

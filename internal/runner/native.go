@@ -241,7 +241,7 @@ func (r *NativeRunner) helper(ctx context.Context) (string, error) {
 
 func nativePlatform(ctx context.Context) error {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
-		return errors.New("native local requires Apple Silicon and macOS 27 or later")
+		return nativeDiagnosticError(KindLocalUnavailable, "platform_unsupported", "native local requires Apple Silicon and macOS 27 or later")
 	}
 	// The probe is bounded by its own deadline as well as the caller's: a wedged
 	// sw_vers must not hold a status or completion call open.
@@ -252,11 +252,14 @@ func nativePlatform(ctx context.Context) error {
 		StdoutCap: 4096,
 	})
 	if err != nil || result.WaitErr != nil {
-		return errors.New("could not determine macOS version for native local")
+		return nativeDiagnosticError(KindLocalUnavailable, "platform_unknown", "could not determine macOS version for native local")
 	}
 	major, err := strconv.Atoi(strings.Split(strings.TrimSpace(string(result.Stdout)), ".")[0])
-	if err != nil || major < 27 {
-		return errors.New("native local requires macOS 27 or later")
+	if err != nil {
+		return nativeDiagnosticError(KindLocalUnavailable, "platform_unknown", "could not determine macOS version for native local")
+	}
+	if major < 27 {
+		return nativeDiagnosticError(KindLocalUnavailable, "platform_unsupported", "native local requires macOS 27 or later")
 	}
 	return nil
 }
@@ -302,6 +305,12 @@ func (r *NativeRunner) NativeStatus(ctx context.Context) (LocalStatus, error) {
 
 func nativeError(kind Kind, message string) *Error {
 	return &Error{Kind: kind, ExitCode: -1, Err: errors.New(message)}
+}
+
+func nativeDiagnosticError(kind Kind, reason, message string) *Error {
+	err := nativeError(kind, message)
+	err.NativeReason = reason
+	return err
 }
 
 func nativeContextError(ctx context.Context) error {
@@ -397,7 +406,7 @@ func sameHelperFile(a, b os.FileInfo) bool {
 // helperMismatch is the component-mismatch refusal: the helper answered
 // validly, in another protocol. The remedy is the matching bundle.
 func helperMismatch() *Error {
-	return nativeError(KindNativeProtocol, "native helper does not match this Hollis version; install the matching bundle")
+	return nativeDiagnosticError(KindNativeProtocol, "helper_mismatch", "native helper does not match this Hollis version; install the matching bundle")
 }
 
 // GuidedOutputRefusal is the schema-surface spelling of the same component
@@ -536,6 +545,10 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		if ctxErr := nativeContextError(ctx); ctxErr != nil {
 			return fail(ctxErr)
 		}
+		var nativeErr *Error
+		if errors.As(err, &nativeErr) {
+			return fail(err)
+		}
 		return fail(nativeError(KindLocalUnavailable, err.Error()))
 	}
 	if err := r.negotiate(ctx, path); err != nil {
@@ -579,8 +592,11 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		if decoder.Decode(&extra) != io.EOF {
 			return nativeError(KindNativeProtocol, "extra native event data")
 		}
+		if event.Protocol <= 0 || event.Version == "" || event.Model == "" || event.Event == "" {
+			return nativeError(KindNativeProtocol, "incomplete native event identity")
+		}
 		if event.Protocol != NativeProtocol || event.Version != NativeVersion || event.Model != ModelLocal {
-			return nativeError(KindNativeProtocol, "native helper version, protocol or model mismatch; install the matching bundle")
+			return nativeDiagnosticError(KindNativeProtocol, "helper_mismatch", "native helper version, protocol or model mismatch; install the matching bundle")
 		}
 		if event.Capability != "" && (event.Event != "error" || event.Kind != KindUnsupportedCapability) {
 			return nativeError(KindNativeProtocol, "unexpected native capability refusal")

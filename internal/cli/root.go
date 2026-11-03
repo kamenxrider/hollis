@@ -350,7 +350,8 @@ type reportedError struct{ err error }
 func (e *reportedError) Error() string { return e.err.Error() }
 func (e *reportedError) Unwrap() error { return e.err }
 
-// ErrorReported is true when Execute already emitted a JSON error on stdout.
+// ErrorReported is true when the command already emitted its diagnostic (a
+// JSON error on stdout, or a human error on stderr), so it must not be printed again.
 func ErrorReported(err error) bool {
 	var reported *reportedError
 	return errors.As(err, &reported)

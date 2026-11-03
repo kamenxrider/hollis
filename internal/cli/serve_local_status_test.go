@@ -59,7 +59,7 @@ func (r *serveLocalStatusRunner) RunSchema(context.Context, runner.Model, string
 }
 
 func helperMismatchProbeError() error {
-	return &runner.Error{Kind: runner.KindNativeProtocol, ExitCode: 5,
+	return &runner.Error{Kind: runner.KindNativeProtocol, NativeReason: "helper_mismatch", ExitCode: 5,
 		Err: errors.New("native helper version, protocol or model mismatch; install the matching bundle")}
 }
 
@@ -86,6 +86,8 @@ func TestServeLocalStatusHelper(t *testing.T) {
 		probeErr = helperMismatchProbeError()
 	case "missing":
 		probeErr = missingHelperProbeError()
+	case "malformed":
+		probeErr = &runner.Error{Kind: runner.KindNativeProtocol, ExitCode: 5, Err: errors.New("invalid native event")}
 	default:
 		t.Fatalf("unknown mode %q", mode)
 	}
@@ -123,6 +125,7 @@ func TestServeLocalStatusClassification(t *testing.T) {
 		{"protocol mismatch", "protocol", http.StatusBadGateway, "native_protocol",
 			"the native local helper does not match this Hollis version; install the matching bundle"},
 		{"missing helper", "missing", http.StatusBadRequest, "model_unavailable", "the selected model is unavailable"},
+		{"malformed protocol", "malformed", http.StatusBadGateway, "native_protocol", "the native local helper returned an invalid or incomplete response"},
 	}
 	requests := []struct{ name, path, body string }{
 		{"guided-chat", "/v1/chat/completions", `{"model":"local","messages":[{"role":"user","content":"hi"}],"response_format":{"type":"json_schema","json_schema":{"name":"person","schema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}}}}`},
@@ -130,6 +133,7 @@ func TestServeLocalStatusClassification(t *testing.T) {
 		{"plain-chat", "/v1/chat/completions", `{"model":"local","messages":[{"role":"user","content":"hi"}]}`},
 		{"plain-responses", "/v1/responses", `{"model":"local","input":"hi"}`},
 		{"stream-chat", "/v1/chat/completions", `{"model":"local","stream":true,"messages":[{"role":"user","content":"hi"}]}`},
+		{"stream-responses", "/v1/responses", `{"model":"local","stream":true,"input":"hi"}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

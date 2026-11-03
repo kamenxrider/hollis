@@ -4,6 +4,16 @@ These notes describe the next release. No version number or date is announced
 yet. Runtime and plugin versions stay separate, and each ships with its own
 archive and evidence.
 
+## First-run diagnostics
+
+Model discovery includes unavailable routes and marks the configured default.
+Native diagnostics distinguish unsupported platforms, unknown availability,
+helper identity mismatch and malformed protocol data without extra CLI probes
+on `models --model local`. Doctor suggests a next action without diagnostic
+loops or selecting another installer. Native repair guidance preserves the
+original installation source and the matching CLI/helper pair.
+Empty chat lists and no-match searches include human-only next-step hints.
+
 ## Database schema v3
 
 > **Changing back to an older Hollis binary does not undo this upgrade.**

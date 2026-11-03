@@ -17,6 +17,9 @@ is not a setup route. Image is a setup capability, not a text model ID.
 Shortcuts or read bridge configuration. A selected Shortcut route does not
 check the native helper or fail because unrelated bridges are absent.
 Unscoped `hollis doctor` retains its existing full-report exit behavior.
+Human doctor output ends with one suggested `Next:` action for the observed
+state; it never executes that action. Native JSON reasons distinguish platform
+refusals, helper identity mismatches and malformed or incomplete protocol data.
 Selected doctor and setup JSON support `--select` under the same declared
 result schemas and strict unknown-field rules as other data commands.
 

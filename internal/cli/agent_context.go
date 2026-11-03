@@ -53,6 +53,8 @@ type agentContextContracts struct {
 	Stderr        string         `json:"stderr"`
 	// CommandResolution describes bare prompts without requiring help parsing.
 	CommandResolution string `json:"command_resolution"`
+	Models            string `json:"models"`
+	EmptyChats        string `json:"empty_chats"`
 }
 
 type agentContextCommand struct {
@@ -119,11 +121,13 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 			JSONSchema:        "agent meta schema_version=2; data under results; --select filters declared result fields; unknown field paths are usage errors (exit 2), including for empty results",
 			ErrorSchema:       "{meta:{source,schema_version},error:{code,message,exit_code}}",
 			ModelDefaults:     "positional model <tier> > explicit --model flag > config model > built-in default; text defaults to auto, --image defaults directly to cloud",
+			Models:            "models lists auto and every text route, including unavailable routes; default marks the configured model or auto if unset; available is transport/native availability, not inference proof; readiness, reason_code and reason describe non-generative diagnostics; configured UUIDs may be callable but unverified; --model local limits discovery to native availability",
+			EmptyChats:        "empty chats list returns [] with exit 0; agent mode wraps the array under results; no-match chats search returns the not-found error envelope (code missing) with exit 3; next-command hints appear only in human output; a failing search prints the error, then a hint: line, on stderr",
 			Fallback:          "auto tries cloud once, then on-device once, only for confirmed missing bridges or recognized rate limits; all other failures stop without another model call",
 			Network:           "HTTP defaults to loopback; remote bind requires --allow-remote plus bearer authentication and an external encrypted tunnel",
 			Local:             "local is explicit and independent of Shortcuts; streaming human text and HTTP SSE only; JSON/agent and batch outputs remain complete; complete usage is Apple-measured; context overflow fails without shortening history",
 			Stdout:            "successful command output only",
-			Stderr:            "human errors, fallback notices, and newly-created plain-chat IDs only",
+			Stderr:            "human errors with any hint: lines, fallback notices, and newly-created plain-chat IDs only",
 			CommandResolution: "the first positional argument names the command if exact; root persistent and respond flag definitions determine which flags consume values, including --flag=value and boolean flags; only a sole positional argument is refused as a near-miss: case-insensitive edit distance 1, or edit distance 2 for command names of 7 or more characters, with an adjacent swap counting as one edit; refusal is a usage error (exit 2) with a suggestion preserving leading flags; other non-command text is a prompt routed to respond; tokens after -- are literal prompt text with no model-prefix parsing; root --help/--version retain strict argument validation; hidden __ completion commands are not reinterpreted; a lone positional - is literal prompt text, not stdin; stdin is read when no prompt is provided; --prompt-file - reads the instruction from stdin and is refused on a terminal under --no-input or --agent",
 		},
 		Commands: collectAgentCommands(rootCmd),
@@ -211,8 +215,10 @@ func commandSideEffects(command *cobra.Command) []string {
 		return []string{"deletes one local conversation transactionally"}
 	case "hollis config set", "hollis config set image-bridge":
 		return []string{"updates the private local config atomically"}
-	case "hollis models", "hollis doctor":
-		return []string{"runs read-only local Shortcuts discovery"}
+	case "hollis models":
+		return []string{"runs read-only native availability and Shortcuts discovery without inference; --model local skips Shortcuts discovery"}
+	case "hollis doctor":
+		return []string{"runs read-only native availability and Shortcuts discovery without inference; --model limits discovery to the selected route", "human output ends with a suggested next action, without executing it"}
 	case "hollis serve":
 		return []string{"opens an HTTP listener", "invokes Shortcut model runs for valid model requests"}
 	default:

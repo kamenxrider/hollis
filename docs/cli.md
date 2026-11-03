@@ -136,6 +136,25 @@ hollis chats delete <id> --yes
 
 The whole search query is treated as one phrase, so hyphenated tokens like `VANTA-ORBIT` match verbatim. Archived conversations are skipped.
 
+Empty human output suggests one next command:
+
+```text
+$ hollis chats list
+No chats yet. Run: hollis chat "hello"
+$ hollis chats search missing
+no chats match "missing"
+hint: run 'hollis chats list' to see stored chats
+```
+
+An empty list writes the hint to stdout and exits 0. In JSON it returns an
+empty array (`[]`), wrapped under `results` with `--agent`.
+
+A no-match search leaves stdout empty in text mode, writes the existing error
+message and then a `hint:` line to stderr, and exits 3. With `--json` or `--agent`, it
+returns the existing not-found error envelope (`error.code: "missing"`) on
+stdout with exit 3; `--agent` also includes `meta`. Hints appear only in human
+output, never in JSON.
+
 A continuation always uses the model stored with that conversation. Combining `--continue` with a positional model or explicit `--model` is rejected. Hollis stores complete turns atomically and preserves complete history; when a chat reaches 256 stored messages or its rendered prompt exceeds 128 KiB, it fails clearly instead of trimming or summarizing it.
 
 ## Code output
@@ -157,6 +176,61 @@ hollis models --json
 hollis doctor --json --select bridges
 hollis agent-context                                  # machine-readable CLI description
 ```
+
+### Model discovery and next steps
+
+`hollis models` lists all text routes, even when unavailable. The configured
+default has a `(default)` marker, or `auto` is marked when no default is saved.
+Unavailable rows explain the missing prerequisite, such as a Shortcut not
+imported, an unsupported macOS version, or native availability/settings.
+Configured references that discovery cannot verify are labeled unverified,
+not assumed missing. A discovered bridge whose platform could not be checked is
+labeled unchecked.
+
+`--json` and `--agent` add `default` and `available` booleans. Concrete routes
+also include `readiness`; non-ready routes include `reason_code` and a short
+`reason`. `auto` reports availability when either Cloud or On-Device is
+callable, and includes a reason when neither is available. An unknown platform
+takes precedence over discovery failures for both auto and concrete routes.
+When the platform is known and Shortcuts
+discovery fails, that reason says bridge presence is unknown, matching the
+Cloud and On-Device rows. A helper that answers but does not match this Hollis
+version is `helper_mismatch`, distinct from a missing helper or malformed or
+incomplete status data (`native_protocol`). If the
+configuration cannot be read, rows omit `default` rather than guess. Existing row fields
+and metadata schema version 2 are unchanged. A configured UUID may remain
+`available: true` while its readiness is unknown: it is callable but not
+discovery-verified. `--select model,default,available,reason` can project these
+fields. `--model local` limits discovery to native availability: it reads
+configuration without changing it or its permissions, adds no CLI platform
+probe, and still reports native status when the configuration is invalid. The
+native runner retains its own bounded `sw_vers` platform check.
+
+Discovery uses read-only status and bridge diagnostics, never an inference
+request. Availability does not establish a successful model response.
+
+Human `hollis doctor`, including `--model <route>`, ends with one `Next:`
+action. The overview prefers a ready native route, then the first ready
+Shortcut route. Otherwise it suggests a command for the first unresolved
+native prerequisite; when this macOS can never run local, it moves on to the
+first Shortcut route. Selected-route diagnostics target only that route. The
+suggestion acts on the observed state: the
+`hollis config set bridge <route> <name-or-uuid>` line for a missing bridge,
+Shortcuts for a pending import, and System Settings for an unavailable model.
+Missing transport or unsupported platforms receive repair guidance rather than
+a cycle through other diagnostic commands. For native repair, use the same
+installation source to restore the matched CLI and sibling helper: the formula
+for Homebrew, the same revision for source builds, or the matched release
+bundle for downloads. Doctor does not guess installation ownership or select a
+different installer or release. For example, when local is ready:
+
+```text
+Next: hollis respond --model local "hello"
+```
+
+The action is only suggested, never executed. Selected-doctor JSON and models
+use the same native diagnostic reason codes. Exit codes are unchanged,
+including a nonzero overview exit when a bridge is missing even if local is ready.
 
 JSON output carries both `model_requested` (what you asked for) and `model_used` (what
 answered). They differ when `auto` falls back from Cloud to On-Device — the two
@@ -317,7 +391,7 @@ hollis serve --token-file hollis.token      # authenticated local API (backgroun
 hollis doctor                               # check transport and bridges
 hollis doctor --model local --json          # route-scoped diagnostics
 hollis setup --model cloud-pro --agent      # plan setup for one route
-hollis models                               # show available tiers
+hollis models                               # show all tiers, default and unavailable reasons
 hollis config set model cloud-pro           # save a default tier
 ```
 

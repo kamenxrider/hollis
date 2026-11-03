@@ -731,7 +731,10 @@ Exit codes: 0 hits, 2 empty query, 3 no matches.`,
 				return configErr(err)
 			}
 			if len(matches) == 0 {
-				return notFoundErr(fmt.Errorf("no chats match %q", query))
+				if flags.asJSON {
+					return notFoundErr(fmt.Errorf("no chats match %q", query))
+				}
+				return notFoundErr(fmt.Errorf("no chats match %q\nhint: run 'hollis chats list' to see stored chats", query))
 			}
 			if flags.asJSON {
 				rows := make([]map[string]any, 0, len(matches))
@@ -808,6 +811,10 @@ func newChatsListCmd(flags *rootFlags) *cobra.Command {
 				return printJSONArrayFilteredTo(cmd.OutOrStdout(), rows, flags)
 			}
 			w := cmd.OutOrStdout()
+			if len(convs) == 0 {
+				fmt.Fprintln(w, `No chats yet. Run: hollis chat "hello"`)
+				return nil
+			}
 			tableRows := make([][]string, 0, len(convs))
 			for _, c := range convs {
 				tableRows = append(tableRows, []string{c.ID, strconv.Itoa(c.Messages), c.Model, humanTerminalText(w, c.Title)})

@@ -22,7 +22,7 @@ const wantMismatchMessage = "the native local helper does not match this Hollis 
 // whose protocol or version disagrees with this CLI. It is a runner.Error of
 // kind native_protocol, the same class the CLI reports with exit 5.
 func probeProtocolMismatch() error {
-	return &runner.Error{Kind: runner.KindNativeProtocol, ExitCode: 5,
+	return &runner.Error{Kind: runner.KindNativeProtocol, NativeReason: "helper_mismatch", ExitCode: 5,
 		Err: errors.New("native helper version, protocol or model mismatch; install the matching bundle")}
 }
 
@@ -93,6 +93,36 @@ func TestLocalRequestsReportPreservedProtocolMismatch(t *testing.T) {
 					t.Fatalf("runner calls = %d", calls)
 				}
 			})
+		}
+	}
+}
+
+func TestLocalRequestsReportMalformedStartupProtocol(t *testing.T) {
+	for _, message := range []string{"invalid native event", "native helper exited without status"} {
+		probeErr := &runner.Error{Kind: runner.KindNativeProtocol, ExitCode: 5, Err: errors.New(message)}
+		for path, body := range guidedBodies(guidedTestSchema) {
+			fake := newGuidedFake()
+			res := post(t, localStatusServer(fake, probeErr).Handler(), path, body)
+			if res.Code != http.StatusBadGateway {
+				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+			}
+			assertErrorBody(t, res, "server_error", "native_protocol", "the native local helper returned an invalid or incomplete response")
+			if schemaCalls, completeCalls, _ := fake.snapshot(); schemaCalls != 0 || completeCalls != 0 {
+				t.Fatal("startup failure reached runner")
+			}
+		}
+		for _, endpoint := range nativeEndpoints {
+			for _, stream := range []bool{false, true} {
+				fake := &nativeFake{}
+				res := post(t, localStatusServer(fake, probeErr).Handler(), endpoint.path, nativeBody(endpoint.body, stream))
+				if res.Code != http.StatusBadGateway {
+					t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+				}
+				assertErrorBody(t, res, "server_error", "native_protocol", "the native local helper returned an invalid or incomplete response")
+				if fake.calls.Load() != 0 {
+					t.Fatal("startup failure reached runner")
+				}
+			}
 		}
 	}
 }

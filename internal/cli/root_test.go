@@ -973,10 +973,7 @@ func TestConfigSetBridgePersistsAndClears(t *testing.T) {
 	}
 }
 
-func TestModelsOmitUnavailablePro(t *testing.T) {
-	// the catalog is what resolves.
-	// A fake Pro config name removes cloud-pro from models without
-	// touching the other tiers.
+func TestModelsExplainUnavailablePro(t *testing.T) {
 	stubConfigPath(t)
 	stubResolution(t, allImportedNames(), true, 27)
 	c, err := loadConfig()
@@ -997,8 +994,8 @@ func TestModelsOmitUnavailablePro(t *testing.T) {
 	if execErr != nil {
 		t.Fatalf("Execute: %v", execErr)
 	}
-	if strings.Contains(buf.String(), "cloud-pro") {
-		t.Fatalf("unavailable pro surfaced: %s", buf.String())
+	if !strings.Contains(buf.String(), `"model":"cloud-pro"`) || !strings.Contains(buf.String(), `"reason_code":"configured_reference_unverified"`) {
+		t.Fatalf("unavailable pro lost its explanation: %s", buf.String())
 	}
 	for _, want := range []string{"\"cloud\"", "\"on-device\"", "\"chatgpt\"", "resolved_ref", "verified"} {
 		if !strings.Contains(buf.String(), want) {

@@ -82,9 +82,8 @@ func collectSetupFacts(ctx context.Context, route string, newRunner newRunnerFun
 	}
 	if route == "local" {
 		r := newRunner()
-		_, checked := r.(runner.NativeStatusRunner)
 		status, err := probeNativeStatus(ctx, r)
-		o.Native = setup.NativeFacts{Checked: checked, Available: status.Available, Failed: err != nil, Version: status.Version, Protocol: status.Protocol}
+		o.Native = nativeAvailabilityFacts(r, status, err)
 		report["local"] = localModelRow(status, err)
 		if err != nil {
 			return o, report, toCLIError(err)

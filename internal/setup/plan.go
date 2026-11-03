@@ -78,11 +78,12 @@ type BridgeFacts struct {
 }
 
 type NativeFacts struct {
-	Checked   bool
-	Available bool
-	Failed    bool
-	Version   string
-	Protocol  int
+	Checked       bool
+	Available     bool
+	Failed        bool
+	FailureReason string
+	Version       string
+	Protocol      int
 }
 
 type Observations struct {
@@ -151,6 +152,18 @@ func evaluate(o Observations, requireVerified bool) Plan {
 	}
 	if requireVerified && (o.Runtime.State != "verified" || o.Runtime.Artifact.Verification != "verified") {
 		return fail("unknown", "runtime_unverified", "Verify the installed runtime with its installation owner before selected-route setup.", "verify_runtime")
+	}
+	if o.Route == string(runner.ModelLocal) && o.Native.Failed {
+		switch o.Native.FailureReason {
+		case "platform_unsupported":
+			return fail("unknown", "platform_unsupported", "Native local requires Apple Silicon and macOS 27 or later.", "check_platform")
+		case "platform_unknown":
+			return fail("unknown", "platform_unknown", "The native transport could not determine platform support.", "check_platform")
+		case "helper_mismatch":
+			return fail("unknown", "helper_mismatch", "The native helper is present but does not match this Hollis version; repair the matched CLI/helper pair through the same installation source.", "verify_helper")
+		case "native_protocol":
+			return fail("unknown", "native_protocol", "The native helper returned malformed or incomplete protocol data; this does not establish a version mismatch.", "check_native_status")
+		}
 	}
 	if o.Platform == "unsupported" {
 		return fail("unknown", "platform_unsupported", "The selected route is unsupported on this platform.", "check_platform")

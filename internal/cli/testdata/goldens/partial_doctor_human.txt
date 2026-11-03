@@ -12,3 +12,5 @@ hollis doctor (version dev)
 
   MISSING: add that bridge (README.md#add-shortcuts), or point config at one you already have:
   hollis config set bridge <tier> <name-or-uuid>
+
+Next: hollis respond --model cloud "hello"
