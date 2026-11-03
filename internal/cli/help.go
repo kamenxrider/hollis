@@ -34,10 +34,10 @@ type exitCodeDoc struct {
 var documentedExitCodes = []exitCodeDoc{
 	{Code: 0, Name: "success", Description: "success"},
 	{Code: 1, Name: "unexpected", Description: "unexpected internal error"},
-	{Code: 2, Name: "usage", Description: "usage error: bad flag, unknown model, empty prompt, or invalid arguments"},
-	{Code: 3, Name: "missing", Description: "missing resource: unknown conversation, no search hits, or a bridge that is not installed"},
+	{Code: 2, Name: "usage", Description: "usage error: bad flag, unknown model, empty prompt, near-miss command refusal, or invalid arguments"},
+	{Code: 3, Name: "missing", Description: "missing resource: unknown conversation, no search hits, a bridge that is not installed, or no code to print with --code"},
 	{Code: 5, Name: "transport", Description: "discovery, transport, Shortcut or native failure, declined request, or rate limit"},
-	{Code: 7, Name: "timeout", Description: "the run exceeded its deadline (also --code when there is no code to print)"},
+	{Code: 7, Name: "timeout", Description: "the run exceeded its deadline"},
 	{Code: 10, Name: "config", Description: "config or database error"},
 }
 
@@ -87,12 +87,10 @@ func environmentNames() []string {
 	return names
 }
 
-// rootLongHelp appends the sections generated from the agent-context tables to
-// the root description.
-func rootLongHelp(description string) string {
+// rootHelpSections renders the shared tables for the end of root help.
+func rootHelpSections() string {
 	var help strings.Builder
-	help.WriteString(description)
-	help.WriteString("\n\nExamples:\n")
+	help.WriteString("Examples:\n")
 	for _, example := range agentExampleCommands {
 		fmt.Fprintf(&help, "  %s\n", example)
 	}
@@ -113,9 +111,9 @@ func rootLongHelp(description string) string {
 	return strings.TrimRight(help.String(), "\n")
 }
 
-// replHelp is printed by /help inside an interactive chat.
+// replHelp is printed by help or /help inside an interactive chat.
 const replHelp = `Commands:
-  /help            show this help
+  help, /help      show this help
   /image <prompt>  generate an image (needs --output and a style or bridge)
   quit, exit       leave the chat (Ctrl-D also leaves)
 

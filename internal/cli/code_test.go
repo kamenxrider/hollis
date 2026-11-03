@@ -5,7 +5,6 @@ package cli
 import (
 	"bytes"
 	"io"
-	"strings"
 	"testing"
 
 	"github.com/kamenxrider/hollis/internal/runner"
@@ -26,6 +25,12 @@ func TestFirstFencedBlock(t *testing.T) {
 		{name: "no fence", text: "just words", ok: false},
 		{name: "unclosed fence", text: "```go\nunfinished", ok: false},
 		{name: "empty block", text: "```go\n```", want: "", ok: true},
+		{name: "empty then content", text: "```go\n```\nprose\n~~~sh\nprintf hi\n~~~", want: "printf hi", ok: true},
+		{name: "only empty fences", text: "prose\n```\n```\n~~~go\n\n~~~\nmore prose", ok: true},
+		{name: "whitespace-only fence", text: "```go\n \t\n  \n```", ok: true},
+		{name: "whitespace then content", text: "```\n \t\n```\n```go\nreal\n```", want: "real", ok: true},
+		{name: "empty then unclosed", text: "```\n```\n```go\nunfinished", ok: true},
+		{name: "opening at end", text: "```", ok: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, ok := firstFencedBlock(tc.text)
@@ -77,17 +82,42 @@ func TestRespondCodePrintsPlainResponseWithoutFence(t *testing.T) {
 	}
 }
 
-func TestRespondCodeEmptyResponseExits7(t *testing.T) {
+func TestRespondCodeEmptyResponseExits3(t *testing.T) {
 	r := &recordingRunner{response: "  \n", used: runner.ModelCloud}
 	out, _, err := runCodeRespond(t, r, "answer")
-	if err == nil || ExitCode(err) != 7 {
-		t.Fatalf("err=%v exit=%d, want exit 7", err, ExitCode(err))
+	if err == nil || ExitCode(err) != 3 || errorCode(err) != "missing" {
+		t.Fatalf("err=%v exit=%d code=%s, want missing exit 3", err, ExitCode(err), errorCode(err))
 	}
 	if out != "" {
 		t.Fatalf("stdout = %q, want empty", out)
 	}
-	if !strings.Contains(err.Error(), "no code") {
+	if err.Error() != "no code to print: the response contained no code" {
 		t.Fatalf("error %q does not explain the empty result", err)
+	}
+}
+
+func TestRespondCodeSkipsEmptyFences(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		response string
+		want     string
+		exit     int
+	}{
+		{name: "empty then content", response: "```\n```\n```go\nreal\n```", want: "real\n"},
+		{name: "only empty fences", response: "prose\n```\n```\n~~~go\n\n~~~\nmore prose", exit: 3},
+		{name: "whitespace-only fence", response: "prose\n```go\n \t\n  \n```", exit: 3},
+		{name: "no complete fence", response: "```go\nunfinished", want: "```go\nunfinished\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &recordingRunner{response: tc.response, used: runner.ModelCloud}
+			out, _, err := runCodeRespond(t, r, "answer")
+			if ExitCode(err) != tc.exit || out != tc.want {
+				t.Fatalf("stdout=%q err=%v exit=%d, want stdout=%q exit=%d", out, err, ExitCode(err), tc.want, tc.exit)
+			}
+			if tc.exit != 0 && (errorCode(err) != "missing" || err.Error() != "no code to print: the code blocks were empty") {
+				t.Fatalf("err=%v code=%s, want missing with empty-block message", err, errorCode(err))
+			}
+		})
 	}
 }
 

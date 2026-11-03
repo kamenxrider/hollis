@@ -473,7 +473,7 @@ func runInteractiveChatWithImages(ctx context.Context, st *store.Store, model, c
 	} else {
 		fmt.Fprintf(errOut, "New chat · %s\n", model)
 	}
-	fmt.Fprintln(errOut, "Type /help for commands; Ctrl-D leaves.")
+	fmt.Fprintln(errOut, "Type help or /help for commands; Ctrl-D leaves.")
 
 	// bufio.Reader, not Scanner: Scanner caps a line at 64KB and reports the
 	// overflow as EOF, so pasting a long prompt silently ended the session.
@@ -590,7 +590,7 @@ func replCommand(line string, errOut io.Writer) replAction {
 	switch strings.ToLower(line) {
 	case "quit", "exit", "/quit", "/exit":
 		return replLeave
-	case "/help":
+	case "help", "/help":
 		fmt.Fprintln(errOut, replHelp)
 		return replHandled
 	}

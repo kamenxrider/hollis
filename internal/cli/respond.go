@@ -61,11 +61,12 @@ streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.
 Guide the native response with --schema <file>: the supported JSON Schema
 subset is validated before anything runs, and the returned object is checked
 again before it is reported as success.
-Use --code to print only the first fenced code block, so the answer can be
-redirected into a source file. A response without a fence is printed as it is,
-and an empty response fails with exit 7 and a message that says no code was
-printed. --code is complete-only: it is refused with JSON or agent output,
---stream and --schema.`,
+Use --code to print only the first complete fenced code block with content,
+skipping empty or whitespace-only blocks, so the answer can be redirected into
+a source file. A response without a complete fence is printed as it is.
+An empty response or only empty code blocks fails with exit 3 and a message
+explaining what was empty. --code is complete-only: it is refused with JSON
+or agent output, --stream and --schema.`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
   hollis respond model cloud-pro "Draft a reply"
   printf 'long prompt from a pipeline' | hollis respond
@@ -369,15 +370,18 @@ printed. --code is complete-only: it is refused with JSON or agent output,
 				fmt.Fprintf(cmd.ErrOrStderr(), "hollis: fallback %s: answered with %s\n", reason, used)
 			}
 			if code {
-				// --code is an output contract, not a rewrite: the first fenced
-				// block when the answer has one, the answer itself otherwise.
+				// Print the first complete block with content, or the answer
+				// itself when it contains no complete block.
 				codeText := text
 				if block, ok := firstFencedBlock(text); ok {
+					if block == "" {
+						return notFoundErr(errors.New("no code to print: the code blocks were empty"))
+					}
 					codeText = block
 				}
 				codeText = strings.TrimRight(codeText, "\n")
 				if strings.TrimSpace(codeText) == "" {
-					return codeAbsentErr()
+					return notFoundErr(errors.New("no code to print: the response contained no code"))
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), humanTerminalText(cmd.OutOrStdout(), codeText))
 				return nil
@@ -416,7 +420,7 @@ printed. --code is complete-only: it is refused with JSON or agent output,
 	cmd.Flags().StringArrayVar(&documents, "file", nil, "UTF-8 .txt or .md document to include; repeat to preserve source order")
 	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (ChatGPT accepts one; unavailable with auto/on-device)")
 	cmd.Flags().StringVar(&schemaFile, "schema", "", "JSON Schema file for guided native-local output; requires --model local and completes without streaming")
-	cmd.Flags().BoolVar(&code, "code", false, "Print only the first fenced code block (or the whole answer when there is no fence); exit 7 when there is nothing to print")
+	cmd.Flags().BoolVar(&code, "code", false, "Print the first complete non-empty fenced code block (or the whole answer when there is no complete fence); exit 3 when there is nothing to print")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	return cmd
 }

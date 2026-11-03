@@ -39,36 +39,39 @@ func TestInteractiveChatLeavesOnCommandWords(t *testing.T) {
 }
 
 func TestInteractiveChatHelpListsCommands(t *testing.T) {
-	r := &recordingRunner{response: "must not run"}
-	out, errOut, err := runTestRepl(t, r, "/help\nquit\n")
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if r.calls != 0 {
-		t.Fatalf("/help reached the model %d times", r.calls)
-	}
-	// Help is interface text, not transcript, so it goes to the banner stream.
-	help := out + errOut
-	for _, want := range []string{"/help", "/image", "quit", "Ctrl-D"} {
-		if !strings.Contains(help, want) {
-			t.Fatalf("help output missing %q:\n%s", want, help)
-		}
+	for _, word := range []string{"/help", "help", "  HeLp \t", " /HeLp "} {
+		t.Run(word, func(t *testing.T) {
+			r := &recordingRunner{response: "must not run"}
+			out, errOut, err := runTestRepl(t, r, word+"\nquit\n")
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if r.calls != 0 {
+				t.Fatalf("%q reached the model %d times", word, r.calls)
+			}
+			if out != "> > " || !strings.Contains(errOut, replHelp) {
+				t.Fatalf("command list missing or printed as a model response: stdout=%q stderr=%q", out, errOut)
+			}
+		})
 	}
 }
 
 func TestInteractiveChatStartHintAndNormalTurn(t *testing.T) {
 	r := &recordingRunner{response: "answer", used: runner.ModelCloud}
-	out, errOut, err := runTestRepl(t, r, "hello\nquit\n")
+	out, errOut, err := runTestRepl(t, r, "help me\nquit\n")
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 	if r.calls != 1 {
 		t.Fatalf("runner calls = %d, want 1", r.calls)
 	}
+	if !strings.Contains(r.prompts[0], "help me") {
+		t.Fatalf("normal prompt changed: %q", r.prompts[0])
+	}
 	if !strings.Contains(out, "< answer") {
 		t.Fatalf("normal turn missing from stdout: %q", out)
 	}
-	if !strings.Contains(errOut, "Type /help") {
+	if !strings.Contains(errOut, "Type help or /help") {
 		t.Fatalf("start hint missing from stderr: %q", errOut)
 	}
 }
