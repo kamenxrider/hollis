@@ -20,8 +20,10 @@ bundles the provenance-verified ARM64 Hollis 0.4.0 executable, matching native h
 New source docs do not update a preserved ZIP; older archives retain their
 original runtimes and recorded checksums.
 
-Get [plugin 0.2.0](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.2.0)
-or install from the repository using the guide above. Its validation record
+Install from the repository using the guide above. Plugin release 0.2.0 was
+withdrawn, and a versioned plugin release will follow. The repository's current
+main branch is the supported source in the meantime: its setup downloads the
+pinned, checksum-verified runtime 0.4.0 assets. The plugin's validation record
 distinguishes completed tests from remaining first-account acceptance work;
 see the [validation report](plugin-validation.md).
 
