@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kamenxrider/hollis/internal/chat"
 	"github.com/kamenxrider/hollis/internal/docinput"
@@ -114,7 +115,7 @@ again before it is reported as success.`,
 				if hasFileInput {
 					// A second instruction may be sitting in the pipe. Refuse
 					// it instead of silently dropping one of the two sources.
-					piped, err := readInstructionStdin(cmd)
+					piped, err := readInstructionStdin(cmd, 1)
 					if err != nil {
 						return usageErr(err)
 					}
@@ -123,6 +124,9 @@ again before it is reported as success.`,
 					}
 				}
 			case hasPromptFile && promptFile == "-":
+				if flags.noInput && interactiveStdin() {
+					return usageErr(errors.New("--prompt-file - requires piped stdin (refusing to wait on a terminal in --no-input mode)"))
+				}
 				piped, err := readPromptFileStdin(cmd)
 				if err != nil {
 					return usageErr(err)
@@ -132,7 +136,7 @@ again before it is reported as success.`,
 				// --prompt-file is explicit, so a second instruction in the
 				// pipe is refused rather than silently ignored. The probe is
 				// bounded, so a pipe with nothing in it costs one short check.
-				piped, err := readInstructionStdin(cmd)
+				piped, err := readInstructionStdin(cmd, 1)
 				if err != nil {
 					return usageErr(err)
 				}
@@ -147,7 +151,7 @@ again before it is reported as success.`,
 				// With file or image input, piped stdin is the instruction.
 				// The probe is bounded, so an open pipe with nothing in it
 				// reports the missing instruction instead of hanging.
-				piped, err := readInstructionStdin(cmd)
+				piped, err := readInstructionStdin(cmd, chat.MaxRenderedPromptBytes+1)
 				if err != nil {
 					return usageErr(err)
 				}
@@ -400,13 +404,11 @@ const schemaFileReadLimit = 1 << 20
 // previous check blocked until the writer produced a byte or closed.
 const stdinInstructionWindow = 200 * time.Millisecond
 
-// readInstructionStdin returns piped stdin as the instruction, or "" when stdin
-// carries nothing. A terminal is never read here; --prompt-file - is the
-// explicit way to read the instruction from stdin interactively. The readiness
-// probe only decides whether to read at all; once data is present the whole
-// instruction is read up to the shared prompt limit, exactly like a plain
-// piped prompt.
-func readInstructionStdin(cmd *cobra.Command) (string, error) {
+// readInstructionStdin reads up to limit bytes of piped stdin, or returns ""
+// when stdin carries nothing. Conflict checks need only one byte, not EOF.
+// A terminal is never read here; --prompt-file - is the explicit way to read
+// the instruction from stdin interactively.
+func readInstructionStdin(cmd *cobra.Command, limit int64) (string, error) {
 	in := cmd.InOrStdin()
 	if file, ok := in.(*os.File); ok {
 		if in == os.Stdin && interactiveStdin() {
@@ -420,7 +422,7 @@ func readInstructionStdin(cmd *cobra.Command) (string, error) {
 			return "", nil
 		}
 	}
-	b, err := io.ReadAll(io.LimitReader(in, chat.MaxRenderedPromptBytes+1))
+	b, err := io.ReadAll(io.LimitReader(in, limit))
 	if err != nil {
 		return "", fmt.Errorf("read instruction from stdin: %w", err)
 	}
@@ -428,12 +430,15 @@ func readInstructionStdin(cmd *cobra.Command) (string, error) {
 }
 
 // readPromptFileStdin reads --prompt-file - as an ordinary stdin read. The
-// caller asked for stdin explicitly, so an interactive terminal is a valid
-// source and the read waits for end of input like any other file read.
+// caller rejects terminals in non-interactive modes; otherwise the read waits
+// for end of input like any other file read.
 func readPromptFileStdin(cmd *cobra.Command) (string, error) {
 	b, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), chat.MaxRenderedPromptBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("read --prompt-file - from stdin: %w", err)
+	}
+	if !utf8.Valid(b) {
+		return "", errors.New("--prompt-file - must contain valid UTF-8")
 	}
 	return string(b), nil
 }

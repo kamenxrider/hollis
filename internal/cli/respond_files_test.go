@@ -287,6 +287,95 @@ func TestRespondPromptFileDashReadsStdin(t *testing.T) {
 	}
 }
 
+func TestRespondPromptFileDashRefusesTerminalInNonInteractiveModes(t *testing.T) {
+	old := interactiveStdin
+	interactiveStdin = func() bool { return true }
+	t.Cleanup(func() { interactiveStdin = old })
+	stubConfigPath(t)
+
+	for _, mode := range []string{"--no-input", "--agent"} {
+		t.Run(mode, func(t *testing.T) {
+			r := &documentRecordingRunner{}
+			cmd := NewRootCmd(func() runner.Runner { return r })
+			cmd.SetArgs([]string{mode, "respond", "--prompt-file", "-"})
+			in := bytes.NewBufferString("terminal instruction")
+			cmd.SetIn(in)
+			cmd.SetOut(&bytes.Buffer{})
+			err := cmd.Execute()
+			if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), "refusing to wait on a terminal") {
+				t.Fatalf("err=%v exit=%d, want terminal refusal with usage exit 2", err, ExitCode(err))
+			}
+			if in.String() != "terminal instruction" || r.calls != 0 {
+				t.Fatalf("remaining stdin=%q calls=%d, want unread stdin and no runner calls", in.String(), r.calls)
+			}
+		})
+	}
+}
+
+func TestRespondPromptFileDashRejectsInvalidUTF8(t *testing.T) {
+	withNonInteractiveStdin(t)
+	stubConfigPath(t)
+	r := &documentRecordingRunner{}
+	cmd := NewRootCmd(func() runner.Runner { return r })
+	cmd.SetArgs([]string{"respond", "--prompt-file", "-"})
+	cmd.SetIn(bytes.NewReader([]byte{'x', 0xff}))
+	cmd.SetOut(&bytes.Buffer{})
+	err := cmd.Execute()
+	if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), "valid UTF-8") || r.calls != 0 {
+		t.Fatalf("err=%v exit=%d calls=%d, want UTF-8 usage error before running", err, ExitCode(err), r.calls)
+	}
+}
+
+func TestRespondInstructionConflictDoesNotWaitForPipeEOF(t *testing.T) {
+	withNonInteractiveStdin(t)
+	stubConfigPath(t)
+	documentPath := writeRespondFile(t, "source.md", "source material")
+	promptPath := writeRespondFile(t, "instructions.txt", "Summarize")
+	imagePath := writeCLIImage(t, "image.png")
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "positional document", args: []string{"respond", "--file", documentPath, "Summarize"}},
+		{name: "positional image", args: []string{"respond", "--image", imagePath, "Describe"}},
+		{name: "prompt file", args: []string{"respond", "--prompt-file", promptPath}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			readEnd, writeEnd, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer readEnd.Close()
+			defer writeEnd.Close()
+			if _, err := writeEnd.Write([]byte{'x'}); err != nil {
+				t.Fatal(err)
+			}
+
+			r := &documentRecordingRunner{}
+			cmd := NewRootCmd(func() runner.Runner { return r })
+			cmd.SetArgs(tc.args)
+			cmd.SetIn(readEnd)
+			cmd.SetOut(&bytes.Buffer{})
+			done := make(chan error, 1)
+			go func() { done <- cmd.Execute() }()
+			select {
+			case execErr := <-done:
+				if execErr == nil || ExitCode(execErr) != 2 || !strings.Contains(execErr.Error(), "choose exactly one instruction source") {
+					t.Fatalf("err=%v exit=%d, want instruction conflict with usage exit 2", execErr, ExitCode(execErr))
+				}
+				if r.calls != 0 {
+					t.Fatalf("runner calls=%d, want 0", r.calls)
+				}
+			case <-time.After(time.Second):
+				writeEnd.Close()
+				<-done
+				t.Fatal("instruction conflict waited for EOF after receiving one byte")
+			}
+		})
+	}
+}
+
 // TestRespondOpenEmptyPipeDoesNotBlockFileInput is the regression test for the
 // measured hang: a pipe held open with no data used to stall file input until
 // the writer produced a byte or closed.
