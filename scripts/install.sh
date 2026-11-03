@@ -72,3 +72,8 @@ case ":$PATH:" in
   *":$bin_dir:"*) ;;
   *) printf 'Add this directory to your shell PATH: %s\n' "$bin_dir" ;;
 esac
+case ${SHELL##*/} in
+  bash | zsh | fish) completion_help="hollis completion ${SHELL##*/} --help" ;;
+  *) completion_help='hollis completion --help' ;;
+esac
+printf 'Optional shell completions: run %s for setup steps.\n' "$completion_help"

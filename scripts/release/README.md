@@ -74,7 +74,7 @@ as part of local distribution preparation.
 The no-install-time-effects contract applies to plugin runtime installation and
 the prepared Homebrew formula: neither runs inference or opens bridge import
 dialogs during installation. It does not apply universally to every installer.
-The legacy `scripts/install.sh` remains unchanged and is a known remaining
+The legacy `scripts/install.sh` is outside this contract and is a known remaining
 side-effecting path: it can open bridge import dialogs and select an image
 default. It is outside this distribution-preparation scope.
 

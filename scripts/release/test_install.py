@@ -129,6 +129,18 @@ esac
             self.env[key] = value; self.run_install(False); del self.env[key]
         self.assertFalse((self.base / 'calls').exists())
 
+    def test_final_message_names_completion_help_for_login_shell(self):
+        for shell, hint in [('/bin/zsh', 'hollis completion zsh --help'),
+                            ('/opt/homebrew/bin/fish', 'hollis completion fish --help'),
+                            ('/bin/bash', 'hollis completion bash --help'),
+                            ('/bin/tcsh', 'hollis completion --help'),
+                            ('', 'hollis completion --help')]:
+            self.env['SHELL'] = shell
+            result = self.run_install()
+            self.assertIn(f'Optional shell completions: run {hint} for setup steps.', result.stdout)
+            self.assertFalse((self.home / '.zfunc').exists())
+            self.assertFalse((self.home / '.config/fish').exists())
+
     def test_destination_symlink_is_preserved(self):
         target = self.base / 'existing'; target.write_text('keep')
         dest = self.home / '.local/bin'; dest.mkdir(parents=True)

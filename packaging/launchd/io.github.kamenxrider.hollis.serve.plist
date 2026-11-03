@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Per-user LaunchAgent for the authenticated loopback API. Replace /Users/you
+  with your home directory, then follow docs/serve.md. The bearer token stays
+  in a private file; never put a token value in this plist.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.github.kamenxrider.hollis.serve</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/you/.local/bin/hollis</string>
+		<string>serve</string>
+		<string>--addr</string>
+		<string>127.0.0.1:1978</string>
+		<string>--token-file</string>
+		<string>/Users/you/Library/Application Support/hollis/serve.token</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+	<key>StandardOutPath</key>
+	<string>/Users/you/Library/Logs/hollis-serve.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/you/Library/Logs/hollis-serve.log</string>
+</dict>
+</plist>

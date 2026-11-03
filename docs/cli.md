@@ -206,7 +206,31 @@ hollis completion fish
 hollis completion powershell
 ```
 
-Redirect the output into the completion directory used by your shell. The
+The installer does not install completions. It ends with a hint naming the
+setup help for your login shell, `hollis completion <shell> --help`. To load
+completions in every new session:
+
+```bash
+# zsh: put the script in a directory on fpath, before compinit runs
+mkdir -p ~/.zfunc
+hollis completion zsh > ~/.zfunc/_hollis
+# then add to ~/.zshrc, above any existing compinit line:
+#   fpath=(~/.zfunc $fpath)
+#   autoload -U compinit && compinit
+
+# bash: requires the bash-completion package, for example Homebrew's bash-completion@2
+hollis completion bash > "$(brew --prefix)/etc/bash_completion.d/hollis"
+
+# fish
+mkdir -p ~/.config/fish/completions
+hollis completion fish > ~/.config/fish/completions/hollis.fish
+```
+
+For PowerShell, add the output of `hollis completion powershell` to your
+profile. Start a new shell afterwards. Regenerate the script after upgrading
+Hollis so new commands and flags complete.
+
+The
 prepared Homebrew formula generates Bash, Zsh and Fish completions during
 installation. It places the PowerShell script at
 `$(brew --prefix)/share/hollis/completion/hollis.ps1`. The template is preparation
@@ -282,7 +306,7 @@ hollis chat --continue <id> "follow up"     # continue a chat
 hollis chats list                           # list stored chats
 hollis chats show <id>                      # show one chat
 hollis chats search "query"                 # search stored chats
-hollis serve --token-file hollis.token      # authenticated local API
+hollis serve --token-file hollis.token      # authenticated local API (background: docs/serve.md)
 hollis doctor                               # check transport and bridges
 hollis doctor --model local --json          # route-scoped diagnostics
 hollis setup --model cloud-pro --agent      # plan setup for one route

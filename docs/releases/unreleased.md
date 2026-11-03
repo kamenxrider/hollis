@@ -138,6 +138,16 @@ only on the default branch, makes a single synthetic request, keeps the
 response as an artifact and never touches a pull request. See
 [the review helper](../../scripts/ai-review/README.md).
 
+## Background API and shell completions
+
+A LaunchAgent template at `packaging/launchd/` runs `hollis serve` at login on
+loopback with a token read from a private file; the plist never holds a token
+value. [Running the local API in the background](../serve.md) covers loading,
+unloading, restart behavior and the log location. Nothing installs or loads it
+automatically. The installer's final message now names the completion setup
+help for the login shell; it does not write completion files. See
+[shell completions](../cli.md#shell-completions).
+
 ## Plugin skills
 
 Plugin skills describe the setup, diagnostics and guided-output behavior of the

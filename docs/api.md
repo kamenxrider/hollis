@@ -228,4 +228,10 @@ Shortcuts routes return a complete response, so `stream: true` on those routes r
 
 Binding outside loopback requires **both** `--allow-remote` and authentication. Hollis does not provide TLS: expose it only through an encrypted trusted path such as Tailscale, WireGuard, or an SSH tunnel.
 
+## Run it in the background
+
+`hollis serve` stays in the foreground. To start it at login with a private
+token file and a loopback bind, use the LaunchAgent template described in
+[running the local API in the background](serve.md).
+
 [Back to Hollis](../README.md)
