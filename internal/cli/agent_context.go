@@ -48,9 +48,7 @@ type agentContextContracts struct {
 	Local         string         `json:"native_local"`
 	Stdout        string         `json:"stdout"`
 	Stderr        string         `json:"stderr"`
-	// CommandResolution states the bare-prompt rules so an agent never has to
-	// infer them from --help: a near-miss command is a usage error, and every
-	// other non-command first argument is a respond prompt.
+	// CommandResolution describes bare prompts without requiring help parsing.
 	CommandResolution string `json:"command_resolution"`
 }
 
@@ -127,7 +125,7 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 			Local:             "local is explicit and independent of Shortcuts; streaming human text and HTTP SSE only; JSON/agent and batch outputs remain complete; complete usage is Apple-measured; context overflow fails without shortening history",
 			Stdout:            "successful command output only",
 			Stderr:            "human errors, fallback notices, and newly-created plain-chat IDs only",
-			CommandResolution: "a first argument that names a command runs that command; a first argument within edit distance 2 of a command name is refused as a usage error (exit 2) with a suggestion; any other first argument is a prompt routed to respond; tokens after -- are literal prompt text",
+			CommandResolution: "the first positional argument names the command if exact; root persistent and respond flag definitions determine which flags consume values, including --flag=value and boolean flags; only a sole positional argument is refused as a near-miss: case-insensitive edit distance 1, or edit distance 2 for command names of 7 or more characters, with an adjacent swap counting as one edit; refusal is a usage error (exit 2) with a suggestion preserving leading flags; other non-command text is a prompt routed to respond; tokens after -- are literal prompt text with no model-prefix parsing; root --help/--version retain strict argument validation; hidden __ completion commands are not reinterpreted; a lone - is literal prompt text, not stdin; stdin is read when no prompt is provided, and --prompt-file - names a regular file",
 		},
 		Commands: collectAgentCommands(rootCmd),
 	}

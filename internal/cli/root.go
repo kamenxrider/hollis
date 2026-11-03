@@ -39,7 +39,21 @@ func newRunnerDefault() runner.Runner { return runner.NewRouted() }
 // flags or stdin.
 func Execute() error {
 	cmd, flags := newRootCmdWithFlags(newRunnerDefault)
-	cmd.SetArgs(ResolveCommandLine(cmd, os.Args[1:]))
+	return executeResolvedCommand(cmd, flags, os.Args[1:])
+}
+
+func executeResolvedCommand(cmd *cobra.Command, flags *rootFlags, args []string) error {
+	resolved, err := ResolveCommandLine(cmd, args)
+	if err != nil {
+		// Parse the accepted prompt flags for the usual structured error
+		// envelope, without running validation, discovery or inference.
+		respond, _, _ := cmd.Find([]string{"respond"})
+		if flagErr := respond.ParseFlags(args); flagErr != nil {
+			err = usageErr(fmt.Errorf("invalid command flags: %w", flagErr))
+		}
+		return reportCommandError(cmd, flags, err)
+	}
+	cmd.SetArgs(resolved)
 	return executeCommand(cmd, flags)
 }
 
@@ -48,6 +62,10 @@ func executeCommand(cmd *cobra.Command, flags *rootFlags) error {
 	if err == nil {
 		err = flags.helpError
 	}
+	return reportCommandError(cmd, flags, err)
+}
+
+func reportCommandError(cmd *cobra.Command, flags *rootFlags, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -107,11 +125,16 @@ unavailable bridge or recognized rate limit).
 Agent mode: add --agent to supported data commands for JSON output + non-interactive mode.
 Native local: --model local uses the Foundation Models SDK on Apple Silicon/macOS 27;
 human terminal output streams, JSON/agent output stays complete.
-Prompt or command: a first argument that names a command runs that command.
-A near-miss of a command name (edit distance two or less) is refused with a
-suggestion. Any other first argument is a prompt, so
+Prompt or command: the first positional argument names the command, if exact.
+Flag values are skipped using the flag definitions (including --flag=value).
+Only a sole positional argument can be refused as a near-miss: case-insensitive
+edit distance one, or two for command names of seven or more characters.
+An adjacent letter swap counts as one edit. Other non-command text is a prompt:
 'hollis "Explain closures"' means 'hollis respond "Explain closures"' and
-accepts respond's flags. See docs/cli.md for the full rule table.
+accepts respond's flags. After --, text is literal, including model prefixes.
+Root --help/--version keep strict argument checks; use 'hollis respond --help'
+for prompt help. A lone '-' is prompt text, not stdin; pipe to 'hollis respond'
+without a prompt to read stdin. See docs/cli.md for the full rule table.
 Health check: run 'hollis doctor' to verify the transport and bridges.
 Local OpenAI-compatible endpoint: run 'hollis serve' (127.0.0.1:1978).
 See README.md for recipes.`,
@@ -119,8 +142,8 @@ See README.md for recipes.`,
 		SilenceErrors: true,
 		// Classify unknown commands and --version extras before deferred help
 		// is rendered, so --help cannot turn invalid input into exit 0. A
-		// near-miss is refused with a suggestion; ResolveCommandLine already
-		// turned every other non-command first argument into a prompt.
+		// near-miss is refused before execution; root help/version requests
+		// stay here rather than becoming prompts.
 		Args: func(root *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return nil

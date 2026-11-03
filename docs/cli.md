@@ -17,25 +17,31 @@ The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work
 
 ### Prompt or command
 
-The first argument decides what runs. Hollis never guesses between a command and a prompt by keyword: the rule is mechanical, so a shell history stays predictable.
+The first positional argument decides what runs. Flag values are not positional arguments. Hollis uses the root persistent and `respond` flag definitions: a value-taking flag consumes the next argument unless written `--flag=value`; boolean flags do not consume the next argument.
 
-| First argument | What runs | Example |
+| Input | What runs | Example |
 | --- | --- | --- |
 | Names a command | That command | `hollis models`, `hollis chat "hello"` |
-| Within edit distance 2 of a command name (case-insensitive) | Nothing: usage error, exit 2, with the closest command named | `hollis respondd` → `did you mean "respond"?` |
+| Sole positional argument within edit distance 1 of a command name, or distance 2 for command names of 7 or more characters (case-insensitive) | Nothing: usage error, exit 2, with the closest command named | `hollis chta`, `hollis respnd --json`, `hollis modles`, `hollis doctr` |
 | Anything else | `respond`, with the whole command line as its arguments | `hollis "Explain closures"` behaves like `hollis respond "Explain closures"` |
 | Follows `--` | `respond`, with the text after `--` taken literally | `hollis -- "--chat"` sends the prompt `--chat` |
+| Root `--help` or `--version` with extra positional arguments | Existing root argument validation, exit 2 for an unknown command | `hollis --help explain`, `hollis --version explain` |
+| Lone `-` | `respond`, with the literal prompt `-` | `hollis -` does not read stdin |
 
-Leading global flags are skipped while the first argument is found, and `--select` is skipped with its value. Respond's own flags may come before the prompt, so `hollis --model local "hi"` and `hollis "hi" --model local` both work. A prompt whose first word is exactly a command name must use `respond` explicitly: `hollis chat "chat"` is a chat turn with the stored model, not a bare prompt. Cobra's hidden `__` completion commands are never reinterpreted.
+Respond's own flags may come before the prompt, so `hollis --model local "hello"` and `hollis --model=local "hello"` both work. Values such as `--prompt-file chat` and `--image setup` are paths, not commands. With an exact command, leading flags belong to that command: `hollis --model cloud chat --help` shows chat help. A prompt whose first positional argument is exactly a command name must use `respond` or `--` explicitly. Cobra's hidden `__` completion commands are never reinterpreted.
 
-A near-miss is refused rather than sent to a model because a typo inside a prompt would hide which command the caller meant. The error names the closest command and repeats the prompt form, for example:
+An edit is an insertion, deletion, substitution, or adjacent letter swap. Only a sole positional argument can be refused as a near-miss. `hollis what is a closure`, `hollis hello`, `hollis make a plan` and `hollis tell me a joke` are prompts. So is `hollis respod hello`: multiple positional arguments are not typo-checked. To send a refused word literally, use `respond` or `--`. The error preserves leading flags in the prompt form:
 
 ```
-$ hollis respod "hello"
-unknown command "respod": did you mean "respond"? To send it as a prompt instead, run: hollis respond "respod hello"
+$ hollis --json respnd
+{"error":{"code":"usage","exit_code":2,"message":"unknown command \"respnd\": did you mean \"respond\"? To send it as a prompt instead, run: hollis --json respond \"respnd\""}}
 ```
 
-The same suggestion appears for the group commands that dispatch their own subcommands, such as `hollis config shwo` and `hollis chats lsit`. JSON and agent output carry the usual `error` object with `"exit_code": 2`.
+The `config` and `chats` groups also suggest close subcommand names, such as `hollis config shwo` and `hollis chats lsit`. The `image` and `batch` groups reject unknown subcommands with exit 2 but do not provide these suggestions. JSON and agent output carry the usual `error` object with `"exit_code": 2`.
+
+After `--`, even `model <tier>` is literal: `hollis -- model cloud hello` sends `model cloud hello` without selecting Cloud. Root help and version flags retain their existing strict argument checks; ask for prompt help with `hollis respond --help`.
+
+A lone `-` is literal prompt text, consistent with `--prompt-file -` naming a regular file rather than aliasing stdin. To read stdin, omit the prompt and pipe to `hollis respond`.
 
 ## Native local streaming
 
