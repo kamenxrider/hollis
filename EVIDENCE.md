@@ -36,13 +36,29 @@ ChatGPT picker. It contains no prompt, response or personal account information.
   these stateless calls; this does not change persistent chat storage.
 - **2026-10-31, Shortcuts:** Cloud and Cloud Pro each succeeded once on the
   merged runtime. Availability and quota guarantees do not follow from these
-  checks. The [`fm` comparison](README.md#why-not-fm) records the separate
+  checks. The [`fm` comparison](#why-not-fm) records the separate
   Terminal-hosted result and the unmerged prototype's limits.
 
 These checks qualify only the stated setup and calls, not fresh-account consent,
 all schema shapes, streaming usage, other OS builds or future availability.
 Current-source protocol-2 features are not in runtime 0.4.0 or plugin 0.2.0.
 
+## Why not `fm`?
+
+On macOS 27.0 build **26A428**, Apple’s installed `fm --help` and `fm respond --help`
+listed only the on-device `system` model. That historical CLI observation does
+not describe every `fm` surface: in 2026-10-31 tests, `fm serve` PCC requests
+succeeded only from an interactive Terminal-hosted process; tested noninteractive
+and background-Terminal contexts were refused. Hollis's `fm` route remains an
+unmerged draft prototype ([#62](https://github.com/kamenxrider/hollis/pull/62)),
+not an available route as of 2026-11-01.
+
+Hollis exposes separate Cloud and Cloud Pro choices through Shortcuts; each
+succeeded once on the merged runtime on 2026-10-31. These are scoped checks,
+not a guarantee of continued cloud availability.
+Joseph Humfrey demonstrated the Shortcut-to-PCC approach in
+[*The Shortcut to integrating Private Cloud Compute into my app*](https://joethephish.me/blog/the-shortcut-to-integrating-PCC/);
+Hollis adds explicit selection, CLI/API access, conversations and batches.
 ## What belongs in a release
 
 Public source includes implementation, user documentation, selected product

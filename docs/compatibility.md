@@ -56,7 +56,7 @@ establish successful inference.
 
 ## Doctor
 
-The example below uses version 0.3.0. Its “Quickstart” instruction refers to [verified install step 2](../README.md#install-verified).
+The example below is version 0.3.0 output with its `MISSING` line updated to current wording, which points at [adding the Shortcuts](../README.md#add-shortcuts). Current output also adds a `local:` line for native availability.
 
 ```bash
 hollis doctor
@@ -76,7 +76,7 @@ hollis doctor (version 0.3.0)
     [OK]        on-device  AFM Bridge - On-Device.signed (shortcuts-list)
     [OK]        chatgpt    AFM Bridge - ChatGPT.signed (shortcuts-list)
 
-  MISSING: install that bridge (README “Quickstart” step 2), or point config at one you already have:
+  MISSING: add that bridge (README.md#add-shortcuts), or point config at one you already have:
   hollis config set bridge <tier> <name-or-uuid>
 ```
 
@@ -91,7 +91,7 @@ the separate 128 KiB rendered-prompt limit. Availability is not inference proof.
 
 ## If something breaks
 
-- `doctor` says `MISSING`: install the bridges from [verified install step 2](../README.md#install-verified). If you renamed one in Shortcuts.app, run `hollis config set bridge <tier> "new name"`.
+- `doctor` says `MISSING`: add the bridges as described in [add the Shortcuts routes](../README.md#add-shortcuts). If you renamed one in Shortcuts.app, run `hollis config set bridge <tier> "new name"`.
 - A command seems missing after `git pull`: rebuild it with `go build -o "$(go env GOPATH)/bin/hollis" ./cmd/hollis`; an older binary may still be first on `PATH`.
 - An OpenAI client fails with `stream: true`: select native `local` for streaming, or set `stream: false` for a Shortcuts route. Hollis does not read a streaming preference from custom headers.
 
@@ -104,6 +104,6 @@ go build -o "$(go env GOPATH)/bin/hollis" ./cmd/hollis        # from a clone
 
 From a clone, `python3 scripts/package-bridges.py dist` creates the complete five-bridge archive. `python3 scripts/make-bridge.py bridges/` generates just the four model bridges.
 
-Release binaries and Shortcut files are **unsigned by a Developer ID and not notarized**. Verify the downloaded checksum using the [verified install](../README.md#install-verified); releases also carry a GitHub build-provenance attestation and an SPDX SBOM. For the smallest trust chain, inspect the source and build it yourself with the second command above. Hollis does not claim Gatekeeper approval. If a command seems to be missing after a `git pull`, rebuild: an older binary on `PATH` is usually the cause.
+Release binaries and Shortcut files are **unsigned by a Developer ID and not notarized**. Verify the downloaded checksum and attestation using the [manual verification steps](../README.md#verification-and-trust); releases also carry a GitHub build-provenance attestation and an SPDX SBOM. For the smallest trust chain, inspect the source and build it yourself with the second command above. Hollis does not claim Gatekeeper approval. If a command seems to be missing after a `git pull`, rebuild: an older binary on `PATH` is usually the cause.
 
 [Back to Hollis](../README.md)

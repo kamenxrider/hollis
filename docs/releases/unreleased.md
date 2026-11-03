@@ -176,4 +176,13 @@ matching plugin and runtime pairing: a plugin installed against an older
 runtime does not gain the new commands or capabilities until both are updated
 together. See [the plugin guide](../plugin.md).
 
+## Release checklist: README quick start
+
+The README quick start checks native local with `hollis models --model local`
+because the installer still pins runtime 0.4.0, which has no `doctor --model`.
+When the installer pins this release, make `hollis doctor --model local` the
+first command in quick start step 2, keep `models --model local` as the
+alternative, and remove the sentence saying the installed runtime lacks it.
+Add rows to the README's "What leaves your machine" table only for features
+that ship in this release, stating what the shipped code sends and to which route.
 [Back to release notes](README.md)

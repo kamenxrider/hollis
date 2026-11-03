@@ -9,6 +9,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// modelsBackgroundNote closes the human models table.
+const modelsBackgroundNote = "Apple publishes no backend model IDs. The internal Shortcuts parameter\n" +
+	"strings are included in --json; background in README.md#models."
+
 func newModelsCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 	var modelFilter string
 	cmd := &cobra.Command{
@@ -22,8 +26,8 @@ where Use Model had no Cloud Pro) is omitted.
 
 Each tier name (used with --model) maps to a WFLLMModel string carried by
 the bridge shortcuts. Those are Shortcuts action parameters, not Apple
-backend model IDs — Apple publishes none. See README "Model tiers" for
-sources.`,
+backend model IDs — Apple publishes none. See README.md#models and
+docs/shortcuts.md for sources.`,
 		Example: `  hollis models
   hollis models --json`,
 		Args: noExtraArgs("models"),
@@ -83,7 +87,7 @@ sources.`,
 				fmt.Fprintf(w, "  %-10s %s\n", string(spec.ID), desc)
 			}
 			fmt.Fprintf(w, "  %-10s Native Foundation Models SDK: %s%s (inference not tested)\n", "local", localStatusLabel(localStatus, localErr), localStatusDetail(localStatus, localErr))
-			fmt.Fprintf(w, "\nApple publishes no backend model IDs. The internal Shortcuts parameter\nstrings are included in --json; background in README \"Model tiers\".\n")
+			fmt.Fprintf(w, "\n%s\n", modelsBackgroundNote)
 			return nil
 		},
 	}

@@ -237,7 +237,7 @@ func resolvedStatus(rb runner.ResolvedBridge, osMajor int) string {
 
 // missingBridgeRemedy is the action a MISSING row calls for. Kept next to
 // unresolvedProNote so doctor's wording lives in one place.
-const missingBridgeRemedy = "MISSING: install that bridge (README \u201cQuickstart\u201d step 2), " +
+const missingBridgeRemedy = "MISSING: add that bridge (README.md#add-shortcuts), " +
 	"or point config at one you already have:\n  hollis config set bridge <tier> <name-or-uuid>"
 
 // unresolvedProNote is the doctor hint for Pro on pre-27 macOS.
