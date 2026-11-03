@@ -242,6 +242,7 @@ See README.md for recipes.`,
 	}
 
 	rootCmd.AddCommand(newRespondCmd(&flags, newRunner))
+	rootCmd.AddCommand(newExamplesCmd(&flags))
 	rootCmd.AddCommand(newBatchCmd(&flags, newRunner))
 	rootCmd.AddCommand(newImageCmd(&flags, generator))
 	rootCmd.AddCommand(newChatCmdWithImageGenerator(&flags, newRunner, generator))

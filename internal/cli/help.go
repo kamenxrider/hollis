@@ -55,6 +55,7 @@ var documentedSemanticCodes = []semanticCodeDoc{
 // agentExampleCommands is rendered in root help and published by agent-context,
 // so an agent reads the same examples a person sees.
 var agentExampleCommands = []string{
+	`hollis examples`,
 	`hollis respond "Explain closures in Go in three sentences"`,
 	`hollis respond "Summarize this document" --file notes.md`,
 	`printf 'Explain a race condition' | hollis respond`,

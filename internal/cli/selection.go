@@ -129,6 +129,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 	context.fields["commands"].element.fields["annotations"] = resultFields("mcp:read-only")
 	return map[string]*fieldSchema{
 		"hollis version":                 versionResultSchema,
+		"hollis examples":                resultFields("format", "content"),
 		"hollis respond":                 text,
 		"hollis chat":                    chat,
 		"hollis chats list":              resultArray(resultFields("id", "title", "model", "messages", "created_at", "updated_at", "archived")),

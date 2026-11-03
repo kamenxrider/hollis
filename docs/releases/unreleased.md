@@ -14,6 +14,14 @@ loops or selecting another installer. Native repair guidance preserves the
 original installation source and the matching CLI/helper pair.
 Empty chat lists and no-match searches include human-only next-step hints.
 
+## Embedded job recipes
+
+`hollis examples` prints copyable, job-organized recipes without running them.
+The same embedded guide supports human, JSON and agent output, and every
+displayed shell block runs verbatim in offline tests with synthetic model
+runners. See [the recipes](../../examples/recipes.md) and
+[their test scope](../testing.md#copyable-job-recipes).
+
 ## Database schema v3
 
 > **Changing back to an older Hollis binary does not undo this upgrade.**

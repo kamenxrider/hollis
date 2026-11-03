@@ -4,6 +4,12 @@ Start with the [verified install and first request](../README.md#install-verifie
 
 ## Everyday use
 
+Run `hollis examples` for [job recipes](../examples/recipes.md), including
+summarizing notes, drafting replies, reviewing code and saving chats. It prints
+embedded text only. `--json` or `--agent` returns `format` and `content`;
+`--select` can select those fields. Copying a recipe is a separate action:
+the guide names its model requests and file writes.
+
 ```bash
 hollis respond "Summarize this repo in one sentence"
 hollis "Explain closures in Go"          # same as hollis respond "..."

@@ -22,6 +22,20 @@ and historical run receipts are maintained separately and are not distributed.
 Synthetic privacy canaries in tests are fabricated values used to verify that
 errors do not disclose request data.
 
+## Copyable job recipes
+
+`go test ./internal/cli -run TestExamplesRecipes` extracts every
+shell block from the same embedded guide that `hollis examples` prints and
+runs it unchanged with default Bash and zsh settings (when installed). Each
+block gets isolated home, state and working
+directories. A test-only executable named `hollis` drives the real command
+parser with injected synthetic runners; no production model transport is
+constructed. The harness checks request counts, prompts, selected models,
+code output, guided JSON and stored chats. Failure tests use a recording shell
+stub to check that failed file writes and chat/list commands stop dependent
+commands and preserve a failing exit status. It is part of ordinary Go tests
+and release CI. This validates recipes, not live model availability or quality.
+
 ## Native helper protocol and extraction
 
 The bundled helper (`native/HollisNative.swift`) has its own offline suite in
