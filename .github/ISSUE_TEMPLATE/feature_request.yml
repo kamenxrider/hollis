@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a change or a new capability.
+labels: [enhancement, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Hollis can only expose what Apple's Shortcuts and Foundation Models interfaces provide on macOS. If a request depends on something Apple does not offer, say so; it helps to know.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The behavior you would like, such as a command, flag, API field or exit code.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - CLI
+        - HTTP server (hollis serve)
+        - Native local route
+        - Shortcuts routes
+        - Image generation
+        - Agent plugin
+        - Installation or packaging
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use now, or other approaches you ruled out.

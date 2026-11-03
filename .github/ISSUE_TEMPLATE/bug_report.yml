@@ -1,0 +1,87 @@
+name: Bug report
+description: Something in Hollis does not work as documented.
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please check [If something breaks](https://github.com/kamenxrider/hollis/blob/main/docs/compatibility.md#if-something-breaks) first.
+
+        Do not paste private prompts, documents, images, chat history or tokens. A short synthetic prompt that reproduces the problem is enough.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what you got instead. Include the exit code if there was one (`echo $?`).
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. hollis respond --model local "Reply with OK"
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: route
+    attributes:
+      label: Model route
+      options:
+        - auto
+        - cloud
+        - cloud-pro
+        - on-device
+        - local
+        - chatgpt
+        - image (image generation)
+        - not route-specific
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where it happened
+      multiple: true
+      options:
+        - CLI
+        - HTTP server (hollis serve)
+        - Agent plugin
+        - Installation or setup
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Hollis version
+      description: Output of `hollis --version`, or the commit if you built from source.
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and build
+      description: Output of `sw_vers -productVersion` and `sw_vers -buildVersion`.
+      placeholder: 27.0 (27A123)
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `hollis doctor --json`
+      description: |
+        It reports setup and availability only; it contains no prompts or answers. Before pasting, check these fields and replace anything personal with a placeholder such as `<redacted>`:
+
+        - `resolved_ref`, and `bridge.reference` in `doctor --model` output, can be a bridge name you chose or a real Shortcut UUID from your config.
+        - An error message about configuration can include the absolute path to your config file, which contains your macOS user name.
+
+        Each bridge's `name` is the standard import name and does not need replacing. For a route-specific problem, `hollis doctor --model <route> --json` is also useful; use `image` as the route for image generation.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Error messages, server log lines or client details. Remove private content first.
