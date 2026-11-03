@@ -177,6 +177,8 @@ See README.md for recipes.`,
 			return unknownRootCommandError(cmd, args)
 		},
 	}
+	// Append shared sections after Cobra's usage and flags, only for root help.
+	rootCmd.SetHelpTemplate(rootCmd.HelpTemplate() + "{{if not .HasParent}}\n" + rootHelpSections() + "\n{{end}}")
 	rootCmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return usageErr(fmt.Errorf("invalid command flags: %w", err))
 	})
