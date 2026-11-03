@@ -1,0 +1,13 @@
+{
+  "stdin": "{\"protocol\":3,\"operation\":\"extract\",\"source\":{\"path\":\"/nonexistent/fixture.pdf\"},\"media\":\"rtf\"}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "unsupported_media",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ],
+  "name": "extract with a non-pdf media hint"
+}

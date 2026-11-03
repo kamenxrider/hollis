@@ -12,8 +12,14 @@ NDJSON request on stdin, an event stream on stdout.
 - `test_protocol_events.py` builds the helper and runs golden request cases from
   `testdata/protocol/`: protocol and operation guards, malformed and
   non-canonical JSON, unsupported schemas, the request-size cap, the status
-  event shape, and prompt guards. Every case fails before a session exists or
-  asks only for the non-generative status event.
+  event shape, prompt guards, and the `extract` request guards. Every case
+  fails before a session exists or asks only for the non-generative status
+  event.
+- `test_extract_protocol.py` runs the built helper's `extract` operation on
+  PDFs it generates: the complete event, page selection with the whole page
+  count, OCR pages, `page_out_of_range`, no text, the page and text ceilings
+  with their numbers, non-PDF content, and unreadable sources, with no path in
+  either output stream. Extraction calls no model.
 - `test_extraction.py` builds `native/Extraction.swift` with a test driver and
   checks PDF text-layer extraction, Vision OCR of scanned and rotated pages,
   page selection, the page and text ceilings, the file ceiling, symlink and FIFO

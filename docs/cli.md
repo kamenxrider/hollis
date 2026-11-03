@@ -61,9 +61,15 @@ hollis respond --prompt-file instructions.txt
 printf 'Summarize the notes' | hollis respond --prompt-file -
 printf 'Summarize the notes' | hollis respond --file notes.md
 hollis respond "Summarize the differences" --file first.md --file second.txt
+hollis respond --file report.pdf "Summarize the report"
+hollis respond --file scan.pdf --pages 2 --pages 5-7 "List the dates"
 ```
 
-`--prompt-file` reads the instruction exactly as UTF-8 text; `--prompt-file -` reads it from stdin. Repeat `--file` to append local `.txt` and `.md` documents in order, with their basenames and explicit boundaries. The instruction, boundaries and document contents together must fit the 128 KiB prompt limit; Hollis rejects oversized input without truncation. Empty, invalid UTF-8 and nonregular files are rejected. PDF is not supported.
+`--prompt-file` reads the instruction exactly as UTF-8 text; `--prompt-file -` reads it from stdin. Repeat `--file` to append local UTF-8 text documents of any extension in order, with their basenames and explicit boundaries. The instruction, boundaries and document contents together must fit the 128 KiB prompt limit; Hollis rejects oversized input without truncation. Empty, invalid UTF-8 and nonregular files are rejected.
+
+Content, not the extension, decides how a `--file` is read. A PDF is extracted on this Mac by the paired native helper (`hollis-native`, macOS 27): each page's text layer is used, and a page without one is recognized with on-device OCR. Extraction calls no model, and the extracted text then goes to the selected route like any other document, framed with one `--- Page N ---` marker per page. A PNG or JPEG passed to `--file` is refused with a pointer at `--image`; other binary content is refused as `unsupported_media`. A valid UTF-8 text file named `.pdf`, or without an extension, is still accepted as text. PDF extraction is CLI-only through `respond --file`; the HTTP endpoints do not accept PDFs or emit extraction errors.
+
+`--pages` selects pages of exactly one PDF `--file`: a page (`3`), a range (`3-7`), or a comma list (`1,4-6`). It is repeatable, 1-based, and the selection is read in ascending order with repeats removed. A malformed token, page 0 or a reversed range is refused by name (exit 2, `unsupported_parameter`) before anything is read, and so is a selection over 2000 pages. A page past the end of the document is `page_out_of_range` (exit 2) with the document's real page count. A document over 2000 pages or a damaged one is `invalid_document`, a document with no text in the selected pages is `extract_no_text`, and extracted text over 128 KiB is `context_capacity` with the limit and the measured size (all exit 5). These messages carry numbers, never page text or paths. The framed prompt must still fit the 128 KiB prompt limit, without truncation. If the model declines a request that carried extracted text, the error says so: Apple's guardrails can refuse such text, and the refusal does not mean the file was unreadable.
 
 Choose exactly one instruction source: positional text, `--prompt-file`, or piped stdin. With `--file` or `--image` and no positional text or `--prompt-file`, piped stdin supplies the instruction, so `cat task.txt | hollis respond --file notes.md` works without `/dev/null`. Passing positional text and piped stdin together with file input, or a regular `--prompt-file` path and piped stdin, is refused instead of silently dropping one source; positional text alone still ignores an incidental pipe, as before. A pipe held open with no data is not waited on: Hollis checks stdin briefly, then reports the missing instruction. Documents cannot be mixed with `--image` in one request. Documents are prompt content; their boundaries do not isolate untrusted instructions.
 
@@ -299,6 +305,7 @@ hollis respond --model cloud-pro "prompt"  # explicit Cloud Pro
 hollis respond --code "prompt" > file.go   # first complete non-empty fenced code block
 hollis respond --image photo.jpg "describe" # image input; defaults to Cloud
 hollis respond --file notes.md "summarize"   # attach a text document
+hollis respond --file report.pdf "summarize"  # read a PDF on-device
 hollis image generate "A lighthouse" --style sketch --output lighthouse.png
 hollis batch resume --job ./job.json --max-calls 12
 hollis chat "remember this"                # start a persistent chat

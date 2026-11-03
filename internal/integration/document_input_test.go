@@ -281,7 +281,7 @@ func TestRespondDocumentInputValidationPreventsRunnerCalls(t *testing.T) {
 		{name: "documents and images", args: []string{"respond", "summarize", "--file", document, "--image", document}},
 		{name: "missing prompt file", args: []string{"respond", "--prompt-file", missing}},
 		{name: "directory prompt file", args: []string{"respond", "--prompt-file", dir}},
-		{name: "unsupported document", args: []string{"respond", "summarize", "--file", writeDocumentInputFile(t, "unsupported.pdf", "not guaranteed")}},
+		{name: "binary document", args: []string{"respond", "summarize", "--file", writeDocumentInputFile(t, "unsupported.pdf", "binary\x00")}},
 		{name: "missing document", args: []string{"respond", "summarize", "--file", missing}},
 		{name: "directory document", args: []string{"respond", "summarize", "--file", dir}},
 	}

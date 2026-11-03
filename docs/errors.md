@@ -37,6 +37,20 @@ exit 5 with `native_protocol` and calls for the same remedy, the matching bundle
 from the same release, but it is not a protocol disagreement. Do not retry
 either one against the same installation.
 
+PDF extraction is CLI-only through `respond --file`; HTTP endpoints do not
+accept PDFs or produce these extraction errors. Their messages carry the
+document's position and basename and integers only, never page text, paths or
+framework diagnostics.
+
+| Machine code | Meaning | CLI exit |
+| --- | --- | --- |
+| `page_out_of_range` | `--pages` asks for a page past the end; the message names the page and the document's real `page_count` | 2 |
+| `unsupported_media` | The `--file` content is an image (use `--image`) or neither UTF-8 text nor a PDF | 2 |
+| `extract_media_mismatch` | Hollis and its paired helper disagree about the detected media type; this is not a user-selected hint | 2 |
+| `invalid_document` | The PDF is damaged, unreadable, a page cannot be rendered or recognized, or it exceeds 2000 pages (with `limit` and `actual`) | 5 |
+| `extract_no_text` | The selected pages hold no text, even after OCR | 5 |
+| `context_capacity` | Extracted text exceeds 128 KiB; the message gives the limit and the measured size, and nothing is truncated | 5 |
+
 Shortcut output is bounded at 1 MiB per run and for `shortcuts list`. A run
 whose stdout exceeds that cap is refused with `transport` and exit 5 rather than
 delivered partially; an oversized listing is refused the same way and does not
@@ -52,7 +66,7 @@ blocked ChatGPT image style reports this code when the Shortcut declines the
 request; observed signatures have changed between builds, and the code names
 the refusal, not its cause.
 
-The mapping covers direct text/image commands, stored conversations, and the
+Except for the CLI-only PDF extraction codes above, the mapping covers direct text/image commands, stored conversations, and the
 chat, Responses and image HTTP endpoints. Existing timeout, missing-resource,
 rate-limit and validation codes retain their existing numeric mappings.
 `hollis agent-context` lists semantic codes independently of numeric exits.

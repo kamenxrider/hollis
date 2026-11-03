@@ -49,6 +49,15 @@ a recognition that finds nothing is an empty page. The no-text failure means no
 non-whitespace text in the selected pages. Those cases need PDFKit and Vision to
 be usable, and skip where the host cannot run a macOS 27 binary.
 
+The helper's `extract` operation has golden guard cases (wrong protocol era,
+generation members on extract, extract members on generation, bad page lists,
+relative paths) and a dynamic suite that runs the built helper on generated
+PDFs and asserts each complete and error event exactly. The Go runner's own
+built-helper test drives a hand-built PDF through staging and decoding. CLI
+tests cover content sniffing, `--pages` parsing and refusal, framing, the
+error taxonomy, and that extracted text reaches the model and never stderr or
+an error envelope. None of these call a model.
+
 Generation events are exercised only by the opt-in live file, which is skipped
 unless `HOLLIS_NATIVE_LIVE=1` and is never run in CI. It asserts protocol
 behavior, not answer quality or any reliability rate.

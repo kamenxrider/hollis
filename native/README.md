@@ -10,7 +10,7 @@ compile code during a request.
 Normal operation reads exactly one JSON request from stdin and writes NDJSON to
 stdout. Prompt text never appears in process arguments.
 
-`Extraction.swift` is the document library the helper will call: PDF text per
+`Extraction.swift` is the document library behind the `extract` operation: PDF text per
 page with Vision OCR for pages that have none, content-based detection, and
 bounded, symlink-free file input. It performs no inference and knows nothing
 about the protocol. A page that fails to render or whose OCR request fails
@@ -21,7 +21,7 @@ the end is refused with the document's real page count, before any page is
 read. `scripts/native` builds and tests it offline.
 
 The accepted protocol set is explicit: `[1, 2, 3]`. A protocol-3 request has
-`protocol`, `operation` (`status`, `complete`, `stream`, or `schema`), and a
+`protocol`, `operation` (`status`, `complete`, `stream`, `schema`, or `extract`), and a
 `prompt` for generation; a `schema` request also carries `schema`, and a
 generation request may carry `tool_calling` (`"allowed"` or `"disallowed"`).
 Older request formats retain their field shapes: protocol-1 requests have three
@@ -40,8 +40,9 @@ bundle; accepting an older request format does not bypass this check.
 
 - `status`: `available` Boolean, `reason` string, `context_size` on protocol 2
   and above (the measured token budget of the local model), and, on protocol 3,
-  `capabilities`: `vision` and `macos_major` today, with a block per capability
-  that a later build may add. A capability is advertised as absent rather than
+  `capabilities`: `vision`, `macos_major`, and an `extract` block (`pdf`,
+  `ocr`, `pages`, `max_pages` 2000, `max_text_bytes` 131072), with a block per
+  capability that a later build may add. A capability is advertised as absent rather than
   zero-filled, and clients read the object leniently so a new flag needs no
   protocol bump. Status operations stop here without creating a session or
   generating a response.
@@ -68,6 +69,17 @@ bundle; accepting an older request format does not bypass this check.
   fail closed with an `error` event and no partial object. The caller re-validates
   the object independently; structural validity never claims semantic truth.
   See the [full subset rules](../docs/native-local.md#guided-output).
+- `extract` (protocol 3): reads one PDF without any model access. The request
+  carries `source.path` (absolute; the Go runner passes a private staged
+  copy), optional `pages` (ascending, unique, 1-based, at most 2000) and an
+  optional `media` hint (`pdf`). It accepts no `prompt`, `schema` or
+  `tool_calling`, and generation requests accept no `source`, `pages` or
+  `media`. After the status event the helper emits `complete` with `media`,
+  `page_count`, `text_bytes` and `pages` (`page`, verbatim `text`, and
+  `method` `text` or `ocr`), or an `error`: `invalid_document`,
+  `extract_no_text`, `unsupported_media`, `extract_media_mismatch`,
+  `page_out_of_range` with `page` and `page_count`, or `context_capacity`;
+  ceiling failures add integer `limit` and `actual`.
 - `error`: a stable `kind` without input or framework diagnostic text.
   Protocol-3 capability refusals also carry closed-set `capability` and `reason`
   identifiers, preserved in the CLI error (exit 5) and HTTP 502 message.

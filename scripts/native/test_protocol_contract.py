@@ -20,13 +20,19 @@ import helper_protocol as protocol
 
 # Event fields the Go decoder accepts. Kept here as the reviewed contract; the
 # tests below fail if either source grows a field without the other.
-GO_REQUEST_FIELDS = {'protocol', 'operation', 'prompt', 'schema', 'tool_calling'}
+GO_REQUEST_FIELDS = {'protocol', 'operation', 'prompt', 'schema', 'tool_calling',
+                     'source', 'pages', 'media'}
 GO_EVENT_FIELDS = {'protocol', 'version', 'model', 'event', 'available',
                    'reason', 'text', 'usage', 'kind', 'context_size',
-                   'structured', 'capability', 'capabilities'}
-GO_CAPABILITY_FIELDS = {'images', 'tools', 'vision', 'macos_major'}
+                   'structured', 'capability', 'capabilities', 'media',
+                   'page_count', 'pages', 'text_bytes', 'page', 'limit',
+                   'actual'}
+GO_CAPABILITY_FIELDS = {'extract', 'images', 'tools', 'vision', 'macos_major'}
+GO_EXTRACT_CAPABILITY_FIELDS = {'pdf', 'ocr', 'pages', 'max_pages', 'max_text_bytes'}
+GO_PAGE_FIELDS = {'page', 'text', 'method'}
+GO_SOURCE_FIELDS = {'path'}
 GO_USAGE_FIELDS = {'input_tokens', 'output_tokens', 'reasoning_tokens'}
-PROTOCOL_TWO_OPERATIONS = {'status', 'complete', 'stream', 'schema'}
+PROTOCOL_THREE_OPERATIONS = {'status', 'complete', 'stream', 'schema', 'extract'}
 PROTOCOL_EVENTS = {'status', 'snapshot', 'complete', 'error'}
 
 
@@ -131,8 +137,14 @@ class MessageShapeTests(unittest.TestCase):
         self.assertEqual(go_struct_tags(self.go, 'nativeUsage'), GO_USAGE_FIELDS)
         self.assertEqual(go_struct_tags(self.go, 'Capabilities'),
                          GO_CAPABILITY_FIELDS)
+        extract_go = protocol.ROOT.joinpath('internal/runner/extract.go').read_text()
+        self.assertEqual(go_struct_tags(extract_go, 'ExtractCapability'),
+                         GO_EXTRACT_CAPABILITY_FIELDS)
+        self.assertEqual(go_struct_tags(extract_go, 'nativePage'), GO_PAGE_FIELDS)
+        self.assertEqual(go_struct_tags(extract_go, 'nativeSource'), GO_SOURCE_FIELDS)
         self.assertLessEqual(emitted, GO_EVENT_FIELDS | GO_USAGE_FIELDS |
-                             GO_CAPABILITY_FIELDS)
+                             GO_CAPABILITY_FIELDS | GO_EXTRACT_CAPABILITY_FIELDS |
+                             GO_PAGE_FIELDS)
 
     def test_helper_emits_only_events_the_runner_handles(self):
         self.assertEqual(set(protocol.SWIFT_EVENT.findall(self.swift)),
@@ -162,10 +174,11 @@ class MessageShapeTests(unittest.TestCase):
         swift_operations = set(re.findall(r'"([a-z_]+)"', match.group(1)))
         swift_operations.update(re.findall(r'operations.append\("([a-z_]+)"\)',
                                            match.group(2)))
+        go_source = self.go + protocol.ROOT.joinpath('internal/runner/extract.go').read_text()
         go_operations = set(re.findall(
-            r'r\.invoke\(ctx,\s*(?:model|ModelLocal),\s*"([a-z_]+)"', self.go))
-        self.assertEqual(swift_operations, PROTOCOL_TWO_OPERATIONS)
-        self.assertEqual(go_operations, PROTOCOL_TWO_OPERATIONS)
+            r'r\.invoke\(ctx,\s*(?:model|ModelLocal),\s*"([a-z_]+)"', go_source))
+        self.assertEqual(swift_operations, PROTOCOL_THREE_OPERATIONS)
+        self.assertEqual(go_operations, PROTOCOL_THREE_OPERATIONS)
         self.assertEqual(swift_operations, go_operations)
 
     def test_runner_rejects_unknown_event_fields(self):

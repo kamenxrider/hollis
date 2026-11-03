@@ -24,7 +24,7 @@ import (
 func TestProtocolCompatibilityMatrix(t *testing.T) {
 	t.Run("row 3: current CLI against an older helper refuses every operation", func(t *testing.T) {
 		for _, older := range []int{1, 2} {
-			for _, operation := range []string{"status", "complete", "stream", "schema"} {
+			for _, operation := range []string{"status", "complete", "stream", "schema", "extract"} {
 				t.Run(strconv.Itoa(older)+"/"+operation, func(t *testing.T) {
 					marker := filepath.Join(t.TempDir(), "request-received")
 					r := fakeNativeAt(t, older, ": > '"+marker+"'\ncat >/dev/null\n")
@@ -82,6 +82,25 @@ func TestProtocolCompatibilityMatrix(t *testing.T) {
 		if !strings.Contains(err.Error(), "tools") {
 			t.Fatalf("error = %v; want the capability named", err)
 		}
+	})
+
+	t.Run("row 7: extract is refused by name without an advertisement, before any text is read", func(t *testing.T) {
+		r := fakeNative(t, "cat >/dev/null\n"+nativeReady()+extractDone(1, page(1, "never read", "text")))
+		result, err := r.ExtractPDF(t.Context(), []byte(pdfFixture), nil)
+		requireNativeKind(t, err, KindUnsupportedCapability)
+		if !strings.Contains(err.Error(), "extract") || len(result.Pages) != 0 {
+			t.Fatalf("result %#v err=%v; want extract named and no text", result, err)
+		}
+	})
+
+	t.Run("row 6: an advertised extract is served and other capabilities stay independent", func(t *testing.T) {
+		r := fakeNative(t, "cat >/dev/null\n"+extractReady()+extractDone(1, page(1, "served", "text")))
+		if result, err := r.ExtractPDF(t.Context(), []byte(pdfFixture), nil); err != nil || result.Pages[0].Text != "served" {
+			t.Fatalf("result %#v err=%v", result, err)
+		}
+		tools := fakeNative(t, "cat >/dev/null\n"+extractReady())
+		_, err := tools.RunCompleteWithOptions(t.Context(), ModelLocal, "prompt", nativeOptions{ToolCalling: "allowed"})
+		requireNativeKind(t, err, KindUnsupportedCapability)
 	})
 
 	t.Run("row 8: an advertised-but-unsupported capability carries its fixed reason", func(t *testing.T) {
@@ -380,6 +399,9 @@ func runNativeOperation(t *testing.T, r *NativeRunner, operation string) error {
 		return err
 	case "schema":
 		_, err := r.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
+		return err
+	case "extract":
+		_, err := r.ExtractPDF(t.Context(), []byte(pdfFixture), nil)
 		return err
 	}
 	t.Fatalf("unknown operation %q", operation)

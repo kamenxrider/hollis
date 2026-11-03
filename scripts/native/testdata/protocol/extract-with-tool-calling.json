@@ -1,0 +1,13 @@
+{
+  "stdin": "{\"protocol\":3,\"operation\":\"extract\",\"tool_calling\":\"allowed\",\"source\":{\"path\":\"/nonexistent/fixture.pdf\"}}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ],
+  "name": "tool_calling on extract"
+}

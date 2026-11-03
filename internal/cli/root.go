@@ -359,7 +359,12 @@ func ErrorReported(err error) bool {
 func (e *cliError) Error() string { return e.err.Error() }
 func (e *cliError) Unwrap() error { return e.err }
 
-func usageErr(err error) error     { return &cliError{code: 2, err: err} }
+func usageErr(err error) error { return &cliError{code: 2, err: err} }
+
+// codedUsageErr is a caller fault with a specific machine code.
+func codedUsageErr(code string, err error) error {
+	return &cliError{code: 2, machineCode: code, err: err}
+}
 func notFoundErr(err error) error  { return &cliError{code: 3, err: err} }
 func transportErr(err error) error { return &cliError{code: 5, err: err} }
 func timeoutErr(err error) error   { return &cliError{code: 7, err: err} }
@@ -404,7 +409,16 @@ func toCLIError(err error) error {
 	case runner.KindEmptyPrompt:
 		return usageErr(fmt.Errorf("%s\nhint: give a prompt as an argument or pipe it via stdin", err))
 	case runner.KindContextCapacity:
+		if re.Limit > 0 {
+			// An extraction ceiling carries its measured numbers.
+			return executionErr("context_capacity", err.Error())
+		}
 		return executionErr("context_capacity", "local model context capacity exceeded; conversation was not shortened. Start a new chat or explicitly supply a smaller request")
+	case runner.KindInvalidDocument, runner.KindExtractNoText:
+		// The helper read the document and could not produce text from it.
+		return executionErr(string(re.Kind), err.Error())
+	case runner.KindUnsupportedMedia, runner.KindExtractMediaMismatch, runner.KindPageOutOfRange:
+		return codedUsageErr(string(re.Kind), err)
 	case runner.KindLocalUnavailable:
 		return executionErr("local_unavailable", err.Error())
 	case runner.KindNativeProtocol, runner.KindNativeFailed:

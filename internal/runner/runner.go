@@ -99,19 +99,27 @@ const (
 	// the helper's payload was well formed and the pairing is correct.
 	KindUnsupportedCapability Kind = "unsupported_capability"
 	KindNativeFailed          Kind = "native_failed"
-	KindEmptyPrompt           Kind = "empty_prompt"       // refused before spawn (hangs forever)
-	KindNoOutput              Kind = "shortcut_no_output" // exit 0 + empty stdout (also what a TTY run looks like)
-	KindShortcutMissing       Kind = "shortcut_missing"   // confirmed by Apple error text
-	KindRateLimited           Kind = "rate_limited"       // explicit rate-limit text from Apple
-	KindUsage                 Kind = "usage"              // exit 64
-	KindSIGABRT               Kind = "sigabrt"            // exit 134 (the -o /dev/stdout crash; never used by us)
-	KindSignal                Kind = "signal"             // another real Unix signal terminated the child
-	KindTimeout               Kind = "timeout"            // deadline hit, child killed
-	KindContextCanceled       Kind = "context_canceled"   // caller canceled before/during run
-	KindListFailure           Kind = "list_failure"       // `shortcuts list` transport failure
-	KindTransport             Kind = "transport"          // staging, launch, or pipe failure
-	KindRequestDeclined       Kind = "request_declined"   // Apple asked for a different description; cause unknown
-	KindShortcutFailed        Kind = "shortcut_failed"    // unrecognized unsuccessful execution
+	// Document extraction outcomes. invalid_document and extract_no_text are
+	// helper-authoritative; unsupported_media, extract_media_mismatch and
+	// page_out_of_range are caller faults the CLI reports as usage errors.
+	KindInvalidDocument      Kind = "invalid_document"
+	KindExtractNoText        Kind = "extract_no_text"
+	KindUnsupportedMedia     Kind = "unsupported_media"
+	KindExtractMediaMismatch Kind = "extract_media_mismatch"
+	KindPageOutOfRange       Kind = "page_out_of_range"
+	KindEmptyPrompt          Kind = "empty_prompt"       // refused before spawn (hangs forever)
+	KindNoOutput             Kind = "shortcut_no_output" // exit 0 + empty stdout (also what a TTY run looks like)
+	KindShortcutMissing      Kind = "shortcut_missing"   // confirmed by Apple error text
+	KindRateLimited          Kind = "rate_limited"       // explicit rate-limit text from Apple
+	KindUsage                Kind = "usage"              // exit 64
+	KindSIGABRT              Kind = "sigabrt"            // exit 134 (the -o /dev/stdout crash; never used by us)
+	KindSignal               Kind = "signal"             // another real Unix signal terminated the child
+	KindTimeout              Kind = "timeout"            // deadline hit, child killed
+	KindContextCanceled      Kind = "context_canceled"   // caller canceled before/during run
+	KindListFailure          Kind = "list_failure"       // `shortcuts list` transport failure
+	KindTransport            Kind = "transport"          // staging, launch, or pipe failure
+	KindRequestDeclined      Kind = "request_declined"   // Apple asked for a different description; cause unknown
+	KindShortcutFailed       Kind = "shortcut_failed"    // unrecognized unsuccessful execution
 )
 
 // Error is a classified runner failure. Kind maps to a stable CLI exit code.
@@ -120,6 +128,10 @@ type Error struct {
 	// Capability and CapabilityReason are closed-set refusal identifiers.
 	Capability       string
 	CapabilityReason string
+	// Limit and Actual are the measured numbers of a crossed ceiling; Page and
+	// PageCount locate a requested page beyond the document. Zero means absent.
+	Limit, Actual   int
+	Page, PageCount int
 	// Ref is the bridge identifier (UUID) that was invoked, when known.
 	Ref string
 	// ExitCode is the child's exit status, or -1 when it never exited.
@@ -237,6 +249,7 @@ type Completion struct {
 	Model      Model
 	Usage      *Usage
 	Structured json.RawMessage
+	extraction *Extraction
 }
 
 // CompleteRunner optionally provides measured response usage.

@@ -159,7 +159,7 @@ func TestRespondInvalidDocumentFailsBeforeRunner(t *testing.T) {
 		name string
 		path string
 	}{
-		{name: "unsupported extension", path: writeRespondFile(t, "source.rtf", "source")},
+		{name: "binary content", path: writeRespondFile(t, "source.rtf", "source\x00")},
 		{name: "missing file", path: filepath.Join(t.TempDir(), "missing.md")},
 	}
 	for _, tc := range tests {

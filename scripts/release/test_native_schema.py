@@ -19,6 +19,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SUBSET = ROOT / 'native/SchemaSubset.swift'
 HELPER = ROOT / 'native/HollisNative.swift'
+EXTRACTION = ROOT / 'native/Extraction.swift'
 BUILD = ROOT / 'scripts/build-native.sh'
 
 HARNESS = '''import Foundation
@@ -332,7 +333,7 @@ struct ProtocolGolden {
             result = command(
                 'xcrun', 'swiftc', '-parse-as-library', '-sdk', sdk_path,
                 '-target', 'arm64-apple-macosx27.0', str(source), str(SUBSET),
-                str(harness), '-o', str(binary))
+                str(EXTRACTION), str(harness), '-o', str(binary))
             self.assertEqual(result.returncode, 0, result.stderr)
             result = command(str(binary))
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -344,7 +345,10 @@ struct ProtocolGolden {
                 if protocol >= 2:
                     event['context_size'] = 8192
                 if protocol >= 3:
-                    event['capabilities'] = {'vision': True, 'macos_major': 27}
+                    event['capabilities'] = {
+                        'vision': True, 'macos_major': 27,
+                        'extract': {'pdf': True, 'ocr': True, 'pages': True,
+                                    'max_pages': 2000, 'max_text_bytes': 131072}}
                 expected.append(event)
             self.assertEqual(events, expected)
 

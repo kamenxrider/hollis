@@ -70,7 +70,15 @@ protocol-3 helper (`hollis-native` 0.6.0 matches this source) and
 `capabilities.guided_output: true` from `hollis models --model local --json`.
 
 Protocol 3 adds negotiation, capability advertisement and named refusal. It does
-not implement document extraction, image attachments or native tool calling.
+not implement image attachments or native tool calling.
+
+`hollis respond --file` now accepts PDFs. The paired native helper reads
+them on this Mac through the protocol-3 `extract` operation: the text layer per
+page, with on-device OCR for pages that have none, and no model call. Content
+decides the route, not the extension. `--pages` selects pages of one PDF.
+New error codes: `invalid_document`, `extract_no_text`, `unsupported_media`,
+`extract_media_mismatch` and `page_out_of_range`; extracted text over 128 KiB
+is `context_capacity` with both numbers. See [text documents](../cli.md#text-documents).
 The helper accepts request formats 1, 2 and 3 but stamps all events with 0.6.0;
 older CLIs reject that version. CLI and helper ship as one matched bundle, and
 a mismatched pair fails closed with a clear error and matching-bundle remedy:

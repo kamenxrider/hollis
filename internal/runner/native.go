@@ -67,10 +67,11 @@ type LocalStatus struct {
 // a present block may still say supported:false with a fixed reason. Nothing
 // here is guessed — a zero value is never read as a capability.
 type Capabilities struct {
-	Images     *ImageCapability `json:"images,omitempty"`
-	Tools      *ToolCapability  `json:"tools,omitempty"`
-	Vision     *bool            `json:"vision,omitempty"`
-	MacOSMajor *int             `json:"macos_major,omitempty"`
+	Extract    *ExtractCapability `json:"extract,omitempty"`
+	Images     *ImageCapability   `json:"images,omitempty"`
+	Tools      *ToolCapability    `json:"tools,omitempty"`
+	Vision     *bool              `json:"vision,omitempty"`
+	MacOSMajor *int               `json:"macos_major,omitempty"`
 }
 
 // ImageCapability reports native attachment support and its limits. MaxSidePX
@@ -123,7 +124,7 @@ func capabilityRefusal(capability, reason string) *Error {
 // diagnostics. CLI and HTTP share this wording even when the error is wrapped.
 func (e *Error) CapabilityRefusalMessage() string {
 	capability := "a capability this request requires"
-	if e.Capability == "tools" || e.Capability == "images" {
+	if e.Capability == "tools" || e.Capability == "images" || e.Capability == "extract" {
 		capability = e.Capability
 	}
 	message := "native helper does not support " + capability
@@ -150,6 +151,9 @@ func decodeCapabilities(raw json.RawMessage) (*Capabilities, error) {
 	if caps.Tools != nil {
 		caps.Tools.Reason = fixedReason(caps.Tools.Reason)
 	}
+	if caps.Extract != nil && (caps.Extract.MaxPages < 0 || caps.Extract.MaxTextBytes < 0) {
+		return nil, nativeError(KindNativeProtocol, "invalid native capabilities")
+	}
 	if caps.MacOSMajor != nil && *caps.MacOSMajor <= 0 {
 		return nil, nativeError(KindNativeProtocol, "invalid native capabilities")
 	}
@@ -162,6 +166,9 @@ func decodeCapabilities(raw json.RawMessage) (*Capabilities, error) {
 // cached pre-spawn probe means the answer cannot go stale against a replaced
 // helper.
 func requireAdvertised(status LocalStatus, opts nativeOptions) *Error {
+	if opts.Source != "" {
+		return requireExtract(status, opts)
+	}
 	if opts.ToolCalling == "" {
 		return nil
 	}
@@ -408,6 +415,10 @@ type nativeRequest struct {
 	// helper has: tool definitions ride in the prompt, results never do, and
 	// the helper never learns a tool's name.
 	ToolCalling string `json:"tool_calling,omitempty"`
+	// Source, Pages and Media belong to extract alone.
+	Source *nativeSource `json:"source,omitempty"`
+	Pages  []int         `json:"pages,omitempty"`
+	Media  string        `json:"media,omitempty"`
 }
 
 // nativeOptions carries the request members beyond prompt and schema. The zero
@@ -418,6 +429,11 @@ type nativeOptions struct {
 	// when the helper did not advertise that it applies the mode, because a
 	// helper that ignores it would serve a plain answer over a tool request.
 	ToolCalling string
+	// Source is the staged absolute path of an extract request, with its page
+	// selection and media hint.
+	Source string
+	Pages  []int
+	Media  string
 }
 
 func (o nativeOptions) validate() error {
@@ -460,6 +476,15 @@ type nativeEvent struct {
 	// terminal complete event for a schema request, and only after this
 	// package re-validates it against the requested schema.
 	Structured json.RawMessage `json:"structured,omitempty"`
+	// Extraction members: media, page_count, pages and text_bytes on an extract
+	// completion; page, page_count, limit and actual on a failure.
+	Media     string       `json:"media,omitempty"`
+	PageCount *int         `json:"page_count,omitempty"`
+	Pages     []nativePage `json:"pages,omitempty"`
+	TextBytes *int         `json:"text_bytes,omitempty"`
+	Page      *int         `json:"page,omitempty"`
+	Limit     *int         `json:"limit,omitempty"`
+	Actual    *int         `json:"actual,omitempty"`
 }
 
 // invoke never retries, truncates, or repairs model output. Complete events must
@@ -477,7 +502,10 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	if err := opts.validate(); err != nil {
 		return fail(err)
 	}
-	if operation != "status" {
+	if (operation == "extract") != (opts.Source != "") || (operation == "extract" && !filepath.IsAbs(opts.Source)) {
+		return fail(nativeError(KindUsage, "native extract requires one staged absolute source"))
+	}
+	if operation != "status" && operation != "extract" {
 		if strings.TrimSpace(prompt) == "" {
 			return fail(nativeError(KindEmptyPrompt, "empty prompt"))
 		}
@@ -517,7 +545,11 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	if schema != nil {
 		requestSchema = schema.Bytes()
 	}
-	request, err := json.Marshal(nativeRequest{Protocol: NativeProtocol, Operation: operation, Prompt: prompt, Schema: requestSchema, ToolCalling: opts.ToolCalling})
+	wire := nativeRequest{Protocol: NativeProtocol, Operation: operation, Prompt: prompt, Schema: requestSchema, ToolCalling: opts.ToolCalling}
+	if opts.Source != "" {
+		wire.Source, wire.Pages, wire.Media = &nativeSource{Path: opts.Source}, opts.Pages, opts.Media
+	}
+	request, err := json.Marshal(wire)
 	if err != nil {
 		return fail(nativeError(KindTransport, "could not encode native request"))
 	}
@@ -566,6 +598,17 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		if len(event.Structured) != 0 && event.Event != "complete" {
 			return nativeError(KindNativeProtocol, "unexpected structured output")
 		}
+		extractData := event.PageCount != nil || len(event.Pages) != 0 || event.TextBytes != nil || event.Media != ""
+		failureData := event.Page != nil || event.Limit != nil || event.Actual != nil
+		if (extractData || failureData) && operation != "extract" {
+			return nativeError(KindNativeProtocol, "unexpected native extraction data")
+		}
+		if (len(event.Pages) != 0 || event.TextBytes != nil) && event.Event != "complete" {
+			return nativeError(KindNativeProtocol, "unexpected native extraction data")
+		}
+		if failureData && event.Event != "error" {
+			return nativeError(KindNativeProtocol, "unexpected native extraction data")
+		}
 		switch event.Event {
 		case "status":
 			if ready || event.Available == nil {
@@ -599,7 +642,9 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 			status = candidate
 			if operation == "status" {
 				terminal = true
-			} else if !status.Available {
+			} else if operation != "extract" && !status.Available {
+				// Extraction makes no model call, so an unavailable model
+				// does not stop it; the generation that follows reports it.
 				return nativeError(KindLocalUnavailable, "native local model is unavailable: "+event.Reason)
 			}
 		case "snapshot":
@@ -617,6 +662,15 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 			}
 			previous = *event.Text
 		case "complete":
+			if ready && operation == "extract" {
+				extraction, err := readExtraction(event, opts)
+				if err != nil {
+					return err
+				}
+				result.extraction = extraction
+				terminal = true
+				return nil
+			}
 			if !ready || operation == "status" || event.Text == nil || *event.Text == "" {
 				return nativeError(KindNativeProtocol, "invalid native completion")
 			}
@@ -647,8 +701,25 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 			}
 			terminal = true
 		case "error":
+			if event.Media != "" && event.Kind != KindExtractMediaMismatch {
+				return nativeError(KindNativeProtocol, "unexpected native extraction data")
+			}
+			if (event.PageCount != nil || event.Page != nil) && event.Kind != KindPageOutOfRange {
+				return nativeError(KindNativeProtocol, "unexpected native extraction data")
+			}
 			switch event.Kind {
+			case KindInvalidDocument, KindExtractNoText, KindUnsupportedMedia, KindExtractMediaMismatch, KindPageOutOfRange:
+				if operation != "extract" {
+					return nativeError(KindNativeProtocol, "unrecognized native failure")
+				}
+				return extractFailure(event)
 			case KindContextCapacity:
+				if operation == "extract" {
+					return extractFailure(event)
+				}
+				if event.Limit != nil || event.Actual != nil {
+					return nativeError(KindNativeProtocol, "unexpected native extraction data")
+				}
 				return nativeError(event.Kind, "local model context capacity exceeded; shorten the conversation explicitly or choose another model; no messages were removed")
 			case KindRequestDeclined, KindRateLimited, KindLocalUnavailable, KindNativeFailed:
 				return nativeError(event.Kind, "native local request failed: "+string(event.Kind))
@@ -709,6 +780,9 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	if !terminal {
 		return fail(nativeError(KindNativeProtocol, "native helper ended without completion"))
 	}
+	if operation == "extract" && result.extraction == nil {
+		return fail(nativeError(KindNativeProtocol, "native helper ended without an extraction"))
+	}
 	return result, status, nil
 }
 
@@ -759,6 +833,13 @@ func (r *RoutedRunner) RunSchema(ctx context.Context, model Model, prompt string
 	}
 	return r.Native.RunSchema(ctx, model, prompt, schema)
 }
+
+// ExtractPDF always uses the native helper: extraction is on-device for every
+// route, and the generation that follows may go to any model.
+func (r *RoutedRunner) ExtractPDF(ctx context.Context, data []byte, pages []int) (Extraction, error) {
+	return r.Native.ExtractPDF(ctx, data, pages)
+}
+
 func (r *RoutedRunner) NativeStatus(ctx context.Context) (LocalStatus, error) {
 	return r.Native.NativeStatus(ctx)
 }

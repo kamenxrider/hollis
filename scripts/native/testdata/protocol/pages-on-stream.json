@@ -1,0 +1,13 @@
+{
+  "stdin": "{\"protocol\":3,\"operation\":\"stream\",\"prompt\":\"fixture\",\"pages\":[1]}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ],
+  "name": "pages on a generation request"
+}

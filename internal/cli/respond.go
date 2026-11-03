@@ -29,6 +29,7 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		timeout    time.Duration
 		promptFile string
 		documents  []string
+		pageSpecs  []string
 		images     []string
 		stream     bool
 		schemaFile string
@@ -41,8 +42,10 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 
 The instruction comes from the positional argument, --prompt-file, or stdin
 when neither is provided (multi-line safe); --prompt-file - reads the
-instruction from stdin explicitly. Add local UTF-8 .txt or .md source material
-with repeatable --file flags. Documents cannot be mixed with images. With
+instruction from stdin explicitly. Add local UTF-8 text source material of any extension
+with repeatable --file flags; a PDF (detected from its content) is read
+on-device from its text layer, with OCR for pages that have none, and --pages
+selects pages of a single PDF. Documents cannot be mixed with images. With
 --file or --image and no positional text or --prompt-file, piped stdin is the
 instruction, so exactly one instruction source is used; passing positional text
 and piped stdin together with file input is refused rather than silently
@@ -74,6 +77,7 @@ or agent output, --stream and --schema.`,
   hollis respond --prompt-file instructions.txt
   printf 'Summarize this' | hollis respond --prompt-file -
   hollis respond "Summarize the differences" --file first.md --file second.txt
+  hollis respond --file report.pdf --pages 1,4-6 "Summarize these pages"
   hollis respond --prompt-file instructions.txt --image photo.png --model cloud
   hollis respond --image photo.jpg "What is this?"
   hollis respond --model cloud-pro --image a.png --image b.png "Compare them"
@@ -95,6 +99,17 @@ or agent output, --stream and --schema.`,
 			}
 			if len(documents) > 0 && len(images) > 0 {
 				return usageErr(errors.New("--file cannot be combined with --image"))
+			}
+			if cmd.Flags().Changed("pages") {
+				if len(images) > 0 {
+					return pagesErr(errors.New("--pages selects PDF pages and cannot be combined with --image"))
+				}
+				if len(documents) != 1 {
+					return pagesErr(fmt.Errorf("--pages requires exactly one --file, and it must be a PDF (got %d --file)", len(documents)))
+				}
+				if _, err := parsePages(pageSpecs); err != nil {
+					return err
+				}
 			}
 			if cmd.Flags().Changed("schema") && len(images) > 0 {
 				return usageErr(errors.New("--schema cannot be combined with --image: guided output is text-only"))
@@ -205,27 +220,29 @@ or agent output, --stream and --schema.`,
 			if err := chat.ValidatePrompt(prompt); err != nil {
 				return usageErr(err)
 			}
+			instruction := prompt
+			var inputs []documentInput
+			hasPDF := false
+			var pages []int
 			if len(documents) > 0 {
-				prepared := make([]docinput.Document, 0, len(documents))
-				rawBytes := len(prompt)
-				for i, path := range documents {
-					document, err := docinput.ReadDocument(path, int64(chat.MaxRenderedPromptBytes))
-					if err != nil {
-						return usageErr(fmt.Errorf("read document %d: %w", i+1, err))
-					}
-					if len(document.Text) > chat.MaxRenderedPromptBytes-rawBytes {
-						return usageErr(fmt.Errorf("instruction and document text exceed the %d-byte prompt limit", chat.MaxRenderedPromptBytes))
-					}
-					rawBytes += len(document.Text)
-					prepared = append(prepared, document)
-				}
 				var err error
-				prompt, err = docinput.Prepare(prompt, prepared, chat.MaxRenderedPromptBytes)
+				inputs, err = readDocumentInputs(documents, len(prompt))
 				if err != nil {
-					return usageErr(err)
+					return err
 				}
-				if err := chat.ValidatePrompt(prompt); err != nil {
-					return usageErr(err)
+				for _, input := range inputs {
+					hasPDF = hasPDF || input.isPDF()
+				}
+				if cmd.Flags().Changed("pages") {
+					if !inputs[0].isPDF() {
+						return pagesErr(fmt.Errorf("--pages requires a PDF, but %q is a text document", inputs[0].name))
+					}
+					pages, _ = parsePages(pageSpecs)
+				}
+				if !hasPDF {
+					if err := prepareDocuments(&prompt, inputs); err != nil {
+						return err
+					}
 				}
 			}
 
@@ -300,6 +317,19 @@ or agent output, --stream and --schema.`,
 				return err
 			}
 			applyResolvedRefs(r, resolved)
+			if hasPDF {
+				// Extraction runs on-device before the model is asked
+				// anything; the framed result faces the same 128 KiB check
+				// as any other prompt, with both numbers and no truncation.
+				extracted, err := extractDocuments(ctx, r, inputs, pages, strings.Join(pageSpecs, ","), timeout)
+				if err != nil {
+					return err
+				}
+				prompt, err = docinput.Prepare(instruction, extracted, chat.MaxRenderedPromptBytes)
+				if err != nil {
+					return usageErr(err)
+				}
+			}
 			if timeout > 0 {
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -333,6 +363,14 @@ or agent output, --stream and --schema.`,
 				}
 			}
 			if err != nil {
+				var re *runner.Error
+				if hasPDF && errors.As(err, &re) && re.Kind == runner.KindRequestDeclined {
+					converted := toCLIError(err)
+					var ce *cliError
+					if errors.As(converted, &ce) {
+						return &cliError{code: ce.code, machineCode: ce.machineCode, err: errors.New(ce.err.Error() + extractedDeclinedNote)}
+					}
+				}
 				return toCLIError(err)
 			}
 
@@ -417,12 +455,30 @@ or agent output, --stream and --schema.`,
 	cmd.Flags().BoolVar(&stream, "stream", false, "Stream native-local human text (default on terminals); --stream=false waits for completion")
 	cmd.Flags().StringVar(&model, "model", string(runner.ModelAuto), "Model tier: auto (default: cloud first, on-device fallback), cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro; macOS 27+), on-device (AFM 3 Core / Core Advanced by hardware), chatgpt (ChatGPT extension), or local (native SDK; Apple Silicon/macOS 27); see hollis models")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "UTF-8 file containing the instruction (instead of positional text or stdin); '-' reads the instruction from stdin")
-	cmd.Flags().StringArrayVar(&documents, "file", nil, "UTF-8 .txt or .md document to include; repeat to preserve source order")
+	cmd.Flags().StringArrayVar(&documents, "file", nil, "UTF-8 text document (any extension), or a PDF read on-device, to include; repeat to preserve source order")
+	cmd.Flags().StringArrayVar(&pageSpecs, "pages", nil, "PDF pages to read from a single --file PDF: 3, 3-7, or 1,4-6; repeatable, 1-based, at most 2000 pages")
 	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (ChatGPT accepts one; unavailable with auto/on-device)")
 	cmd.Flags().StringVar(&schemaFile, "schema", "", "JSON Schema file for guided native-local output; requires --model local and completes without streaming")
 	cmd.Flags().BoolVar(&code, "code", false, "Print the first complete non-empty fenced code block (or the whole answer when there is no complete fence); exit 3 when there is nothing to print")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	return cmd
+}
+
+// prepareDocuments frames text-only document input, which needs no helper.
+func prepareDocuments(prompt *string, inputs []documentInput) error {
+	documents := make([]docinput.Document, 0, len(inputs))
+	for _, input := range inputs {
+		documents = append(documents, input.document)
+	}
+	prepared, err := docinput.Prepare(*prompt, documents, chat.MaxRenderedPromptBytes)
+	if err != nil {
+		return usageErr(err)
+	}
+	if err := chat.ValidatePrompt(prepared); err != nil {
+		return usageErr(err)
+	}
+	*prompt = prepared
+	return nil
 }
 
 func splitRespondModelArgs(cmd *cobra.Command, args []string) (string, []string, bool) {

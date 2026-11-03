@@ -1,0 +1,13 @@
+{
+  "stdin": "{\"protocol\":3,\"operation\":\"extract\",\"prompt\":\"fixture\",\"source\":{\"path\":\"/nonexistent/fixture.pdf\"}}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ],
+  "name": "prompt on extract"
+}

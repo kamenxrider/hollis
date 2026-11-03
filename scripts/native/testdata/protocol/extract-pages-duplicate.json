@@ -1,0 +1,13 @@
+{
+  "stdin": "{\"protocol\":3,\"operation\":\"extract\",\"source\":{\"path\":\"/nonexistent/fixture.pdf\"},\"pages\":[2,2]}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ],
+  "name": "extract pages repeated"
+}

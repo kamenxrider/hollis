@@ -15,13 +15,26 @@ struct HollisNative {
         let prompt: String?
         let schema: JSONValue?
         let toolCalling: String?
+        let source: Source?
+        let pages: [Int]?
+        let media: String?
 
         // Member names are the wire contract; the Swift property names are not.
         enum CodingKeys: String, CodingKey {
             case `protocol`, operation, prompt, schema
             case toolCalling = "tool_calling"
+            case source, pages, media
         }
     }
+
+    struct Source: Decodable {
+        let path: String
+    }
+
+    static let extractCapability: [String: Any] = [
+        "pdf": true, "ocr": true, "pages": true,
+        "max_pages": Extraction.maxPages, "max_text_bytes": Extraction.maxTextBytes,
+    ]
 
     static func emit(_ fields: [String: Any], `protocol` effective: Int) throws {
         var event = fields
@@ -42,9 +55,43 @@ struct HollisNative {
         if effective >= 2 { fields["context_size"] = contextSize }
         if effective >= 3 {
             // Unimplemented capabilities stay absent, not zero-filled.
-            fields["capabilities"] = ["vision": vision, "macos_major": macOSMajor]
+            fields["capabilities"] = ["vision": vision, "macos_major": macOSMajor,
+                                      "extract": extractCapability]
         }
         return fields
+    }
+
+    /// Runs one extraction and returns its terminal event. A failure is a fixed
+    /// kind with integer fields only: no path, page text or framework
+    /// diagnostic reaches the event.
+    static func extractEvent(path: String, pages: [Int]?, hint: Extraction.Media?) -> [String: Any] {
+        do {
+            let document = try Extraction.extract(path: path, pages: pages, mediaHint: hint)
+            return ["event": "complete", "media": document.media.rawValue,
+                    "page_count": document.pageCount, "text_bytes": document.textBytes,
+                    "pages": document.pages.map {
+                        ["page": $0.number, "text": $0.text, "method": $0.method.rawValue] as [String: Any]
+                    }]
+        } catch let failure as Extraction.Failure {
+            switch failure {
+            case .unsupportedMedia:
+                return ["event": "error", "kind": "unsupported_media"]
+            case .invalidDocument(let limit, let actual):
+                var event: [String: Any] = ["event": "error", "kind": "invalid_document"]
+                if let limit, let actual { event["limit"] = limit; event["actual"] = actual }
+                return event
+            case .mediaMismatch(let detected):
+                return ["event": "error", "kind": "extract_media_mismatch", "media": detected.rawValue]
+            case .pageOutOfRange(let page, let pageCount):
+                return ["event": "error", "kind": "page_out_of_range", "page": page, "page_count": pageCount]
+            case .noText:
+                return ["event": "error", "kind": "extract_no_text"]
+            case .textLimit(let limit, let actual, _):
+                return ["event": "error", "kind": "context_capacity", "limit": limit, "actual": actual]
+            }
+        } catch {
+            return ["event": "error", "kind": "invalid_document"]
+        }
     }
 
     @MainActor
@@ -96,7 +143,48 @@ struct HollisNative {
             effective = request.`protocol`
             var operations = ["status", "complete", "stream"]
             if effective >= 2 { operations.append("schema") }
+            if effective >= 3 { operations.append("extract") }
             guard operations.contains(request.operation) else {
+                fail("native_failed", protocol: effective); return
+            }
+            // Extract members belong to extract alone, and extract carries
+            // none of the generation members: a request that mixes them is
+            // malformed rather than partly served.
+            let extractMembers = request.source != nil || request.pages != nil || request.media != nil
+            if request.operation == "extract" {
+                guard request.prompt == nil, request.schema == nil, request.toolCalling == nil,
+                      let source = request.source, source.path.hasPrefix("/") else {
+                    fail("native_failed", protocol: effective); return
+                }
+                if let pages = request.pages {
+                    // Ascending and unique, as the caller pins it; a selection
+                    // this helper would have to reorder is not the one sent.
+                    guard !pages.isEmpty, pages.count <= Extraction.maxPages,
+                          pages.first! >= 1, zip(pages, pages.dropFirst()).allSatisfy({ $0 < $1 }) else {
+                        fail("native_failed", protocol: effective); return
+                    }
+                }
+                var hint: Extraction.Media?
+                if let media = request.media {
+                    guard let known = Extraction.Media(rawValue: media) else {
+                        try emit(["event": "error", "kind": "unsupported_media"], protocol: effective)
+                        return
+                    }
+                    hint = known
+                }
+                let model = SystemLanguageModel.default
+                try emit(statusFields(
+                    available: model.isAvailable, reason: String(describing: model.availability),
+                    contextSize: model.contextSize,
+                    vision: model.capabilities.contains(.vision),
+                    macOSMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
+                    protocol: effective), protocol: effective)
+                // Extraction makes no model call, so it does not wait on the
+                // model being available; the generation that follows does.
+                try emit(extractEvent(path: source.path, pages: request.pages, hint: hint), protocol: effective)
+                return
+            }
+            if extractMembers {
                 fail("native_failed", protocol: effective); return
             }
             if request.operation == "schema", request.schema == nil {

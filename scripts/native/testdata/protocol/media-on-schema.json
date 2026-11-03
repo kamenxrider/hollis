@@ -1,0 +1,13 @@
+{
+  "stdin": "{\"protocol\":3,\"operation\":\"schema\",\"prompt\":\"fixture\",\"media\":\"pdf\",\"schema\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ],
+  "name": "media on a guided request"
+}

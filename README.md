@@ -184,12 +184,18 @@ any charges from your agent host or linked service still apply.
 ```bash
 hollis respond --prompt-file instructions.txt
 hollis respond --file first.md --file second.txt "Summarize the differences"
+hollis respond --file report.pdf --pages 1,4-6 "Summarize these pages"
 hollis chat
 hollis chat --continue <id> "What did we decide?"
 hollis chats list
 ```
 
-Attach UTF-8 `.txt` and `.md` files; PDF is not supported. Each `respond` call is
+Attach UTF-8 text files of any extension, or PDFs. A PDF is read on this Mac by the
+paired native helper, from its text layer with OCR for pages that have none;
+`--pages` selects pages of a single PDF. Extraction is CLI-only, not an HTTP
+feature. The extracted page text, not the PDF bytes, goes to whichever answering
+route you select, including cloud, cloud-pro, or ChatGPT. Use `--model local`
+to keep the answer generation on this Mac too. Each `respond` call is
 stateless. Chats store and replay the conversation. The complete rendered prompt
 must fit 128 KiB; oversized requests and native context-capacity failures produce
 errors without silently shortening history. Default timeout is 30 seconds, with a

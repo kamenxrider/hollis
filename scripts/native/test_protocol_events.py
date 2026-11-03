@@ -115,7 +115,11 @@ class HelperEventTests(unittest.TestCase):
                         self.assertGreater(status['context_size'], 0)
                 if number == 3:
                     capabilities = status['capabilities']
-                    self.assertEqual(set(capabilities), {'vision', 'macos_major'})
+                    self.assertEqual(set(capabilities),
+                                     {'vision', 'macos_major', 'extract'})
+                    self.assertEqual(capabilities['extract'], {
+                        'pdf': True, 'ocr': True, 'pages': True,
+                        'max_pages': 2000, 'max_text_bytes': 131072})
                     self.assertIsInstance(capabilities['vision'], bool)
                     self.assertIsInstance(capabilities['macos_major'], int)
                     self.assertEqual(capabilities['macos_major'],
