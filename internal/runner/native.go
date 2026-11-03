@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -20,10 +21,11 @@ import (
 )
 
 // NativeProtocol and NativeVersion are the matched helper contract this CLI
-// speaks. A protocol bump is deliberate: guided output needs an operation and
-// event fields an older helper would silently ignore.
-const NativeProtocol = 2
-const NativeVersion = "0.5.0"
+// speaks. Protocol 3 adds capability advertisement and named refusals, not new
+// model features. Older request formats remain accepted by the helper, but
+// strict version identity rejects mismatched CLI/helper pairs in either direction.
+const NativeProtocol = 3
+const NativeVersion = "0.6.0"
 const NativeMaxPromptBytes = 128 << 10
 const nativeMaxOutputBytes = 8 << 20
 
@@ -54,6 +56,133 @@ type LocalStatus struct {
 	Protocol    int    `json:"protocol"`
 	Version     string `json:"version"`
 	ContextSize int    `json:"context_size,omitempty"`
+	// Capabilities is the protocol-3 advertisement. Nil means the helper
+	// reported none, which is not the same as a helper that reported nothing
+	// supported: both refuse, but only the second can name a reason.
+	Capabilities *Capabilities `json:"capabilities,omitempty"`
+}
+
+// Capabilities is the protocol-3 capability advertisement. Each block stands on
+// its own: an absent block means the helper does not offer that capability, and
+// a present block may still say supported:false with a fixed reason. Nothing
+// here is guessed — a zero value is never read as a capability.
+type Capabilities struct {
+	Images     *ImageCapability `json:"images,omitempty"`
+	Tools      *ToolCapability  `json:"tools,omitempty"`
+	Vision     *bool            `json:"vision,omitempty"`
+	MacOSMajor *int             `json:"macos_major,omitempty"`
+}
+
+// ImageCapability reports native attachment support and its limits. MaxSidePX
+// is a longest-side pixel length, not a pixel count.
+type ImageCapability struct {
+	Supported bool     `json:"supported"`
+	Reason    string   `json:"reason,omitempty"`
+	MaxImages int      `json:"max_images,omitempty"`
+	Formats   []string `json:"formats,omitempty"`
+	MaxSidePX int      `json:"max_side_px,omitempty"`
+}
+
+// ToolCapability reports tool-calling support. ToolCallingMode is the narrower
+// promise: whether the helper honors the tool_calling request member at all. A
+// request that asks for a mode the helper cannot apply must be refused, never
+// served as a plain completion that silently dropped it.
+type ToolCapability struct {
+	Supported       bool   `json:"supported"`
+	Reason          string `json:"reason,omitempty"`
+	ToolCallingMode bool   `json:"tool_calling_mode"`
+}
+
+// capabilityReasons are the fixed reason identifiers the protocol defines. Only
+// these may reach user-facing text: a reason is a protocol token, never
+// diagnostic text echoed from a helper. A capability this build simply does not
+// implement is absent from the advertisement instead of carrying a reason.
+var capabilityReasons = map[string]bool{
+	"macos_26":        true,
+	"no_vision":       true,
+	"not_implemented": true,
+}
+
+func fixedReason(reason string) string {
+	if capabilityReasons[reason] {
+		return reason
+	}
+	return ""
+}
+
+// capabilityRefusal names the capability a request needed and, when the helper
+// gave a fixed reason, that reason. The remedy is the same either way.
+func capabilityRefusal(capability, reason string) *Error {
+	err := nativeError(KindUnsupportedCapability, "")
+	err.Capability, err.CapabilityReason = capability, fixedReason(reason)
+	err.Err = errors.New(err.CapabilityRefusalMessage())
+	return err
+}
+
+// CapabilityRefusalMessage renders only closed-set identifiers, never helper
+// diagnostics. CLI and HTTP share this wording even when the error is wrapped.
+func (e *Error) CapabilityRefusalMessage() string {
+	capability := "a capability this request requires"
+	if e.Capability == "tools" || e.Capability == "images" {
+		capability = e.Capability
+	}
+	message := "native helper does not support " + capability
+	if reason := fixedReason(e.CapabilityReason); reason != "" {
+		message += " (" + reason + ")"
+	}
+	return message + "; install the matching bundle"
+}
+
+// decodeCapabilities reads the advertisement leniently. Unknown members are
+// ignored so a later capability flag needs no protocol bump, while the values
+// this client does read are still range-checked.
+func decodeCapabilities(raw json.RawMessage) (*Capabilities, error) {
+	var caps Capabilities
+	if err := json.Unmarshal(raw, &caps); err != nil {
+		return nil, nativeError(KindNativeProtocol, "invalid native capabilities")
+	}
+	if caps.Images != nil {
+		if caps.Images.MaxImages < 0 || caps.Images.MaxSidePX < 0 {
+			return nil, nativeError(KindNativeProtocol, "invalid native capabilities")
+		}
+		caps.Images.Reason = fixedReason(caps.Images.Reason)
+	}
+	if caps.Tools != nil {
+		caps.Tools.Reason = fixedReason(caps.Tools.Reason)
+	}
+	if caps.MacOSMajor != nil && *caps.MacOSMajor <= 0 {
+		return nil, nativeError(KindNativeProtocol, "invalid native capabilities")
+	}
+	return &caps, nil
+}
+
+// requireAdvertised refuses a request whose capability the helper did not
+// advertise. The status event arrives before the helper touches the model, so
+// this costs no inference, and reading it from that same process rather than a
+// cached pre-spawn probe means the answer cannot go stale against a replaced
+// helper.
+func requireAdvertised(status LocalStatus, opts nativeOptions) *Error {
+	if opts.ToolCalling == "" {
+		return nil
+	}
+	if tools := status.Capabilities.tools(); tools != nil && tools.Supported && tools.ToolCallingMode {
+		return nil
+	}
+	return capabilityRefusal("tools", status.Capabilities.toolsReason())
+}
+
+func (c *Capabilities) tools() *ToolCapability {
+	if c == nil {
+		return nil
+	}
+	return c.Tools
+}
+
+func (c *Capabilities) toolsReason() string {
+	if tools := c.tools(); tools != nil {
+		return tools.Reason
+	}
+	return ""
 }
 
 type NativeStatusRunner interface {
@@ -66,6 +195,10 @@ type NativeRunner struct {
 	Timeout       time.Duration
 	helperPath    string
 	platformCheck func(context.Context) error
+	// probed remembers successfully negotiated file identities. Replacements
+	// and in-place changes must be probed again, including in a running server.
+	mu     sync.Mutex
+	probed map[string]os.FileInfo
 }
 
 func NewNative() *NativeRunner {
@@ -126,14 +259,22 @@ func (r *NativeRunner) Run(ctx context.Context, model Model, prompt string) (str
 	return result.Text, model, err
 }
 func (r *NativeRunner) RunComplete(ctx context.Context, model Model, prompt string) (Completion, error) {
-	result, _, err := r.invoke(ctx, model, "complete", prompt, nil, nil)
+	result, _, err := r.invoke(ctx, model, "complete", prompt, nil, nil, nativeOptions{})
+	return result, err
+}
+
+// RunCompleteWithOptions submits one prompt with the protocol-3 request members
+// the caller needs. Tool rounds use it; an ordinary request uses RunComplete and
+// sends none of them.
+func (r *NativeRunner) RunCompleteWithOptions(ctx context.Context, model Model, prompt string, opts nativeOptions) (Completion, error) {
+	result, _, err := r.invoke(ctx, model, "complete", prompt, nil, nil, opts)
 	return result, err
 }
 func (r *NativeRunner) Stream(ctx context.Context, model Model, prompt string, emit func(string) error) (Completion, error) {
 	if emit == nil {
 		return Completion{}, nativeError(KindUsage, "stream callback is required")
 	}
-	result, _, err := r.invoke(ctx, model, "stream", prompt, emit, nil)
+	result, _, err := r.invoke(ctx, model, "stream", prompt, emit, nil, nativeOptions{})
 	return result, err
 }
 
@@ -143,12 +284,12 @@ func (r *NativeRunner) RunSchema(ctx context.Context, model Model, prompt string
 	if schema == nil {
 		return Completion{Model: model}, nativeError(KindUsage, "guided output requires a schema")
 	}
-	result, _, err := r.invoke(ctx, model, "schema", prompt, nil, schema)
+	result, _, err := r.invoke(ctx, model, "schema", prompt, nil, schema, nativeOptions{})
 	return result, err
 }
 
 func (r *NativeRunner) NativeStatus(ctx context.Context) (LocalStatus, error) {
-	_, status, err := r.invoke(ctx, ModelLocal, "status", "", nil, nil)
+	_, status, err := r.invoke(ctx, ModelLocal, "status", "", nil, nil, nativeOptions{})
 	return status, err
 }
 
@@ -166,13 +307,28 @@ func nativeContextError(ctx context.Context) error {
 	return nil
 }
 
-// requireGuidedSupport asks the resolved helper which protocol it speaks
-// before a schema request spawns. Guided output is a protocol-2 operation: an
-// older helper answers a protocol-2 request with an error event at best, so the
-// refusal happens here with an actionable message instead. The probe is the
-// non-generative --protocol-version command, and its output is never
-// propagated beyond the parsed integer.
-func (r *NativeRunner) requireGuidedSupport(ctx context.Context, path string) error {
+// negotiate asks the resolved helper which protocol it speaks before any
+// operation spawns a request. Every operation is probed, `status` included: a
+// helper that disagrees about the era is a component fault, and serving an
+// older helper's status would report a usable route that cannot answer the
+// request that follows. The probe is the non-generative --protocol-version
+// command; its output never travels further than the parsed integer, and the
+// result is cached per unchanged file identity so repeated calls probe once.
+func (r *NativeRunner) negotiate(ctx context.Context, path string) error {
+	// An already-expired deadline belongs to the caller, not to the probe.
+	if err := nativeContextError(ctx); err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nativeError(KindNativeFailed, "could not inspect native helper")
+	}
+	r.mu.Lock()
+	known, cached := r.probed[path]
+	r.mu.Unlock()
+	if cached && sameHelperFile(known, info) {
+		return nil
+	}
 	timeout := helperProbeTimeout
 	if deadline, ok := ctx.Deadline(); ok {
 		if remaining := time.Until(deadline); remaining < timeout {
@@ -206,36 +362,72 @@ func (r *NativeRunner) requireGuidedSupport(ctx context.Context, path string) er
 	if convErr != nil || !ValidProtocol(reported) {
 		return nativeError(KindNativeFailed, "native helper reported an unsupported protocol version")
 	}
-	switch {
-	case reported < NativeProtocol:
-		// A paired helper that speaks an older protocol is a version mismatch,
-		// not a bad invocation: the caller asked for a supported operation on
-		// this route and the installed component cannot serve it. It maps to
-		// native_protocol/exit 5 like the higher-protocol case below and like
-		// the per-event identity check, so the exit code does not depend on
-		// which side of the version the helper sits.
-		return GuidedOutputRefusal()
-	case reported > NativeProtocol:
-		return nativeError(KindNativeProtocol, "native helper version, protocol or model mismatch; install the matching bundle")
-	default:
-		return nil
+	if reported != NativeProtocol {
+		// A paired helper that speaks another era is a version mismatch, not a
+		// bad invocation: the caller asked for a supported operation and the
+		// installed component cannot serve it. Both directions map to
+		// native_protocol/exit 5, so the exit code does not depend on which
+		// side of the version the helper sits.
+		return helperMismatch()
 	}
+	after, err := os.Stat(path)
+	if err != nil || !sameHelperFile(info, after) {
+		return helperMismatch()
+	}
+	r.mu.Lock()
+	if r.probed == nil {
+		r.probed = map[string]os.FileInfo{}
+	}
+	r.probed[path] = info
+	r.mu.Unlock()
+	return nil
 }
 
-// GuidedOutputRefusal is the pre-spawn refusal for a paired helper that speaks
-// an older protocol. It is exported so the CLI can pin the exit-code contract
-// against the same value the transport raises: an older helper is a component
-// mismatch, which is native_protocol/exit 5, not a usage error.
-func GuidedOutputRefusal() *Error {
-	return nativeError(KindNativeProtocol, "native helper does not support guided output; install the matching bundle")
+func sameHelperFile(a, b os.FileInfo) bool {
+	return os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
 }
+
+// helperMismatch is the component-mismatch refusal: the helper answered
+// validly, in another protocol. The remedy is the matching bundle.
+func helperMismatch() *Error {
+	return nativeError(KindNativeProtocol, "native helper does not match this Hollis version; install the matching bundle")
+}
+
+// GuidedOutputRefusal is the schema-surface spelling of the same component
+// mismatch. It is exported so CLI and server tests can pin the exit-code
+// contract against the value the transport raises; the sentence is shared with
+// every other operation now that all of them negotiate first.
+func GuidedOutputRefusal() *Error { return helperMismatch() }
 
 type nativeRequest struct {
 	Protocol  int             `json:"protocol"`
 	Operation string          `json:"operation"`
 	Prompt    string          `json:"prompt,omitempty"`
 	Schema    json.RawMessage `json:"schema,omitempty"`
+	// ToolCalling is "allowed" or "disallowed". It is the only tool surface the
+	// helper has: tool definitions ride in the prompt, results never do, and
+	// the helper never learns a tool's name.
+	ToolCalling string `json:"tool_calling,omitempty"`
 }
+
+// nativeOptions carries the request members beyond prompt and schema. The zero
+// value is a plain generation request: every member is omitted unless a caller
+// asked for it.
+type nativeOptions struct {
+	// ToolCalling is "allowed", "disallowed", or empty. It is refused outright
+	// when the helper did not advertise that it applies the mode, because a
+	// helper that ignores it would serve a plain answer over a tool request.
+	ToolCalling string
+}
+
+func (o nativeOptions) validate() error {
+	switch o.ToolCalling {
+	case "", "allowed", "disallowed":
+		return nil
+	}
+	return nativeError(KindUsage, "native tool_calling accepts only allowed or disallowed")
+}
+
 type nativeUsage struct {
 	InputTokens     *int `json:"input_tokens"`
 	OutputTokens    *int `json:"output_tokens"`
@@ -247,17 +439,23 @@ func (u *nativeUsage) valid() bool {
 }
 
 type nativeEvent struct {
-	Protocol  int          `json:"protocol"`
-	Version   string       `json:"version"`
-	Model     Model        `json:"model"`
-	Event     string       `json:"event"`
-	Available *bool        `json:"available,omitempty"`
-	Reason    string       `json:"reason,omitempty"`
-	Text      *string      `json:"text,omitempty"`
-	Usage     *nativeUsage `json:"usage,omitempty"`
-	Kind      Kind         `json:"kind,omitempty"`
+	Protocol   int          `json:"protocol"`
+	Version    string       `json:"version"`
+	Model      Model        `json:"model"`
+	Event      string       `json:"event"`
+	Available  *bool        `json:"available,omitempty"`
+	Reason     string       `json:"reason,omitempty"`
+	Text       *string      `json:"text,omitempty"`
+	Usage      *nativeUsage `json:"usage,omitempty"`
+	Kind       Kind         `json:"kind,omitempty"`
+	Capability string       `json:"capability,omitempty"`
 	// ContextSize is the measured context window a protocol-2 status reports.
 	ContextSize *int `json:"context_size,omitempty"`
+	// Capabilities is the protocol-3 advertisement, kept as raw JSON so the
+	// strict event decoder above never descends into it: a capability added
+	// inside the subtree is additive data, not a protocol error. It is read
+	// leniently by decodeCapabilities, which still validates what it uses.
+	Capabilities json.RawMessage `json:"capabilities,omitempty"`
 	// Structured is the guided-output object. It is accepted only on a
 	// terminal complete event for a schema request, and only after this
 	// package re-validates it against the requested schema.
@@ -266,7 +464,7 @@ type nativeEvent struct {
 
 // invoke never retries, truncates, or repairs model output. Complete events must
 // be followed by clean EOF and a successful process exit before success is returned.
-func (r *NativeRunner) invoke(parent context.Context, model Model, operation, prompt string, emit func(string) error, schema *Schema) (Completion, LocalStatus, error) {
+func (r *NativeRunner) invoke(parent context.Context, model Model, operation, prompt string, emit func(string) error, schema *Schema, opts nativeOptions) (Completion, LocalStatus, error) {
 	result := Completion{Model: model}
 	status := LocalStatus{}
 	fail := func(err error) (Completion, LocalStatus, error) { return Completion{Model: model}, status, err }
@@ -275,6 +473,9 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	}
 	if operation == "schema" && schema == nil {
 		return fail(nativeError(KindUsage, "guided output requires a schema"))
+	}
+	if err := opts.validate(); err != nil {
+		return fail(err)
 	}
 	if operation != "status" {
 		if strings.TrimSpace(prompt) == "" {
@@ -309,20 +510,14 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		}
 		return fail(nativeError(KindLocalUnavailable, err.Error()))
 	}
-	if operation == "schema" {
-		// Refuse a guided request before the request spawns when the paired
-		// helper predates the operation. The probe is the helper's metadata
-		// command: it loads no model and never reads the request, so the
-		// refusal costs no inference.
-		if err := r.requireGuidedSupport(ctx, path); err != nil {
-			return fail(err)
-		}
+	if err := r.negotiate(ctx, path); err != nil {
+		return fail(err)
 	}
 	var requestSchema json.RawMessage
 	if schema != nil {
 		requestSchema = schema.Bytes()
 	}
-	request, err := json.Marshal(nativeRequest{Protocol: NativeProtocol, Operation: operation, Prompt: prompt, Schema: requestSchema})
+	request, err := json.Marshal(nativeRequest{Protocol: NativeProtocol, Operation: operation, Prompt: prompt, Schema: requestSchema, ToolCalling: opts.ToolCalling})
 	if err != nil {
 		return fail(nativeError(KindTransport, "could not encode native request"))
 	}
@@ -355,12 +550,18 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		if event.Protocol != NativeProtocol || event.Version != NativeVersion || event.Model != ModelLocal {
 			return nativeError(KindNativeProtocol, "native helper version, protocol or model mismatch; install the matching bundle")
 		}
+		if event.Capability != "" && (event.Event != "error" || event.Kind != KindUnsupportedCapability) {
+			return nativeError(KindNativeProtocol, "unexpected native capability refusal")
+		}
 		// Signals the design pins to one place in the sequence: the context
 		// window belongs to status, and a structured object belongs to a
 		// terminal guided completion. Anything else is a protocol error, never
 		// a value to be picked up wherever it appears.
 		if event.ContextSize != nil && event.Event != "status" {
 			return nativeError(KindNativeProtocol, "unexpected native context size")
+		}
+		if len(event.Capabilities) != 0 && event.Event != "status" {
+			return nativeError(KindNativeProtocol, "unexpected native capabilities")
 		}
 		if len(event.Structured) != 0 && event.Event != "complete" {
 			return nativeError(KindNativeProtocol, "unexpected structured output")
@@ -380,6 +581,19 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 					return nativeError(KindNativeProtocol, "invalid native context size")
 				}
 				candidate.ContextSize = *event.ContextSize
+			}
+			if len(event.Capabilities) != 0 {
+				capabilities, err := decodeCapabilities(event.Capabilities)
+				if err != nil {
+					return err
+				}
+				candidate.Capabilities = capabilities
+			}
+			// A request that needs a capability waits for the advertisement
+			// before it proceeds: the helper has not touched the model yet, so
+			// the refusal below costs no inference.
+			if err := requireAdvertised(candidate, opts); err != nil {
+				return err
 			}
 			ready = true
 			status = candidate
@@ -438,6 +652,15 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 				return nativeError(event.Kind, "local model context capacity exceeded; shorten the conversation explicitly or choose another model; no messages were removed")
 			case KindRequestDeclined, KindRateLimited, KindLocalUnavailable, KindNativeFailed:
 				return nativeError(event.Kind, "native local request failed: "+string(event.Kind))
+			case KindNativeProtocol:
+				// Kept for a helper that reports the shared code for a payload
+				// fault; it is not reused for capability refusals.
+				return nativeError(event.Kind, "native local request failed: "+string(event.Kind))
+			case KindUnsupportedCapability:
+				if (event.Capability != "tools" && event.Capability != "images") || fixedReason(event.Reason) == "" {
+					return nativeError(KindNativeProtocol, "invalid native capability refusal")
+				}
+				return capabilityRefusal(event.Capability, event.Reason)
 			default:
 				return nativeError(KindNativeProtocol, "unrecognized native failure")
 			}

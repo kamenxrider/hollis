@@ -38,6 +38,18 @@ func TestFailureContractMachineCodesAndPrivacy(t *testing.T) {
 	}
 }
 
+func TestNamedCapabilityRefusalCLI(t *testing.T) {
+	want := "native helper does not support tools (not_implemented); install the matching bundle"
+	err := toCLIError(&runner.Error{
+		Kind: runner.KindUnsupportedCapability, ExitCode: -1,
+		Capability: "tools", CapabilityReason: "not_implemented",
+		Err: errors.New("untrusted diagnostic"),
+	})
+	if ExitCode(err) != 5 || errorCode(err) != "unsupported_capability" || err.Error() != want {
+		t.Fatalf("error=%v code=%s exit=%d", err, errorCode(err), ExitCode(err))
+	}
+}
+
 func TestFailureContractDirectAndStoredCommands(t *testing.T) {
 	stubConfigPath(t)
 	if err := saveConfig(config{ImageBridge: "fixture image bridge"}); err != nil {
