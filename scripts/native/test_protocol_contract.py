@@ -20,10 +20,11 @@ import helper_protocol as protocol
 
 # Event fields the Go decoder accepts. Kept here as the reviewed contract; the
 # tests below fail if either source grows a field without the other.
-GO_REQUEST_FIELDS = {'protocol', 'operation', 'prompt', 'schema'}
+GO_REQUEST_FIELDS = {'protocol', 'operation', 'prompt', 'schema', 'tool_calling'}
 GO_EVENT_FIELDS = {'protocol', 'version', 'model', 'event', 'available',
                    'reason', 'text', 'usage', 'kind', 'context_size',
-                   'structured'}
+                   'structured', 'capability', 'capabilities'}
+GO_CAPABILITY_FIELDS = {'images', 'tools', 'vision', 'macos_major'}
 GO_USAGE_FIELDS = {'input_tokens', 'output_tokens', 'reasoning_tokens'}
 PROTOCOL_TWO_OPERATIONS = {'status', 'complete', 'stream', 'schema'}
 PROTOCOL_EVENTS = {'status', 'snapshot', 'complete', 'error'}
@@ -108,16 +109,30 @@ class MessageShapeTests(unittest.TestCase):
         self.assertEqual(go_struct_tags(self.go, 'nativeRequest'), GO_REQUEST_FIELDS)
         match = re.search(r'struct Request: Decodable \{(.*?)\n    \}', self.swift, re.S)
         self.assertIsNotNone(match, 'helper Request struct is missing')
-        swift_fields = set(re.findall(r'let `?([a-z_]+)`?:', match.group(1)))
-        self.assertEqual(swift_fields, GO_REQUEST_FIELDS)
+        swift_fields = set(re.findall(r'let `?([A-Za-z_]+)`?:', match.group(1)))
+        coding_keys = re.search(r'enum CodingKeys: String, CodingKey \{(.*?)\n        \}',
+                                match.group(1), re.S)
+        self.assertIsNotNone(coding_keys, 'helper request CodingKeys are missing')
+        swift_keys = {}
+        for case in re.findall(r'case ([^\n]+)', coding_keys.group(1)):
+            for member in case.split(','):
+                parts = member.strip().split(' = ')
+                swift_keys[parts[0].strip('`')] = parts[-1].strip('`"')
+        self.assertEqual(set(swift_keys), swift_fields)
+        self.assertEqual(set(swift_keys.values()), GO_REQUEST_FIELDS)
 
     def test_helper_emits_only_fields_the_runner_decodes(self):
         emitted = set(re.findall(r'"([a-z_]+)":', self.swift))
-        # The helper also builds the status dictionary and the usage object;
-        # both are covered by the Go decoder's tags.
+        emitted.update(re.findall(r'\b(?:event|fields)\["([a-z_]+)"\] =',
+                                  self.swift))
+        # The helper also builds status, usage and capability dictionaries;
+        # each is covered by the corresponding Go decoder's tags.
         self.assertEqual(go_struct_tags(self.go, 'nativeEvent'), GO_EVENT_FIELDS)
         self.assertEqual(go_struct_tags(self.go, 'nativeUsage'), GO_USAGE_FIELDS)
-        self.assertLessEqual(emitted, GO_EVENT_FIELDS | GO_USAGE_FIELDS)
+        self.assertEqual(go_struct_tags(self.go, 'Capabilities'),
+                         GO_CAPABILITY_FIELDS)
+        self.assertLessEqual(emitted, GO_EVENT_FIELDS | GO_USAGE_FIELDS |
+                             GO_CAPABILITY_FIELDS)
 
     def test_helper_emits_only_events_the_runner_handles(self):
         self.assertEqual(set(protocol.SWIFT_EVENT.findall(self.swift)),
@@ -127,8 +142,18 @@ class MessageShapeTests(unittest.TestCase):
 
     def test_helper_failure_kinds_are_accepted_by_the_runner(self):
         emitted = set(protocol.SWIFT_FAILURE.findall(self.swift))
+        emitted.update(re.findall(r'"kind": "([a-z_]+)"', self.swift))
         self.assertTrue(emitted, 'helper emits no failure kinds')
         self.assertLessEqual(emitted, go_accepted_event_error_kinds())
+
+    def test_helper_accepts_exactly_protocols_one_two_and_three(self):
+        match = re.search(r'let accepted = \[([^\]]+)\]', self.swift)
+        self.assertIsNotNone(match, 'helper accepted protocol set is missing')
+        accepted = [protocol.swift_pins()[1] if value.strip() == 'protocolVersion'
+                    else int(value.strip()) for value in match.group(1).split(',')]
+        self.assertEqual(sorted(accepted), [1, 2, 3])
+        self.assertIn('guard accepted.contains(request.`protocol`) else {',
+                      self.swift)
 
     def test_operations_are_pinned_on_both_sides(self):
         match = re.search(r'var operations = \[(.*?)\](.*?)guard operations.contains',

@@ -1,0 +1,15 @@
+{
+  "stdin": "{\"protocol\":3,\"operation\":\"complete\",\"prompt\":\"fixture\",\"tool_calling\":\"allowed\"}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "unsupported_capability",
+      "capability": "tools",
+      "reason": "not_implemented",
+      "protocol": 3,
+      "version": "0.6.0",
+      "model": "local"
+    }
+  ],
+  "name": "tool calling refused by name"
+}
