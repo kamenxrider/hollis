@@ -1,0 +1,208 @@
+--- a/mcp/protocol.go
++++ b/mcp/protocol.go
+@@ -1,10 +1,12 @@
+ // Copyright 2025 The Go MCP SDK Authors. All rights reserved.
+ // Use of this source code is governed by an MIT-style
+ // license that can be found in the LICENSE file.
++// Modified by Hollis: preserve structured tool-result numbers with scoped UseNumber.
+ 
+ package mcp
+ 
+ import (
++	"bytes"
+ 	"encoding/json"
+ 	"fmt"
+ 	"maps"
+@@ -391,8 +393,9 @@
+ 	type res CallToolResult // avoid recursion
+ 	var wire struct {
+ 		res
+-		Content    []*wireContent `json:"content"`
+-		ResultType resultType     `json:"resultType"`
++		Content           []*wireContent   `json:"content"`
++		ResultType        resultType       `json:"resultType"`
++		StructuredContent *json.RawMessage `json:"structuredContent"`
+ 	}
+ 	if err := internaljson.Unmarshal(data, &wire); err != nil {
+ 		return err
+@@ -402,6 +405,13 @@
+ 		return err
+ 	}
+ 	wire.res.resultType = wire.ResultType
++	if wire.StructuredContent != nil {
++		dec := json.NewDecoder(bytes.NewReader(*wire.StructuredContent))
++		dec.UseNumber()
++		if err := dec.Decode(&wire.res.StructuredContent); err != nil {
++			return err
++		}
++	}
+ 	*x = CallToolResult(wire.res)
+ 	return nil
+ }
+--- a/mcp/protocol_test.go
++++ b/mcp/protocol_test.go
+@@ -1,6 +1,7 @@
+ // Copyright 2025 The Go MCP SDK Authors. All rights reserved.
+ // Use of this source code is governed by an MIT-style
+ // license that can be found in the LICENSE file.
++// Modified by Hollis: expect exact numeric leaves in structured tool results.
+ 
+ package mcp
+ 
+@@ -1285,7 +1286,7 @@
+ 		Meta:              Meta{"m": true},
+ 		Content:           content,
+ 		IsError:           true,
+-		StructuredContent: 3.0,
++		StructuredContent: json.Number("3"),
+ 	}
+ 	var gotf CallToolResult
+ 	roundtrip(ctrf, &gotf)
+--- a/mcp/server_test.go
++++ b/mcp/server_test.go
+@@ -1,6 +1,7 @@
+ // Copyright 2025 The Go MCP SDK Authors. All rights reserved.
+ // Use of this source code is governed by an MIT-style
+ // license that can be found in the LICENSE file.
++// Modified by Hollis: expect exact numeric leaves in structured tool results.
+ 
+ package mcp
+ 
+@@ -677,7 +678,7 @@
+ 			name:         "primitive number (map-based schema)",
+ 			outputSchema: map[string]any{"type": "number"},
+ 			content:      42.0,
+-			want:         42.0,
++			want:         json.Number("42"),
+ 		},
+ 		{
+ 			name:         "primitive string (RawMessage schema)",
+@@ -816,7 +817,7 @@
+ 		if res.IsError {
+ 			t.Fatalf("unexpected tool error: %v", res.Content)
+ 		}
+-		if diff := cmp.Diff(float64(42), res.StructuredContent); diff != "" {
++		if diff := cmp.Diff(json.Number("42"), res.StructuredContent); diff != "" {
+ 			t.Errorf("structured content mismatch (-want +got):\n%s", diff)
+ 		}
+ 	})
+--- a/mcp/streamable_test.go
++++ b/mcp/streamable_test.go
+@@ -1,6 +1,7 @@
+ // Copyright 2025 The Go MCP SDK Authors. All rights reserved.
+ // Use of this source code is governed by an MIT-style
+ // license that can be found in the LICENSE file.
++// Modified by Hollis: expect exact numeric leaves in structured tool results.
+ 
+ //lint:file-ignore SA1019 tests exercise deprecated SEP-2577 APIs (roots, sampling, logging).
+ 
+@@ -288,7 +289,8 @@
+ 					t.Errorf("CallTool failed: %v", err)
+ 					return
+ 				}
+-				if got := int(res.StructuredContent.(map[string]any)["Count"].(float64)); got != i {
++				got, err := res.StructuredContent.(map[string]any)["Count"].(json.Number).Int64()
++				if err != nil || got != int64(i) {
+ 					t.Errorf("got count %d, want %d", got, i)
+ 				}
+ 			}
+--- /dev/null
++++ b/mcp/structured_precision_test.go
+@@ -0,0 +1,97 @@
++// Copyright 2025 The Go MCP SDK Authors. All rights reserved.
++// Use of this source code is governed by the license
++// that can be found in the LICENSE file.
++// Added by Hollis: scoped structured-content precision regressions.
++
++package mcp
++
++import (
++	"encoding/json"
++	"reflect"
++	"strings"
++	"testing"
++)
++
++func TestStructuredPrecisionNumbers(t *testing.T) {
++	for _, value := range []string{
++		"42", "9007199254740993", "-9007199254740993",
++		"0.123456789012345678901", "1e400", "1e-400", "-0", "1.2300E+12",
++	} {
++		t.Run(value, func(t *testing.T) {
++			for _, shape := range []string{value, `{"nested":[` + value + `]}`} {
++				var result CallToolResult
++				if err := json.Unmarshal([]byte(`{"content":[],"structuredContent":`+shape+`}`), &result); err != nil {
++					t.Fatal(err)
++				}
++				got, err := json.Marshal(result.StructuredContent)
++				if err != nil || string(got) != shape {
++					t.Fatalf("roundtrip = %s, %v; want %s", got, err, shape)
++				}
++				leaf := result.StructuredContent
++				if object, ok := leaf.(map[string]any); ok {
++					leaf = object["nested"].([]any)[0]
++				}
++				if number, ok := leaf.(json.Number); !ok || number.String() != value {
++					t.Fatalf("numeric leaf = %#v (%T)", leaf, leaf)
++				}
++			}
++		})
++	}
++}
++
++func TestStructuredPrecisionTypesAndEnvelope(t *testing.T) {
++	for _, tc := range []struct {
++		wire string
++		want any
++	}{
++		{`{}`, nil},
++		{`{"structuredContent":null}`, nil},
++		{`{"structuredContent":"hello"}`, "hello"},
++		{`{"structuredContent":true}`, true},
++		{`{"structuredContent":[null,false,"x",42]}`, []any{nil, false, "x", json.Number("42")}},
++		{`{"structuredContent":{"n":null,"s":"x","b":true}}`, map[string]any{"n": nil, "s": "x", "b": true}},
++		{`{"StructuredContent":42}`, nil},
++	} {
++		var result CallToolResult
++		if err := json.Unmarshal([]byte(tc.wire), &result); err != nil {
++			t.Fatal(err)
++		}
++		if !reflect.DeepEqual(result.StructuredContent, tc.want) {
++			t.Fatalf("%s: got %#v; want %#v", tc.wire, result.StructuredContent, tc.want)
++		}
++	}
++	var result CallToolResult
++	wire := `{"_meta":{"n":42},"content":[{"type":"text","text":"kept"}],"isError":true,"structuredContent":42,"requestState":"state","resultType":"input_required","inputRequests":{}}`
++	if err := json.Unmarshal([]byte(wire), &result); err != nil {
++		t.Fatal(err)
++	}
++	if result.Meta["n"] != float64(42) || !result.IsError || !result.NeedsInput() || result.RequestState != "state" || result.InputRequests == nil {
++		t.Fatalf("envelope changed: %+v", result)
++	}
++	if len(result.Content) != 1 || result.Content[0].(*TextContent).Text != "kept" {
++		t.Fatalf("content changed: %#v", result.Content)
++	}
++}
++
++func TestStructuredPrecisionDepthAndErrors(t *testing.T) {
++	for _, depth := range []int{999, 1000} {
++		wire := `{"structuredContent":` + strings.Repeat("[", depth) + "0" + strings.Repeat("]", depth) + "}"
++		result := CallToolResult{StructuredContent: "unchanged"}
++		err := json.Unmarshal([]byte(wire), &result)
++		if depth == 999 && err != nil {
++			t.Fatalf("valid depth rejected: %v", err)
++		}
++		if depth == 1000 && (err == nil || result.StructuredContent != "unchanged") {
++			t.Fatalf("excess depth: error=%v, destination=%#v", err, result.StructuredContent)
++		}
++	}
++	for _, wire := range []string{
++		`{"structuredContent":01}`, `{"structuredContent":NaN}`,
++		`{"structuredContent":`, `{"content":[{"type":"invalid"}],"structuredContent":42}`,
++	} {
++		result := CallToolResult{StructuredContent: "unchanged"}
++		if err := json.Unmarshal([]byte(wire), &result); err == nil || result.StructuredContent != "unchanged" {
++			t.Fatalf("invalid result %s: error=%v, destination=%#v", wire, err, result.StructuredContent)
++		}
++	}
++}

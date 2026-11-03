@@ -28,6 +28,11 @@ def package(dist, version):
         if path.is_symlink() or not path.is_file():
             raise ValueError(f'Missing or unsafe bundle member: {name}')
         data[name] = path.read_bytes()
+    sdk_license = ROOT / 'third_party/go-sdk/LICENSE'
+    data['LICENSE'] += (b'\n\n---\nThird-party dependency: '
+                        b'github.com/modelcontextprotocol/go-sdk v1.8.0\n'
+                        b'With the Hollis scoped structured-content precision patch.\n\n'
+                        + sdk_license.read_bytes())
     manifest = {'version': version, 'native_protocol_version': NATIVE_PROTOCOL,
                 'native_minimum_macos': '27.0', 'architecture': 'arm64',
                 'sha256': {k: hashlib.sha256(v).hexdigest() for k, v in data.items()}}

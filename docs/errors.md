@@ -14,6 +14,11 @@ agent schema version remain unchanged.
 | `native_protocol` | The paired native helper and this CLI disagree about their contract: an older or newer helper, an event that breaks the sequence, or a guided object that does not match the requested schema | 5 | 502 | Install the matching bundle from the same release; do not retry against the same helper |
 | `unsupported_capability` | The paired helper speaks this protocol era but did not advertise, or refused, a capability the request needs (for example native tool calling) | 5 | 502 | Install the matching bundle from the same release; the helper is newer than the request needs or was built without that capability |
 | `local_unavailable` | The native local model or its paired helper is unavailable: no helper is installed or executable, or it cannot answer | 5 | 400 `model_unavailable` at admission; 503 `model_unavailable` mid-run | Install the matching bundle from the same release; do not retry the same invocation |
+| `mcp_config` | `mcp.json` is invalid, or a `hollis mcp` edit would make it invalid; the file is left unchanged | 10 | n/a | Fix the field the message names, or run `hollis mcp list` to see the current file |
+| `mcp_unavailable` | A configured MCP server could not start, or its endpoint could not be reached or failed TLS verification | 5 | n/a | Check the command or URL with `hollis mcp tools <server>`; nothing was retried |
+| `mcp_protocol` | An MCP server broke the protocol, published a malformed tool list, redirected, or exceeded a size cap | 5 | n/a | Treat the server as broken for this run; Hollis never retries or uses a partial listing |
+| `mcp_auth` | An HTTP MCP server rejected the credential read from the configured environment variable | 5 | n/a | Set a valid value in the variable `hollis mcp list` names; the credential is never printed |
+| `mcp_schema_unvalidated` | An `auto` server would allow a tool whose arguments only the server can validate | 5 | n/a | Keep the server in `ask` mode, or remove the tool with `hollis mcp deny` |
 
 `native_protocol` is a component mismatch, not a bad invocation: the command
 was understood and the installed helper cannot serve it. It deliberately shares
@@ -30,6 +35,10 @@ matched helper keeps the shared `native_protocol` sentence.
 right protocol, and simply does not offer what the request needs. It is never used for a caller mistake such as too many
 images or an unsupported parameter; those stay usage errors, because telling a caller to reinstall for a bad request would be
 wrong. The remedy is the same matching bundle.
+
+The `mcp_*` codes come from `hollis mcp` commands. `hollis serve` never reads
+`mcp.json` or starts an MCP server, so none of them has an HTTP status. See
+[MCP servers](mcp.md) for the configuration rules behind each refusal.
 
 `local_unavailable` is the companion code with a different cause: no paired
 helper is installed or executable, or the helper cannot answer at all. It shares

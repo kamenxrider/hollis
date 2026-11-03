@@ -187,7 +187,7 @@ func commandOutputModes(command *cobra.Command) []string {
 	switch command.CommandPath() {
 	case "hollis agent-context":
 		return []string{"json"}
-	case "hollis image", "hollis batch", "hollis chats", "hollis completion", "hollis config", "hollis serve":
+	case "hollis image", "hollis batch", "hollis chats", "hollis completion", "hollis config", "hollis mcp", "hollis serve":
 		return []string{"human"}
 	default:
 		if command.Parent() != nil && command.Parent().CommandPath() == "hollis completion" {
@@ -219,6 +219,14 @@ func commandSideEffects(command *cobra.Command) []string {
 		return []string{"runs read-only native availability and Shortcuts discovery without inference; --model local skips Shortcuts discovery"}
 	case "hollis doctor":
 		return []string{"runs read-only native availability and Shortcuts discovery without inference; --model limits discovery to the selected route", "human output ends with a suggested next action, without executing it"}
+	case "hollis mcp add", "hollis mcp remove", "hollis mcp deny", "hollis mcp mode":
+		return []string{"writes mcp.json atomically under its lock", "never starts a server or calls a model"}
+	case "hollis mcp list":
+		return []string{"reads mcp.json", "never starts a server or calls a model"}
+	case "hollis mcp tools":
+		return []string{"starts the configured MCP server process once to list its tools, then stops it", "never runs a tool or calls a model"}
+	case "hollis mcp allow":
+		return []string{"starts the configured MCP server process once to read the tool's definition, then stops it", "writes mcp.json atomically under its lock", "never runs a tool or calls a model"}
 	case "hollis serve":
 		return []string{"opens an HTTP listener", "invokes Shortcut model runs for valid model requests"}
 	default:

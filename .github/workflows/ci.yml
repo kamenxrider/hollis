@@ -30,6 +30,13 @@ jobs:
       - name: Race test
         run: go test -race ./...
 
+      - name: Pinned MCP SDK provenance and tests
+        run: |
+          python3 scripts/release/verify_sdk.py
+          cd third_party/go-sdk
+          go test ./...
+          go test -race ./mcp ./internal/json
+
       - name: Native helper protocol tests (no model calls)
         run: python3 -m unittest discover -s scripts/native -p 'test_*.py'
 

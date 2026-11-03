@@ -235,6 +235,9 @@ class NativeArchiveTests(unittest.TestCase):
             output = package_runtime.package(dist, '0.4.0')
             with zipfile.ZipFile(output) as archive:
                 self.assertEqual(set(archive.namelist()), {'hollis', 'hollis-native', 'hollis-bridges.zip', 'LICENSE', 'manifest.json'})
+                sdk_license = package_runtime.ROOT / 'third_party/go-sdk/LICENSE'
+                self.assertIn(sdk_license.read_bytes(), archive.read('LICENSE'))
+                self.assertIn(b'github.com/modelcontextprotocol/go-sdk v1.8.0', archive.read('LICENSE'))
                 manifest = json.loads(archive.read('manifest.json'))
                 self.assertEqual(manifest['native_protocol_version'], package_runtime.NATIVE_PROTOCOL)
                 for name, expected in manifest['sha256'].items():

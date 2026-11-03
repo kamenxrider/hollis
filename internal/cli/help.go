@@ -50,6 +50,11 @@ type semanticCodeDoc struct {
 var documentedSemanticCodes = []semanticCodeDoc{
 	{Name: "request_declined", Code: 5},
 	{Name: "shortcut_failed", Code: 5},
+	{Name: "mcp_config", Code: 10},
+	{Name: "mcp_unavailable", Code: 5},
+	{Name: "mcp_protocol", Code: 5},
+	{Name: "mcp_auth", Code: 5},
+	{Name: "mcp_schema_unvalidated", Code: 5},
 }
 
 // agentExampleCommands is rendered in root help and published by agent-context,
