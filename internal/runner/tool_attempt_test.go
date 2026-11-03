@@ -26,7 +26,6 @@ func TestMalformedToolAttemptClassification(t *testing.T) {
 		{"whitespace", " { \"tool_calls\" : [ { \"function\" : { \"name\" : \"get_weather\", \"arguments\" : ? } } ] } ", true},
 		{"unescaped argument quotes", `{"tool_calls":[{"function":{"name":"get_weather","arguments":"{"city":"Tokyo"}"}}]}`, true},
 		{"bare function", `{"tool_calls":[{"function":"get_weather","arguments":{"city":?}}]}`, true},
-		{"missing array closer", `{"tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Tokyo"}}}}`, true},
 		{"ordinary answer", "Tokyo is a city.", false},
 		{"ordinary mention", `The "tool_calls" and "function" fields describe a protocol.`, false},
 		{"encoded example", `"{\"tool_calls\":[{\"function\":{\"name\":\"get_weather\",\"arguments\":?}}]}"`, false},

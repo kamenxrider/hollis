@@ -226,6 +226,12 @@ must fit the same subset `--schema` uses (see
 format are accepted but not enforced. At most 32 tools; names are 1 to 64
 letters, digits, `_` or `-`, and each tool needs a non-empty description.
 
+Structural recovery also accepts a whole JSON reply whose outer `tool_calls`
+array is missing only its `]` immediately before the final `}`. It does not
+repair mismatched argument containers or change argument values; the recovered
+document still passes the same JSON, tool-name and schema validation. This
+local parse step adds no generation and does not extend the one-repair limit.
+
 Definitions travel as native transcript metadata alongside fixed format
 instructions, not as executable SDK tools or duplicated prompt text. Each
 tool generation first runs a non-generative status process to verify helper

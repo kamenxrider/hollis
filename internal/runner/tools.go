@@ -198,7 +198,7 @@ func encodeCompact(value any) string {
 // detectToolCalls finds the first candidate whose JSON has a top-level
 // tool_calls array. Candidates, in order: the whole text, each fenced code
 // block, then every balanced {...} object left to right (string-aware), and
-// finally the closure repair of an object left open at the end of the text.
+// finally closure repairs at the end of the text.
 func detectToolCalls(text string) ([]schemaValue, bool) {
 	if !strings.Contains(text, `"tool_calls"`) {
 		return nil, false
@@ -233,7 +233,59 @@ func detectToolCalls(text string) ([]schemaValue, bool) {
 			}
 		}
 	}
+	if candidate, ok := closeTerminalToolArray(text); ok {
+		return try(candidate)
+	}
 	return nil, false
+}
+
+// closeTerminalToolArray only inserts the outer tool_calls array's missing
+// closer before the final object closer. It never closes an argument container,
+// edits a value, or selects one wrapper from multiple malformed candidates.
+func closeTerminalToolArray(text string) (string, bool) {
+	if len(text) > maxDetectionSteps {
+		return "", false
+	}
+	text = strings.TrimSpace(text)
+	markers := toolAttemptMarker.FindAllStringIndex(text, 2)
+	if len(markers) != 1 || markers[0][0] != 0 {
+		return "", false
+	}
+	var stack []byte
+	inString, escaped := false, false
+	for index := 0; index < len(text); index++ {
+		character := text[index]
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case character == '\\':
+				escaped = true
+			case character == '"':
+				inString = false
+			}
+			continue
+		}
+		switch character {
+		case '"':
+			inString = true
+		case '{', '[':
+			stack = append(stack, character)
+		case '}', ']':
+			if len(stack) == 0 {
+				return "", false
+			}
+			if (character == '}') != (stack[len(stack)-1] == '{') {
+				if character == '}' && index == len(text)-1 &&
+					len(stack) == 2 && stack[0] == '{' && stack[1] == '[' {
+					return text[:index] + "]}", true
+				}
+				return "", false
+			}
+			stack = stack[:len(stack)-1]
+		}
+	}
+	return "", false
 }
 
 // fencedBlocks returns the body of each ``` fenced block, without the info
