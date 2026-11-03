@@ -123,7 +123,7 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 			ErrorSchema:       "{meta:{source,schema_version},error:{code,message,exit_code}}",
 			ModelDefaults:     "positional model <tier> > explicit --model flag > config model > built-in default; text defaults to auto, --image defaults directly to cloud",
 			Models:            "models lists auto and every text route, including unavailable routes; default marks the configured model or auto if unset; available is transport/native availability, not inference proof; readiness, reason_code and reason describe non-generative diagnostics; configured UUIDs may be callable but unverified; --model local limits discovery to native availability",
-			EmptyChats:        "empty chats list returns [] with exit 0; no-match chats search returns [] with exit 3; agent mode wraps arrays under results; next-command hints appear only in human output",
+			EmptyChats:        "empty chats list returns [] with exit 0; agent mode wraps the array under results; no-match chats search returns the not-found error envelope (code missing) with exit 3; next-command hints appear only in human output, on stderr for a failing search",
 			Fallback:          "auto tries cloud once, then on-device once, only for confirmed missing bridges or recognized rate limits; all other failures stop without another model call",
 			Network:           "HTTP defaults to loopback; remote bind requires --allow-remote plus bearer authentication and an external encrypted tunnel",
 			Local:             "local is explicit and independent of Shortcuts; streaming human text and HTTP SSE only; JSON/agent and batch outputs remain complete; complete usage is Apple-measured; context overflow fails without shortening history",

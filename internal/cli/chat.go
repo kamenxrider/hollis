@@ -694,14 +694,10 @@ Exit codes: 0 hits, 2 empty query, 3 no matches.`,
 				return configErr(err)
 			}
 			if len(matches) == 0 {
-				if flags.asJSON {
-					if err := printJSONArrayFilteredTo(cmd.OutOrStdout(), []map[string]any{}, flags); err != nil {
-						return err
-					}
-				} else {
-					fmt.Fprintln(cmd.OutOrStdout(), "No matching chats. Run: hollis chats list")
+				if !flags.asJSON {
+					fmt.Fprintln(cmd.ErrOrStderr(), "No matching chats. Run: hollis chats list")
 				}
-				return &reportedError{err: notFoundErr(fmt.Errorf("no chats match %q", query))}
+				return notFoundErr(fmt.Errorf("no chats match %q", query))
 			}
 			if flags.asJSON {
 				rows := make([]map[string]any, 0, len(matches))

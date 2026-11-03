@@ -126,11 +126,17 @@ $ hollis chats list
 No chats yet. Run: hollis chat "hello"
 $ hollis chats search missing
 No matching chats. Run: hollis chats list
+no chats match "missing"
 ```
 
-JSON remains an empty array (`[]`), wrapped under `results` with `--agent`,
-without a text hint. An empty list exits 0; a no-match search still exits 3,
-but now returns the empty array rather than an error object.
+An empty list writes the hint to stdout and exits 0. In JSON it returns an
+empty array (`[]`), wrapped under `results` with `--agent`.
+
+A no-match search leaves stdout empty in text mode, writes the hint and the
+existing error message to stderr, and exits 3. With `--json` or `--agent`, it
+returns the existing not-found error envelope (`error.code: "missing"`) on
+stdout with exit 3; `--agent` also includes `meta`. Hints appear only in human
+output, never in JSON.
 
 A continuation always uses the model stored with that conversation. Combining `--continue` with a positional model or explicit `--model` is rejected. Hollis stores complete turns atomically and preserves complete history; when a chat reaches 256 stored messages or its rendered prompt exceeds 128 KiB, it fails clearly instead of trimming or summarizing it.
 

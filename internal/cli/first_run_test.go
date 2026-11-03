@@ -174,32 +174,62 @@ func TestEmptyChatHints(t *testing.T) {
 	t.Cleanup(func() { openStore = old })
 	for _, tc := range []struct {
 		command []string
-		hint    string
+		stdout  map[string]string
+		stderr  string
 		exit    int
 	}{
-		{[]string{"chats", "list"}, `No chats yet. Run: hollis chat "hello"` + "\n", 0},
-		{[]string{"chats", "search", "missing"}, "No matching chats. Run: hollis chats list\n", 3},
+		{
+			command: []string{"chats", "list"},
+			stdout: map[string]string{
+				"text":    `No chats yet. Run: hollis chat "hello"` + "\n",
+				"--json":  "[]\n",
+				"--agent": "{\"meta\":{\"schema_version\":\"2\",\"source\":\"apple-intelligence\"},\"results\":[]}\n",
+			},
+		},
+		{
+			command: []string{"chats", "search", "missing"},
+			// Exact stdout bytes captured from main at 2dee817, not regenerated.
+			stdout: map[string]string{
+				"text":    "",
+				"--json":  `{"error":{"code":"missing","exit_code":3,"message":"no chats match \"missing\""}}` + "\n",
+				"--agent": `{"error":{"code":"missing","exit_code":3,"message":"no chats match \"missing\""},"meta":{"schema_version":"2","source":"apple-intelligence"}}` + "\n",
+			},
+			stderr: "No matching chats. Run: hollis chats list\nno chats match \"missing\"\n",
+			exit:   3,
+		},
 	} {
 		for _, mode := range []string{"text", "--json", "--agent"} {
 			t.Run(strings.Join(tc.command, " ")+"/"+mode, func(t *testing.T) {
-				args := append([]string{}, tc.command...)
+				projections := [][]string{nil}
 				if mode != "text" {
-					args = append(args, mode, "--select", "id")
+					projections = append(projections, []string{"--select", "id"})
 				}
-				out, err := runFirstRunCommand(t, &setupStatusRunner{}, args...)
-				if ExitCode(err) != tc.exit {
-					t.Fatalf("exit=%d, want %d", ExitCode(err), tc.exit)
-				}
-				if mode == "text" {
-					if out != tc.hint {
-						t.Fatalf("hint=%q, want %q", out, tc.hint)
+				for _, projection := range projections {
+					args := append([]string{}, tc.command...)
+					if mode != "text" {
+						args = append(args, mode)
 					}
-				} else {
-					if rows := modelRows(t, out, mode); rows == nil || len(rows) != 0 {
-						t.Fatalf("empty results changed: %s", out)
+					args = append(args, projection...)
+					r := &recordingRunner{}
+					out, errOut, err := runResolvedCLI(t, r, args...)
+					if ExitCode(err) != tc.exit || r.calls != 0 {
+						t.Fatalf("exit=%d, want %d; model calls=%d", ExitCode(err), tc.exit, r.calls)
 					}
-					if strings.Contains(out, "Run:") || strings.Contains(out, `"error"`) {
-						t.Fatalf("hint or error leaked into array output: %s", out)
+					if err != nil {
+						if err.Error() != `no chats match "missing"` {
+							t.Fatalf("error message changed: %q", err.Error())
+						}
+						if !ErrorReported(err) {
+							// Match cmd/hollis/main.go's human error rendering.
+							errOut += err.Error() + "\n"
+						}
+					}
+					wantErr := ""
+					if mode == "text" {
+						wantErr = tc.stderr
+					}
+					if out != tc.stdout[mode] || errOut != wantErr {
+						t.Fatalf("stdout=%q, want %q; stderr=%q, want %q", out, tc.stdout[mode], errOut, wantErr)
 					}
 				}
 			})
