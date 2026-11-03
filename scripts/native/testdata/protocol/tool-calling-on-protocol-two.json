@@ -1,0 +1,13 @@
+{
+  "stdin": "{\"protocol\":2,\"operation\":\"complete\",\"prompt\":\"fixture\",\"tool_calling\":\"allowed\"}",
+  "events": [
+    {
+      "event": "error",
+      "kind": "native_failed",
+      "protocol": 2,
+      "version": "0.7.0",
+      "model": "local"
+    }
+  ],
+  "name": "tool calling on protocol two"
+}

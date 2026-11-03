@@ -3,11 +3,11 @@ import Foundation
 import FoundationModels
 import CoreGraphics
 
-// One request per process. No tools, persistent session, instructions, truncation,
+// One request per process. No executable tools, persistent session, truncation,
 // implicit fallback, or diagnostic reflection of the request contents.
 @main
 struct HollisNative {
-    static let version = "0.6.0"
+    static let version = "0.7.0"
     static let protocolVersion = 3
 
     struct Request: Decodable {
@@ -59,14 +59,16 @@ struct HollisNative {
     }
 
     static func statusFields(available: Bool, reason: String, contextSize: Int,
-                             vision: Bool, macOSMajor: Int, `protocol` effective: Int) -> [String: Any] {
+                             vision: Bool, tools: Bool, macOSMajor: Int, `protocol` effective: Int) -> [String: Any] {
         var fields: [String: Any] = ["event": "status", "available": available, "reason": reason]
         if effective >= 2 { fields["context_size"] = contextSize }
         if effective >= 3 {
             // Unimplemented capabilities stay absent, not zero-filled.
             fields["capabilities"] = ["vision": vision, "macos_major": macOSMajor,
                                       "extract": extractCapability,
-                                      "images": imageCapability(vision: vision, macOSMajor: macOSMajor)]
+                                      "images": imageCapability(vision: vision, macOSMajor: macOSMajor),
+                                      "tools": ["supported": tools, "tool_calling_mode": true,
+                                                "native_definitions": tools]]
         }
         return fields
     }
@@ -115,7 +117,8 @@ struct HollisNative {
             print(protocolVersion)
             return
         }
-        guard CommandLine.arguments.count == 1 else { fail("native_failed"); return }
+        let metadataMode = CommandLine.arguments == [CommandLine.arguments[0], "--native-definitions"]
+        guard CommandLine.arguments.count == 1 || metadataMode else { fail("native_failed"); return }
         var effective = protocolVersion
         do {
             // The maximum encoded request allows worst-case JSON escaping of
@@ -151,6 +154,13 @@ struct HollisNative {
                 fail("native_failed"); return
             }
             effective = request.`protocol`
+            let metadata: NativeToolMetadata.Prepared
+            do {
+                metadata = try NativeToolMetadata.prepare(
+                    JSONDecoder().decode(JSONValue.self, from: input), enabled: metadataMode)
+            } catch NativeToolMetadata.Failure.capacity {
+                fail("context_capacity", protocol: effective); return
+            } catch { fail("native_failed", protocol: effective); return }
             var operations = ["status", "complete", "stream"]
             if effective >= 2 { operations.append("schema") }
             if effective >= 3 { operations.append("extract") }
@@ -187,6 +197,7 @@ struct HollisNative {
                     available: model.isAvailable, reason: String(describing: model.availability),
                     contextSize: model.contextSize,
                     vision: model.capabilities.contains(.vision),
+                    tools: model.isAvailable && model.capabilities.contains(.toolCalling),
                     macOSMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
                     protocol: effective), protocol: effective)
                 // Extraction makes no model call, so it does not wait on the
@@ -210,16 +221,21 @@ struct HollisNative {
             if request.operation != "schema", request.schema != nil {
                 fail("native_failed", protocol: effective); return
             }
-            // tool_calling is a known protocol-3 member with no implementation
-            // here yet. A helper that ignored it would answer a caller who
-            // asked for a tool mode with an ordinary completion, so the whole
-            // request is refused instead of silently downgraded.
-            if request.toolCalling != nil {
-                if effective < 3 { fail("native_failed", protocol: effective); return }
-                try emit(["event": "error", "kind": "unsupported_capability",
-                          "capability": "tools", "reason": "not_implemented"],
-                         protocol: effective)
-                return
+            // tool_calling is a protocol-3 member of plain generation. Only the
+            // two measured modes exist: the SDK's required mode throws on this
+            // OS build. Any other value, era or operation is refused rather
+            // than served as a completion that silently dropped the mode.
+            var options = GenerationOptions()
+            if let mode = request.toolCalling {
+                guard effective >= 3,
+                      request.operation == "complete" || request.operation == "stream" else {
+                    fail("native_failed", protocol: effective); return
+                }
+                switch mode {
+                case "allowed": options.toolCallingMode = .allowed
+                case "disallowed": options.toolCallingMode = .disallowed
+                default: fail("native_failed", protocol: effective); return
+                }
             }
             // The subset is parsed and validated before any model access:
             // an unsupported schema must never reach generation.
@@ -229,10 +245,12 @@ struct HollisNative {
                 catch { fail("native_failed", protocol: effective); return }
             }
             let model = SystemLanguageModel.default
+            let supportsTools = model.isAvailable && model.capabilities.contains(.toolCalling)
             let status = statusFields(
                 available: model.isAvailable, reason: String(describing: model.availability),
                 contextSize: effective >= 2 ? model.contextSize : 0,
                 vision: effective >= 3 && model.capabilities.contains(.vision),
+                tools: supportsTools,
                 macOSMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
                 protocol: effective)
             try emit(status, protocol: effective)
@@ -241,7 +259,7 @@ struct HollisNative {
                   !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 fail("native_failed", protocol: effective); return
             }
-            guard prompt.utf8.count <= 131_072 else {
+            guard metadata.inputBytes <= 131_072 else {
                 fail("context_capacity", protocol: effective); return
             }
             var image: CGImage?
@@ -257,12 +275,24 @@ struct HollisNative {
                 image = try ImageInput.load(path: images[0].path)
             }
             guard model.isAvailable else { return }
-            // This is tokenisation, not generation. It rejects known excess;
-            // SDK context errors still cover its own transcript overhead.
-            guard try await model.tokenCount(for: prompt) < model.contextSize else {
+            if metadataMode && !supportsTools {
+                try emit(["event": "error", "kind": "unsupported_capability",
+                          "capability": "tools", "reason": "no_tool_calling"], protocol: effective)
+                return
+            }
+            let count: Int
+            if metadataMode {
+                count = try await model.tokenCount(for: NativeToolMetadata.preflightEntries(
+                    metadata.entries, prompt: prompt, options: options))
+            } else {
+                count = try await model.tokenCount(for: prompt)
+            }
+            guard count < model.contextSize else {
                 fail("context_capacity", protocol: effective); return
             }
-            let session = LanguageModelSession(model: model)
+            let session = metadataMode
+                ? LanguageModelSession(model: model, tools: [], transcript: Transcript(entries: metadata.entries))
+                : LanguageModelSession(model: model)
             let generationPrompt = Prompt {
                 prompt
                 if let image {
@@ -289,7 +319,7 @@ struct HollisNative {
                                     "reasoning_tokens": response.usage.output.reasoningTokenCount]],
                          protocol: effective)
             } else if request.operation == "complete" {
-                let response = try await session.respond(to: generationPrompt)
+                let response = try await session.respond(to: generationPrompt, options: options)
                 try emit(["event": "complete", "text": response.content,
                           "usage": ["input_tokens": response.usage.input.totalTokenCount,
                                     "output_tokens": response.usage.output.totalTokenCount,
@@ -297,7 +327,7 @@ struct HollisNative {
                          protocol: effective)
             } else {
                 var last = ""
-                for try await snapshot in session.streamResponse(to: generationPrompt) {
+                for try await snapshot in session.streamResponse(to: generationPrompt, options: options) {
                     last = snapshot.content
                     try emit(["event": "snapshot", "text": last], protocol: effective)
                 }

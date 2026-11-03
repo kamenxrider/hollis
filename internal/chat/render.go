@@ -66,23 +66,68 @@ func ValidateTranscript(history []store.Message, rendered string) error {
 //	<new message>
 //
 //	Respond to the final USER message while preserving the conversation context.
+//
+// Tool turns stored as a hollis_tool envelope render as the tool block the
+// loop renders; every other body renders verbatim.
 func RenderTranscript(history []store.Message, newUserContent string) string {
 	var b strings.Builder
 	b.WriteString(replayPreamble)
 	b.WriteString("\n")
-	for _, m := range history {
-		b.WriteString("\n")
-		b.WriteString(roleLabel(m.Role))
-		b.WriteString(":\n")
-		b.WriteString(m.Content)
-		b.WriteString("\n")
-	}
+	writeTurns(&b, history)
 	b.WriteString("\nUSER:\n")
 	b.WriteString(newUserContent)
 	b.WriteString("\n\n")
 	b.WriteString(replayClosing)
 	b.WriteString("\n")
 	return b.String()
+}
+
+// toolRoundClosing replaces replayClosing when the conversation ends in tool
+// results rather than a user message.
+const toolRoundClosing = "Answer the most recent USER message using the TOOL results above, or call another tool if one is still needed."
+
+// RenderToolTranscript builds the prompt for one tool round: the fixed tool
+// instructions block (omitted when empty), the whole conversation (whose final turn is a user
+// message or a tool result), an optional fixed notice, then the closing line.
+// It is a pure function of its inputs, so every round re-renders the full
+// transcript rather than appending to a previous prompt.
+func RenderToolTranscript(instructions string, messages []store.Message, notice string) string {
+	var b strings.Builder
+	if instructions != "" {
+		b.WriteString(instructions)
+		b.WriteString("\n\n")
+	}
+	b.WriteString(replayPreamble)
+	b.WriteString("\n")
+	writeTurns(&b, messages)
+	if notice != "" {
+		b.WriteString("\n")
+		b.WriteString(notice)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	if len(messages) > 0 && messages[len(messages)-1].Role == RoleTool {
+		b.WriteString(toolRoundClosing)
+	} else {
+		b.WriteString(replayClosing)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func writeTurns(b *strings.Builder, messages []store.Message) {
+	names := map[string]string{}
+	for _, m := range messages {
+		content := m.Content
+		if rendered, ok := renderToolTurn(m, names); ok {
+			content = rendered
+		}
+		b.WriteString("\n")
+		b.WriteString(roleLabel(m.Role))
+		b.WriteString(":\n")
+		b.WriteString(content)
+		b.WriteString("\n")
+	}
 }
 
 // roleLabel maps stored roles to transcript labels. Unknown roles render as

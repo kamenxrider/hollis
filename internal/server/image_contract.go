@@ -61,6 +61,10 @@ type chatCompletionsRequest struct {
 	// strictly by parseChatGuided only when present, so the plain-text path is
 	// unchanged.
 	ResponseFormat json.RawMessage `json:"response_format"`
+	// The tool members route a request to the tools handler; see tools.go.
+	Tools             json.RawMessage `json:"tools"`
+	ToolChoice        json.RawMessage `json:"tool_choice"`
+	ParallelToolCalls json.RawMessage `json:"parallel_tool_calls"`
 }
 
 type responsesRequest struct {
@@ -71,6 +75,10 @@ type responsesRequest struct {
 	ImageGeneration json.RawMessage `json:"image_generation"`
 	// Text carries the Responses guided-output shape (text.format).
 	Text json.RawMessage `json:"text"`
+	// The tool members route a request to the tools handler; see tools.go.
+	Tools             json.RawMessage `json:"tools"`
+	ToolChoice        json.RawMessage `json:"tool_choice"`
+	ParallelToolCalls json.RawMessage `json:"parallel_tool_calls"`
 }
 
 // Implemented in the endpoint-owned parser files.

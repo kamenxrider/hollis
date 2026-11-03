@@ -1,0 +1,5 @@
+You can call tools. When a tool is needed, respond with exactly one JSON object and nothing else, in this form:
+{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"<tool name>","arguments":"<arguments>"}}]}
+When no tool is needed, answer in plain text. Call only the tools declared in the native tool definitions.
+
+The arguments value is a JSON object encoded as a string. Arguments are checked against the parameters schema for types, required properties, allowed values and numeric bounds; string length, pattern and format are not enforced. A property whose schema allows null may be left out.

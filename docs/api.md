@@ -24,7 +24,7 @@ The Responses reply text is at `output[0].content[0].text`. Its `input` may be a
 
 Both endpoints can ask native `local` for an object that follows a JSON Schema
 subset. This is current source, not in the pinned 0.4.0 runtime: it needs the
-helper from the same release (protocol 3, helper 0.6.0), and it is not
+helper from the same release (protocol 3, helper 0.7.0), and it is not
 available on any Shortcut route.
 
 Chat Completions uses the OpenAI `response_format` shape:
@@ -197,13 +197,96 @@ fields. Streamed usage is not promised. Stream events are flushed incrementally;
 errors after streaming starts are reported as stream errors, never a fabricated
 successful completion. Disconnecting cancels the local helper.
 
-The API does not accept `tools` or return native function calls. The
-underlying Shortcut returns one block of text. Separate live probes show that
-the models can sometimes follow a prompt-defined, client-executed tool protocol,
-including consuming a supplied tool result, but emitting the call was not
-reliable enough to ship. That path remains explicitly experimental work for a
-later release; Hollis never executes tools server-side.
+Tools are available on native `local` only; see [Tools on `local`](#tools-on-local).
+Shortcuts routes refuse `tools` with **400** `unsupported_parameter`. Hollis
+never executes tools server-side.
 
+## Tools on `local`
+
+Both endpoints accept caller-provided tools on `model:"local"`: `tools` (an
+array in the OpenAI function shape), `tool_choice` (`"auto"`, the default, or
+`"none"`), and `parallel_tool_calls` (absent or `true`). The server never runs a
+tool and never adds tools of its own. When the model asks for a call, Hollis
+returns it to you; you run the tool and send the result back in the next
+request.
+
+Definitions use each endpoint's wire shape: Chat Completions accepts
+`{"type":"function","function":{"name":"get_weather","description":"Get weather","parameters":{...},"strict":true}}`;
+Responses accepts
+`{"type":"function","name":"get_weather","description":"Get weather","parameters":{...},"strict":true}`.
+`strict` may be omitted, `true` or `false`; Hollis always validates against its
+supported subset. The other endpoint's definition shape is rejected.
+
+The model writes a call as ordinary text. Hollis finds it, normalizes it (a
+bare function name, arguments sent as an object, numbers sent as strings, a
+missing id, a missing closing bracket), and validates the arguments against
+the tool's `parameters` schema before returning anything. Each tool's schema
+must fit the same subset `--schema` uses (see
+[Guided output](native-local.md#guided-output)); string length, pattern and
+format are accepted but not enforced. At most 32 tools; names are 1 to 64
+letters, digits, `_` or `-`, and each tool needs a non-empty description.
+
+Definitions travel as native transcript metadata alongside fixed format
+instructions, not as executable SDK tools or duplicated prompt text. Each
+tool generation first runs a non-generative status process to verify helper
+0.7.0 and `tools.native_definitions`, within the same request deadline.
+No capability or conversion failure falls back to text-only definitions.
+
+Chat Completions returns a call as:
+
+```json
+{"choices":[{"index":0,"finish_reason":"tool_calls","message":{"role":"assistant","content":null,
+  "tool_calls":[{"id":"call_1_0","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Tokyo\"}"}}]}}]}
+```
+
+Send the result back as a `role:"tool"` message with `tool_call_id`, after the
+assistant message that carried `tool_calls`. Responses returns a
+`function_call` output item (`{"type":"function_call","id":"fc_...","call_id":"call_1_0","name":"get_weather","arguments":"{...}","status":"completed"}`)
+with no `output_text`; send the result back as a `function_call_output` item
+with that `call_id` and a string `output`. The final message may be a tool
+result or an assistant turn carrying calls; otherwise it must still be `user`.
+Tool result content/output may be an empty string, but must not be missing or
+`null`. Chat Completions also accepts an array of text parts.
+
+Limits and behavior:
+
+- **One validation repair.** A call whose arguments fail validation gets one
+  repair round that restates the format and the fixed reason. Unparseable JSON
+  with a recognizable single-call header naming an offered tool gets the same
+  correction opportunity. Hollis does not guess argument values or replace
+  control-token text with quotes. If the corrected call is still recognizable
+  but malformed or invalid, the request is **502** `tool_call_invalid`.
+  Other unparseable replies, including ambiguous headers or multiple-call
+  attempts, remain plain text rather than being partially salvaged.
+  More than 16 parsed calls in one round is
+  `tool_call_invalid` immediately.
+- **Three-call budget.** Each loop counts visible assistant tool-call turns
+  since the last user message plus every new model dispatch. Repairs, final
+  answers and `tool_choice: "none"` all consume the same budget. No fourth
+  dispatch is allowed; a tool call at the cap is **502** `tool_round_cap`.
+  Stateless follow-up requests cannot reconstruct hidden repairs from earlier
+  requests. This is a loop boundary with visible-history accounting, not a
+  global cross-request quota; tool-call IDs carry no budget state.
+- **Invented tool names are text.** A reply that names a tool you did not offer
+  is returned verbatim as the assistant's content with `finish_reason: "stop"`.
+  It is never surfaced as a call. With `tool_choice: "none"` the tools are not
+  sent to the model at all, and any call-shaped text is returned as content.
+- **False calls happen.** In live checks the model sometimes called a tool for
+  a question that needed none. A final answer that quotes an example
+  `{"tool_calls": ...}` object is also read as a call. Treat every call as a
+  request, not a decision.
+- **Tool results are data.** Results are inserted verbatim inside fixed markers
+  and count, with the conversation, fixed instructions and normalized tool
+  metadata, against the 128 KiB input limit; a round that does not fit is
+  **413** `context_too_large` with both byte counts. Nothing is truncated.
+- **Refused combinations (400 `unsupported_parameter`):** `stream: true`,
+  image input, `image_generation`, guided output (`response_format` or
+  `text.format` `json_schema`), `parallel_tool_calls: false`, a named or
+  `"required"` `tool_choice`, any route other than `local`, and a tool result
+  whose `tool_call_id` matches no earlier call.
+
+The whole loop holds one concurrency slot and one deadline. A helper that does
+not advertise tool calling is **502** `unsupported_capability`.
 ## Generate an image through the API
 
 After [image setup](image-generation.md#setup), restart the server and call
@@ -214,7 +297,7 @@ and replaying a generated image in a follow-up. See the complete
 
 ## What it deliberately does not do
 
-Shortcuts routes return a complete response, so `stream: true` on those routes returns **400** instead of a faked stream. Only explicit native `local` streams. Apple exposes no token counts through this path, so no `usage` field is invented. The HTTP contract has no `tools` / function calls. `system` and `instructions` are advisory prompt content, not hard isolation boundaries. Both endpoints reject malformed or trailing JSON, unknown fields, unsupported parameters/content, empty input, and prompts over 128 KiB before calling a model. Native context-capacity failures are reported explicitly; history is never silently shortened or retried with fewer messages.
+Shortcuts routes return a complete response, so `stream: true` on those routes returns **400** instead of a faked stream. Only explicit native `local` streams. Apple exposes no token counts through this path, so no `usage` field is invented. Tools are caller-provided, `local` only, and never executed by Hollis. `system` and `instructions` are advisory prompt content, not hard isolation boundaries. Both endpoints reject malformed or trailing JSON, unknown fields, unsupported parameters/content, empty input, and prompts over 128 KiB before calling a model. Native context-capacity failures are reported explicitly; history is never silently shortened or retried with fewer messages.
 
 ## Authentication and remote access
 

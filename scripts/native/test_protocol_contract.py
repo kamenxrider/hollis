@@ -20,8 +20,9 @@ import helper_protocol as protocol
 
 # Event fields the Go decoder accepts. Kept here as the reviewed contract; the
 # tests below fail if either source grows a field without the other.
+METADATA_REQUEST_FIELDS = {'tool_instructions', 'tool_definitions'}
 GO_REQUEST_FIELDS = {'protocol', 'operation', 'prompt', 'schema', 'tool_calling',
-                     'source', 'pages', 'media', 'images'}
+                     'source', 'pages', 'media', 'images'} | METADATA_REQUEST_FIELDS
 GO_EVENT_FIELDS = {'protocol', 'version', 'model', 'event', 'available',
                    'reason', 'text', 'usage', 'kind', 'context_size',
                    'structured', 'capability', 'capabilities', 'media',
@@ -32,6 +33,7 @@ GO_EXTRACT_CAPABILITY_FIELDS = {'pdf', 'ocr', 'pages', 'max_pages', 'max_text_by
 GO_PAGE_FIELDS = {'page', 'text', 'method'}
 GO_SOURCE_FIELDS = {'path'}
 GO_IMAGE_CAPABILITY_FIELDS = {'supported', 'max_images', 'formats', 'max_side_px', 'reason'}
+GO_TOOL_CAPABILITY_FIELDS = {'supported', 'reason', 'tool_calling_mode', 'native_definitions'}
 GO_USAGE_FIELDS = {'input_tokens', 'output_tokens', 'reasoning_tokens'}
 PROTOCOL_THREE_OPERATIONS = {'status', 'complete', 'stream', 'schema', 'extract'}
 PROTOCOL_EVENTS = {'status', 'snapshot', 'complete', 'error'}
@@ -126,10 +128,18 @@ class MessageShapeTests(unittest.TestCase):
                 parts = member.strip().split(' = ')
                 swift_keys[parts[0].strip('`')] = parts[-1].strip('`"')
         self.assertEqual(set(swift_keys), swift_fields)
-        self.assertEqual(set(swift_keys.values()), GO_REQUEST_FIELDS)
+        self.assertEqual(set(swift_keys.values()), GO_REQUEST_FIELDS - METADATA_REQUEST_FIELDS)
+        # Metadata is validated from the strict JSON tree, preserving the
+        # distinction between an absent member and explicit null.
+        metadata = (protocol.ROOT / 'native/ToolMetadata.swift').read_text()
+        for field in METADATA_REQUEST_FIELDS:
+            self.assertIn(f'request["{field}"]', metadata)
+        self.assertIn('NativeToolMetadata.prepare(', self.swift)
 
     def test_helper_emits_only_fields_the_runner_decodes(self):
-        emitted = set(re.findall(r'"([a-z_]+)":', self.swift))
+        # A switch over request values ("allowed", "disallowed") is not an
+        # emitted field.
+        emitted = set(re.findall(r'(?<!case )"([a-z_]+)":', self.swift))
         emitted.update(re.findall(r'\b(?:event|fields)\["([a-z_]+)"\] =',
                                   self.swift))
         # The helper also builds status, usage and capability dictionaries;
@@ -144,9 +154,10 @@ class MessageShapeTests(unittest.TestCase):
         self.assertEqual(go_struct_tags(extract_go, 'nativePage'), GO_PAGE_FIELDS)
         self.assertEqual(go_struct_tags(self.go, 'ImageCapability'), GO_IMAGE_CAPABILITY_FIELDS)
         self.assertEqual(go_struct_tags(extract_go, 'nativeSource'), GO_SOURCE_FIELDS)
+        self.assertEqual(go_struct_tags(self.go, 'ToolCapability'), GO_TOOL_CAPABILITY_FIELDS)
         self.assertLessEqual(emitted, GO_EVENT_FIELDS | GO_USAGE_FIELDS |
                              GO_CAPABILITY_FIELDS | GO_EXTRACT_CAPABILITY_FIELDS |
-                             GO_PAGE_FIELDS | GO_IMAGE_CAPABILITY_FIELDS)
+                             GO_PAGE_FIELDS | GO_IMAGE_CAPABILITY_FIELDS | GO_TOOL_CAPABILITY_FIELDS)
 
     def test_helper_emits_only_events_the_runner_handles(self):
         self.assertEqual(set(protocol.SWIFT_EVENT.findall(self.swift)),
@@ -194,10 +205,10 @@ class PrivacyOfTheChannelTests(unittest.TestCase):
         self.swift = protocol.HELPER_SOURCE.read_text()
 
     def test_prompt_never_travels_in_process_arguments(self):
-        # Two metadata comparisons (two references each) and one guard: no
-        # other argument inspection exists, so a request cannot arrive that way.
+        # Three fixed metadata/mode comparisons and one argument-count guard.
         occurrences = self.swift.count('CommandLine.arguments')
-        self.assertEqual(occurrences, 5, 'unexpected argument handling')
+        self.assertEqual(occurrences, 7, 'unexpected argument handling')
+        self.assertIn('CommandLine.arguments == [CommandLine.arguments[0], "--native-definitions"]', self.swift)
         self.assertNotIn('CommandLine.arguments[1]', self.swift)
         self.assertIn('FileHandle.standardInput.read(upToCount:', self.swift)
 

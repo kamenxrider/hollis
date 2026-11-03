@@ -272,19 +272,34 @@ func TestNativeCapabilityErrorEvent(t *testing.T) {
 	}
 }
 
-// The native golden suite supplies its freshly built helper. No status or
-// generation is requested: tool mode is refused before any model access.
-func TestBuiltHelperNamedCapabilityRefusal(t *testing.T) {
+// The native golden suite supplies its freshly built helper. A tool mode the
+// SDK cannot honor is refused before any model access, and through the
+// runner's own event decoder it is a plain helper failure, never a status.
+func TestBuiltHelperRefusesUnmeasuredToolMode(t *testing.T) {
 	path := os.Getenv("HOLLIS_TEST_NATIVE_HELPER")
 	if path == "" {
 		t.Skip("run by the built-helper golden suite")
 	}
-	r := &NativeRunner{helperPath: path, platformCheck: func(context.Context) error { return nil }}
-	_, err := r.RunCompleteWithOptions(t.Context(), ModelLocal, "fixture", nativeOptions{ToolCalling: "allowed"})
-	requireNativeKind(t, err, KindUnsupportedCapability)
-	const want = "native helper does not support tools (not_implemented); install the matching bundle"
-	if err.Error() != want {
-		t.Fatalf("error=%v; want %s", err, want)
+	request, err := json.Marshal(map[string]any{
+		"protocol": NativeProtocol, "operation": "complete", "prompt": "fixture", "tool_calling": "required",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(t.Context(), path)
+	cmd.Stdin = strings.NewReader(string(request))
+	data, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var event nativeEvent
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Event != "error" || event.Kind != KindNativeFailed || event.Protocol != NativeProtocol || event.Version != NativeVersion {
+		t.Fatalf("event = %+v; want a protocol-%d native_failed error", event, NativeProtocol)
 	}
 }
 

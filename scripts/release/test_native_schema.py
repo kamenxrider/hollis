@@ -322,7 +322,7 @@ struct ProtocolGolden {
         for era in [1, 2, 3] {
             let fields = HollisNative.statusFields(
                 available: true, reason: "fixture", contextSize: 8192,
-                vision: true, macOSMajor: 27, protocol: era)
+                vision: true, tools: true, macOSMajor: 27, protocol: era)
             try HollisNative.emit(fields, protocol: era)
         }
     }
@@ -333,14 +333,14 @@ struct ProtocolGolden {
             result = command(
                 'xcrun', 'swiftc', '-parse-as-library', '-sdk', sdk_path,
                 '-target', 'arm64-apple-macosx27.0', str(source), str(SUBSET),
-                str(EXTRACTION), str(ROOT / 'native/ImageInput.swift'), str(harness), '-o', str(binary))
+                str(EXTRACTION), str(ROOT / 'native/ImageInput.swift'), str(ROOT / 'native/ToolMetadata.swift'), str(harness), '-o', str(binary))
             self.assertEqual(result.returncode, 0, result.stderr)
             result = command(str(binary))
             self.assertEqual(result.returncode, 0, result.stderr)
             events = [json.loads(line) for line in result.stdout.splitlines()]
             expected = []
             for protocol in (1, 2, 3):
-                event = {'protocol': protocol, 'version': '0.6.0', 'model': 'local',
+                event = {'protocol': protocol, 'version': '0.7.0', 'model': 'local',
                          'event': 'status', 'available': True, 'reason': 'fixture'}
                 if protocol >= 2:
                     event['context_size'] = 8192
@@ -350,21 +350,27 @@ struct ProtocolGolden {
                         'images': {'supported': True, 'max_images': 1,
                                    'formats': ['png', 'jpeg'], 'max_side_px': 4096},
                         'extract': {'pdf': True, 'ocr': True, 'pages': True,
-                                    'max_pages': 2000, 'max_text_bytes': 131072}}
+                                    'max_pages': 2000, 'max_text_bytes': 131072},
+                        'tools': {'supported': True, 'tool_calling_mode': True,
+                                  'native_definitions': True}}
                 expected.append(event)
             self.assertEqual(events, expected)
 
     def test_source_pins_protocol_three_and_helper_version(self):
         source = HELPER.read_text()
         self.assertIn('static let protocolVersion = 3', source)
-        self.assertIn('static let version = "0.6.0"', source)
+        self.assertIn('static let version = "0.7.0"', source)
         # Request-format acceptance is independent of strict bundled version
-        # identity: old CLIs still reject this helper's 0.6.0-stamped events.
+        # identity: old CLIs still reject this helper's 0.7.0-stamped events.
         self.assertIn('let accepted = [1, 2, protocolVersion]', source)
         self.assertIn('request.operation == "schema"', source)
-        # A tool mode this build cannot apply is refused rather than ignored.
+        # The tool mode maps to exactly the two measured SDK modes; the
+        # required mode is measured broken and must never be set.
         self.assertIn('case toolCalling = "tool_calling"', source)
-        self.assertIn('"capability": "tools", "reason": "not_implemented"', source)
+        self.assertIn('case "allowed": options.toolCallingMode = .allowed', source)
+        self.assertIn('case "disallowed": options.toolCallingMode = .disallowed', source)
+        self.assertNotIn('.required', source)
+        self.assertNotIn('not_implemented', source)
 
     def test_built_helper_metadata_and_model_free_rejections(self):
         if platform.system() != 'Darwin' or platform.machine() != 'arm64':
@@ -378,7 +384,7 @@ struct ProtocolGolden {
             self.assertEqual(result.returncode, 0, result.stderr)
             if not can_execute_target():
                 raise unittest.SkipTest('the built helper requires macOS 27 to execute')
-            self.assertEqual(command(str(helper), '--version').stdout.strip(), 'hollis-native 0.6.0')
+            self.assertEqual(command(str(helper), '--version').stdout.strip(), 'hollis-native 0.7.0')
             self.assertEqual(command(str(helper), '--protocol-version').stdout.strip(), '3')
             # Actual helper bytes pass through Go's runner and the frozen old
             # decoders. All requests stop before model access.
@@ -391,12 +397,13 @@ struct ProtocolGolden {
                     'protocol': protocol, 'operation': 'unsupported'}))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout), {
-                    'protocol': protocol, 'version': '0.6.0', 'model': 'local',
+                    'protocol': protocol, 'version': '0.7.0', 'model': 'local',
                     'event': 'error', 'kind': 'native_failed'})
             # Requests refused before any model access emit one error event and
             # no status event. A protocol outside the accepted set is refused by
-            # value; a tool mode this build does not implement is a capability
-            # refusal, never a silently plain completion.
+            # value; a tool mode outside the two measured values, below
+            # protocol 3, or on an operation other than plain generation is
+            # refused rather than silently dropped.
             for request, kind in (
                     ({'protocol': 2, 'operation': 'schema', 'prompt': 'fixture',
                       'schema': {'type': 'array', 'items': {'type': 'string'}}}, 'native_failed'),
@@ -409,7 +416,14 @@ struct ProtocolGolden {
                     ({'protocol': 4, 'operation': 'status'}, 'native_failed'),
                     ({'protocol': 0, 'operation': 'status'}, 'native_failed'),
                     ({'protocol': 3, 'operation': 'complete', 'prompt': 'fixture',
-                      'tool_calling': 'allowed'}, 'unsupported_capability')):
+                      'tool_calling': 'required'}, 'native_failed'),
+                    ({'protocol': 2, 'operation': 'complete', 'prompt': 'fixture',
+                      'tool_calling': 'allowed'}, 'native_failed'),
+                    ({'protocol': 3, 'operation': 'status',
+                      'tool_calling': 'allowed'}, 'native_failed'),
+                    ({'protocol': 3, 'operation': 'schema', 'prompt': 'fixture',
+                      'schema': root({'name': {'type': 'string'}}),
+                      'tool_calling': 'allowed'}, 'native_failed')):
                 with self.subTest(request=request):
                     result = command(str(helper), input=json.dumps(request))
                     self.assertEqual(result.returncode, 0, result.stderr)
@@ -417,11 +431,6 @@ struct ProtocolGolden {
                     self.assertEqual(len(events), 1, result.stdout)
                     self.assertEqual(events[0]['event'], 'error')
                     self.assertEqual(events[0]['kind'], kind)
-                    if kind == 'unsupported_capability':
-                        self.assertEqual(events[0], {
-                            'protocol': 3, 'version': '0.6.0', 'model': 'local',
-                            'event': 'error', 'kind': 'unsupported_capability',
-                            'capability': 'tools', 'reason': 'not_implemented'})
 
 
 if __name__ == '__main__':

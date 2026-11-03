@@ -33,12 +33,14 @@ Failed or interrupted assistant turns are not saved as successful answers.
 
 Complete native responses include Apple's measured token usage. Streamed usage
 is unavailable; Hollis does not estimate it or report invented zeros. Native
-local supports text, including the existing TXT/MD document preparation. It does
-not add image input, image generation or tool/function calls to this route.
+local supports text, including TXT/MD and extracted PDF document preparation.
+Native image input requires the helper's advertised vision capability, never
+just the model name; native image generation is not provided. Caller-provided
+tools are covered under [Tools](#tools).
 
 ## Guided output
 
-This section describes current source, with helper 0.6.0/protocol 3. Runtime
+This section describes current source, with helper 0.7.0/protocol 3. Runtime
 0.4.0 and plugin 0.2.0's pinned runtime use protocol 1 and do not include
 `--schema` or the protocol-2 and protocol-3 diagnostics described here. Build the
 CLI and helper from the same source revision for these features; do not mix the
@@ -46,12 +48,12 @@ current CLI with a released 0.4.0 helper.
 
 Protocol 3 adds a `capabilities` object to the helper's status event, and every
 operation negotiates before it runs. The helper accepts request formats 1, 2 and
-3, but stamps all events with version 0.6.0. Older CLIs reject that version;
+3, but stamps all events with version 0.7.0. Older CLIs reject that version;
 accepting their request format does not make them compatible. This CLI speaks
 protocol 3 only and checks strict version identity because the CLI and helper
 ship as one bundle. A mismatched pair fails closed with a clear error asking
 for the matching bundle, never a plain-text downgrade. A capability the helper
-did not advertise (native tool calling, for example) is refused by name as
+did not advertise (tool calling on an older build, for example) is refused by name as
 `unsupported_capability`, which
 is a component fault at exit 5 and HTTP 502, distinct from a caller mistake.
 
@@ -176,7 +178,7 @@ the object as a JSON string. An old helper maps to HTTP 502 `native_protocol`,
 the same class as the CLI's exit 5. Field handling, error codes and examples are
 in [the API guide](api.md#guided-json-output).
 
-Guided output requires helper 0.6.0/protocol 3 matched to the CLI. The helper is
+Guided output requires helper 0.7.0/protocol 3 matched to the CLI. The helper is
 asked which protocol it speaks before any operation spawns, so an older helper
 costs no inference: it is refused, pointing at the matching bundle.
 Pairing the CLI with any other helper release is a
@@ -244,3 +246,45 @@ or failed stream does not become a successful completion. Other routes still
 require `stream:false`. See [the API guide](api.md).
 
 [Back to Hollis](../README.md)
+
+## Tools
+
+`hollis respond --model local --tools tools.json "..."` offers tools to the
+native model. `tools.json` is a JSON array in the OpenAI tools shape. Hollis
+never runs a tool; it prints one JSON document:
+
+```json
+{"finish_reason":"tool_calls","model":"local","rounds":1,"tool_calls":[{"id":"call_1_0","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Tokyo\"}"}}],"usage":{...}}
+{"finish_reason":"stop","model":"local","rounds":1,"text":"Paris.","usage":{...}}
+```
+
+On a terminal the same document is printed indented. Tool definitions are native
+transcript metadata, with fixed format instructions separate from the conversation.
+They are not executable SDK tools. A bounded, non-generative status process
+verifies the matching helper and `tools.native_definitions` before each tool
+generation; it shares the request deadline and does not tokenize or generate.
+The helper also checks runtime tool support before tokenization. Missing support
+fails explicitly, never by falling back to text-only definitions.
+
+The 128 KiB input limit includes the conversation, fixed instructions, and
+normalized tool names, descriptions and parameter schemas. The encoded helper
+request must also fit 1 MiB. One native token preflight counts the instructions,
+definitions and exactly one pending prompt; the prompt is then sent once.
+`--tool-choice none` omits definitions and tool-format instructions, disables
+the model's tool mode and leaves ordinary conversation history intact. Each
+tool's `parameters` must fit the [guided-output subset](#guided-output);
+string length, pattern and format are not enforced. Arguments are validated
+before they are printed, an invalid call gets one repair round, and after that
+the command fails with `tool_call_invalid` (exit 5). The same correction covers
+unparseable JSON with a recognizable single-call header naming an offered
+tool; argument values are never guessed. Other unparseable replies, including
+ambiguous headers or multiple-call attempts, remain text rather than being
+partially salvaged. A reply that names a tool you did not offer is printed as
+text. Each loop has a three-call budget, including repairs, final answers and
+`none`; visible prior tool-call turns consume budget too. A fourth dispatch or
+a tool call at the cap fails with `tool_round_cap` (exit 5). Hidden repairs from
+earlier stateless requests cannot be reconstructed, so this is not a global
+cross-request quota. The `rounds` field counts new dispatches in this request.
+`--tools` requires `--model local` and
+cannot be combined with `--stream`, `--schema`, `--image`, `--code`, `--json` or
+`--agent`; those are usage errors (exit 2) before anything runs.

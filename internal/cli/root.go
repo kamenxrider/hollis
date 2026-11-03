@@ -412,8 +412,8 @@ func toCLIError(err error) error {
 	case runner.KindEmptyPrompt:
 		return usageErr(fmt.Errorf("%s\nhint: give a prompt as an argument or pipe it via stdin", err))
 	case runner.KindContextCapacity:
-		if re.Limit > 0 {
-			// An extraction ceiling carries its measured numbers.
+		if re.Limit > 0 || re.PromptBytes > 0 {
+			// Extraction and tool-budget failures carry measured numbers.
 			return executionErr("context_capacity", err.Error())
 		}
 		return executionErr("context_capacity", "local model context capacity exceeded; conversation was not shortened. Start a new chat or explicitly supply a smaller request")
@@ -422,6 +422,10 @@ func toCLIError(err error) error {
 		return executionErr(string(re.Kind), err.Error())
 	case runner.KindUnsupportedMedia, runner.KindExtractMediaMismatch, runner.KindPageOutOfRange:
 		return codedUsageErr(string(re.Kind), err)
+	case runner.KindToolRoundCap, runner.KindToolCallInvalid:
+		// Loop faults: neither the helper nor the request was wrong, but the
+		// same request should not be retried unchanged.
+		return executionErr(string(re.Kind), err.Error())
 	case runner.KindLocalUnavailable:
 		return executionErr("local_unavailable", err.Error())
 	case runner.KindNativeProtocol, runner.KindNativeFailed, runner.KindInvalidImage, runner.KindUnsupportedOS:

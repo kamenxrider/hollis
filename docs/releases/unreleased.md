@@ -80,15 +80,15 @@ missing or inventing bridge names. Stderr keeps a bounded head and tail so a
 late diagnostic can still classify the failure. See
 [Shortcuts transport](../shortcuts.md#how-it-works).
 
-## Native local: protocol 3, helper 0.6.0 and guided output
+## Native local: protocol 3, helper 0.7.0 and guided output
 
 `hollis respond --schema` asks the on-device model for a JSON object that
 conforms to a supported schema subset. Guided output needs the `local` route, a
-protocol-3 helper (`hollis-native` 0.6.0 matches this source) and
+protocol-3 helper (`hollis-native` 0.7.0 matches this source) and
 `capabilities.guided_output: true` from `hollis models --model local --json`.
 
-Protocol 3 adds negotiation, capability advertisement and named refusal. It does
-not implement image attachments or native tool calling.
+Protocol 3 adds negotiation, capability advertisement and named refusal. This source
+supports caller tools on local; it does not advertise image support statically.
 
 `hollis respond --file` now accepts PDFs. The paired native helper reads
 them on this Mac through the protocol-3 `extract` operation: the text layer per
@@ -97,15 +97,13 @@ decides the route, not the extension. `--pages` selects pages of one PDF.
 New error codes: `invalid_document`, `extract_no_text`, `unsupported_media`,
 `extract_media_mismatch` and `page_out_of_range`; extracted text over 128 KiB
 is `context_capacity` with both numbers. See [text documents](../cli.md#text-documents).
-The helper accepts request formats 1, 2 and 3 but stamps all events with 0.6.0;
+The helper accepts request formats 1, 2 and 3 but stamps all events with 0.7.0;
 older CLIs reject that version. CLI and helper ship as one matched bundle, and
 a mismatched pair fails closed with a clear error and matching-bundle remedy:
 `native_protocol` (exit 5, HTTP 502), never a plain-text downgrade. The helper's
 status event now carries `capabilities`. A request needing a capability that
 the helper did not advertise is refused by name as `unsupported_capability`
-(exit 5, HTTP 502), a component fault, not a caller mistake. The unimplemented
-`tool_calling` request member is refused before model access with `tools`
-and the fixed reason `not_implemented` in the error message.
+(exit 5, HTTP 502), a component fault, not a caller mistake.
 
 The subset accepts an object root and closed objects (`additionalProperties`
 `false` or omitted, which means `false`); `string`, `integer`, `number` and
@@ -152,6 +150,35 @@ image input, a non-local model or an unsupported `response_format` type is
 **400** `unsupported_parameter`. The returned object is a JSON string, re-validated
 by Hollis, and a validation failure is **502** `native_protocol`. Details are in
 [guided JSON output](../api.md#guided-json-output).
+
+## Caller-provided tools on local
+
+This source adds `hollis respond --tools` and tools on both HTTP endpoints,
+for `local` only. Chat Completions uses nested `function` definitions;
+Responses uses flat function definitions. Schemas must fit the supported
+subset, and every returned call is validated. The caller executes the tool
+and sends back its result; Hollis never executes caller tools.
+
+When the available model supports tools, the helper advertises
+`tools: {supported: true, tool_calling_mode: true, native_definitions: true}` and
+maps protocol-3 `tool_calling: "allowed"` or `"disallowed"` to SDK generation
+options. Unsupported modes, including `"required"`, are refused as
+`native_failed`. Definitions now travel as native transcript metadata, with
+separate fixed format instructions and no executable SDK tools. A non-generative
+status process checks the matched version and capability before each tool
+generation. Metadata counts toward byte limits and the single native token
+preflight; conversion or capability failures never fall back to text-only
+definitions. Plain and `none` paths do not attach definitions or instructions.
+Tool requests are complete-only, allow one validation
+correction within a three-call loop budget, and refuse images or guided output.
+Repairs, final answers and `none` share that budget with visible prior tool-call
+turns. Hidden corrections from earlier stateless requests are not reconstructible;
+the cap is not a global cross-request quota.
+See [tools over HTTP](../api.md#tools-on-local) and
+[CLI tools](../native-local.md#tools).
+
+These are unreleased source capabilities, not an upgrade to existing installed
+bundles or a guarantee that a model will call the right tool.
 
 ## Native helper mismatch over HTTP
 

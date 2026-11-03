@@ -122,6 +122,11 @@ const (
 	KindTransport            Kind = "transport"          // staging, launch, or pipe failure
 	KindRequestDeclined      Kind = "request_declined"   // Apple asked for a different description; cause unknown
 	KindShortcutFailed       Kind = "shortcut_failed"    // unrecognized unsuccessful execution
+	// The tool loop's own faults. Neither the helper nor the caller's request
+	// was wrong; the loop could not converge. They are deliberately not
+	// native_protocol, which is reserved for component mismatch.
+	KindToolRoundCap    Kind = "tool_round_cap"
+	KindToolCallInvalid Kind = "tool_call_invalid"
 )
 
 // Error is a classified runner failure. Kind maps to a stable CLI exit code.
@@ -157,6 +162,10 @@ type Error struct {
 	// probe deadline is fixed, so the CLI must not suggest a larger
 	// --timeout.
 	ProbeTimeout bool
+	// PromptBytes is the rendered size of a tool round that did not fit the
+	// prompt budget. It is set only on that context_capacity failure, so the
+	// refusal can name both numbers.
+	PromptBytes int
 }
 
 func (e *Error) Error() string {

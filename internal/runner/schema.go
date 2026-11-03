@@ -686,16 +686,29 @@ func numberBound(fields map[string]schemaValue, key, path string) (*float64, err
 // validateSchemaValue mirrors SchemaSubset.validate: it returns the first
 // offending pointer, or "" when the value conforms.
 func validateSchemaValue(value schemaValue, node *schemaNode, path string) string {
-	self := func() string {
-		if path == "" {
-			return "/"
-		}
-		return path
+	return checkSchemaValue(value, node, path).pointer
+}
+
+// schemaFault is one validation failure. pointer is the pointer the helper
+// reports for the same fault. reason is a fixed sentence and at is where it
+// applies: for an undeclared property that is the enclosing object, because
+// the property name came from the value rather than from the schema.
+type schemaFault struct {
+	pointer string
+	at      string
+	reason  string
+}
+
+func checkSchemaValue(value schemaValue, node *schemaNode, path string) schemaFault {
+	self := path
+	if self == "" {
+		self = "/"
 	}
+	fail := func(reason string) schemaFault { return schemaFault{pointer: self, at: self, reason: reason} }
 	switch node.kind {
 	case "object":
 		if value.kind != schemaObject {
-			return self()
+			return fail("has the wrong type")
 		}
 		declared := make(map[string]schemaProperty, len(node.properties))
 		for _, property := range node.properties {
@@ -703,12 +716,13 @@ func validateSchemaValue(value schemaValue, node *schemaNode, path string) strin
 		}
 		for _, key := range sortedKeys(value.object) {
 			if _, ok := declared[key]; !ok {
-				return pointer(path, key)
+				return schemaFault{pointer: pointer(path, key), at: self, reason: "contains a property that is not declared"}
 			}
 		}
 		for _, property := range node.properties {
 			if _, present := value.object[property.name]; !present && property.required {
-				return pointer(path, property.name)
+				at := pointer(path, property.name)
+				return schemaFault{pointer: at, at: at, reason: "is required and missing"}
 			}
 		}
 		for _, property := range node.properties {
@@ -716,65 +730,50 @@ func validateSchemaValue(value schemaValue, node *schemaNode, path string) strin
 				if property.nullable && child.kind == schemaNull {
 					continue
 				}
-				if bad := validateSchemaValue(child, property.node, pointer(path, property.name)); bad != "" {
-					return bad
+				if fault := checkSchemaValue(child, property.node, pointer(path, property.name)); fault.pointer != "" {
+					return fault
 				}
 			}
 		}
-		return ""
+		return schemaFault{}
 	case "array":
 		if value.kind != schemaArray {
-			return self()
+			return fail("has the wrong type")
 		}
 		if node.minItems != nil && len(value.array) < *node.minItems {
-			return self()
+			return fail("has too few items")
 		}
 		if node.maxItems != nil && len(value.array) > *node.maxItems {
-			return self()
+			return fail("has too many items")
 		}
 		for index, child := range value.array {
-			if bad := validateSchemaValue(child, node.items, path+"/"+strconv.Itoa(index)); bad != "" {
-				return bad
+			if fault := checkSchemaValue(child, node.items, path+"/"+strconv.Itoa(index)); fault.pointer != "" {
+				return fault
 			}
 		}
-		return ""
+		return schemaFault{}
 	case "string":
 		if value.kind != schemaString {
-			return self()
+			return fail("has the wrong type")
 		}
 		if node.hasChoices && !contains(node.choices, value.text) {
-			return self()
+			return fail("is not one of the allowed values")
 		}
-		return ""
-	case "integer":
+		return schemaFault{}
+	case "integer", "number":
 		number, ok := value.asFloat()
-		if !ok || number != math.Trunc(number) {
-			return self()
+		if !ok || (node.kind == "integer" && number != math.Trunc(number)) {
+			return fail("has the wrong type")
 		}
-		if node.minimum != nil && number < *node.minimum {
-			return self()
+		if (node.minimum != nil && number < *node.minimum) || (node.maximum != nil && number > *node.maximum) {
+			return fail("is outside the allowed range")
 		}
-		if node.maximum != nil && number > *node.maximum {
-			return self()
-		}
-		return ""
-	case "number":
-		number, ok := value.asFloat()
-		if !ok {
-			return self()
-		}
-		if node.minimum != nil && number < *node.minimum {
-			return self()
-		}
-		if node.maximum != nil && number > *node.maximum {
-			return self()
-		}
-		return ""
+		return schemaFault{}
 	default:
 		if value.kind != schemaBool {
-			return self()
+			return fail("has the wrong type")
 		}
-		return ""
+		return schemaFault{}
 	}
 }
 

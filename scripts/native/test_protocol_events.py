@@ -116,10 +116,18 @@ class HelperEventTests(unittest.TestCase):
                 if number == 3:
                     capabilities = status['capabilities']
                     self.assertEqual(set(capabilities),
-                                     {'vision', 'macos_major', 'extract', 'images'})
+                                     {'vision', 'macos_major', 'extract', 'images', 'tools'})
                     self.assertEqual(capabilities['extract'], {
                         'pdf': True, 'ocr': True, 'pages': True,
                         'max_pages': 2000, 'max_text_bytes': 131072})
+                    tools = capabilities['tools']
+                    self.assertEqual(set(tools),
+                                     {'supported', 'tool_calling_mode', 'native_definitions'})
+                    self.assertIsInstance(tools['supported'], bool)
+                    self.assertTrue(tools['tool_calling_mode'])
+                    self.assertEqual(tools['native_definitions'], tools['supported'])
+                    if not status['available']:
+                        self.assertFalse(tools['supported'])
                     self.assertIsInstance(capabilities['vision'], bool)
                     self.assertIsInstance(capabilities['macos_major'], int)
                     self.assertEqual(capabilities['macos_major'],

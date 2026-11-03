@@ -19,6 +19,7 @@ import (
 	"github.com/kamenxrider/hollis/internal/chat"
 	"github.com/kamenxrider/hollis/internal/docinput"
 	"github.com/kamenxrider/hollis/internal/runner"
+	"github.com/kamenxrider/hollis/internal/store"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 )
@@ -34,6 +35,8 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		stream     bool
 		schemaFile string
 		code       bool
+		toolsFile  string
+		toolChoice string
 	)
 	cmd := &cobra.Command{
 		Use:   "respond [prompt]",
@@ -69,7 +72,15 @@ skipping empty or whitespace-only blocks, so the answer can be redirected into
 a source file. A response without a complete fence is printed as it is.
 An empty response or only empty code blocks fails with exit 3 and a message
 explaining what was empty. --code is complete-only: it is refused with JSON
-or agent output, --stream and --schema.`,
+or agent output, --stream, --schema and --tools.
+
+Offer tools to the native model with --tools <file>, a JSON array in the
+OpenAI tools shape. Hollis never runs a tool: it prints one JSON document,
+either {"finish_reason":"tool_calls","tool_calls":[...]} with validated
+arguments, or {"finish_reason":"stop","text":"..."}. --tool-choice none keeps
+the tools out of the prompt and disables the model's tool mode. --tools
+requires --model local, completes without streaming, and cannot be combined
+with --image, --schema, --code, --json or --agent.`,
 		Example: `  hollis respond "Summarize this repo in one sentence"
   hollis respond model cloud-pro "Draft a reply"
   printf 'long prompt from a pipeline' | hollis respond
@@ -84,6 +95,7 @@ or agent output, --stream and --schema.`,
   hollis respond --model cloud-pro "Flag form also works"
   hollis respond --model local --schema person.json "Invent one person"
   hollis respond --code "Write a Go function that reverses a slice" > reverse.go
+  hollis respond --model local --tools tools.json "What is the weather in Tokyo?"
   hollis respond --agent "Return strict JSON describing X"`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := validateTimeout(cmd, timeout); err != nil {
@@ -125,6 +137,9 @@ or agent output, --stream and --schema.`,
 					return usageErr(errors.New("--code cannot be combined with --schema: guided output is an object, not code"))
 				}
 			}
+			if err := validateToolFlags(cmd, flags, len(images) > 0); err != nil {
+				return err
+			}
 			// File input accepts piped stdin as its instruction, so the
 			// presence of that source is decided in RunE, where stdin can be
 			// probed without blocking. Here only explicit sources are checked.
@@ -137,6 +152,11 @@ or agent output, --stream and --schema.`,
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateTimeout(cmd, timeout); err != nil {
+				return err
+			}
+			// Checked again here because --agent turns on JSON output in the
+			// persistent pre-run, after Args has already run.
+			if err := validateToolFlags(cmd, flags, len(images) > 0); err != nil {
 				return err
 			}
 			posModel, promptArgs, hasPosModel := splitRespondModelArgs(cmd, args)
@@ -258,6 +278,15 @@ or agent output, --stream and --schema.`,
 				schema = parsed
 			}
 
+			var toolSet []runner.Tool
+			if cmd.Flags().Changed("tools") {
+				parsed, err := readToolsFile(toolsFile)
+				if err != nil {
+					return err
+				}
+				toolSet = parsed
+			}
+
 			builtInModel := runner.ModelAuto
 			if len(images) > 0 {
 				// Auto is unsafe for vision because it can fall back to the
@@ -288,6 +317,17 @@ or agent output, --stream and --schema.`,
 				}
 				if cmd.Flags().Changed("stream") && stream {
 					return usageErr(errors.New("--schema is complete-only and cannot be combined with --stream"))
+				}
+				stream = false
+			}
+			if toolSet != nil {
+				// Tools are a native-local capability and, like guided output,
+				// complete-only: a call must be validated before any of it is
+				// shown, so the combination with --stream is refused, not
+				// silently downgraded.
+				spec, ok := runner.Spec(m)
+				if !ok || spec.Transport != runner.TransportNative {
+					return usageErr(errors.New("--tools requires --model local: tool calling is a native local capability"))
 				}
 				stream = false
 			}
@@ -335,6 +375,9 @@ or agent output, --stream and --schema.`,
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
 			}
+			if toolSet != nil {
+				return withPDFRefusalContext(runRespondTools(ctx, cmd, r, prompt, toolSet, runner.ToolChoice(toolChoice)), hasPDF)
+			}
 			var fallback runner.Fallback
 			var text string
 			var used runner.Model
@@ -366,15 +409,7 @@ or agent output, --stream and --schema.`,
 				}
 			}
 			if err != nil {
-				var re *runner.Error
-				if hasPDF && errors.As(err, &re) && re.Kind == runner.KindRequestDeclined {
-					converted := toCLIError(err)
-					var ce *cliError
-					if errors.As(converted, &ce) {
-						return &cliError{code: ce.code, machineCode: ce.machineCode, err: errors.New(ce.err.Error() + extractedDeclinedNote)}
-					}
-				}
-				return toCLIError(err)
+				return withPDFRefusalContext(toCLIError(err), hasPDF)
 			}
 
 			if flags.asJSON {
@@ -463,6 +498,8 @@ or agent output, --stream and --schema.`,
 	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (ChatGPT accepts one; unavailable with auto/on-device)")
 	cmd.Flags().StringVar(&schemaFile, "schema", "", "JSON Schema file for guided native-local output; requires --model local and completes without streaming")
 	cmd.Flags().BoolVar(&code, "code", false, "Print the first complete non-empty fenced code block (or the whole answer when there is no complete fence); exit 3 when there is nothing to print")
+	cmd.Flags().StringVar(&toolsFile, "tools", "", "JSON file with an OpenAI-shaped tools array for native-local tool calling; prints the tool calls or the answer as one JSON document")
+	cmd.Flags().StringVar(&toolChoice, "tool-choice", string(runner.ToolChoiceAuto), "With --tools: auto (default) lets the model call a tool; none keeps tools out of the prompt")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	return cmd
 }
@@ -587,4 +624,121 @@ func readSchemaFile(path string) (*runner.Schema, error) {
 		return nil, usageErr(err)
 	}
 	return schema, nil
+}
+
+// toolsFileReadLimit bounds the raw tools file. Thirty-two tools at the 64 KiB
+// per-schema bound fit; the rendered prompt budget is the real aggregate bound.
+const toolsFileReadLimit = 4 << 20
+
+// validateToolFlags refuses every --tools combination §4.2 rules out, before
+// anything is read, staged or spawned.
+func validateToolFlags(cmd *cobra.Command, flags *rootFlags, hasImages bool) error {
+	hasTools := cmd.Flags().Changed("tools")
+	if cmd.Flags().Changed("tool-choice") && !hasTools {
+		return usageErr(errors.New("--tool-choice requires --tools"))
+	}
+	if !hasTools {
+		return nil
+	}
+	choice, _ := cmd.Flags().GetString("tool-choice")
+	switch runner.ToolChoice(choice) {
+	case runner.ToolChoiceAuto, runner.ToolChoiceNone:
+	default:
+		return usageErr(errors.New("--tool-choice accepts only auto or none"))
+	}
+	if hasImages {
+		return usageErr(errors.New("--tools cannot be combined with --image: a later tool round could not see the image"))
+	}
+	if code, _ := cmd.Flags().GetBool("code"); code {
+		return usageErr(errors.New("--tools cannot be combined with --code: tool output is a JSON document, not code"))
+	}
+	if cmd.Flags().Changed("schema") {
+		return usageErr(errors.New("--tools cannot be combined with --schema: a reply cannot be both a schema object and a tool call"))
+	}
+	if streamFlag, _ := cmd.Flags().GetBool("stream"); cmd.Flags().Changed("stream") && streamFlag {
+		return usageErr(errors.New("--tools is complete-only and cannot be combined with --stream"))
+	}
+	if flags.asJSON {
+		return usageErr(errors.New("--tools already prints one JSON document; remove --json/--agent"))
+	}
+	return nil
+}
+
+// readToolsFile reads and validates a tools array with the same safe-input
+// rules as --schema. Every rejection is a usage error.
+func readToolsFile(path string) ([]runner.Tool, error) {
+	if path == "" {
+		return nil, usageErr(errors.New("--tools requires a file path"))
+	}
+	data, err := docinput.ReadFile(path, "tools file", toolsFileReadLimit)
+	if err != nil {
+		return nil, usageErr(err)
+	}
+	tools, err := runner.ParseTools(data, "--tools")
+	if err != nil {
+		return nil, usageErr(err)
+	}
+	return tools, nil
+}
+
+func withPDFRefusalContext(err error, hasPDF bool) error {
+	var ce *cliError
+	if hasPDF && errors.As(err, &ce) && ce.machineCode == "request_declined" {
+		return &cliError{code: ce.code, machineCode: ce.machineCode, err: fmt.Errorf("%w%s", ce.err, extractedDeclinedNote)}
+	}
+	return err
+}
+
+// runRespondTools runs the tool loop and prints its one JSON document. Calls
+// are returned to the caller; nothing is executed.
+func runRespondTools(ctx context.Context, cmd *cobra.Command, r runner.Runner, prompt string, tools []runner.Tool, choice runner.ToolChoice) error {
+	roundRunner, ok := r.(runner.ToolRoundRunner)
+	if !ok {
+		return transportErr(errors.New("configured runner does not support native-local tool calling"))
+	}
+	outcome, err := runner.RunToolLoop(ctx, roundRunner, runner.ModelLocal, runner.ToolConversation{
+		Tools: tools, Choice: choice, Messages: []store.Message{{Role: "user", Content: prompt}},
+	}, runner.ReturnToCaller{})
+	if err != nil {
+		return toCLIError(err)
+	}
+	document := toolDocument(outcome)
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		return transportErr(errors.New("could not encode the tool result"))
+	}
+	out := cmd.OutOrStdout()
+	if terminalOutput(out) {
+		// The human rendering is the same document, indented. Model text in
+		// string values is sanitized for the terminal, which is lossless for
+		// JSON (see the guided-output path above).
+		var pretty bytes.Buffer
+		if err := json.Indent(&pretty, encoded, "", "  "); err != nil {
+			return transportErr(errors.New("could not encode the tool result"))
+		}
+		fmt.Fprintln(out, humanTerminalText(out, pretty.String()))
+		return nil
+	}
+	_, err = fmt.Fprintln(out, string(encoded))
+	return err
+}
+
+// toolDocument is the fixed --tools output envelope.
+func toolDocument(outcome runner.ToolOutcome) map[string]any {
+	document := map[string]any{"model": string(outcome.Model), "rounds": outcome.Rounds}
+	if outcome.Usage != nil {
+		document["usage"] = outcome.Usage
+	}
+	if len(outcome.Calls) == 0 {
+		document["finish_reason"] = "stop"
+		document["text"] = outcome.Text
+		return document
+	}
+	calls := make([]map[string]any, len(outcome.Calls))
+	for index, call := range outcome.Calls {
+		calls[index] = map[string]any{"id": call.ID, "type": "function", "function": map[string]any{"name": call.Name, "arguments": call.Arguments}}
+	}
+	document["finish_reason"] = "tool_calls"
+	document["tool_calls"] = calls
+	return document
 }

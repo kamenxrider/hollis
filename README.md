@@ -262,7 +262,7 @@ curl -sS http://127.0.0.1:1978/v1/chat/completions \
 - Guided JSON output on `local` is available through `--schema` on the CLI and through `response_format` / `text.format` on both HTTP endpoints. It is current source, not in the pinned 0.4.0 runtime, and the object is returned as a JSON string.
 - A paired native helper that speaks another protocol or version is 502 `native_protocol` on `local` requests, guided or plain, matching CLI exit 5 and naming the matching bundle; a missing or unavailable helper stays 400 `model_unavailable`.
 - CLI `--json` and `--agent` output never stream; explicit streaming with either is rejected.
-- No API tools/function calls. `system` and `instructions` are advisory prompt content.
+- Caller-provided tools on `local` only (`tools`, `role:"tool"` / `function_call_output` results, `finish_reason:"tool_calls"`); Hollis never runs a tool. `system` and `instructions` are advisory prompt content.
 
 [Client settings, authentication and limits](docs/api.md) · [Native local](docs/native-local.md).
 

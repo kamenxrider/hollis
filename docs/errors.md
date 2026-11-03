@@ -13,6 +13,8 @@ agent schema version remain unchanged.
 | `transport` | Launch, staging or other transport failure, including Shortcut stdout that exceeded the 1 MiB capture cap | 5 | 502 for typed launch/transport errors | Check host access and process setup; for an oversized response, narrow the request instead of expecting a partial answer |
 | `native_protocol` | The paired native helper and this CLI disagree about their contract: an older or newer helper, an event that breaks the sequence, or a guided object that does not match the requested schema | 5 | 502 | Install the matching bundle from the same release; do not retry against the same helper |
 | `unsupported_capability` | The paired helper speaks this protocol era but did not advertise, or refused, a capability the request needs (for example native tool calling) | 5 | 502 | Install the matching bundle from the same release; the helper is newer than the request needs or was built without that capability |
+| `tool_call_invalid` | A recognized tool call remained malformed or failed validation after its one repair round, or one round carried more than 16 parsed calls. The message names the round and a fixed reason, never an argument value | 5 | 502 | Simplify the tools or the request; do not retry unchanged |
+| `tool_round_cap` | The model asked for another tool call in the third model round of one user turn | 5 | 502 | Answer from the results you have, or start a new turn; do not retry unchanged |
 | `local_unavailable` | The native local model or its paired helper is unavailable: no helper is installed or executable, or it cannot answer | 5 | 400 `model_unavailable` at admission; 503 `model_unavailable` mid-run | Install the matching bundle from the same release; do not retry the same invocation |
 | `mcp_config` | `mcp.json` is invalid, or a `hollis mcp` edit would make it invalid; the file is left unchanged | 10 | n/a | Fix the field the message names, or run `hollis mcp list` to see the current file |
 | `mcp_unavailable` | A configured MCP server could not start, or its endpoint could not be reached or failed TLS verification | 5 | n/a | Check the command or URL with `hollis mcp tools <server>`; nothing was retried |
@@ -39,6 +41,10 @@ wrong. The remedy is the same matching bundle.
 The `mcp_*` codes come from `hollis mcp` commands. `hollis serve` never reads
 `mcp.json` or starts an MCP server, so none of them has an HTTP status. See
 [MCP servers](mcp.md) for the configuration rules behind each refusal.
+
+`tool_call_invalid` and `tool_round_cap` are neither component faults nor caller mistakes:
+the helper and the request were both fine, but the tool loop could not converge. They share exit 5 and HTTP 502 because the
+same request should not be retried unchanged.
 
 `local_unavailable` is the companion code with a different cause: no paired
 helper is installed or executable, or the helper cannot answer at all. It shares

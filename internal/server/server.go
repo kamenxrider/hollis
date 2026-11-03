@@ -377,6 +377,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !decodeRequest(w, r, &request) {
 		return
 	}
+	if (toolMembers{request.Tools, request.ToolChoice, request.ParallelToolCalls}).present() {
+		s.handleChatTools(w, r, request)
+		return
+	}
 	// Guided output is parsed and validated before any route or capacity
 	// decision, so an unsupported schema costs no discovery and no inference.
 	schema, err := parseChatGuided(request.ResponseFormat)
@@ -428,6 +432,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	var request responsesRequest
 	if !decodeRequest(w, r, &request) {
+		return
+	}
+	if (toolMembers{request.Tools, request.ToolChoice, request.ParallelToolCalls}).present() {
+		s.handleResponsesTools(w, r, request)
 		return
 	}
 	schema, err := parseResponsesGuided(request.Text)

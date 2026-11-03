@@ -26,13 +26,16 @@ The accepted protocol set is explicit: `[1, 2, 3]`. A protocol-3 request has
 generation request may carry `tool_calling` (`"allowed"` or `"disallowed"`).
 Older request formats retain their field shapes: protocol-1 requests have three
 operations and no `context_size`/`structured`; protocol-2 requests add `schema`.
-This is not cross-version CLI compatibility. This build does not
-implement tool calling, so a `tool_calling` member is refused with an
-`unsupported_capability` error event naming `capability: "tools"` and the fixed
-`reason: "not_implemented"` rather than ignored: an ignored mode would
-answer a tool request with a plain completion.
+This is not cross-version CLI compatibility. This source build supports
+`tool_calling` on protocol-3 `complete` and `stream` operations: `"allowed"`
+and `"disallowed"` select the corresponding SDK generation mode. Other
+values (including `"required"`), older protocols and schema operations are
+refused as `native_failed` before generation. The CLI and HTTP tool surfaces
+remain complete-only. Definitions are native transcript metadata, not
+executable SDK tools. This
+describes the source build, not capabilities added to already released bundles.
 
-Each event is stamped with the request's protocol, `version: "0.6.0"`, and
+Each event is stamped with the request's protocol, `version: "0.7.0"`, and
 `model: "local"`. The CLI and helper ship as a matched bundle. A mismatched pair,
 including a 0.4.0 or 0.5.0 CLI with this helper, fails closed on strict version
 identity with a clear mismatch error, before generation. Install the matching
@@ -44,7 +47,11 @@ bundle; accepting an older request format does not bypass this check.
   `ocr`, `pages`, `max_pages` 2000, `max_text_bytes` 131072), with a block per
   capability that a later build may add. `images` reports `supported`,
   `max_images` 1, `formats` (`png`, `jpeg`) and `max_side_px` 4096, or a fixed
-  negative reason (`macos_26` or `no_vision`). A capability is advertised as absent rather than
+  negative reason (`macos_26` or `no_vision`).
+  `tools: {supported: true, tool_calling_mode: true, native_definitions: true}`
+  when the available model supports tool calling. `supported` and
+  `native_definitions` are false otherwise; mode handling is implemented.
+  An unimplemented capability is absent rather than
   zero-filled, and clients read the object leniently so a new flag needs no
   protocol bump. Status operations stop here without creating a session or
   generating a response.
@@ -103,12 +110,39 @@ never a successful completion. The runner owns deadlines and process-group
 cancellation; the terminal presentation layer owns safe display escaping.
 
 Each generation uses one fresh SDK session and the entire rendered prompt.
+
+Metadata tool generation requires the `--native-definitions` mode argument,
+protocol 3, `complete`, `tool_calling: "allowed"`, and both `tool_instructions`
+and `tool_definitions`. Definitions carry `name`, `description` and `parameters`;
+the shared `SchemaSubset` converter builds each `Transcript.ToolDefinition`.
+One native instructions entry holds the fixed format text and definitions.
+The executable `tools` list stays empty. `none` and plain requests omit both
+members and the mode argument, preserving the ordinary session path.
+
+Go performs a bounded non-generative status preflight before sending metadata,
+checking version 0.7.0 and `tools.native_definitions` under the same deadline.
+An old helper swapped in afterward rejects the mode argument before model
+access. The matched helper independently validates metadata and runtime tool
+support, refusing unsupported capability or conversion without text fallback.
+The 128 KiB aggregate bound includes prompt, instructions, names, descriptions
+and normalized schemas; the encoded stdin request is capped at 1 MiB.
+The single token preflight counts native instructions plus one pending prompt.
+Only instructions seed the session, and `respond` adds the prompt exactly once.
+
 Neither helper nor runner removes conversation entries, summarizes history,
-retries, or changes model. The helper checks Apple's token count against the
+retries transport failures, or changes model. The Go tool loop can request
+one validation correction within its three-call budget; the helper never retries.
+Every new dispatch, including correction, final synthesis and `none`, consumes
+budget, as do visible prior tool-call turns since the last user message.
+Stateless replay cannot recover hidden earlier corrections, so this is not a
+global cross-request quota.
+The helper checks Apple's token count against the
 reported context size before generation and separately maps the SDK's typed
 context-size error. Hollis also enforces its 128 KiB rendered-input limit. These
 are explicit failures; a caller must deliberately change its input or route.
 
-The helper uses the default local system model, with no tools or custom persona.
+The helper uses the default local system model, with no executable SDK tools
+or custom persona. Validated caller-tool requests are returned to the caller;
+the CLI and server do not execute them.
 It does not provide native PCC access. Availability checks describe configuration,
 not successful inference. Model identity is not inferred from a successful call.

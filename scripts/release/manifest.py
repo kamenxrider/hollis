@@ -13,7 +13,7 @@ import subprocess
 import zipfile
 
 REPOSITORY = 'kamenxrider/hollis'
-HELPER_VERSION = '0.6.0'
+HELPER_VERSION = '0.7.0'
 HELPER_PROTOCOL = 3
 BRIDGE_MEMBERS = {
     'AFM Bridge - Cloud.shortcut',
