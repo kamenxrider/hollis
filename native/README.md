@@ -63,8 +63,8 @@ bundle; accepting an older request format does not bypass this check.
   The resulting pixels enter a `Prompt` attachment, never OCR text. Images
   cannot accompany `schema`, `extract`, `status`, or tool calling.
   Prompt-only token preflight does not estimate attachment tokens.
-  The public local route remains image-disabled until live qualification;
-  helper and transport support alone do not advertise CLI/HTTP availability.
+  The public local route admits one image through CLI and HTTP; runtime vision
+  availability is still checked, and support is not proof of successful inference.
 - `snapshot`: cumulative `text` from streaming. The Go runner suppresses duplicate
   snapshots and emits append-only differences; revisions fail the stream.
 - `complete`: final `text`, plus measured `usage` for complete requests. Usage

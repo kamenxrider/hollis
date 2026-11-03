@@ -202,7 +202,9 @@ Illustration, Sketch, Genmoji and Any Style returned images in tests. Ratios and
 sizes use local crop/pad/resize after generation.
 
 For image understanding, Cloud and Cloud Pro accept up to three PNG/JPEG images;
-ChatGPT accepts one. Native local is text-only. `auto` and Shortcuts On-Device reject
+ChatGPT accepts one. Native local accepts one PNG/JPEG on macOS 27 with a
+vision-capable model, including streaming; tools and guided output cannot be
+combined with images. `auto` and Shortcuts On-Device reject
 image input because the tested On-Device Shortcut ignored the pixels.
 [Images and styles](docs/image-generation.md) · [References and follow-ups](docs/image-references.md).
 

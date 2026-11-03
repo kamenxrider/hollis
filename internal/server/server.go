@@ -501,7 +501,7 @@ func (s *Server) validatePreparedModel(w http.ResponseWriter, request preparedRe
 		return "", false
 	}
 	if !model.SupportsImages() {
-		writeRequestValidationError(w, unsupportedParameter("image input requires cloud, cloud-pro, or chatgpt"))
+		writeRequestValidationError(w, unsupportedParameter("image input requires local, cloud, cloud-pro, or chatgpt"))
 		return "", false
 	}
 	limit := spec.Capabilities.MaxImages

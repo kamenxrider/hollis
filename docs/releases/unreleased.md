@@ -105,7 +105,11 @@ protocol-3 helper (`hollis-native` 0.7.0 matches this source) and
 `capabilities.guided_output: true` from `hollis models --model local --json`.
 
 Protocol 3 adds negotiation, capability advertisement and named refusal. This source
-supports caller tools on local; it does not advertise image support statically.
+supports caller tools and one PNG/JPEG image on local, separately. Native image
+input requires macOS 27 and a vision-capable model, works through CLI and both
+HTTP endpoints in complete or streaming mode, and refuses tools/images and
+guided-output/images combinations. Capability advertisement is not proof of
+runtime availability or successful inference.
 
 `hollis respond --file` now accepts PDFs. The paired native helper reads
 them on this Mac through the protocol-3 `extract` operation: the text layer per

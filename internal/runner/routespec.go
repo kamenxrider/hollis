@@ -157,10 +157,9 @@ var routeSpecs = map[Model]RouteSpec{
 		// Native local has no bridge, no Shortcuts parameter, and no
 		// compiled UUID; its display row is rendered from native status.
 		Names: NameSet{},
-		// Measured capabilities of the Foundation Models helper: streaming,
-		// complete usage and guided output work; stream usage and image input
-		// do not.
-		Capabilities: CapabilitySet{Streaming: true, Usage: true, Schema: true},
+		// Runtime availability is checked by the helper. Image input accepts
+		// one attachment; guided output remains text-only.
+		Capabilities: CapabilitySet{Images: true, MaxImages: 1, Streaming: true, Usage: true, Schema: true},
 		BatchSpacing: 0,
 		OwnedBy:      "Apple",
 	},
@@ -251,7 +250,7 @@ func validateRouteTable() error {
 		return fmt.Errorf("%s: native route must not declare bridge artifacts", ModelLocal)
 	}
 	if !local.Capabilities.Streaming || !local.Capabilities.Usage || !local.Capabilities.Schema ||
-		local.Capabilities.StreamingUsage || local.Capabilities.Images {
+		local.Capabilities.StreamingUsage || !local.Capabilities.Images || local.Capabilities.MaxImages != 1 {
 		return fmt.Errorf("%s: native capabilities drifted from the measured surface", ModelLocal)
 	}
 	for id, spec := range routeSpecs {

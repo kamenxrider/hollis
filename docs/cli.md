@@ -114,23 +114,26 @@ Choose exactly one instruction source: positional text, `--prompt-file`, or pipe
 
 ## Images
 
-`respond` accepts PNG and JPEG files through the existing bridges:
+`respond` accepts PNG and JPEG files through native local or the existing bridges:
 
 ```bash
 hollis respond --image photo.jpg "What is this?"
+hollis respond --model local --image photo.jpg "What is this?"
 hollis respond --model cloud-pro --image a.png --image b.png "Compare them"
 ```
 
 An image request with no selected or configured model defaults directly to Cloud.
 A saved `auto` behaves like an unset model for images and also selects Cloud.
 Explicit positional, flag or environment `auto` is still refused.
-Cloud and Cloud Pro accept repeated `--image`; ChatGPT accepts one image.
-`local`, explicit `auto` and On-Device are rejected for images because the tested
+Cloud and Cloud Pro accept repeated `--image`; ChatGPT and native `local` accept
+exactly one image. Local needs macOS 27 and a vision-capable model, supports
+complete and streaming responses, and refuses images with tools or `--schema`.
+Explicit `auto` and On-Device are rejected for images because the tested
 On-Device Shortcut ignored the pixels, making automatic fallback unsafe.
 
-Images must be direct regular PNG/JPEG files, at most 64 MiB and 64 million pixels each. Hollis rejects symlinks in the file or its parent directories, apart from macOS's standard root-owned `/var`, `/tmp` and `/etc` aliases. Use the real path for an image reached through a custom directory link. The runner validates a private byte snapshot and passes only that snapshot to Shortcuts; staged images are removed after success, failure or cancellation.
+Images must be direct regular PNG/JPEG files, at most 64 MiB and 64 million pixels each. Hollis rejects symlinks in the file or its parent directories, apart from macOS's standard root-owned `/var`, `/tmp` and `/etc` aliases. Use the real path for an image reached through a custom directory link. The runner validates a private byte snapshot and passes only that snapshot to the selected backend; staged images are removed after success, failure or cancellation. Native local applies EXIF orientation and downsizes the longest side to 4096 pixels before attaching the pixels, without an OCR text fallback.
 
-When images are present, give the prompt as an argument, with `--prompt-file`, or through piped stdin. Hollis passes the private prompt file first, followed by the images as repeated Shortcuts inputs, and cleans up staging after the run subject to the limits described above. Image chat history remains unsupported. The same model tiers accept inline images through the API, described in the [API guide](api.md#inline-image-input).
+When images are present, give the prompt as an argument, with `--prompt-file`, or through piped stdin. For Shortcuts routes, Hollis passes the private prompt file first, followed by the images as repeated inputs, and cleans up staging after the run subject to the limits described above. Image chat history remains unsupported. The same model tiers accept inline images through the API, described in the [API guide](api.md#inline-image-input).
 
 ## Persistent chats
 

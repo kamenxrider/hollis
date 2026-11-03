@@ -4,6 +4,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,53 @@ import (
 type nativeImageRecorder struct {
 	plainCalls, imageCalls int
 	err                    error
+}
+
+func TestNativeImagesPublicEndpoints(t *testing.T) {
+	for _, endpoint := range []string{"/v1/chat/completions", "/v1/responses"} {
+		for _, streaming := range []bool{false, true} {
+			for _, count := range []int{1, 2} {
+				t.Run(fmt.Sprintf("%s/stream=%v/count=%d", endpoint, streaming, count), func(t *testing.T) {
+					r := &nativeImageRecorder{}
+					s := NewUnauthenticated(r)
+					staged, cleaned := false, false
+					s.stageImages = func(_ context.Context, images []encodedImage) (stagedImages, error) {
+						if len(images) != 1 || images[0].DataURL != "data:image/png;base64,AAAA" {
+							t.Fatal("image parts changed before staging")
+						}
+						staged = true
+						return stagedImages{Paths: []string{"/private/staged.png"}, cleanup: func() { cleaned = true }}, nil
+					}
+					var body string
+					if endpoint == "/v1/chat/completions" {
+						image := `{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}`
+						body = fmt.Sprintf(`{"model":"local","stream":%v,"messages":[{"role":"user","content":[{"type":"text","text":"Describe"},%s]}]}`, streaming, strings.TrimSuffix(strings.Repeat(image+",", count), ","))
+					} else {
+						image := `{"type":"input_image","image_url":"data:image/png;base64,AAAA"}`
+						body = fmt.Sprintf(`{"model":"local","stream":%v,"input":[{"role":"user","content":[{"type":"input_text","text":"Describe"},%s]}]}`, streaming, strings.TrimSuffix(strings.Repeat(image+",", count), ","))
+					}
+					w := httptest.NewRecorder()
+					req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(body))
+					req.Header.Set("Content-Type", "application/json")
+					s.Handler().ServeHTTP(w, req)
+					if count == 2 {
+						if w.Code != 400 || staged || r.imageCalls != 0 || r.plainCalls != 0 ||
+							!strings.Contains(w.Body.String(), "unsupported_parameter") {
+							t.Fatalf("two-image refusal: status=%d staged=%v body=%s", w.Code, staged, w.Body)
+						}
+						return
+					}
+					if w.Code != 200 || r.imageCalls != 1 || r.plainCalls != 0 || !staged || !cleaned ||
+						!strings.Contains(w.Body.String(), "red circle") {
+						t.Fatalf("image admission: status=%d images=%d plain=%d body=%s", w.Code, r.imageCalls, r.plainCalls, w.Body)
+					}
+					if streaming && w.Header().Get("Content-Type") != "text/event-stream" {
+						t.Fatal("image response did not stream")
+					}
+				})
+			}
+		}
+	}
 }
 
 func (r *nativeImageRecorder) Run(context.Context, runner.Model, string) (string, runner.Model, error) {

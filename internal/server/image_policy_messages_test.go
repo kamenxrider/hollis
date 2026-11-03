@@ -26,7 +26,7 @@ func TestImagePolicyMessagesArePinned(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 			t.Fatal(err)
 		}
-		if ok || body.Error.Message != "image input requires cloud, cloud-pro, or chatgpt" {
+		if ok || body.Error.Message != "image input requires local, cloud, cloud-pro, or chatgpt" {
 			t.Fatalf("ok=%v body=%s", ok, w.Body.String())
 		}
 		if r.textCalls != 0 || r.imageCalls != 0 {

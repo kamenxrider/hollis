@@ -155,7 +155,7 @@ Responses uses this input message content shape:
 [{"type":"input_text","text":"Describe this image"},{"type":"input_image","image_url":"data:image/png;base64,..."}]
 ```
 
-Omitting `model` on an image request selects `cloud`. Explicit `auto`, `on-device` and `local` are rejected. Cloud and Cloud Pro accept up to three images; ChatGPT accepts one. The HTTP request body remains limited to 8 MiB. Decoded images together may occupy at most 4 MiB, with at most 16 million pixels per image and 24 million pixels combined. These are Hollis limits, not reported Apple quotas. Invalid formats return 400 and oversized input returns 413 before a model runs.
+Omitting `model` on an image request selects `cloud`. Explicit `auto` and `on-device` are rejected. Cloud and Cloud Pro accept up to three images; ChatGPT and native `local` accept one. Local requires macOS 27 and a vision-capable model, supports complete responses and SSE on both endpoints, and refuses images combined with tools or guided output. Complete local responses retain measured usage; streamed responses do not invent usage. The HTTP request body remains limited to 8 MiB. Decoded images together may occupy at most 4 MiB, with at most 16 million pixels per image and 24 million pixels combined. These are Hollis limits, not reported Apple quotas. Invalid formats return 400 and oversized input returns 413 before a model runs.
 
 Hollis validates and stages image bytes privately, holds a concurrency slot through staging and execution, then removes staged files. Responses remain complete text, without streaming or invented usage counts.
 
