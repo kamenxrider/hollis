@@ -10,6 +10,16 @@ compile code during a request.
 Normal operation reads exactly one JSON request from stdin and writes NDJSON to
 stdout. Prompt text never appears in process arguments.
 
+`Extraction.swift` is the document library the helper will call: PDF text per
+page with Vision OCR for pages that have none, content-based detection, and
+bounded, symlink-free file input. It performs no inference and knows nothing
+about the protocol. A page that fails to render or whose OCR request fails
+makes the whole document unreadable; only an OCR pass that succeeds and finds
+nothing counts as an empty page. A document with no non-whitespace text in the
+selected pages is a no-text failure, not an empty success. A requested page past
+the end is refused with the document's real page count, before any page is
+read. `scripts/native` builds and tests it offline.
+
 The accepted protocol set is explicit: `[1, 2, 3]`. A protocol-3 request has
 `protocol`, `operation` (`status`, `complete`, `stream`, or `schema`), and a
 `prompt` for generation; a `schema` request also carries `schema`, and a

@@ -15,7 +15,8 @@ trap 'rm -rf "$module_cache"' EXIT
 mkdir -p "$(dirname "$output")"
 xcrun --sdk macosx swiftc -parse-as-library -O \
   -module-cache-path "$module_cache" -sdk "$sdk_path" -target arm64-apple-macosx27.0 \
-  "$root/native/HollisNative.swift" "$root/native/SchemaSubset.swift" -o "$output"
+  "$root/native/HollisNative.swift" "$root/native/SchemaSubset.swift" \
+  "$root/native/Extraction.swift" -o "$output"
 codesign --force --sign - "$output"
 # Verify without loading FoundationModels or invoking the target executable,
 # so build-only hosts with SDK 27 need not run macOS 27.
