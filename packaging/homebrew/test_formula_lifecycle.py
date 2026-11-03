@@ -2,9 +2,10 @@
 
 These tests execute the actual rendered formula through a disposable Homebrew
 prefix cloned from this machine's own Homebrew installation. The bundle is
-served by a loopback HTTP server from local fixture assets; no other network is
-used, nothing is published, global Homebrew state is never touched, and no
-inference or Apple/Shortcuts calls are made.
+served by a loopback HTTP server from local fixture assets. The non-online audit
+may bootstrap missing Homebrew gems and audit data in that prefix. Nothing is
+published, global Homebrew state is never touched, and no inference or
+Apple/Shortcuts calls are made.
 
 If Homebrew itself is not installed, the suite reports a skip with that reason
 instead of claiming coverage.
@@ -106,6 +107,7 @@ class FormulaLifecycle:
         self.state = base / 'hollis-state'
         self.cache = base / 'cache'
         self.logs = base / 'logs'
+        self.temp = base / 'temp'
         self.shim = base / 'shim'
         self.shim_log = base / 'shim-calls.log'
         self.tap = base / 'tap'
@@ -113,7 +115,7 @@ class FormulaLifecycle:
         self.server = None
         self.brew_repository = brew_repository
         for folder in (self.assets, self.served, self.home, self.state, self.cache,
-                       self.logs, self.shim, self.tap):
+                       self.logs, self.temp, self.shim, self.tap):
             folder.mkdir(parents=True)
         # A valid, strictly parsed Hollis config so any CLI touch is observable
         # as a content change rather than a parse error.
@@ -159,7 +161,7 @@ class FormulaLifecycle:
             for name in BUNDLE_MEMBERS:
                 archive.write(sources[name], name)
 
-    def render_formula(self, version):
+    def render_formula(self, version, local_download=True):
         template = (ROOT / 'packaging/homebrew/hollis.rb.in').read_text()
         bundle_name = f'hollis-{version}-darwin-arm64.zip'
         published_url = (f'https://github.com/kamenxrider/hollis/releases/download/'
@@ -169,9 +171,12 @@ class FormulaLifecycle:
                     .replace('{{VERSION}}', version)
                     .replace('{{BUNDLE_SHA256}}', sha256(self.served / bundle_name))
                     .replace('{{HELPER_PROTOCOL}}', self.helper_protocol)
-                    .replace('{{HELPER_VERSION}}', self.helper_version)
-                    .replace(published_url,
-                             f'http://127.0.0.1:{self.server.port}/{bundle_name}'))
+                    .replace('{{HELPER_VERSION}}', self.helper_version))
+        if local_download:
+            rendered = rendered.replace(
+                published_url, f'http://127.0.0.1:{self.server.port}/{bundle_name}')
+            # Loopback URLs do not use Homebrew's GitHub tag-version detection.
+            rendered = rendered.replace('  sha256 ', f'  version "{version}"\n  sha256 ', 1)
         (self.served / 'hollis.rb').write_text(rendered)
 
     # ---- disposable Homebrew prefix ---------------------------------------
@@ -183,8 +188,14 @@ class FormulaLifecycle:
             HOMEBREW_NO_INSTALL_FROM_API='1',
             HOMEBREW_NO_ENV_HINTS='1',
             HOMEBREW_NO_INSTALL_CLEANUP='1',
+            HOMEBREW_NO_ANALYTICS='1',
+            HOMEBREW_NO_BOOTSNAP='1',
             HOMEBREW_CACHE=str(self.cache),
             HOMEBREW_LOGS=str(self.logs),
+            HOMEBREW_TEMP=str(self.temp),
+            HOMEBREW_BUNDLE_USER_CACHE=str(self.cache / 'bundle'),
+            RUBOCOP_CACHE_ROOT=str(self.cache / 'rubocop'),
+            XDG_CACHE_HOME=str(self.cache),
             HOLLIS_STATE_DIR=str(self.state),
             SHIM_LOG=str(self.shim_log),
             PATH=f'{self.shim}{os.pathsep}{environment["PATH"]}',
@@ -205,6 +216,10 @@ class FormulaLifecycle:
                 shutil.copytree(entry, vendor / entry.name)
         versions = sorted(entry.name for entry in vendor.iterdir() if entry.is_dir())
         (vendor / 'current').symlink_to(versions[-1])
+        audit_gems = Path(self.brew_repository, 'Library/Homebrew/vendor/bundle')
+        if audit_gems.is_dir():
+            shutil.copytree(audit_gems, prefix / 'Library/Homebrew/vendor/bundle',
+                            dirs_exist_ok=True)
         (prefix / 'bin/brew').chmod(0o555)
         return prefix
 
@@ -214,8 +229,7 @@ class FormulaLifecycle:
         run(['git', '-C', str(self.tap), 'init', '--quiet'])
         run(['git', '-C', str(self.tap), 'add', '-A'])
         commit = subprocess.run(
-            ['git', '-C', str(self.tap), '-c', 'user.email=fixture@example.com',
-             '-c', 'user.name=fixture', 'commit', '--quiet', '-m', 'fixture formula'],
+            ['git', '-C', str(self.tap), 'commit', '--quiet', '-m', 'fixture formula'],
             capture_output=True, text=True)
         if commit.returncode != 0 and 'nothing to commit' not in commit.stdout + commit.stderr:
             raise AssertionError(f'tap commit failed\n{commit.stdout}\n{commit.stderr}')
@@ -226,8 +240,18 @@ class FormulaLifecycle:
         self.render_formula(version)
         (tap_clone / 'hollis.rb').write_text((self.served / 'hollis.rb').read_text())
         run(['git', '-C', str(tap_clone), 'add', '-A'])
-        run(['git', '-C', str(tap_clone), '-c', 'user.email=fixture@example.com',
-             '-c', 'user.name=fixture', 'commit', '--quiet', '-m', f'bump {version}'])
+        run(['git', '-C', str(tap_clone), 'commit', '--quiet', '-m', f'bump {version}'])
+
+    def audit(self, prefix, version):
+        formula = prefix / 'Library/Taps/fixture/homebrew-hollis/hollis.rb'
+        original = formula.read_bytes()
+        try:
+            self.render_formula(version, local_download=False)
+            formula.write_bytes((self.served / 'hollis.rb').read_bytes())
+            output = self.brew(prefix, 'audit', '--strict', '--formula', 'fixture/hollis/hollis')
+            print(f'brew audit --strict --formula fixture/hollis/hollis: PASS\n{output}', flush=True)
+        finally:
+            formula.write_bytes(original)
 
 
 class FormulaLifecycleTests(unittest.TestCase):
@@ -239,20 +263,19 @@ class FormulaLifecycleTests(unittest.TestCase):
                 'BLOCKER: Homebrew is not installed; real formula lifecycle '
                 'coverage cannot run in this environment.')
         repository = run([brew, '--repository']).strip()
-        cls.base_handle = tempfile.TemporaryDirectory(prefix='hollis-brew-', dir='/var/tmp')
+        print(run([brew, '--version']).strip(), flush=True)
+        cls.base_handle = tempfile.TemporaryDirectory(prefix='hollis-brew-')
+        cls.addClassCleanup(cls.base_handle.cleanup)
         cls.base = Path(cls.base_handle.name)
         cls.lifecycle = FormulaLifecycle(cls.base, repository)
+        cls.addClassCleanup(
+            lambda: cls.lifecycle.server.stop() if cls.lifecycle.server else None)
         cls.lifecycle.build_fixtures(['0.4.0', '0.5.0'])
         cls.prefix = cls.lifecycle.build_prefix('prefix')
         cls.lifecycle.build_tap(cls.prefix, '0.4.0')
         cls.state_before = snapshot(cls.lifecycle.state)
         cls.home_before = snapshot(cls.lifecycle.home)
         cls.lifecycle.brew(cls.prefix, 'install', '--formula', 'fixture/hollis/hollis')
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.lifecycle.server.stop()
-        cls.base_handle.cleanup()
 
     def opt(self):
         return self.prefix / 'opt/hollis'
@@ -285,6 +308,9 @@ class FormulaLifecycleTests(unittest.TestCase):
         self.assert_no_side_effects(self.state_before)
         self.assertTrue(all(request.endswith('.zip')
                             for request in self.lifecycle.server.requests))
+        self.lifecycle.audit(self.prefix, '0.4.0')
+        self.assertEqual(snapshot(self.lifecycle.state), self.state_before)
+        self.assertFalse(self.lifecycle.shim_log.exists())
 
     def test_020_symlink_invocation_resolves_sibling_helper(self):
         link = self.prefix / 'bin/hollis'
