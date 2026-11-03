@@ -1,0 +1,271 @@
+{
+ "commands": {
+  "agent-context": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "pretty",
+   "select"
+  ],
+  "batch": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "batch plan": [
+   "agent",
+   "help",
+   "input-dir",
+   "job",
+   "json",
+   "model",
+   "no-input",
+   "output-dir",
+   "prompt-file",
+   "select"
+  ],
+  "batch resume": [
+   "agent",
+   "help",
+   "job",
+   "json",
+   "max-calls",
+   "no-input",
+   "retry-failed",
+   "retry-uncertain",
+   "select",
+   "skip-uncertain"
+  ],
+  "batch run": [
+   "agent",
+   "help",
+   "job",
+   "json",
+   "max-calls",
+   "no-input",
+   "retry-failed",
+   "retry-uncertain",
+   "select",
+   "skip-uncertain"
+  ],
+  "chat": [
+   "agent",
+   "aspect-ratio",
+   "continue",
+   "fit",
+   "generate-image",
+   "help",
+   "image-bridge",
+   "image-reference",
+   "image-style",
+   "json",
+   "model",
+   "no-input",
+   "output",
+   "select",
+   "size",
+   "stream",
+   "timeout"
+  ],
+  "chats": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "chats delete": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select",
+   "yes"
+  ],
+  "chats list": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "chats rename": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "chats search": [
+   "agent",
+   "help",
+   "json",
+   "limit",
+   "model",
+   "no-input",
+   "select"
+  ],
+  "chats show": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "completion": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "completion bash": [
+   "agent",
+   "help",
+   "json",
+   "no-descriptions",
+   "no-input",
+   "select"
+  ],
+  "completion fish": [
+   "agent",
+   "help",
+   "json",
+   "no-descriptions",
+   "no-input",
+   "select"
+  ],
+  "completion powershell": [
+   "agent",
+   "help",
+   "json",
+   "no-descriptions",
+   "no-input",
+   "select"
+  ],
+  "completion zsh": [
+   "agent",
+   "help",
+   "json",
+   "no-descriptions",
+   "no-input",
+   "select"
+  ],
+  "config": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "config set": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "config set image-bridge": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "config show": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "doctor": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "help": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "image": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "image generate": [
+   "agent",
+   "aspect-ratio",
+   "bridge",
+   "fit",
+   "help",
+   "json",
+   "no-input",
+   "output",
+   "reference-image",
+   "select",
+   "size",
+   "style",
+   "timeout"
+  ],
+  "image styles": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ],
+  "models": [
+   "agent",
+   "help",
+   "json",
+   "model",
+   "no-input",
+   "select"
+  ],
+  "respond": [
+   "agent",
+   "file",
+   "help",
+   "image",
+   "json",
+   "model",
+   "no-input",
+   "prompt-file",
+   "select",
+   "stream",
+   "timeout"
+  ],
+  "serve": [
+   "addr",
+   "agent",
+   "allow-remote",
+   "help",
+   "json",
+   "max-concurrency",
+   "no-auth",
+   "no-input",
+   "select",
+   "token-file"
+  ],
+  "version": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "select"
+  ]
+ },
+ "runtime": "0.4.0",
+ "schema_version": "2"
+}

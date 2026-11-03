@@ -50,7 +50,8 @@ case "$1" in
  fi;;
  doctor) echo '{"bridges":[{"model":"cloud","verified":true,"resolved_ref":"Custom Cloud","status":"ok"},{"model":"cloud-pro","verified":false,"resolved_ref":"","status":"missing"}]}'; exit 3;;
  models) printf '%s' "$FIXTURE_MODELS"; exit "${FIXTURE_MODELS_CODE:-0}";;
- setup) if [[ -n ${FIXTURE_PLAN:-} ]]; then printf '%s\\n' "$FIXTURE_PLAN"; exit "${FIXTURE_PLAN_CODE:-0}"; fi
+ setup) if [[ -n ${FIXTURE_PLAN_STDERR:-} ]]; then printf '%s\\n' "$FIXTURE_PLAN_STDERR" >&2; exit 2; fi
+   if [[ -n ${FIXTURE_PLAN:-} ]]; then printf '%s\\n' "$FIXTURE_PLAN"; exit "${FIXTURE_PLAN_CODE:-0}"; fi
    echo '{"error":{"code":"usage","message":"unknown command \\"setup\\": run hollis --help","exit_code":2}}'; exit 2;;
  *) exit 0;;
 esac
@@ -362,6 +363,20 @@ class PlannerStatusTests(unittest.TestCase):
         self.assertEqual(data["source"], "legacy")
         self.assertEqual(data["artifact_verification"], "unknown")
         self.assertEqual(data["routes"][0]["status"], "discovered")
+
+    def test_runtime_without_setup_command_rejecting_model_flag_falls_back_to_legacy(self):
+        # Runtime 0.4.0 rejects the root --model flag before rendering JSON.
+        self.shortcuts("Custom Cloud")
+        self.env["FIXTURE_PLAN_STDERR"] = "invalid command flags: unknown flag: --model"
+        result = self.call("status", "cloud")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout)
+        self.assertEqual(data["source"], "legacy")
+        self.assertEqual(data["routes"][0]["status"], "discovered")
+        self.env["FIXTURE_PLAN_STDERR"] = "invalid command flags: unknown flag: --other"
+        result = self.call("status", "cloud")
+        self.assertEqual(result.returncode, 10, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["status"], "unknown")
 
     def test_shared_plan_does_not_run_shortcuts_or_write_runtime_state(self):
         for route in ("local", "cloud-pro"):

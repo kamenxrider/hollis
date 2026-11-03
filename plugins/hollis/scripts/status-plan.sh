@@ -44,12 +44,18 @@ if [[ -f "$PLUGIN_HOME/imports/pending" && ! -L "$PLUGIN_HOME/imports/pending" ]
   case "$value" in cloud|cloud-pro|on-device|chatgpt|image) set -- --pending-import "$value";; esac
 fi
 code=0
-"$BIN" setup --model "$ROUTE" --runtime-record-command "$PLUGIN_ROOT/scripts/setup.sh" "$@" --json > "$WORK_DIR/plan.json" 2>/dev/null || code=$?
+"$BIN" setup --model "$ROUTE" --runtime-record-command "$PLUGIN_ROOT/scripts/setup.sh" "$@" --json > "$WORK_DIR/plan.json" 2> "$WORK_DIR/plan.err" || code=$?
 if [[ "$code" == 2 && $(field "$WORK_DIR/plan.json" error.code || true) == usage ]]; then
   message=$(field "$WORK_DIR/plan.json" error.message || true)
   case "$message" in
     'unknown command "setup"'*|'invalid command flags: unknown flag: --runtime-record-command') exit 64;;
   esac
+fi
+# Runtimes without a setup command (0.4.0 and older) reject the root flag
+# before JSON rendering: empty stdout, one plain stderr line, exit 2.
+if [[ "$code" == 2 && ! -s "$WORK_DIR/plan.json" ]] &&
+    [[ $(cat "$WORK_DIR/plan.err") == 'invalid command flags: unknown flag: --model' ]]; then
+  exit 64
 fi
 [[ $(field "$WORK_DIR/plan.json" schema_version || true) == 1 ]] || unknown
 [[ $(field "$WORK_DIR/plan.json" route || true) == "$ROUTE" ]] || unknown

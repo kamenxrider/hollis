@@ -46,6 +46,33 @@ verified new install. `setup.sh rollback` still checks the old bytes and leaves
 the working runtime selected when the candidate is unavailable. Configuration,
 conversations and bridges are preserved in either case.
 
+## Route-scoped status and diagnostics
+
+`setup.sh status <route>` is scoped to the route you name. A current runtime
+returns a v1 plan with `schema_version`, `route`, `status` (`ready`,
+`import_required`, `approval_required`, `model_not_ready` or `unknown`), a stable
+`reason_code`, explicit `actions` and `inference_tested:false`; an older runtime
+falls back to the legacy view marked `"source":"legacy"`. Plain
+`setup.sh status` summarizes every route. The matching CLI diagnostic is
+`doctor --model <route> --json` when `agent-context` lists `--model` on `doctor`; it returns the
+same plan plus the observed facts for that route. The pinned 0.4.0 runtime
+rejects that flag, so use plain `doctor --json` or `models --model local --json`
+there; plain `doctor --json` keeps the full bridge table and the `local` row. Read `status` and `reason_code` together: discovery or installation
+is not inference proof, and no status claims a successful model call.
+
+The native helper is matched per component. The receipt pins its protocol and the
+plugin compares it with the helper's own `--protocol-version`; the runtime record
+reports `helper_protocol_mismatch` or `helper_version_mismatch`, and a
+selected-route plan reports `helper_mismatch`. All three call for the matching
+bundle, not a reinstall of bridges. Native `local` needs that match;
+selected Shortcut routes remain usable with a helper mismatch. Guided output
+(`--schema`) and the measured `context_size` diagnostic additionally require
+the runtime and helper from one bundle, newer than the pinned 0.4.0: check that
+`models --model local --json` reports `available: true` with
+`capabilities.guided_output: true`, rather than a protocol number. A mismatched
+helper is refused before inference. Never
+promise those features from the plugin version alone.
+
 ## Where files live
 
 | Location | Purpose |

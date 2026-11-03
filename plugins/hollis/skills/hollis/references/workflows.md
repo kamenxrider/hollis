@@ -4,7 +4,7 @@ All examples below are arguments to `bash "$KIT/scripts/run.sh"`; replace paths 
 
 ## Documents and pictures
 
-- Text documents: `respond --agent --model cloud --prompt-file instructions.txt --file brief.md --file notes.txt`. Only regular UTF-8 `.txt`/`.md` documents; no PDF. Instruction plus documents must fit 128 KiB. Documents cannot be mixed with images in one call.
+- Text documents: `respond --agent --model cloud --prompt-file instructions.txt --file brief.md --file notes.txt`. Only regular UTF-8 `.txt`/`.md` documents; no PDF. Instruction plus documents must fit 128 KiB. Documents cannot be mixed with images in one call. When `agent-context` describes `--prompt-file -`, the instruction can come from stdin instead: pipe it to `respond --agent --model cloud --prompt-file - --file brief.md`. Use exactly one instruction source; positional text plus piped stdin with `--file` or `--image` is a usage error, not a merge.
 - Image understanding: `respond --agent --model cloud-pro --image screenshot.png --prompt-file question.txt --timeout 120s`. Cloud and Cloud Pro accept repeated PNG/JPEG images; ChatGPT accepts one. On-Device and auto are not supported for this input.
 - Current CLI image bounds are 64 MiB / 64 million pixels per input. Use real regular files; the runtime rejects arbitrary symlinks. Do not bypass its checks. HTTP limits are different and do not apply to these CLI examples.
 
@@ -19,6 +19,60 @@ For a follow-up: keep the previous returned local file path, then call `image ge
 Ratios and sizes are local processing after generation: `--aspect-ratio 16:9 --fit crop`, or `--size 1200x800 --fit pad`. Preserve native output when neither is requested. If the user requests a ratio without specifying a fit, explain crop versus padding and ask which preserves their intent. These flags do not control Apple's native sampling. No seed control is exposed.
 
 For an explicitly persistent conversation, use `chat --agent --model cloud` initially and retain its returned ID. Image turns use `chat --continue <id> --generate-image --image-style illustration --output <new.png> <prompt>`, with `--image-reference auto|none|<path>` as appropriate. Image-understanding history is not supported by Hollis chat; use explicit `respond` calls with selected context instead.
+
+## Guided output (native local only)
+
+Offer this only for the on-device model. Check support first: `agent-context` lists `--schema` on `respond`, and `models --model local --json` reports `available: true` with `capabilities.guided_output: true`. The pinned 0.4.0 runtime cannot produce guided output; say so instead of degrading to plain text. Never use `--schema` to stand in for a requested Cloud/Cloud Pro tier: if the user asked for that tier, answer with it or explain the failure of that request.
+
+Only after that check passes (`agent-context` lists `--schema` on `respond` and the model is available), write the schema to a private file, keep it for the call, and delete it afterwards. A `mktemp` file is the simplest choice:
+
+```sh
+schema=$(mktemp "${TMPDIR:-/tmp}/hollis-schema.XXXXXX")
+# write the subset schema to "$schema"
+bash "$KIT/scripts/run.sh" respond --agent --model local --schema "$schema" "Invent one person"
+bash "$KIT/scripts/run.sh" respond --json --model local --schema "$schema" "Invent one person"
+rm -f "$schema"
+```
+
+With `--json`, `response` is the decoded object; without it the object prints indented. Guided output is complete-only: `--stream` and `--image` are usage errors, and every non-local route rejects `--schema` before generation.
+
+The accepted subset, matching the runtime's own checks: an object root with `"additionalProperties": false` on every object; `string`, `integer`, `number` and `boolean` properties; `required` naming declared properties; string-only enums (non-empty, unique); arrays with `items` and `minItems`/`maxItems` between 0 and 100; integral integer bounds and finite number bounds; printable-ASCII property names, `required` names and enum choices; at most three object levels (arrays add none), sixteen schema nodes on any path, 32 properties across the schema and 64 KiB normalized. Rejected: references and recursion, `anyOf`/`oneOf`/`allOf`/`not`, patterns, formats, string bounds, defaults, descriptions, integer enums, duplicate keys, non-strict JSON and contradictions such as `maxItems < minItems`.
+
+Read failures by class. Exit 2 is a usage error naming the offending JSON pointer before any process spawns, so nothing was inferred. Both helper codes are exit 5 and both call for the matching bundle rather than a retry or repair, but they name different causes: `native_protocol` means the helper does not match the CLI (older or newer) or the returned payload failed validation, while `local_unavailable` means the paired helper is missing or not executable. `unsupported_capability`, also exit 5, means the matched helper did not advertise a capability the request needs. Refusal, timeout and context-capacity keep their existing errors and never produce a partial object. A conforming object is structurally valid, not semantically true.
+
+Diagnostics are measured, not estimated: `models --model local --json` exposes `helper_protocol`, `helper_version`, `context_size` when available and the route's `capabilities`, and so does `doctor --model local --json` when `agent-context` lists `--model` on `doctor` (on the pinned 0.4.0 runtime, read the `local` row of plain `doctor --json`); complete responses add Apple's `usage` counts. Streaming usage stays absent, and no remaining Apple allowance or reset time is exposed. Use the window and usage to explain headroom; on a context-capacity error, agree a smaller scope with the user.
+
+## Hollis as the model behind a script or tool
+
+Use these when the user wants Hollis to answer for another program, not only in this conversation. Each request is still an Apple model call on the selected route: the same concrete-model, no-fallback and no-automatic-retry rules apply.
+
+From a script, call the runtime with a named command and machine output:
+
+```sh
+bash "$KIT/scripts/run.sh" respond --agent --model cloud --prompt-file "$prompt" --timeout 120s
+bash "$KIT/scripts/run.sh" respond --json --model local --select response --prompt-file "$prompt"
+```
+
+`--agent` wraps the result as `{"meta":...,"results":{...}}` and never prompts; `--json` prints the same fields unwrapped. The fields are `model_requested`, `model_used`, `response` and, for complete native `local` answers, `usage`. Errors are JSON too, `{"error":{"code","message","exit_code"}}`, and the process exit matches `exit_code`; a script should branch on `code`, not on message text. `--select response` keeps only the answer. Going through `run.sh` keeps the plugin's verification and pacing; call the path from `setup.sh path` directly only when the user accepts that those checks are skipped.
+
+As a local OpenAI-compatible endpoint for another tool, the user starts the server on this Mac, normally in their own terminal because it runs until stopped:
+
+```sh
+umask 077
+openssl rand -base64 48 > "$HOME/.hollis.token"
+"$(bash "$KIT/scripts/setup.sh" path)" serve --token-file "$HOME/.hollis.token"
+```
+
+Do not start a long-running server from this conversation unless the user asks for it, and do not route it through `run.sh`, which would hold the plugin's call lock for the server's lifetime. Configure the client with base URL `http://127.0.0.1:1978/v1`, the token file's contents as its API key, and an explicit `model` such as `cloud`, `cloud-pro` or `local`. `GET /v1/models` lists what is available; `/health` needs no token. A token is required by default even on loopback; `--no-auth` is a loopback-only opt-out that lets every local process use the user's Apple routes, so only suggest it when the user asks.
+
+What a client must send, checked against the current server:
+
+- `POST /v1/chat/completions` with `model`, `messages` and `stream`, or `POST /v1/responses` with `model`, `input`, optional `instructions` and `stream`.
+- `stream: false` for every Shortcuts route; only `local` streams. `stream: true` elsewhere is a 400.
+- No other sampling or tool fields. `temperature`, `max_tokens`, `tools` and any unknown field are refused with 400 `unsupported_parameter`. Many agent tools send those by default; such a tool can list the models but cannot call them until it is configured to omit them. Say so rather than suggesting that listing proves the integration works.
+- Disable the client's automatic retries. A 429 `rate_limited` is Apple's limit and its reset time is unknown: stop the job rather than retrying, whatever `Retry-After` the runtime sends (the pinned 0.4.0 server sends `Retry-After: 1`, newer servers send none). A 429 `server_busy` is local capacity with `Retry-After: 1`.
+
+Guided JSON (`response_format` / `text.format` with `json_schema`) works only with `model: "local"` and the same runtime support as `--schema`; it returns the object as a JSON string. Never expose the server beyond loopback unless the user explicitly asks: that needs `--allow-remote`, a token and an encrypted path such as an SSH tunnel, because Hollis provides no TLS.
 
 ## Folders
 

@@ -148,6 +148,9 @@ absolute **Open image** link and a preview where the host supports it.
   Attach a previous image when requesting a variation; choose local crop, pad or
   resize processing when you need a particular output shape.
 - Folder processing with a preview, a specific call budget and resumable progress.
+- Hollis as the model behind your own scripts, or behind another tool through a
+  local, token-protected OpenAI-compatible endpoint on this Mac. See
+  [Hollis as the model behind another tool](docs/usage.md#hollis-as-the-model-behind-another-tool).
 
 Any Style does not guarantee a photograph. References can be submitted, but
 reliable use of their pixels remains unproven, including subject preservation.

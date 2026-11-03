@@ -8,6 +8,10 @@
 | Apple readiness | Enable Apple Intelligence and complete Apple's downloads/first-use approvals; inference is the final check |
 | Text | Shortcuts Cloud, Cloud Pro, On-Device, ChatGPT; explicit native `local` in 0.2.0 |
 | Native Local | Matching bundled helper; no Shortcut import; human text streaming, complete agent/JSON replies |
+| Guided output (`--schema`) | Native local only; requires the CLI and helper from one bundle, newer than the pinned 0.4.0; check `models --model local --json` for `available: true` with `capabilities.guided_output: true` |
+| Local diagnostics | Measured `usage` on complete responses; measured `context_size` from availability checks on newer runtimes; no streaming usage, allowance or reset time |
+| External runtime | A newer Hollis on PATH, including Homebrew, is kept and used; the plugin reports it as unverified rather than downgrading it |
+| Local HTTP endpoint | `hollis serve` on loopback with a token; Chat Completions and Responses without sampling or tool fields |
 | Image understanding | Cloud, Cloud Pro, ChatGPT; not On-Device |
 | Generation | Animation, Illustration, Sketch, Genmoji, Any Style; unlocked session required |
 | Host integration | Claude Code first; Codex shares the same source skills and scripts |

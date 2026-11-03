@@ -7,6 +7,16 @@ config path is unverified, not a guessed default. Persist `HOLLIS_PLUGIN_HOME`,
 `HOLLIS_STATE_DIR` and any intentional `HOLLIS_CALLER_PATH` in the test launcher
 or scoped host settings when using an isolated test installation.
 
+`setup.sh status <route>` is route-scoped, and so is `doctor --model <route> --json`
+when `agent-context` lists `--model` on `doctor` (the pinned 0.4.0 runtime rejects it; use plain
+`doctor --json` there). Read `route`, `status` and `reason_code` together, and treat
+`inference_tested:false` as unproven rather than failed. Plain `doctor --json`
+adds the full bridge table and the `local` row. A helper mismatch is a component
+mismatch (`helper_mismatch` in a route plan;
+`helper_protocol_mismatch`/`helper_version_mismatch` in the runtime record):
+install the matching bundle, and expect Shortcut routes to keep working while
+native `local` is blocked.
+
 `discovery.status: completed` means Shortcuts returned a listing;
 `listed_shortcuts: 0` means that listing was empty. A `failed` listing keeps
 readiness `unknown` and records its exit code. It does not prove missing
@@ -45,6 +55,15 @@ documentation alone does not upgrade their bundled binary.
 | Rollback `none` | The receipt has `version: null` and explains that no candidate is recorded |
 | Repair upgrade | A corrupt older runtime may be retained but not selected; the verified new runtime can still be installed, while rollback stays fail-closed |
 | Oversized input | Narrow the selected context or attachments; never silently truncate |
+| Guided output refused (exit 2) | The schema is outside the supported subset; the message names the JSON pointer. Fix the schema, retry, or ask for plain text; nothing was inferred |
+| `native_protocol` (exit 5) | The helper does not match the CLI (older or newer), or the returned payload failed validation. Install the matching bundle; do not retry or repair |
+| `unsupported_capability` / "native helper does not support ..." (exit 5) | The matched helper did not advertise a capability the request needs. Install the matching bundle; it is not a caller mistake and not a reason to switch route |
+| `local_unavailable` / "helper is missing or not executable" (exit 5) | The paired helper is absent or not executable. Install the matching bundle; do not retry or repair |
+| `context_size` absent | The runtime predates it (the pinned 0.4.0 does not report it) or the model is unavailable. Do not estimate a window; guided output needs `available: true` with `capabilities.guided_output: true` |
+| Refused as a near-miss command (exit 2) | A one-word prompt close to a command name, such as `chta`, is refused and the message names the command. Send prompt text with `respond` or after `--` |
+| `--code` exit 3 | The answer contained no code, or only empty code blocks. Remove the empty output file and ask again deliberately; it is not a timeout |
+| `runtime_unverified` with a Homebrew Hollis | Setup has no plugin verification record for that executable; it does not mean tampering. Use `doctor --model <route> --json` for availability when `agent-context` lists `--model` on `doctor`, otherwise plain `doctor --json` |
+| API client sees models but calls fail with 400 `unsupported_parameter` | The client sends fields Hollis refuses, such as `temperature`, `max_tokens` or `tools`, or `stream: true` on a Shortcuts route. Configure it to omit them |
 | Wrong/unavailable style | Use one of the five tested styles; do not route ChatGPT generation to another model silently |
 
 Ask the agent for the relevant receipt or `doctor --json` output when needed.
