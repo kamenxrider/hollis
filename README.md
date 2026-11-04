@@ -12,7 +12,10 @@ model API key, no account to create and no per-request charge from Hollis.
   selections from Shortcuts’ **Use Model** action, chosen explicitly and never
   silently switched.
 - **On-device answers with `local`.** Apple’s native Foundation Models SDK on
-  your Mac: offline, streaming in the terminal, with guided JSON output.
+  your Mac: offline, streaming in the terminal, with guided JSON output, one
+  image per request and tool calling.
+- **PDFs and scans.** Text and OCR extraction on your Mac before any model sees
+  the document.
 - **Image generation.** Animation, Illustration, Sketch, Genmoji and Any Style,
   saved as PNG files, from the terminal, a chat or the API.
 - **Saved chats.** Conversations stay on your Mac and can be continued and searched.
@@ -77,22 +80,32 @@ export PATH="$HOME/.local/bin:$PATH"
 Add `~/.local/bin` to your shell’s PATH permanently if needed. Inspect the
 [installer](scripts/install.sh) first, or [verify manually](#verification-and-trust).
 
-**Homebrew:** a Homebrew formula is coming with the release. Until then, use
-the installer above.
+**Homebrew:** install the same matched CLI and native helper from the Hollis tap:
+
+```bash
+brew install kamenxrider/tap/hollis
+```
+
+The formula checks the bundle's file hashes; the installer above also verifies
+GitHub build provenance. See the [Homebrew notes](packaging/homebrew/README.md).
 
 **2. Check native local and ask.**
 
 ```bash
-hollis models --model local
+hollis doctor --model local
 hollis respond --model local "Reply with OK"
 ```
 
-`models --model local` checks only native availability, without Shortcuts
-discovery; a successful answer checks inference. If the model is not ready,
-check that Apple Intelligence is enabled and its downloads are complete. Newer
-runtimes also provide `hollis doctor --model local`, a route-scoped check with
-its own exit status ([selected-route diagnostics](docs/selected-route-setup.md));
-the installed 0.4.0 runtime does not have it yet.
+`doctor --model local` checks only native availability, without Shortcuts
+discovery, and exits nonzero when the route is not ready
+([selected-route diagnostics](docs/selected-route-setup.md)).
+`hollis models --model local` shows the same availability. A successful answer
+checks inference. If the model is not ready, check that Apple Intelligence is
+enabled and its downloads are complete.
+
+You can also skip `respond`: `hollis "Reply with OK"` sends a prompt to your
+default model, `hollis chat` starts an interactive session (type `help` or
+`quit`), and `hollis examples` prints copyable recipes.
 
 <a id="add-shortcuts"></a>
 
@@ -126,7 +139,7 @@ Five model choices: four through Shortcuts, one native. `auto` is a routing stra
 | `cloud` | Shortcuts → Private Cloud Compute | Apple’s “Great, fast answers” selection |
 | `cloud-pro` | Shortcuts → Private Cloud Compute | Apple’s “Increased reasoning” selection |
 | `on-device` | Shortcuts → your Mac | Works offline; complete responses |
-| `local` | Native SDK → your Mac | Text-only; streams in a terminal; measured usage on complete responses; `--schema` and HTTP guided JSON output (current source, not in pinned 0.4.0) |
+| `local` | Native SDK → your Mac | Text and one PNG/JPEG image; streams in a terminal; measured usage on complete responses; `--schema` and HTTP guided JSON output; caller tools and MCP tools |
 | `chatgpt` | Shortcuts → Apple’s ChatGPT extension | Not an Apple model; enable the extension in System Settings → Apple Intelligence & Siri |
 | `auto` | Cloud, then Shortcuts On-Device | Default; one fallback only for a confirmed missing bridge or recognized Cloud rate limit |
 
@@ -154,8 +167,8 @@ own. Where the request goes depends on the route you select.
 | `chatgpt` | Apple’s ChatGPT extension sends the request to ChatGPT under that extension’s terms. |
 | `auto` | Cloud first; at most one fallback to Shortcuts On-Device. Never native local. |
 | Image generation | Apple’s Image Playground, through your image Shortcut, with the prompt and any reference image. Apple decides where Image Playground processes the request; Hollis has not measured it. |
-| PDF input (current source, not runtime 0.4.0) | The helper extracts text on your Mac. Extracted text, not PDF bytes, travels with the prompt to whichever route answers, including Cloud, Cloud Pro and ChatGPT; `auto` follows its routing policy. Extraction alone does not make the request local. |
-| MCP tools (current source, not a live-qualification claim) | Explicit `--mcp`/`--mcp-server` calls send approved arguments to the selected local program or HTTP server. Framed results go only to the local model and, for chat, its stored transcript. Servers are never attached implicitly or by `serve`/`batch`. See [MCP servers](docs/mcp.md). |
+| PDF input | The helper extracts text on your Mac. Extracted text, not PDF bytes, travels with the prompt to whichever route answers, including Cloud, Cloud Pro and ChatGPT; `auto` follows its routing policy. Extraction alone does not make the request local. |
+| MCP tools | Explicit `--mcp`/`--mcp-server` calls send approved arguments to the selected local program or HTTP server. Framed results go only to the local model and, for chat, its stored transcript. Servers are never attached implicitly or by `serve`/`batch`. See [MCP servers](docs/mcp.md). |
 | `hollis serve` | Listens on `127.0.0.1` by default. Requests go to the route they name, as above. |
 | Agent plugin | Your agent host sees the context it sends and Apple’s answer. A cloud-hosted agent’s provider receives that too, under its own privacy policy. |
 
@@ -226,15 +239,14 @@ batch choice. A failure stops the run. [Batch guide](docs/batch.md).
 
 ## Use Hollis in Claude Code and Codex
 
-The [plugin](plugins/hollis/README.md) bundles runtime **0.4.0**, its matched
+[Plugin 0.3.0](plugins/hollis/README.md) bundles runtime **0.7.0**, its matched
 native helper and five Shortcut bridges. Ask Apple to assess a supplied plan,
 compare documents or create an image, then keep working in the same
 conversation. Guided setup preserves your existing configuration and
 conversations.
 
-Plugin release 0.2.0 was withdrawn, so install from main until a versioned
-release follows. Plugin 0.1.0 bundled runtime 0.3.3 and does not include native
-local; update the plugin to get it.
+Plugin 0.2.0 was withdrawn. Plugin 0.1.0 bundled runtime 0.3.3 without native
+local; update to 0.3.0 to get it.
 [Installation and everyday requests](plugins/hollis/README.md#install).
 
 ## OpenAI-compatible API
@@ -259,7 +271,7 @@ curl -sS http://127.0.0.1:1978/v1/chat/completions \
 
 - Through Shortcuts, answers are complete and token usage is unavailable; `stream: true` returns 400.
 - Native `local` supports real SSE streaming on both endpoints and measured token usage on complete responses. Streaming usage is not promised.
-- Guided JSON output on `local` is available through `--schema` on the CLI and through `response_format` / `text.format` on both HTTP endpoints. It is current source, not in the pinned 0.4.0 runtime, and the object is returned as a JSON string.
+- Guided JSON output on `local` is available through `--schema` on the CLI and through `response_format` / `text.format` on both HTTP endpoints. The object is returned as a JSON string.
 - A paired native helper that speaks another protocol or version is 502 `native_protocol` on `local` requests, guided or plain, matching CLI exit 5 and naming the matching bundle; a missing or unavailable helper stays 400 `model_unavailable`.
 - CLI `--json` and `--agent` output never stream; explicit streaming with either is rejected.
 - Caller-provided tools on `local` only (`tools`, `role:"tool"` / `function_call_output` results, `finish_reason:"tool_calls"`); Hollis never runs a tool. `system` and `instructions` are advisory prompt content.
@@ -297,11 +309,26 @@ image generation is unavailable through the tested Shortcut. Reference bytes are
 sent, but reliable use of their pixels, including subject preservation, remains
 unproven.
 
+### Tools on local
+
+Tool calling on `local`, with caller tools or MCP servers, is best for simple,
+single tool calls; the on-device model is less reliable with chained or
+complex calls. Hollis validates every call before it runs, allows one
+correction, and otherwise stops with `tool_call_invalid`: a malformed call never
+runs and is never returned as a plain answer. MCP calls in `ask` mode run only
+after you approve them. [MCP servers](docs/mcp.md).
+
+### Documents
+
+PDF extraction returns the document's text exactly, but the answer still comes
+from the selected model. The on-device model can misread figures in long
+pages; check numbers that matter.
+
 ### Versions
 
-Current-source additions (`--schema`, HTTP guided JSON output, protocol-2
-context diagnostics, PDF extraction and `doctor --model`) are not in the pinned runtime 0.4.0
-or the plugin built from main. See
+Guided JSON output, PDF extraction, single-image local input, tool calling,
+MCP and `doctor --model` arrived in 0.7.0. Runtime 0.4.0 and plugin 0.2.0 do
+not have them. The CLI and native helper must come from the same release. See
 [native-local version requirements](docs/native-local.md#guided-output).
 
 ## Verification and trust
@@ -313,6 +340,7 @@ smallest trust chain, build from source
 installer’s checks yourself:
 
 <a id="verified-install-step-by-step"></a>
+<!-- updated at release tagging -->
 
 <details>
 <summary>Verify manually</summary>

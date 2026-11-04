@@ -1,7 +1,8 @@
 # Homebrew formula preparation
 
-`hollis.rb.in` is a formula template, not a published tap formula. Render it
-only from a locally downloaded release set whose source ref, full commit,
+`hollis.rb.in` is the template for the formula published in the
+`kamenxrider/homebrew-tap` tap, installed with
+`brew install kamenxrider/tap/hollis`. Render it only from a locally downloaded release set whose source ref, full commit,
 signer workflow and `--deny-self-hosted-runners` attestation have already been
 verified independently. The preparation script checks local manifest, asset,
 bundle, bridge and checksum agreement; that offline check is not provenance
@@ -88,7 +89,7 @@ into a real user Homebrew, verifying actual published downloads and
 fresh-account onboarding remain unverified, and real package-manager testing
 stays in isolated prefixes.
 
-Both fixture version labels are built from current source; this tests package
+Both fixture version labels are built from the checkout under test; this tests package
 upgrade preservation, not migration from a released v0.4.0 executable.
 
 Run the six lifecycle tests on a Mac with Homebrew, Go, a configured Git commit

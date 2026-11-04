@@ -154,7 +154,7 @@ go test ./internal/store -run 'TestTimestamp16' -count=1
 ```
 
 The older-executable compatibility test needs the schema-v2 runtime built from
-the pinned 0.4.0 source. Without `HOLLIS_SCHEMA_V2_RUNTIME`, only this optional
+the 0.4.0 release source. Without `HOLLIS_SCHEMA_V2_RUNTIME`, only this optional
 cross-version test skips. With dependencies cached, build and run it offline:
 
 ```sh

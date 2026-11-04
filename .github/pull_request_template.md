@@ -8,7 +8,7 @@ What this changes and why.
 - [ ] For changes to the native helper, packaging or release scripts: the `native-package` steps in `CONTRIBUTING.md` pass on macOS 27 with SDK 27
 - [ ] New or changed files are entered in `scripts/release/public-source.json`, and their content is fit to publish
 - [ ] Tests make no live model calls and use only synthetic fixtures
-- [ ] User-visible behavior changes are reflected in `docs/` and `docs/releases/unreleased.md`
+- [ ] User-visible behavior changes are reflected in `docs/` and the next release's notes in `docs/releases/`
 
 ## Live verification
 

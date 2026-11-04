@@ -8,14 +8,13 @@ It works in **Claude Code and Codex**, alongside gstack or on its own. You ask
 in the conversation; Hollis calls the selected Apple route on your Mac and
 brings the result back. No separate server or model API key is needed.
 
-**Plugin 0.2.0 bundles runtime 0.4.0**, its matching native helper and five
+**Plugin 0.3.0 bundles runtime 0.7.0**, its matching native helper and five
 Shortcut bridges. Explicit native `local` adds genuine streaming for human
 terminal output and measured token usage on complete responses. Agent/JSON
 replies remain complete; local needs no Shortcut import.
 
-Plugin release 0.2.0 was withdrawn. **Install from this repository's `main`
-branch** until a versioned plugin release follows. Plugin 0.1.0 bundles runtime
-0.3.3 and does not include native local.
+Plugin 0.2.0 was withdrawn. Plugin 0.1.0 bundles runtime 0.3.3 and does not
+include native local.
 
 **Requires a local Apple-silicon Mac running macOS 27 with Apple Intelligence.**
 Have Claude Code or Codex installed and signed in. The host must execute on this
@@ -28,13 +27,13 @@ See [compatibility](docs/compatibility.md).
 
 ## Install
 
-Use a source checkout of this repository at `main`. Setup downloads the exact
-pinned, checksum-verified runtime 0.4.0 assets from their published release and
-does not need the plugin's own release archive.
+Use a source checkout of this repository. Setup downloads the exact pinned,
+checksum-verified runtime 0.7.0 assets from their published release and does
+not need the plugin's own release archive.
 
 | What you have | Folder to give the host | Included runtime |
 | --- | --- | --- |
-| Source checkout of `main` | Repository root | Downloaded during setup, matching the pinned lock |
+| Source checkout | Repository root | Downloaded during setup, matching the pinned lock |
 | Extracted 0.1.0 release archive | Outer `hollis-plugin-0.1.0` folder | Runtime 0.3.3, without native local |
 
 Replace `/absolute/path/to/hollis` below with that folder. It contains the
@@ -54,7 +53,7 @@ Enter these in the **Claude conversation**, one at a time:
 /plugin install hollis@hollis-plugins
 ```
 
-Use the source checkout above so Claude installs from `main`.
+Use the source checkout above so Claude installs the pinned runtime.
 
 Choose the installation scope in Claude. If the install summary asks for
 `/reload-plugins`, run it; otherwise start a new session if the skills are not

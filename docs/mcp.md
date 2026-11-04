@@ -1,8 +1,14 @@
 # MCP servers
 
-Current source can attach MCP (Model Context Protocol) tools to an explicit
-`local` model request. This is not a claim of live qualification or availability
-in an older installed runtime. Servers in `mcp.json` remain inert until selected.
+Hollis 0.7.0 can attach MCP (Model Context Protocol) tools to an explicit
+`local` model request, from a local program over stdio or a remote server over
+HTTP. Calls need your approval (`ask`, the default) or an explicit allow list
+(`auto`). Runtime 0.4.0 does not include MCP. Servers in `mcp.json` remain
+inert until selected.
+
+The on-device model is best at simple, single tool calls. With several tools
+or complex arguments it more often sends a call that fails validation; Hollis
+then stops with `tool_call_invalid` and nothing runs.
 `hollis serve` and
 `hollis batch` never read `mcp.json` and never start an MCP server.
 

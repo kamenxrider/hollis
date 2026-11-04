@@ -41,7 +41,7 @@ ChatGPT picker. It contains no prompt, response or personal account information.
 
 These checks qualify only the stated setup and calls, not fresh-account consent,
 all schema shapes, streaming usage, other OS builds or future availability.
-Current-source protocol-2 features are not in runtime 0.4.0 or plugin 0.2.0.
+That native run used helper 0.5.0, before the 0.7.0 protocol 3 helper.
 
 ## Why not `fm`?
 

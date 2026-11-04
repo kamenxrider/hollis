@@ -91,7 +91,7 @@ and parameterized Shortcuts failed before inference with a Shortcuts ToolKit
 database sandbox denial (`SQLite error 23`), while native Image Playground
 worked. That is the historical signature, kept for comparison.
 
-A later check on 2026-11-02, on the current source, saw the same request refused
+A later check on 2026-11-02, on the source that became 0.7.0, saw the same request refused
 in under a second with exit 5 `request_declined` ("Apple asked for a different
 description; the underlying reason was not specified.") before any image was
 made. The observed signature differs; the conclusion does not. The style stays

@@ -23,9 +23,8 @@ The Responses reply text is at `output[0].content[0].text`. Its `input` may be a
 ## Guided JSON output
 
 Both endpoints can ask native `local` for an object that follows a JSON Schema
-subset. This is current source, not in the pinned 0.4.0 runtime: it needs the
-helper from the same release (protocol 3, helper 0.7.0), and it is not
-available on any Shortcut route.
+subset. It needs the helper from the same release (protocol 3, helper 0.7.0),
+and it is not available on any Shortcut route.
 
 Chat Completions uses the OpenAI `response_format` shape:
 

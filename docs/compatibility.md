@@ -14,7 +14,7 @@ An **Apple-silicon Mac** with **Apple Intelligence** enabled, macOS 27 for the m
 SDK 27.0, helper 0.5.0/protocol 2 at that time: one plain complete call and
 one guided JSON call succeeded, with measured usage. Diagnostics reported an
 8,192-token context window. See the [qualification scope](../EVIDENCE.md#dated-qualification-summary);
-these current-source features do not update the pinned 0.4.0 downloads.
+runtime 0.4.0 does not include these features.
 
 **macOS 26 — experimental, untested.** macOS 26 Shortcuts exposed three model locations: Cloud, On-Device and ChatGPT. There was no Cloud Pro, and hollis refuses `cloud-pro` when that bridge is unavailable. The macOS 26 `cloud` choice is the earlier PCC model generation, not the 27 Cloud / Cloud Pro pair.
 
@@ -28,14 +28,14 @@ Please include `hollis doctor` output when reporting macOS 26 results — that i
 
 ## Native local
 
-The explicit `local` route in 0.4.0 requires Apple Silicon and macOS 27. It uses
+The explicit `local` route requires Apple Silicon and macOS 27. It uses
 the matched precompiled helper beside Hollis and does not require Shortcuts.
 A missing helper or unavailable Apple model is reported separately from bridge
 readiness. Native local on macOS 26 and Intel is unsupported. The published `hollis-darwin-amd64` download is a legacy CLI artifact; Intel Macs
 do not support Apple Intelligence inference. The primary installer selects the
 ARM64 bundle. A source-only Go install does not install the Swift helper; use the [native-local guide](native-local.md).
 
-Current source uses helper 0.7.0 and protocol 3. CLI and helper always ship as a
+Hollis 0.7.0 uses helper 0.7.0 and protocol 3. CLI and helper always ship as a
 matched bundle, and strict version identity is intentional. A mismatched pair
 fails closed with a clear mismatch error and matching-bundle remedy (exit 5,
 HTTP 502 `native_protocol`), before generation. The helper accepts request
@@ -46,9 +46,9 @@ CLIs compatible.
 | --- | --- | --- |
 | 0.4.0 / protocol 1 | 0.7.0 | Old decoder rejects the version |
 | 0.5.0 / protocol 2 | 0.7.0 | Old decoder rejects the version |
-| Current / protocol 3 | Matching 0.7.0 | Negotiates protocol 3; capabilities checked per request |
-| Current / protocol 3 | Older or mismatched helper | Fails closed; install the matching bundle |
-| Current metadata tools | 0.6.0 / protocol 3 | Status preflight rejects the old version before generation dispatch |
+| 0.7.0 / protocol 3 | Matching 0.7.0 | Negotiates protocol 3; capabilities checked per request |
+| 0.7.0 / protocol 3 | Older or mismatched helper | Fails closed; install the matching bundle |
+| 0.7.0 metadata tools | 0.6.0 / protocol 3 | Status preflight rejects the old version before generation dispatch |
 
 Native tool definitions additionally require `tools.native_definitions`.
 Metadata requests use a dedicated helper mode argument that older helpers

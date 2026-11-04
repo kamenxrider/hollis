@@ -40,11 +40,11 @@ tools are covered under [Tools](#tools).
 
 ## Guided output
 
-This section describes current source, with helper 0.7.0/protocol 3. Runtime
-0.4.0 and plugin 0.2.0's pinned runtime use protocol 1 and do not include
-`--schema` or the protocol-2 and protocol-3 diagnostics described here. Build the
-CLI and helper from the same source revision for these features; do not mix the
-current CLI with a released 0.4.0 helper.
+This section describes Hollis 0.7.0, with helper 0.7.0/protocol 3. Runtime
+0.4.0 and plugin 0.2.0's runtime use protocol 1 and do not include `--schema`
+or the protocol-2 and protocol-3 diagnostics described here. Use the CLI and
+helper from the same release bundle; do not mix a 0.7.0 CLI with an older
+helper.
 
 Protocol 3 adds a `capabilities` object to the helper's status event, and every
 operation negotiates before it runs. The helper accepts request formats 1, 2 and
@@ -194,8 +194,8 @@ sentence. Nothing reaches inference either way; see
 
 ## Install the matching helper
 
-The commands below install released 0.4.0 native text/streaming support, not the
-current-source guided-output and context-diagnostic additions described above.
+<!-- updated at release tagging -->
+The commands below download, verify and unpack one release bundle.
 
 The Apple Silicon release bundle contains `hollis`, `hollis-native`, the existing
 bridge archive, a file-hash manifest and the licence. The native helper is

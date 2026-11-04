@@ -111,7 +111,7 @@ the archive checks run at release.
 ## Pull requests
 
 Keep a pull request to one change. Describe the behavior it changes, update the
-relevant guide in `docs/` and add a line to `docs/releases/unreleased.md` for
+relevant guide in `docs/` and add a line to the next release's notes in `docs/releases/` for
 anything a user would notice. Match the style of the surrounding code and docs.
 
 By contributing, you agree that your work is licensed under the
