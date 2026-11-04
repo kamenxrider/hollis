@@ -178,11 +178,22 @@ func TestImageModelSelectionAndLimitsHappenBeforeStaging(t *testing.T) {
 	twoImages := fmt.Sprintf(`{"model":"chatgpt","input":[{"role":"user","content":[{"type":"input_text","text":"Compare"},{"type":"input_image","image_url":%q},{"type":"input_image","image_url":%q}]}]}`, imageURL, imageURL)
 	before := tempEntries(t, root)
 	res = post(t, NewUnauthenticated(&recordingImageRunner{}).Handler(), "/v1/responses", twoImages)
-	if res.Code != http.StatusRequestEntityTooLarge || !strings.Contains(res.Body.String(), `"code":"context_too_large"`) {
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), `"code":"unsupported_parameter"`) {
 		t.Fatalf("chatgpt count: status=%d body=%s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `accepts at most 1 image(s)`) {
+		t.Fatalf("chatgpt count message: %s", res.Body.String())
 	}
 	if got := tempEntries(t, root); got != before {
 		t.Fatalf("over-limit request staged files: before=%d after=%d", before, got)
+	}
+
+	image := fmt.Sprintf(`,{"type":"input_image","image_url":%q}`, imageURL)
+	fourImages := `{"model":"cloud","input":[{"role":"user","content":[{"type":"input_text","text":"Compare"}` + strings.Repeat(image, 4) + `]}]}`
+	res = post(t, NewUnauthenticated(&recordingImageRunner{}).Handler(), "/v1/responses", fourImages)
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), `"code":"unsupported_parameter"`) ||
+		!strings.Contains(res.Body.String(), `accepts at most 3 image(s)`) {
+		t.Fatalf("cloud count: status=%d body=%s", res.Code, res.Body.String())
 	}
 }
 

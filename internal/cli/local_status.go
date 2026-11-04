@@ -37,7 +37,7 @@ func localModelRow(status runner.LocalStatus, err error) map[string]any {
 		"model": "local", "backend": "native", "apple_model": "Apple Foundation Models system model",
 		"available": available, "status": localStatusLabel(status, err), "inference_verified": false,
 		"helper_protocol": status.Protocol, "helper_version": status.Version,
-		"capabilities": localCapabilities(spec),
+		"capabilities": routeCapabilities(spec),
 	}
 	// The context window is a measured signal: report it where a successful
 	// status read states it and omit it otherwise rather than printing an
@@ -48,16 +48,17 @@ func localModelRow(status runner.LocalStatus, err error) map[string]any {
 	return row
 }
 
-// localCapabilities renders one route's static capabilities for diagnostics.
+// routeCapabilities renders one route's static capabilities for diagnostics.
 // Every value comes from the route table: a literal here would let the
 // advertised surface drift from what the transport implements, and there is no
 // second place to correct when a capability is measured differently.
-func localCapabilities(spec runner.RouteSpec) map[string]bool {
-	return map[string]bool{
+func routeCapabilities(spec runner.RouteSpec) map[string]any {
+	return map[string]any{
 		"streaming":      spec.Capabilities.Streaming,
 		"complete_usage": spec.Capabilities.Usage,
 		"stream_usage":   spec.Capabilities.StreamingUsage,
 		"images":         spec.Capabilities.Images,
+		"max_images":     spec.Capabilities.MaxImages,
 		"guided_output":  spec.Capabilities.Schema,
 		// Tools remain unimplemented on every route.
 		"tools": false,

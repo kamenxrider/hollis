@@ -242,6 +242,18 @@ matching plugin and runtime pairing: a plugin installed against an older
 runtime does not gain the new commands or capabilities until both are updated
 together. See [the plugin guide](../plugin.md).
 
+## ChatGPT route polish
+
+**Changes:** too many images on any route is now HTTP **400**
+`unsupported_parameter` ("model \"X\" accepts at most N image(s)"). Cloud,
+Cloud Pro and ChatGPT previously returned 413 `context_too_large`, which
+remains for byte and pixel limits. `/v1/models` and `hollis models --json`
+report `capabilities.max_images` for each route. A tools request to a
+Shortcuts route is refused for the route before its definitions are checked.
+`setup --model chatgpt` names the System Settings switch for the ChatGPT
+extension, and Ctrl-C during a Shortcuts request says "request canceled
+(Ctrl-C); no response was returned", still exit 5.
+
 ## Release checklist: README quick start
 
 The README quick start checks native local with `hollis models --model local`

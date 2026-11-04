@@ -137,7 +137,7 @@ func TestStageImagesRejectsCorruptAndTruncatedImages(t *testing.T) {
 func TestStageImagesEnforcesCountAndDecodedByteLimits(t *testing.T) {
 	valid := imageDataURL("image/png", encodeTestPNG(t, color.RGBA{A: 0xff}))
 	_, err := stageImages(t.Context(), []encodedImage{{valid}, {valid}, {valid}, {valid}})
-	assertImageValidationError(t, err, http.StatusRequestEntityTooLarge, "context_too_large")
+	assertImageValidationError(t, err, http.StatusBadRequest, "unsupported_parameter")
 
 	oversized := make([]byte, MaxDecodedImageBytes+1)
 	_, err = stageImages(t.Context(), []encodedImage{{DataURL: imageDataURL("image/png", oversized)}})

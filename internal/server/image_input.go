@@ -42,7 +42,7 @@ func stageImages(ctx context.Context, images []encodedImage) (stagedImages, erro
 		return stagedImages{}, nil
 	}
 	if len(images) > MaxCloudImages {
-		return stagedImages{}, imageLimitExceeded(fmt.Sprintf("image input accepts at most %d images", MaxCloudImages))
+		return stagedImages{}, unsupportedParameter(fmt.Sprintf("image input accepts at most %d images", MaxCloudImages))
 	}
 
 	candidates := make([]encodedImageCandidate, 0, len(images))

@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/kamenxrider/hollis/internal/setup"
 	"github.com/spf13/cobra"
 )
+
+const chatGPTExtensionHint = "Note: enable the ChatGPT extension in System Settings > Apple Intelligence & Siri."
 
 func validateSetupRoute(route string) error {
 	if !setup.ValidRoute(route) {
@@ -97,6 +100,9 @@ func printSetupPlan(cmd *cobra.Command, flags *rootFlags, p setup.Plan, err erro
 	fmt.Fprintf(cmd.OutOrStdout(), "%s: %s (%s)\n%s\nInference tested: false\n", p.Route, p.Status, p.ReasonCode, p.Message)
 	for _, action := range p.Actions {
 		fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", action.Code, action.Message)
+	}
+	if p.Route == string(runner.ModelChatGPT) {
+		fmt.Fprintln(cmd.OutOrStdout(), chatGPTExtensionHint)
 	}
 	return err
 }

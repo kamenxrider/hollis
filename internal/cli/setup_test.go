@@ -56,6 +56,18 @@ func runSetupHumanFixture(t *testing.T, r runner.Runner, args ...string) (string
 	return out.String(), err
 }
 
+func TestStandaloneSetupNamesTheChatGPTExtensionSetting(t *testing.T) {
+	stubConfigPath(t)
+	output, _ := runSetupHumanFixture(t, &setupStatusRunner{}, "setup", "--model", "chatgpt")
+	if !strings.Contains(output, "System Settings > Apple Intelligence & Siri") {
+		t.Fatalf("chatgpt setup lacks the extension hint:\n%s", output)
+	}
+	output, _ = runSetupHumanFixture(t, &setupStatusRunner{}, "setup", "--model", "cloud")
+	if strings.Contains(output, "ChatGPT extension") {
+		t.Fatalf("cloud setup names the ChatGPT extension:\n%s", output)
+	}
+}
+
 func TestSetupPlanFieldsRemainSelectable(t *testing.T) {
 	stubConfigPath(t)
 	stubResolution(t, []string{"AFM Bridge - Cloud Pro"}, true, 27)

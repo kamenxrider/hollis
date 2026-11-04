@@ -87,6 +87,7 @@ docs/shortcuts.md for sources.`,
 						"source":       string(rb.Source),
 						"verified":     rb.Verified,
 						"available":    rb.Available,
+						"capabilities": routeCapabilities(spec),
 					}
 					annotateModel(row, defaultModel, defaultKnown, modelReadiness(spec.ID, rb, err, transport, osMajor, nativeFacts))
 					rows = append(rows, row)

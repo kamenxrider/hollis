@@ -20,7 +20,7 @@ func modelCapabilities(id string) map[string]any {
 		spec.Transport = runner.TransportShortcuts
 	}
 	capabilities := spec.Capabilities
-	return map[string]any{"backend": string(spec.Transport), "streaming": capabilities.Streaming, "usage": capabilities.Usage, "streaming_usage": capabilities.StreamingUsage, "image_input": runner.Model(id).SupportsImages()}
+	return map[string]any{"backend": string(spec.Transport), "streaming": capabilities.Streaming, "usage": capabilities.Usage, "streaming_usage": capabilities.StreamingUsage, "image_input": runner.Model(id).SupportsImages(), "max_images": capabilities.MaxImages}
 }
 
 func chatUsage(usage *runner.Usage) any {

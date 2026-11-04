@@ -95,6 +95,15 @@ chat, Responses and image HTTP endpoints. Existing timeout, missing-resource,
 rate-limit and validation codes retain their existing numeric mappings.
 `hollis agent-context` lists semantic codes independently of numeric exits.
 
+Too many images for the selected route is a parameter error, not a size error:
+HTTP 400 `unsupported_parameter` naming the route's limit (three for Cloud and
+Cloud Pro, one for ChatGPT and `local`). On the CLI, a one-image route given
+several `--image` paths is a usage error, exit 2. Byte and pixel limits on
+image input stay HTTP 413 `context_too_large`.
+
+Pressing Ctrl-C during a Shortcuts request stops it with exit 5 and the
+message "request canceled (Ctrl-C); no response was returned".
+
 HTTP `server_busy` means Hollis's local capacity is occupied and carries
 `Retry-After: 1`. Provider `rate_limited` remains distinct and has no retry
 timing hint when the reset is unknown. Stop rather than tight-looping on a

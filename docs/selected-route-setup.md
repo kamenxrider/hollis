@@ -23,6 +23,8 @@ Unscoped `hollis doctor` is an overview, not a gate: it exits 0 even with
 unready routes. JSON/agent output retains `overview: true`,
 `readiness: "not_assessed"`, `inference_tested: false` and `diagnostics` even
 under field selection. Use selected doctor for readiness exit codes.
+Human `setup --model chatgpt` output also reminds you to enable the ChatGPT
+extension in System Settings > Apple Intelligence & Siri.
 Selected doctor and setup JSON support `--select` under the same declared
 result schemas and strict unknown-field rules as other data commands.
 

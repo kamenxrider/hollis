@@ -85,20 +85,29 @@ func toolCombination(stream bool, imageGeneration json.RawMessage, guided bool, 
 	return nil
 }
 
-// validateToolModel refuses every route but native local. A Shortcuts route
-// has no tool surface, and its refusal names the parameter.
-func (s *Server) validateToolModel(w http.ResponseWriter, name string) (runner.ToolRoundRunner, bool) {
+// validateToolRoute refuses every route but native local before the tool
+// definitions are parsed, so a Shortcuts caller learns that tools are
+// unavailable rather than how to fix a definition no route would accept.
+func validateToolRoute(w http.ResponseWriter, name string) bool {
 	if name == "" {
 		name = string(runner.ModelAuto)
 	}
 	model := runner.Model(name)
 	if !model.Valid() {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_parameter", fmt.Sprintf("unsupported model %q", name))
-		return nil, false
+		return false
 	}
 	if model != runner.ModelLocal {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_parameter",
 			"tools is supported only for model \"local\"")
+		return false
+	}
+	return true
+}
+
+// validateToolModel checks the native local runner once the request is valid.
+func (s *Server) validateToolModel(w http.ResponseWriter, name string) (runner.ToolRoundRunner, bool) {
+	if !validateToolRoute(w, name) {
 		return nil, false
 	}
 	if s.writeLocalProtocolFailure(w) {
@@ -327,6 +336,9 @@ func parseChatToolMessages(raw json.RawMessage) ([]store.Message, error) {
 }
 
 func (s *Server) handleChatTools(w http.ResponseWriter, r *http.Request, request chatCompletionsRequest) {
+	if !validateToolRoute(w, request.Model) {
+		return
+	}
 	tools, choice, err := parseToolMembers(toolMembers{request.Tools, request.ToolChoice, request.ParallelToolCalls})
 	if err != nil {
 		writeRequestValidationError(w, err)
@@ -528,6 +540,9 @@ func itemDecodeError(err error, subject string) error {
 }
 
 func (s *Server) handleResponsesTools(w http.ResponseWriter, r *http.Request, request responsesRequest) {
+	if !validateToolRoute(w, request.Model) {
+		return
+	}
 	normalized, err := normalizeResponsesTools(request.Tools)
 	if err != nil {
 		writeRequestValidationError(w, err)

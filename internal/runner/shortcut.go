@@ -535,7 +535,7 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 			if errors.Is(parentCtx.Err(), context.Canceled) {
 				return "", &Error{
 					Kind: KindContextCanceled, Ref: ref, ExitCode: -1,
-					Err: errors.New("shortcut run canceled by caller"),
+					Err: errors.New("request canceled (Ctrl-C); no response was returned"),
 				}
 			}
 			return "", &Error{
@@ -579,7 +579,7 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 		if ctx.Err() != nil {
 			return "", &Error{
 				Kind: KindContextCanceled, Ref: ref, ExitCode: -1,
-				Err: errors.New("shortcut run canceled by caller"),
+				Err: errors.New("request canceled (Ctrl-C); no response was returned"),
 			}
 		}
 		return "", &Error{

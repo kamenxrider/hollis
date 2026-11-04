@@ -127,7 +127,7 @@ Five model choices: four through Shortcuts, one native. `auto` is a routing stra
 | `cloud-pro` | Shortcuts → Private Cloud Compute | Apple’s “Increased reasoning” selection |
 | `on-device` | Shortcuts → your Mac | Works offline; complete responses |
 | `local` | Native SDK → your Mac | Text-only; streams in a terminal; measured usage on complete responses; `--schema` and HTTP guided JSON output (current source, not in pinned 0.4.0) |
-| `chatgpt` | Shortcuts → Apple’s ChatGPT extension | Not an Apple model |
+| `chatgpt` | Shortcuts → Apple’s ChatGPT extension | Not an Apple model; enable the extension in System Settings → Apple Intelligence & Siri |
 | `auto` | Cloud, then Shortcuts On-Device | Default; one fallback only for a confirmed missing bridge or recognized Cloud rate limit |
 
 Cloud and Cloud Pro are distinct selections in Shortcuts’ **Use Model** action.

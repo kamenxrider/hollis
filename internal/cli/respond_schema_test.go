@@ -656,24 +656,27 @@ func TestSchemaCapabilityComesFromTheRouteTable(t *testing.T) {
 // would survive a table with the real flags, so the empty case is what makes
 // the derivation observable.
 func TestLocalCapabilitiesMirrorsTheRouteSpec(t *testing.T) {
-	empty := localCapabilities(runner.RouteSpec{})
+	empty := routeCapabilities(runner.RouteSpec{})
 	for name, value := range empty {
-		if value {
-			t.Fatalf("%s reported true for a route with no capabilities", name)
+		if value != false && value != 0 {
+			t.Fatalf("%s reported %v for a route with no capabilities", name, value)
 		}
 	}
-	if len(empty) != 6 {
-		t.Fatalf("capability map = %#v; want the six published names", empty)
+	if len(empty) != 7 {
+		t.Fatalf("capability map = %#v; want the seven published names", empty)
 	}
-	full := localCapabilities(runner.RouteSpec{Capabilities: runner.CapabilitySet{
+	full := routeCapabilities(runner.RouteSpec{Capabilities: runner.CapabilitySet{
 		Images: true, MaxImages: 1, Streaming: true, StreamingUsage: true, Usage: true, Schema: true,
 	}})
 	for _, name := range []string{"streaming", "complete_usage", "stream_usage", "images", "guided_output"} {
-		if !full[name] {
+		if full[name] != true {
 			t.Fatalf("%s reported false for a route that declares it", name)
 		}
 	}
-	if full["tools"] {
+	if full["max_images"] != 1 {
+		t.Fatalf("max_images = %v; want the route's limit", full["max_images"])
+	}
+	if full["tools"] != false {
 		t.Fatal("tools is not implemented on any route")
 	}
 }

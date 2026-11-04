@@ -18,7 +18,7 @@ curl -s localhost:1978/v1/responses \
   -d '{"model":"cloud-pro","stream":false,"input":"Explain closures in Go."}'
 ```
 
-The Responses reply text is at `output[0].content[0].text`. Its `input` may be a string or a message array, with optional `instructions`. `/v1/models` advertises available routes, including `local` when its native helper and Apple model are available. Shortcut tiers depend on their bridges; native local does not.
+The Responses reply text is at `output[0].content[0].text`. Its `input` may be a string or a message array, with optional `instructions`. `/v1/models` advertises available routes, including `local` when its native helper and Apple model are available. Shortcut tiers depend on their bridges; native local does not. Each route's `capabilities` object includes `max_images`, the most images one request may attach (0 when the route refuses images).
 
 ## Guided JSON output
 
@@ -155,7 +155,7 @@ Responses uses this input message content shape:
 [{"type":"input_text","text":"Describe this image"},{"type":"input_image","image_url":"data:image/png;base64,..."}]
 ```
 
-Omitting `model` on an image request selects `cloud`. Explicit `auto` and `on-device` are rejected. Cloud and Cloud Pro accept up to three images; ChatGPT and native `local` accept one. Local requires macOS 27 and a vision-capable model, supports complete responses and SSE on both endpoints, and refuses images combined with tools or guided output. Complete local responses retain measured usage; streamed responses do not invent usage. The HTTP request body remains limited to 8 MiB. Decoded images together may occupy at most 4 MiB, with at most 16 million pixels per image and 24 million pixels combined. These are Hollis limits, not reported Apple quotas. Invalid formats return 400 and oversized input returns 413 before a model runs.
+Omitting `model` on an image request selects `cloud`. Explicit `auto` and `on-device` are rejected. Cloud and Cloud Pro accept up to three images; ChatGPT and native `local` accept one. Local requires macOS 27 and a vision-capable model, supports complete responses and SSE on both endpoints, and refuses images combined with tools or guided output. Complete local responses retain measured usage; streamed responses do not invent usage. The HTTP request body remains limited to 8 MiB. Decoded images together may occupy at most 4 MiB, with at most 16 million pixels per image and 24 million pixels combined. These are Hollis limits, not reported Apple quotas. Invalid formats return 400 `invalid_image`. More images than the route accepts return 400 `unsupported_parameter` ("model \"chatgpt\" accepts at most 1 image(s)") on every route. Byte and pixel limits return 413 `context_too_large`. All of these are refused before a model runs.
 
 Hollis validates and stages image bytes privately, holds a concurrency slot through staging and execution, then removes staged files. Responses remain complete text, without streaming or invented usage counts.
 
@@ -198,8 +198,9 @@ errors after streaming starts are reported as stream errors, never a fabricated
 successful completion. Disconnecting cancels the local helper.
 
 Tools are available on native `local` only; see [Tools on `local`](#tools-on-local).
-Shortcuts routes refuse `tools` with **400** `unsupported_parameter`. Hollis
-never executes tools server-side.
+Shortcuts routes refuse `tools` with **400** `unsupported_parameter` before the
+tool definitions are checked, so the refusal names the route rather than a
+definition problem. Hollis never executes tools server-side.
 
 ## Tools on `local`
 
