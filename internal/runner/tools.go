@@ -389,9 +389,17 @@ const maxDetectionSteps = 1 << 22
 var toolAttemptMarker = regexp.MustCompile(`\{\s*"tool_calls"\s*:\s*\[`)
 var toolAttemptFunction = regexp.MustCompile(`"function"\s*:`)
 
-// malformedToolAttemptName recognizes only a single call's valid header, never
-// its arguments. Ambiguous/multiple calls are left alone rather than salvaging
-// a subset or guessing which names belong to malformed argument text.
+// toolAttemptHeader matches a call header that opens its own element: an
+// object whose first keys lead straight to the function name. The id and type
+// may hold any scalar; only the name decides whether this is an attempt. A
+// repeated function key later in the same element has no opening brace before
+// it, so it is not counted as a second call.
+var toolAttemptHeader = regexp.MustCompile(`\{\s*(?:"id"\s*:\s*(?:"[^"\\]*"|[^",{}\[\]]*)\s*,\s*)?(?:"type"\s*:\s*(?:"[^"\\]*"|[^",{}\[\]]*)\s*,\s*)?"function"\s*:\s*(?:\{\s*"name"\s*:\s*)?"([^"\\]*)"`)
+
+// malformedToolAttemptName recognizes only a single call's header, never its
+// arguments. The id and type may hold any scalar; only the function name must
+// be readable. A reply with several call headers is handled by
+// malformedToolAttemptNames instead; neither salvages a subset of the calls.
 func malformedToolAttemptName(text string) string {
 	if len(text) > maxDetectionSteps {
 		return ""
@@ -423,8 +431,8 @@ func malformedToolAttemptName(text string) string {
 		seen[key] = true
 		switch key {
 		case "id", "type":
-			var value string
-			if decoder.Decode(&value) != nil {
+			token, err := decoder.Token()
+			if _, container := token.(json.Delim); err != nil || container {
 				return ""
 			}
 		case "function":
@@ -448,10 +456,29 @@ func malformedToolAttemptName(text string) string {
 	}
 }
 
+// malformedToolAttemptNames returns the function name of every call header
+// after the single tool_calls marker. It reads headers only, never arguments,
+// so a broken multi-call reply can be recognized as an attempt and corrected
+// as a whole.
+func malformedToolAttemptNames(text string) []string {
+	if len(text) > maxDetectionSteps {
+		return nil
+	}
+	markers := toolAttemptMarker.FindAllStringIndex(text, 2)
+	if len(markers) != 1 {
+		return nil
+	}
+	var names []string
+	for _, match := range toolAttemptHeader.FindAllStringSubmatch(text[markers[0][0]:], -1) {
+		names = append(names, match[1])
+	}
+	return names
+}
+
 // roundOutcome is what one round's text means once detected and normalized.
 type roundOutcome struct {
 	// plain is true when the text is the final answer: no candidate, or a
-	// candidate naming a tool that was not offered.
+	// candidate in which no element calls an offered tool.
 	plain bool
 	calls []ToolCall
 	// fault is a fixed, repairable validation reason; framing marks the
@@ -465,11 +492,26 @@ type roundOutcome struct {
 func interpretRound(text string, tools []Tool, round int, used map[string]bool) roundOutcome {
 	elements, found := detectToolCalls(text)
 	if !found {
-		if name := malformedToolAttemptName(text); name != "" {
+		offeredName := func(name string) bool {
 			for _, tool := range tools {
 				if tool.Name == name {
-					return roundOutcome{fault: "the tool-call reply is not valid JSON"}
+					return true
 				}
+			}
+			return false
+		}
+		if name := malformedToolAttemptName(text); name != "" && offeredName(name) {
+			return roundOutcome{fault: "the tool-call reply is not valid JSON"}
+		}
+		if names := malformedToolAttemptNames(text); len(names) > 1 {
+			for _, name := range names {
+				if !offeredName(name) {
+					continue
+				}
+				if len(names) > MaxToolCallsPerRound {
+					return roundOutcome{framing: true, fault: fmt.Sprintf("the reply contained more tool calls than the %d allowed in one round", MaxToolCallsPerRound)}
+				}
+				return roundOutcome{fault: "the tool-call reply is not valid JSON"}
 			}
 		}
 		return roundOutcome{plain: true}
@@ -490,14 +532,24 @@ func interpretRound(text string, tools []Tool, round int, used map[string]bool) 
 		present   bool
 	}
 	parsed := make([]pending, 0, len(elements))
+	stray := false
 	for _, element := range elements {
 		name, arguments, present, id, ok := callShape(element)
-		// A call that names no offered tool is not normalized into one: the
-		// whole reply is the answer, delivered verbatim and never executed.
 		if !ok || offered[name] == nil {
-			return roundOutcome{plain: true}
+			stray = true
+			continue
 		}
 		parsed = append(parsed, pending{id: id, name: name, arguments: arguments, present: present})
+	}
+	// A reply that calls no offered tool is the answer, delivered verbatim and
+	// never executed. Once any element calls an offered tool, the reply is a
+	// tool-call attempt, so an element that is not such a call is corrected
+	// rather than dropped or turning the whole attempt into text.
+	if len(parsed) == 0 {
+		return roundOutcome{plain: true}
+	}
+	if stray {
+		return roundOutcome{fault: "the reply must contain only calls to the declared tools"}
 	}
 	calls := make([]ToolCall, 0, len(parsed))
 	ids := map[string]bool{}

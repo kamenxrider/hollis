@@ -1,0 +1,1 @@
+{"tool_calls":[{"id":"call_a","type":"function","function":{"name":"get_weather","arguments":{"city":"Lisbon","unit":"f"}}}, {"id":"call_b","type":"function","function":{"name":"summarize_forecast","arguments":{"input":"{""city":"Lisbon","high":71}"}"}}]} Lisbon should reach a high of about 71 degrees Fahrenheit.

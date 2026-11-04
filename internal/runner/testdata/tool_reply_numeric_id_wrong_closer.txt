@@ -1,0 +1,1 @@
+{"tool_calls":[{"id":3, "type": "function", "function": "get_weather", "arguments": {"city": "Lisbon", "unit": "f"}}}}

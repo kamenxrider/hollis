@@ -38,8 +38,8 @@ func TestMalformedToolAttemptClassification(t *testing.T) {
 		{"duplicate function", `{"tool_calls":[{"function":{"name":"get_weather","arguments":?},"function":{"name":"invented","arguments":{}}}]}`, false},
 		{"duplicate name", `{"tool_calls":[{"function":{"name":"get_weather","name":"invented","arguments":?}}]}`, false},
 		{"duplicate header field", `{"tool_calls":[{"id":"a","id":"b","function":{"name":"get_weather","arguments":?}}]}`, false},
-		{"mixed malformed calls", `{"tool_calls":[{"function":{"name":"get_weather","arguments":?}},{"function":{"name":"invented","arguments":{}}}]}`, false},
-		{"ambiguous multiple known calls", `{"tool_calls":[{"function":{"name":"get_weather","arguments":?}},{"function":{"name":"add","arguments":?}}]}`, false},
+		{"malformed calls with one offered name are corrected", `{"tool_calls":[{"function":{"name":"get_weather","arguments":?}},{"function":{"name":"invented","arguments":{}}}]}`, true},
+		{"malformed multiple known calls are corrected", `{"tool_calls":[{"function":{"name":"get_weather","arguments":?}},{"function":{"name":"add","arguments":?}}]}`, true},
 		{"name before malformed marker", `{"function":{"name":"get_weather"}} {"tool_calls":[?]}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
