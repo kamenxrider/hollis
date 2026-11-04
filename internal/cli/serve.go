@@ -25,7 +25,7 @@ func newServeCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 	return newServeCmdWithImages(flags, newRunner, imagegen.New())
 }
 
-func newServeCmdWithImages(_ *rootFlags, newRunner newRunnerFunc, generator imagegen.Generator) *cobra.Command {
+func newServeCmdWithImages(flags *rootFlags, newRunner newRunnerFunc, generator imagegen.Generator) *cobra.Command {
 	var (
 		addr           string
 		tokenFile      string
@@ -33,6 +33,15 @@ func newServeCmdWithImages(_ *rootFlags, newRunner newRunnerFunc, generator imag
 		noAuth         bool
 		maxConcurrency int
 	)
+	validateServeFlags := func(*cobra.Command, []string) error {
+		if maxConcurrency < 1 || maxConcurrency > 4 {
+			return usageErr(fmt.Errorf("invalid --max-concurrency %d: choose 1 through 4", maxConcurrency))
+		}
+		if _, _, err := net.SplitHostPort(addr); err != nil {
+			return usageErr(fmt.Errorf("invalid --addr %q: must be host:port", addr))
+		}
+		return nil
+	}
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve the local OpenAI-compatible HTTP endpoint",
@@ -58,13 +67,7 @@ such as Tailscale, WireGuard, or an SSH tunnel. Native local supports streaming;
 			if err := noExtraArgs("serve")(cmd, args); err != nil {
 				return err
 			}
-			if maxConcurrency < 1 || maxConcurrency > 4 {
-				return usageErr(fmt.Errorf("invalid --max-concurrency %d: choose 1 through 4", maxConcurrency))
-			}
-			if _, _, err := net.SplitHostPort(addr); err != nil {
-				return usageErr(fmt.Errorf("invalid --addr %q: must be host:port", addr))
-			}
-			return nil
+			return validateServeFlags(cmd, args)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if maxConcurrency < 1 || maxConcurrency > 4 {
@@ -186,6 +189,7 @@ such as Tailscale, WireGuard, or an SSH tunnel. Native local supports streaming;
 	cmd.Flags().BoolVar(&allowRemote, "allow-remote", false, "Allow a non-loopback bind when authentication is configured")
 	cmd.Flags().BoolVar(&noAuth, "no-auth", false, "Allow unauthenticated access on a resolved loopback address only")
 	cmd.Flags().IntVar(&maxConcurrency, "max-concurrency", 1, "Maximum simultaneous model runs (1-4)")
+	flags.checkFlagsBeforeHelp(cmd, validateServeFlags)
 	return cmd
 }
 

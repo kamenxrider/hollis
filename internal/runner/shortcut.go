@@ -156,8 +156,12 @@ func validateImageRequestShape(model Model, prompt string, imagePaths []string) 
 	if !spec.Capabilities.Images {
 		return usage(errors.New(spec.ImageRestriction))
 	}
-	if spec.Capabilities.MaxImages == 1 && len(imagePaths) != 1 {
-		return usage(fmt.Errorf("%s accepts exactly one --image; multiple image paths were unreliable in testing", model))
+	if limit := spec.Capabilities.MaxImages; len(imagePaths) > limit {
+		message := fmt.Sprintf("model %s accepts at most %d images", model, limit)
+		if limit == 1 {
+			message = fmt.Sprintf("%s accepts exactly one --image; multiple image paths were unreliable in testing", model)
+		}
+		return &Error{Kind: KindUnsupportedParameter, ExitCode: -1, Err: errors.New(message)}
 	}
 	if spec.Transport == TransportNative {
 		// Native staging owns content and descriptor validation and returns

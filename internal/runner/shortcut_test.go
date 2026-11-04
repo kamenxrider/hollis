@@ -255,7 +255,8 @@ func TestImageRequestValidationRefusesUnsafeShapesWithoutSpawn(t *testing.T) {
 			r, dir := runnerWithFake(t, "echo-image")
 			_, _, err := r.RunWithImages(context.Background(), tc.model, tc.prompt, tc.paths)
 			var runErr *Error
-			if !errors.As(err, &runErr) || (runErr.Kind != KindUsage && runErr.Kind != KindEmptyPrompt) {
+			if !errors.As(err, &runErr) || (runErr.Kind != KindUsage && runErr.Kind != KindEmptyPrompt &&
+				!(tc.name == "chatgpt multiple" && runErr.Kind == KindUnsupportedParameter)) {
 				t.Fatalf("err=%v, want usage/empty-prompt runner error", err)
 			}
 			if _, statErr := os.Stat(filepath.Join(dir, "count.txt")); !errors.Is(statErr, os.ErrNotExist) {
@@ -267,22 +268,26 @@ func TestImageRequestValidationRefusesUnsafeShapesWithoutSpawn(t *testing.T) {
 
 func TestImagePolicyMessagesArePinned(t *testing.T) {
 	one := writeTestImage(t, "one.png")
+	four := []string{one, one, one, one}
 	for _, tc := range []struct {
 		model Model
 		paths []string
+		kind  Kind
 		want  string
 	}{
-		{ModelChatGPT, []string{one, one}, "chatgpt accepts exactly one --image; multiple image paths were unreliable in testing"},
-		{ModelOnDevice, []string{one}, "--image is unavailable with on-device: the tested Shortcut ignored the pixels"},
-		{ModelAuto, []string{one}, "--image is unavailable with auto because auto can fall back to on-device"},
-		{Model("unknown"), []string{one}, `unknown model: "unknown"`},
+		{ModelChatGPT, []string{one, one}, KindUnsupportedParameter, "chatgpt accepts exactly one --image; multiple image paths were unreliable in testing"},
+		{ModelCloud, four, KindUnsupportedParameter, "model cloud accepts at most 3 images"},
+		{ModelCloudPro, four, KindUnsupportedParameter, "model cloud-pro accepts at most 3 images"},
+		{ModelOnDevice, []string{one}, KindUsage, "--image is unavailable with on-device: the tested Shortcut ignored the pixels"},
+		{ModelAuto, []string{one}, KindUsage, "--image is unavailable with auto because auto can fall back to on-device"},
+		{Model("unknown"), []string{one}, KindUsage, `unknown model: "unknown"`},
 	} {
 		t.Run(string(tc.model), func(t *testing.T) {
 			r, dir := runnerWithFake(t, "echo-image")
 			_, _, err := r.RunWithImages(context.Background(), tc.model, "describe", tc.paths)
 			var runErr *Error
-			if !errors.As(err, &runErr) || runErr.Kind != KindUsage || runErr.Err.Error() != tc.want {
-				t.Fatalf("err=%v, want usage message %q", err, tc.want)
+			if !errors.As(err, &runErr) || runErr.Kind != tc.kind || runErr.Err.Error() != tc.want {
+				t.Fatalf("err=%v, want %s message %q", err, tc.kind, tc.want)
 			}
 			if _, err := os.Stat(filepath.Join(dir, "count.txt")); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("invalid request reached transport: %v", err)

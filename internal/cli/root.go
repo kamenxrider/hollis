@@ -28,6 +28,17 @@ type rootFlags struct {
 	selectFields string
 	resultSchema *fieldSchema
 	helpError    error
+	// helpFlagChecks validate flag values for a bare <command> --help, where
+	// argument validation is skipped so that commands needing arguments can
+	// still show help.
+	helpFlagChecks map[*cobra.Command]cobra.PositionalArgs
+}
+
+func (f *rootFlags) checkFlagsBeforeHelp(cmd *cobra.Command, check cobra.PositionalArgs) {
+	if f.helpFlagChecks == nil {
+		f.helpFlagChecks = map[*cobra.Command]cobra.PositionalArgs{}
+	}
+	f.helpFlagChecks[cmd] = check
 }
 
 // newRunnerFunc lets tests substitute a fake runner.
@@ -234,6 +245,11 @@ See README.md for recipes.`,
 			return err
 		}
 		if helpRequested {
+			if check := flags.helpFlagChecks[cmd]; check != nil && len(args) == 0 {
+				if err := check(cmd, args); err != nil {
+					return err
+				}
+			}
 			// Hollis installs a deferred help flag so all global contract
 			// validation above runs before Cobra renders help.
 			return pflag.ErrHelp
@@ -260,7 +276,7 @@ See README.md for recipes.`,
 	rootCmd.InitDefaultCompletionCmd()
 	makeGroupParentsStrict(rootCmd, &flags)
 	installDeferredHelpFlags(rootCmd, &helpRequested)
-	wrapArgErrors(rootCmd)
+	wrapArgErrors(rootCmd, &helpRequested)
 	return rootCmd, &flags
 }
 
@@ -322,9 +338,15 @@ func newStrictHelpCommand(root *cobra.Command) *cobra.Command {
 	}
 }
 
-func wrapArgErrors(command *cobra.Command) {
+func wrapArgErrors(command *cobra.Command, helpRequested *bool) {
 	if validate := command.Args; validate != nil {
 		command.Args = func(cmd *cobra.Command, args []string) error {
+			// Bare <command> --help must show help even when the command
+			// requires arguments. Help with supplied arguments stays strict
+			// so invalid input cannot become exit 0.
+			if *helpRequested && len(args) == 0 {
+				return nil
+			}
 			err := validate(cmd, args)
 			if err == nil {
 				return nil
@@ -337,7 +359,7 @@ func wrapArgErrors(command *cobra.Command) {
 		}
 	}
 	for _, child := range command.Commands() {
-		wrapArgErrors(child)
+		wrapArgErrors(child, helpRequested)
 	}
 }
 
@@ -420,7 +442,7 @@ func toCLIError(err error) error {
 	case runner.KindInvalidDocument, runner.KindExtractNoText:
 		// The helper read the document and could not produce text from it.
 		return executionErr(string(re.Kind), err.Error())
-	case runner.KindUnsupportedMedia, runner.KindExtractMediaMismatch, runner.KindPageOutOfRange:
+	case runner.KindUnsupportedMedia, runner.KindExtractMediaMismatch, runner.KindPageOutOfRange, runner.KindUnsupportedParameter:
 		return codedUsageErr(string(re.Kind), err)
 	case runner.KindToolRoundCap, runner.KindToolCallInvalid:
 		// Loop faults: neither the helper nor the request was wrong, but the

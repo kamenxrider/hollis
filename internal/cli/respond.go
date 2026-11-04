@@ -39,6 +39,62 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		toolChoice string
 		mcpOptions mcpFlags
 	)
+	validateRespondFlags := func(cmd *cobra.Command, args []string) error {
+		if err := validateTimeout(cmd, timeout); err != nil {
+			return err
+		}
+		if cmd.Flags().Changed("model") && !runner.Model(model).Valid() {
+			return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", model))
+		}
+		_, promptArgs, _ := splitRespondModelArgs(cmd, args)
+		hasPromptFile := cmd.Flags().Changed("prompt-file")
+		if hasPromptFile && len(promptArgs) > 0 {
+			return usageErr(errors.New("choose exactly one instruction source: positional text or --prompt-file"))
+		}
+		if len(documents) > 0 && len(images) > 0 {
+			return usageErr(errors.New("--file cannot be combined with --image"))
+		}
+		if cmd.Flags().Changed("pages") {
+			if len(images) > 0 {
+				return pagesErr(errors.New("--pages selects PDF pages and cannot be combined with --image"))
+			}
+			if len(documents) != 1 {
+				return pagesErr(fmt.Errorf("--pages requires exactly one --file, and it must be a PDF (got %d --file)", len(documents)))
+			}
+			if _, err := parsePages(pageSpecs); err != nil {
+				return err
+			}
+		}
+		if cmd.Flags().Changed("schema") && len(images) > 0 {
+			return usageErr(errors.New("--schema cannot be combined with --image: guided output is text-only"))
+		}
+		if code {
+			if flags.asJSON || flags.agent {
+				return usageErr(errors.New("--code cannot be combined with JSON or agent output"))
+			}
+			if cmd.Flags().Changed("stream") && stream {
+				return usageErr(errors.New("--code is complete-only and cannot be combined with --stream"))
+			}
+			if cmd.Flags().Changed("schema") {
+				return usageErr(errors.New("--code cannot be combined with --schema: guided output is an object, not code"))
+			}
+		}
+		if err := validateToolFlags(cmd, flags, len(images) > 0); err != nil {
+			return err
+		}
+		if err := mcpOptions.validate(cmd); err != nil {
+			return err
+		}
+		// File input accepts piped stdin as its instruction, so the
+		// presence of that source is decided in RunE, where stdin can be
+		// probed without blocking. Here only explicit sources are checked.
+		if len(promptArgs) > 0 {
+			if err := chat.ValidatePrompt(strings.Join(promptArgs, " ")); err != nil {
+				return usageErr(err)
+			}
+		}
+		return nil
+	}
 	cmd := &cobra.Command{
 		Use:   "respond [prompt]",
 		Short: "Send one prompt to Apple Intelligence and print the plain-text response",
@@ -106,62 +162,7 @@ without another model round or a new resume protocol.`,
   hollis respond --code "Write a Go function that reverses a slice" > reverse.go
   hollis respond --model local --tools tools.json "What is the weather in Tokyo?"
   hollis respond --agent "Return strict JSON describing X"`,
-		Args: func(cmd *cobra.Command, args []string) error {
-			if err := validateTimeout(cmd, timeout); err != nil {
-				return err
-			}
-			if cmd.Flags().Changed("model") && !runner.Model(model).Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", model))
-			}
-			_, promptArgs, _ := splitRespondModelArgs(cmd, args)
-			hasPromptFile := cmd.Flags().Changed("prompt-file")
-			if hasPromptFile && len(promptArgs) > 0 {
-				return usageErr(errors.New("choose exactly one instruction source: positional text or --prompt-file"))
-			}
-			if len(documents) > 0 && len(images) > 0 {
-				return usageErr(errors.New("--file cannot be combined with --image"))
-			}
-			if cmd.Flags().Changed("pages") {
-				if len(images) > 0 {
-					return pagesErr(errors.New("--pages selects PDF pages and cannot be combined with --image"))
-				}
-				if len(documents) != 1 {
-					return pagesErr(fmt.Errorf("--pages requires exactly one --file, and it must be a PDF (got %d --file)", len(documents)))
-				}
-				if _, err := parsePages(pageSpecs); err != nil {
-					return err
-				}
-			}
-			if cmd.Flags().Changed("schema") && len(images) > 0 {
-				return usageErr(errors.New("--schema cannot be combined with --image: guided output is text-only"))
-			}
-			if code {
-				if flags.asJSON || flags.agent {
-					return usageErr(errors.New("--code cannot be combined with JSON or agent output"))
-				}
-				if cmd.Flags().Changed("stream") && stream {
-					return usageErr(errors.New("--code is complete-only and cannot be combined with --stream"))
-				}
-				if cmd.Flags().Changed("schema") {
-					return usageErr(errors.New("--code cannot be combined with --schema: guided output is an object, not code"))
-				}
-			}
-			if err := validateToolFlags(cmd, flags, len(images) > 0); err != nil {
-				return err
-			}
-			if err := mcpOptions.validate(cmd); err != nil {
-				return err
-			}
-			// File input accepts piped stdin as its instruction, so the
-			// presence of that source is decided in RunE, where stdin can be
-			// probed without blocking. Here only explicit sources are checked.
-			if len(promptArgs) > 0 {
-				if err := chat.ValidatePrompt(strings.Join(promptArgs, " ")); err != nil {
-					return usageErr(err)
-				}
-			}
-			return nil
-		},
+		Args: validateRespondFlags,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			timeout, err := effectiveTimeout(cmd, timeout, runner.DefaultTimeout)
 			if err != nil {
@@ -524,6 +525,7 @@ without another model round or a new resume protocol.`,
 	cmd.Flags().StringVar(&toolChoice, "tool-choice", string(runner.ToolChoiceAuto), "With --tools: auto (default) lets the model call a tool; none keeps tools out of the prompt")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	mcpOptions.addTo(cmd)
+	flags.checkFlagsBeforeHelp(cmd, validateRespondFlags)
 	return cmd
 }
 

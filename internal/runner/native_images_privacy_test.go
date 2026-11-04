@@ -133,7 +133,7 @@ func TestNativeImageShapeValidationDefersPrivatePathsToStaging(t *testing.T) {
 		t.Fatal("shape validation inspected the private source before native staging")
 	}
 	err := ValidateImageRequest(ModelLocal, "Describe", []string{"/PRIVATE_SOURCE_CANARY/a.png", "/PRIVATE_SOURCE_CANARY/b.png"})
-	requireNativeKind(t, err, KindUsage)
+	requireNativeKind(t, err, KindUnsupportedParameter)
 	if strings.Contains(err.Error(), "CANARY") || !strings.Contains(err.Error(), "exactly one") {
 		t.Fatal("count refusal lost its safe maximum")
 	}

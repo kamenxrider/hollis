@@ -114,14 +114,17 @@ const (
 	KindShortcutMissing      Kind = "shortcut_missing"   // confirmed by Apple error text
 	KindRateLimited          Kind = "rate_limited"       // explicit rate-limit text from Apple
 	KindUsage                Kind = "usage"              // exit 64
-	KindSIGABRT              Kind = "sigabrt"            // exit 134 (the -o /dev/stdout crash; never used by us)
-	KindSignal               Kind = "signal"             // another real Unix signal terminated the child
-	KindTimeout              Kind = "timeout"            // deadline hit, child killed
-	KindContextCanceled      Kind = "context_canceled"   // caller canceled before/during run
-	KindListFailure          Kind = "list_failure"       // `shortcuts list` transport failure
-	KindTransport            Kind = "transport"          // staging, launch, or pipe failure
-	KindRequestDeclined      Kind = "request_declined"   // Apple asked for a different description; cause unknown
-	KindShortcutFailed       Kind = "shortcut_failed"    // unrecognized unsuccessful execution
+	// KindUnsupportedParameter is a well-formed request that exceeds a route
+	// limit, such as its image count, refused before any staging or spawn.
+	KindUnsupportedParameter Kind = "unsupported_parameter"
+	KindSIGABRT              Kind = "sigabrt"          // exit 134 (the -o /dev/stdout crash; never used by us)
+	KindSignal               Kind = "signal"           // another real Unix signal terminated the child
+	KindTimeout              Kind = "timeout"          // deadline hit, child killed
+	KindContextCanceled      Kind = "context_canceled" // caller canceled before/during run
+	KindListFailure          Kind = "list_failure"     // `shortcuts list` transport failure
+	KindTransport            Kind = "transport"        // staging, launch, or pipe failure
+	KindRequestDeclined      Kind = "request_declined" // Apple asked for a different description; cause unknown
+	KindShortcutFailed       Kind = "shortcut_failed"  // unrecognized unsuccessful execution
 	// The tool loop's own faults. Neither the helper nor the caller's request
 	// was wrong; the loop could not converge. They are deliberately not
 	// native_protocol, which is reserved for component mismatch.

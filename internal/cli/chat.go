@@ -261,6 +261,36 @@ func newChatCmdWithImageGenerator(flags *rootFlags, newRunner newRunnerFunc, gen
 		outputOptions  imagegen.OutputOptions
 		mcpOptions     mcpFlags
 	)
+	validateChatFlags := func(cmd *cobra.Command, args []string) error {
+		if err := mcpOptions.validate(cmd); err != nil {
+			return err
+		}
+		if err := validateTimeout(cmd, timeout); err != nil {
+			return err
+		}
+		posModel, promptArgs, hasPosModel := splitModelArgs(args)
+		if generateImage && ((hasPosModel && posModel == string(runner.ModelLocal)) || (!hasPosModel && cmd.Flags().Changed("model") && modelFlag == string(runner.ModelLocal))) {
+			return usageErr(errors.New("local does not support image generation"))
+		}
+		if continueID != "" && (hasPosModel || cmd.Flags().Changed("model")) {
+			return usageErr(errors.New("--continue uses the conversation's stored model; do not pass --model or a positional model"))
+		}
+		if continueID == "" && cmd.Flags().Changed("model") && !runner.Model(modelFlag).Valid() {
+			return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", modelFlag))
+		}
+		if len(promptArgs) > 0 {
+			if err := chat.ValidatePrompt(strings.Join(promptArgs, " ")); err != nil {
+				return usageErr(err)
+			}
+		}
+		if err := validateChatImageFlags(cmd, chatImageOptions{
+			Enabled: generateImage, Style: imageStyle, Bridge: imageBridge, Reference: imageReference,
+			Output: imageOutput, Timeout: timeout, Generator: generator, OutputOptions: outputOptions,
+		}); err != nil {
+			return err
+		}
+		return nil
+	}
 	cmd := &cobra.Command{
 		Use:   "chat [prompt]",
 		Short: "Persistent chat: one-shot via argument/stdin, or interactive in a terminal",
@@ -291,36 +321,7 @@ they do not control Image Playground's native generation canvas.`,
   hollis chat --continue <id> "And the downside?"
   printf 'question' | hollis chat --continue <id>
   hollis chat --continue <id> --generate-image --image-style illustration --output scene.png "Draw that scene"`,
-		Args: func(cmd *cobra.Command, args []string) error {
-			if err := mcpOptions.validate(cmd); err != nil {
-				return err
-			}
-			if err := validateTimeout(cmd, timeout); err != nil {
-				return err
-			}
-			posModel, promptArgs, hasPosModel := splitModelArgs(args)
-			if generateImage && ((hasPosModel && posModel == string(runner.ModelLocal)) || (!hasPosModel && cmd.Flags().Changed("model") && modelFlag == string(runner.ModelLocal))) {
-				return usageErr(errors.New("local does not support image generation"))
-			}
-			if continueID != "" && (hasPosModel || cmd.Flags().Changed("model")) {
-				return usageErr(errors.New("--continue uses the conversation's stored model; do not pass --model or a positional model"))
-			}
-			if continueID == "" && cmd.Flags().Changed("model") && !runner.Model(modelFlag).Valid() {
-				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", modelFlag))
-			}
-			if len(promptArgs) > 0 {
-				if err := chat.ValidatePrompt(strings.Join(promptArgs, " ")); err != nil {
-					return usageErr(err)
-				}
-			}
-			if err := validateChatImageFlags(cmd, chatImageOptions{
-				Enabled: generateImage, Style: imageStyle, Bridge: imageBridge, Reference: imageReference,
-				Output: imageOutput, Timeout: timeout, Generator: generator, OutputOptions: outputOptions,
-			}); err != nil {
-				return err
-			}
-			return nil
-		},
+		Args: validateChatFlags,
 		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			var session *mcpSession
 			defer func() {
@@ -535,6 +536,7 @@ they do not control Image Playground's native generation canvas.`,
 	cmd.Flags().StringVar(&outputOptions.Size, "size", "", "Output size WIDTHxHEIGHT; requires --fit crop|pad, mutually exclusive with --aspect-ratio")
 	cmd.Flags().StringVar(&outputOptions.Fit, "fit", "", "Explicit output processing: crop or pad; requires --aspect-ratio or --size")
 	mcpOptions.addTo(cmd)
+	flags.checkFlagsBeforeHelp(cmd, validateChatFlags)
 	return cmd
 }
 

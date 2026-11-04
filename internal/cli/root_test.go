@@ -16,6 +16,7 @@ import (
 
 	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/kamenxrider/hollis/internal/store"
+	"github.com/spf13/cobra"
 )
 
 // stubConfigPath points the config loader at a fresh temp dir for the
@@ -339,6 +340,54 @@ func TestRespondImageAllowsMeasuredFilesPerTier(t *testing.T) {
 				if r.imagePaths[i] != path {
 					t.Fatalf("image path %d=%q, want %q", i, r.imagePaths[i], path)
 				}
+			}
+		})
+	}
+}
+
+func TestRespondImageCountLimitPerRoute(t *testing.T) {
+	stubConfigPath(t)
+	one := writeCLIImage(t, "one.png")
+	images := func(n int) []string {
+		paths := make([]string, n)
+		for i := range paths {
+			paths[i] = one
+		}
+		return paths
+	}
+	for _, tc := range []struct {
+		model string
+		count int
+		want  string
+	}{
+		{model: "cloud", count: 3},
+		{model: "cloud-pro", count: 3},
+		{model: "cloud", count: 4, want: "model cloud accepts at most 3 images"},
+		{model: "cloud-pro", count: 4, want: "model cloud-pro accepts at most 3 images"},
+		{model: "chatgpt", count: 2, want: "chatgpt accepts exactly one --image"},
+	} {
+		t.Run(fmt.Sprintf("%s/%d", tc.model, tc.count), func(t *testing.T) {
+			r := &imageRecordingRunner{}
+			cmd := NewRootCmd(func() runner.Runner { return r })
+			args := []string{"respond", "--model", tc.model}
+			for _, path := range images(tc.count) {
+				args = append(args, "--image", path)
+			}
+			cmd.SetArgs(append(args, "Describe them"))
+			cmd.SetIn(&bytes.Buffer{})
+			cmd.SetOut(&bytes.Buffer{})
+			err := cmd.Execute()
+			if tc.want == "" {
+				if err != nil || r.calls != 1 || len(r.imagePaths) != tc.count {
+					t.Fatalf("err=%v calls=%d images=%d, want one call with %d images", err, r.calls, len(r.imagePaths), tc.count)
+				}
+				return
+			}
+			if ExitCode(err) != 2 || errorCode(err) != "unsupported_parameter" || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err=%v exit=%d code=%s, want unsupported_parameter %q", err, ExitCode(err), errorCode(err), tc.want)
+			}
+			if r.calls != 0 {
+				t.Fatalf("runner calls=%d, want 0", r.calls)
 			}
 		})
 	}
@@ -1254,6 +1303,41 @@ func TestHelpDoesNotBypassGlobalFlagContracts(t *testing.T) {
 	}
 	if !json.Valid(out.Bytes()) || !strings.Contains(out.String(), `"command":"hollis respond"`) {
 		t.Fatalf("selected JSON help=%q", out.String())
+	}
+}
+
+func TestEveryCommandShowsHelpWithoutArguments(t *testing.T) {
+	stubConfigPath(t)
+	var paths [][]string
+	var walk func(*cobra.Command, []string)
+	walk = func(command *cobra.Command, path []string) {
+		paths = append(paths, path)
+		for _, child := range command.Commands() {
+			walk(child, append(append([]string(nil), path...), child.Name()))
+		}
+	}
+	walk(NewRootCmd(func() runner.Runner { return &fakeRunner{} }), nil)
+	if len(paths) < 10 {
+		t.Fatalf("command tree walk found only %d commands", len(paths))
+	}
+	for _, path := range paths {
+		for _, flag := range []string{"--help", "-h"} {
+			args := append(append([]string(nil), path...), flag)
+			t.Run(strings.Join(args, " "), func(t *testing.T) {
+				cmd := NewRootCmd(func() runner.Runner { return &fakeRunner{} })
+				cmd.SetArgs(args)
+				cmd.SetIn(&bytes.Buffer{})
+				var out bytes.Buffer
+				cmd.SetOut(&out)
+				cmd.SetErr(&bytes.Buffer{})
+				if err := cmd.Execute(); err != nil {
+					t.Fatalf("err=%v exit=%d, want help with exit 0", err, ExitCode(err))
+				}
+				if !strings.Contains(out.String(), "Usage:") {
+					t.Fatalf("help output missing usage: %q", out.String())
+				}
+			})
+		}
 	}
 }
 
