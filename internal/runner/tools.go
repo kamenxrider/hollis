@@ -479,7 +479,8 @@ func malformedToolAttemptNames(text string) []string {
 // roundOutcome is what one round's text means once detected and normalized.
 type roundOutcome struct {
 	// plain is true when the text is the final answer: no candidate, or a
-	// candidate in which no element calls an offered tool.
+	// candidate in which no element calls an offered tool, and no
+	// "tool_calls" marker beside a quoted offered name.
 	plain bool
 	calls []ToolCall
 	// fault is a fixed, repairable validation reason; framing marks the
@@ -498,7 +499,49 @@ func interpretRound(text string, tools []Tool, round int, used map[string]bool) 
 	return interpretOfferedRound(text, offered, round, used)
 }
 
+// interpretOfferedRound applies the shape-specific rules first, then one
+// backstop: a reply that would be plain text but carries a "tool_calls"
+// marker and quotes an offered tool's name is a broken call attempt, so it is
+// corrected rather than delivered as the answer. Nothing in it is executed.
 func interpretOfferedRound(text string, tools []loopTool, round int, used map[string]bool) roundOutcome {
+	outcome := interpretRoundShape(text, tools, round, used)
+	if outcome.plain && strings.Contains(text, `"tool_calls"`) && quotesOfferedName(text, tools) {
+		return roundOutcome{fault: "the tool-call reply is not valid JSON"}
+	}
+	return outcome
+}
+
+// quotesOfferedName reports whether text contains an offered tool's name as a
+// JSON string, either exactly or as the prefix-less name of exactly one MCP
+// tool. Offered names never need escaping, so a plain substring is exact.
+func quotesOfferedName(text string, tools []loopTool) bool {
+	if len(text) > maxDetectionSteps {
+		return false
+	}
+	for _, tool := range tools {
+		if strings.Contains(text, `"`+tool.name+`"`) {
+			return true
+		}
+		if !tool.mcp {
+			continue
+		}
+		for rest := tool.name; ; {
+			_, after, found := strings.Cut(rest, "__")
+			if !found {
+				break
+			}
+			if strings.Contains(text, `"`+after+`"`) {
+				if _, ok := declaredMCPName(after, tools); ok {
+					return true
+				}
+			}
+			rest = after
+		}
+	}
+	return false
+}
+
+func interpretRoundShape(text string, tools []loopTool, round int, used map[string]bool) roundOutcome {
 	elements, found := detectToolCalls(text)
 	if !found {
 		offeredName := func(name string) bool {

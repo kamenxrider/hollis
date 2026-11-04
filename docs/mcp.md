@@ -40,9 +40,11 @@ Each user turn admits at most three model generations, including argument
 corrections and final synthesis. Models see each MCP tool as
 `<server>__<tool>`. A call that names only `<tool>`, when exactly one attached
 server offers it, is corrected once with the declared name; it never runs as
-written and is never renamed. If the corrected reply is still wrong, the run
-fails with `tool_call_invalid`. Arguments for locally validated tools are
-checked before approval or execution. For server-validated tools, Hollis checks
+written and is never renamed. Any reply that contains `"tool_calls"` and quotes
+a declared or uniquely matching tool name is treated as a call attempt and
+corrected once, however broken it is; nothing in it runs. If the corrected
+reply is still wrong, the run fails with `tool_call_invalid`. Arguments for
+locally validated tools are checked before approval or execution. For server-validated tools, Hollis checks
 only a bounded JSON object, without coercion or defaults, then asks with the
 full arguments and a notice that the server validates them.
 

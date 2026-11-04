@@ -276,16 +276,16 @@ tool's `parameters` must fit the [guided-output subset](#guided-output);
 string length, pattern and format are not enforced. Arguments are validated
 before they are printed, an invalid call gets one repair round, and after that
 the command fails with `tool_call_invalid` (exit 5). The same correction covers
-unparseable JSON with a recognizable single-call header naming an offered
-tool; argument values are never guessed. Other unparseable replies, including
-ambiguous headers or multiple-call attempts, remain text rather than being
-partially salvaged. A reply that names a tool you did not offer is printed as
-text. When MCP tools are attached, a call whose name matches exactly one MCP
-tool's name after its `<server>__` prefix is not text: it gets the same
+any reply that contains `"tool_calls"` and quotes an offered tool's name,
+however broken its JSON; argument values are never guessed and nothing in
+such a reply runs or is partially salvaged. A reply that names no offered
+tool is printed as text. When MCP tools are attached, a call whose name
+matches exactly one MCP tool's name after its `<server>__` prefix is not text: it gets the same
 single correction round, which names the declared tool. The prefix-less call
 is never run or renamed; only a corrected reply can run. A name that matches
-no MCP tool, or several, is handled as above. Each loop has a three-call
-budget, including repairs, final answers and `none`; visible prior tool-call turns consume budget too. A fourth dispatch or
+no MCP tool, or several, is not an offered name. Each loop has a three-call
+budget, including repairs, final answers and `none`; visible prior tool-call
+turns consume budget too. A fourth dispatch or
 a tool call at the cap fails with `tool_round_cap` (exit 5). Hidden repairs from
 earlier stateless requests cannot be reconstructed, so this is not a global
 cross-request quota. The `rounds` field counts new dispatches in this request.
