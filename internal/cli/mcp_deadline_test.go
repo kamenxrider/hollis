@@ -14,10 +14,10 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestReviewStepEChatAttachSharesTimeout(t *testing.T) {
+func TestMCPChatAttachSharesTimeout(t *testing.T) {
 	stubMCPChatStore(t)
 	stubMCP(t)
-	server := sdk.NewServer(&sdk.Implementation{Name: "deadline-review-fixture", Version: "1"}, nil)
+	server := sdk.NewServer(&sdk.Implementation{Name: "deadline-fixture", Version: "1"}, nil)
 	server.AddTool(&sdk.Tool{
 		Name:        "read",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
@@ -56,7 +56,7 @@ func TestReviewStepEChatAttachSharesTimeout(t *testing.T) {
 	}
 }
 
-func TestReviewStepEStopAfterUnusableFramedResult(t *testing.T) {
+func TestMCPStopAfterUnusableFramedResult(t *testing.T) {
 	stubMCP(t)
 	url, calls := newLoopServer(t, false, &sdk.CallToolResult{
 		Content: []sdk.Content{&sdk.TextContent{Text: strings.Repeat("x", 200000)}},
