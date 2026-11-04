@@ -280,8 +280,12 @@ unparseable JSON with a recognizable single-call header naming an offered
 tool; argument values are never guessed. Other unparseable replies, including
 ambiguous headers or multiple-call attempts, remain text rather than being
 partially salvaged. A reply that names a tool you did not offer is printed as
-text. Each loop has a three-call budget, including repairs, final answers and
-`none`; visible prior tool-call turns consume budget too. A fourth dispatch or
+text. When MCP tools are attached, a call whose name matches exactly one MCP
+tool's name after its `<server>__` prefix is not text: it gets the same
+single correction round, which names the declared tool. The prefix-less call
+is never run or renamed; only a corrected reply can run. A name that matches
+no MCP tool, or several, is handled as above. Each loop has a three-call
+budget, including repairs, final answers and `none`; visible prior tool-call turns consume budget too. A fourth dispatch or
 a tool call at the cap fails with `tool_round_cap` (exit 5). Hidden repairs from
 earlier stateless requests cannot be reconstructed, so this is not a global
 cross-request quota. The `rounds` field counts new dispatches in this request.

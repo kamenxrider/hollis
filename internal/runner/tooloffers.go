@@ -89,6 +89,7 @@ type loopTool struct {
 	name           string
 	representation toolRepresentation
 	parameters     *Schema
+	mcp            bool
 }
 
 func prepareToolOffers(c ToolConversation) ([]loopTool, ToolRoundRequest, error) {
@@ -125,7 +126,7 @@ func prepareToolOffers(c ToolConversation) ([]loopTool, ToolRoundRequest, error)
 		default:
 			return toolDefinitionError("invalid tool offer tag")
 		}
-		tools = append(tools, loopTool{name: name, representation: representation, parameters: parameters})
+		tools = append(tools, loopTool{name: name, representation: representation, parameters: parameters, mcp: source == "mcp"})
 		return nil
 	}
 	for _, tool := range c.Tools {

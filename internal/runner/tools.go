@@ -509,18 +509,33 @@ func interpretOfferedRound(text string, tools []loopTool, round int, used map[st
 			}
 			return false
 		}
-		if name := malformedToolAttemptName(text); name != "" && offeredName(name) {
+		name := malformedToolAttemptName(text)
+		if name != "" && offeredName(name) {
 			return roundOutcome{fault: "the tool-call reply is not valid JSON"}
 		}
+		if declared, ok := declaredMCPName(name, tools); ok {
+			return roundOutcome{fault: declaredNameFault(declared)}
+		}
 		if names := malformedToolAttemptNames(text); len(names) > 1 {
+			tooMany := roundOutcome{framing: true, fault: fmt.Sprintf("the reply contained more tool calls than the %d allowed in one round", MaxToolCallsPerRound)}
 			for _, name := range names {
 				if !offeredName(name) {
 					continue
 				}
 				if len(names) > MaxToolCallsPerRound {
-					return roundOutcome{framing: true, fault: fmt.Sprintf("the reply contained more tool calls than the %d allowed in one round", MaxToolCallsPerRound)}
+					return tooMany
 				}
 				return roundOutcome{fault: "the tool-call reply is not valid JSON"}
+			}
+			for _, name := range names {
+				declared, ok := declaredMCPName(name, tools)
+				if !ok {
+					continue
+				}
+				if len(names) > MaxToolCallsPerRound {
+					return tooMany
+				}
+				return roundOutcome{fault: declaredNameFault(declared)}
 			}
 		}
 		return roundOutcome{plain: true}
@@ -542,13 +557,20 @@ func interpretOfferedRound(text string, tools []loopTool, round int, used map[st
 	}
 	parsed := make([]pending, 0, len(elements))
 	stray := false
+	declared := ""
 	for _, element := range elements {
 		name, arguments, present, id, ok := callShape(element)
 		if !ok || offered[name] == nil {
 			stray = true
+			if match, found := declaredMCPName(name, tools); ok && found && declared == "" {
+				declared = match
+			}
 			continue
 		}
 		parsed = append(parsed, pending{id: id, name: name, arguments: arguments, present: present})
+	}
+	if declared != "" {
+		return roundOutcome{fault: declaredNameFault(declared)}
 	}
 	// A reply that calls no offered tool is the answer, delivered verbatim and
 	// never executed. Once any element calls an offered tool, the reply is a
@@ -600,6 +622,34 @@ func interpretOfferedRound(text string, tools []loopTool, round int, used map[st
 		calls = append(calls, ToolCall{ID: id, Name: call.name, Arguments: encoded})
 	}
 	return roundOutcome{calls: calls}
+}
+
+// declaredMCPName finds the one MCP offer whose declared name is name behind
+// a "<server>__" prefix. Models often call a server's tool by its own name.
+// The match only names the declared tool in a correction; the prefix-less
+// call is never aliased or executed. Zero or several matches return false,
+// leaving the reply to the ordinary rules.
+func declaredMCPName(name string, tools []loopTool) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	match := ""
+	for _, tool := range tools {
+		if !tool.mcp {
+			continue
+		}
+		if prefix, found := strings.CutSuffix(tool.name, "__"+name); found && prefix != "" {
+			if match != "" {
+				return "", false
+			}
+			match = tool.name
+		}
+	}
+	return match, match != ""
+}
+
+func declaredNameFault(declared string) string {
+	return fmt.Sprintf("call the declared tool name %q", declared)
 }
 
 // callShape reads one tool_calls element. The canonical shape has a function
