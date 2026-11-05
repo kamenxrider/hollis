@@ -21,6 +21,7 @@ type ToolRoundRunner interface {
 
 // ToolRoundRequest keeps native metadata separate from the conversation.
 type ToolRoundRequest struct {
+	Native         *NativeToolStep
 	Prompt         string
 	Mode           string
 	Instructions   string
@@ -93,6 +94,9 @@ type ToolConversation struct {
 	Offers   []ToolOffer
 	Choice   ToolChoice
 	Messages []store.Message
+	Options  *GenerationOptions
+	// RoundLimit is internal configuration, not an API parameter.
+	RoundLimit int
 }
 
 // ToolOutcome is the loop's answer: either final text or validated calls.
@@ -108,185 +112,6 @@ type ToolOutcome struct {
 	// round reported them.
 	Usage  *Usage
 	Rounds int
-}
-
-// toolRepairNotice is the fixed repair template. reason is a fixed sentence
-// whose only variable parts are numbers, an offered tool name and a pointer
-// built from schema-authored property names; it never carries an argument
-// value.
-func toolRepairNotice(round int, reason string) string {
-	return fmt.Sprintf("Your previous reply in round %d was not a valid tool call: %s. Reply again with either exactly one JSON object of the form {\"tool_calls\":[...]} that follows the format and parameters above, or a plain-text answer if no tool is needed.", round, reason)
-}
-
-// RunToolLoop drives the out-of-band tool loop. Every round re-renders the
-// full transcript, is checked against the prompt budget before it spawns,
-// and runs as one complete helper request. One deadline, ctx's, covers every
-// round. The loop never retries after a refusal or rate limit; a round whose
-// call fails validation gets exactly one repair round.
-func RunToolLoop(ctx context.Context, r ToolRoundRunner, model Model, conversation ToolConversation, executor ToolExecutor) (ToolOutcome, error) {
-	outcome := ToolOutcome{Model: model}
-	if executor == nil {
-		executor = ReturnToCaller{}
-	}
-	if len(conversation.Messages) == 0 {
-		return outcome, nativeError(KindUsage, "tool conversation must not be empty")
-	}
-	messages := append([]store.Message(nil), conversation.Messages...)
-	outcome.Messages = append([]store.Message(nil), conversation.Messages...)
-	appendMessage := func(message store.Message) {
-		messages = append(messages, message)
-		outcome.Messages = append(outcome.Messages, message)
-	}
-	used := map[string]bool{}
-	for _, message := range messages {
-		if calls, ok := chat.DecodeToolCalls(message.Content); ok && message.Role == "assistant" {
-			for _, call := range calls {
-				used[call.ID] = true
-			}
-		}
-	}
-	usage, measured := Usage{}, true
-	prior := priorToolRounds(messages)
-	consumed := prior
-	capFailure := func() *Error {
-		return loopFault(KindToolRoundCap, fmt.Sprintf("tool loop reached its cap of %d model calls; %d visible prior tool turns and %d new calls used the budget", ToolRoundCap, prior, outcome.Rounds))
-	}
-	run := func(round int, request ToolRoundRequest) (Completion, error) {
-		if consumed >= ToolRoundCap {
-			return Completion{}, capFailure()
-		}
-		if err := nativeContextError(ctx); err != nil {
-			return Completion{}, err
-		}
-		if size := request.inputBytes(); size > NativeMaxPromptBytes {
-			err := nativeError(KindContextCapacity, fmt.Sprintf("tool round %d renders to %d bytes; the limit is %d bytes; nothing was truncated", round, size, NativeMaxPromptBytes))
-			err.PromptBytes = size
-			return Completion{}, err
-		}
-		consumed++
-		outcome.Rounds++
-		completion, err := r.RunToolRound(ctx, model, request)
-		if err != nil {
-			return completion, err
-		}
-		if err := nativeContextError(ctx); err != nil {
-			return completion, err
-		}
-		if completion.Usage == nil {
-			measured = false
-		} else {
-			usage.InputTokens += completion.Usage.InputTokens
-			usage.OutputTokens += completion.Usage.OutputTokens
-			usage.ReasoningTokens += completion.Usage.ReasoningTokens
-		}
-		return completion, nil
-	}
-	finish := func() {
-		if measured && outcome.Rounds > 0 {
-			total := usage
-			outcome.Usage = &total
-		}
-	}
-
-	if conversation.Choice == ToolChoiceNone {
-		// No tools are in scope, so nothing is rendered and nothing is
-		// detected: a call written anyway is delivered as plain text.
-		completion, err := run(1, ToolRoundRequest{Prompt: chat.RenderToolTranscript("", messages, ""), Mode: "disallowed"})
-		if err != nil {
-			return outcome, err
-		}
-		outcome.Text = completion.Text
-		finish()
-		return outcome, nil
-	}
-	if conversation.Choice != ToolChoiceAuto {
-		return outcome, nativeError(KindUsage, "tool_choice accepts only auto or none")
-	}
-	tools, request, err := prepareToolOffers(conversation)
-	if err != nil {
-		return outcome, err
-	}
-	if len(tools) == 0 {
-		return outcome, nativeError(KindUsage, "tool loop requires at least one tool")
-	}
-	round := prior + 1
-	for {
-		request.Prompt = chat.RenderToolTranscript("", messages, "")
-		completion, err := run(round, request)
-		if err != nil {
-			return outcome, err
-		}
-		result := interpretOfferedRound(completion.Text, tools, round, used)
-		if !result.plain && result.fault != "" && !result.framing {
-			notice := toolRepairNotice(round, result.fault)
-			request.Prompt = chat.RenderToolTranscript("", messages, notice)
-			completion, err = run(round, request)
-			if err != nil {
-				return outcome, err
-			}
-			result = interpretOfferedRound(completion.Text, tools, round, used)
-			if !result.plain && result.fault != "" {
-				return outcome, loopFault(KindToolCallInvalid, fmt.Sprintf("round %d produced an invalid tool call after its repair round: %s", round, result.fault))
-			}
-		}
-		if result.framing {
-			return outcome, loopFault(KindToolCallInvalid, fmt.Sprintf("round %d: %s", round, result.fault))
-		}
-		if result.plain {
-			outcome.Text = completion.Text
-			finish()
-			return outcome, nil
-		}
-		if consumed >= ToolRoundCap {
-			return outcome, capFailure()
-		}
-		assistant := store.Message{Role: "assistant", Content: chat.EncodeToolCalls(toolCallRecords(result.calls))}
-		admitted := append(append([]store.Message(nil), messages...), assistant)
-		admit := func(result ToolResult) error {
-			admitted = append(admitted, store.Message{Role: chat.RoleTool, Content: chat.EncodeToolResult(result.CallID, result.Output)})
-			next := request
-			next.Prompt = chat.RenderToolTranscript("", admitted, "")
-			if err := toolResultBudget(next); err != nil {
-				return err
-			}
-			return nativeContextError(ctx)
-		}
-		// An executor must not be able to mutate the originals used to verify
-		// its pending dispositions or the assistant envelope.
-		execution, execErr := executor.ExecuteTools(ctx, append([]ToolCall(nil), result.calls...), admit)
-		results, pending, matchErr := matchExecution(result.calls, execution, execErr != nil)
-		if matchErr != nil {
-			return outcome, matchErr
-		}
-		appendMessage(assistant)
-		for _, call := range result.calls {
-			used[call.ID] = true
-		}
-		for _, toolResult := range results {
-			appendMessage(store.Message{Role: chat.RoleTool, Content: chat.EncodeToolResult(toolResult.CallID, toolResult.Output)})
-		}
-		if execErr != nil {
-			finish()
-			return outcome, execErr
-		}
-		if err := nativeContextError(ctx); err != nil {
-			finish()
-			return outcome, err
-		}
-		if len(results) > 0 {
-			request.Prompt = chat.RenderToolTranscript("", messages, "")
-			if budgetErr := toolResultBudget(request); budgetErr != nil {
-				finish()
-				return outcome, budgetErr
-			}
-		}
-		if len(pending) > 0 {
-			outcome.Calls = pending
-			finish()
-			return outcome, nil
-		}
-		round++
-	}
 }
 
 func toolResultBudget(request ToolRoundRequest) error {
@@ -384,10 +209,11 @@ func loopFault(kind Kind, message string) *Error {
 // RunToolRound runs one tool round as a complete native request carrying
 // the helper tool-calling mode.
 func (r *NativeRunner) RunToolRound(ctx context.Context, model Model, request ToolRoundRequest) (Completion, error) {
-	if request.Mode == "" {
-		return Completion{Model: model}, nativeError(KindUsage, "tool round requires a tool-calling mode")
+	if request.Native == nil {
+		return Completion{Model: model}, nativeError(KindUsage, "Local tools require native typed history")
 	}
-	return r.RunCompleteWithOptions(ctx, model, request.Prompt, nativeOptions{ToolCalling: request.Mode, ToolInstructions: request.Instructions, ToolDefinitions: request.Definitions, RawToolDefinitions: request.RawDefinitions, HybridTools: request.Hybrid})
+	result, _, err := r.invoke(ctx, model, request.Native.Operation, "", nil, nil, nativeOptions{ToolStep: request.Native})
+	return result, err
 }
 
 // RunToolRound is native-only: Shortcut routes have no tool surface.

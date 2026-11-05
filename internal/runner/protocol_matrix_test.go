@@ -196,8 +196,9 @@ func TestNativeProbeInvalidatedByFileChange(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			count := filepath.Join(t.TempDir(), "probes")
 			marker := filepath.Join(t.TempDir(), "request")
+			current := strconv.Itoa(NativeProtocol)
 			script := "if [ \"$1\" = --protocol-version ]; then echo x >> '" + count +
-				"'; echo 3; exit 0; fi\n: > '" + marker + "'\n"
+				"'; echo " + current + "; exit 0; fi\n: > '" + marker + "'\n"
 			r := rawNative(t, script)
 			if err := r.negotiate(t.Context(), r.helperPath); err != nil {
 				t.Fatal(err)
@@ -210,7 +211,7 @@ func TestNativeProbeInvalidatedByFileChange(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			body = []byte(strings.Replace(string(body), "echo 3;", "echo 2;", 1))
+			body = []byte(strings.Replace(string(body), "echo "+current+";", "echo 2;", 1))
 			target := r.helperPath
 			if change == "inode" {
 				target += ".replacement"

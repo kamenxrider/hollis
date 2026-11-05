@@ -262,11 +262,12 @@ type Usage struct {
 // Structured is the validated guided-output object, and only a schema request
 // that passed independent validation sets it.
 type Completion struct {
-	Text       string
-	Model      Model
-	Usage      *Usage
-	Structured json.RawMessage
-	extraction *Extraction
+	NativeCalls []NativeToolCall
+	Text        string
+	Model       Model
+	Usage       *Usage
+	Structured  json.RawMessage
+	extraction  *Extraction
 }
 
 // CompleteRunner optionally provides measured response usage.

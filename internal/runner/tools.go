@@ -32,13 +32,13 @@ const (
 	ToolRoundCap = 3
 )
 
-// ToolChoice is the caller's tool policy. Only auto and none exist: a named
-// function is refused, and the SDK's stricter required mode is measured broken.
+// ToolChoice is auto, none, required, or function:NAME.
 type ToolChoice string
 
 const (
-	ToolChoiceAuto ToolChoice = "auto"
-	ToolChoiceNone ToolChoice = "none"
+	ToolChoiceAuto     ToolChoice = "auto"
+	ToolChoiceNone     ToolChoice = "none"
+	ToolChoiceRequired ToolChoice = "required"
 )
 
 // Tool is one validated caller tool. Its parameters fit the widened subset

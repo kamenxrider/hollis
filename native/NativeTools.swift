@@ -71,6 +71,7 @@ enum NativeTools {
     }
 
     struct Request: Decodable {
+        let operation: String
         let requestID: String
         let step: Int
         let remainingSteps: Int
@@ -81,7 +82,7 @@ enum NativeTools {
         let generationOptions: Options?
 
         enum CodingKeys: String, CodingKey {
-            case step, instructions, tools, history
+            case operation, step, instructions, tools, history
             case requestID = "request_id"
             case remainingSteps = "remaining_steps"
             case toolChoice = "tool_choice"
@@ -193,8 +194,11 @@ enum NativeTools {
         let entries = Array(session.transcript) + [
             .prompt(Transcript.Prompt(segments: [segment(prepared.prompt)], options: options))]
         let tokens = try await SystemLanguageModel.default.tokenCount(for: entries)
-        guard tokens + (options.maximumResponseTokens ?? 512) <= SystemLanguageModel.default.contextSize
+        guard (options.maximumResponseTokens ?? 512) <= SystemLanguageModel.default.contextSize - tokens
         else { throw Failure.capacity }
+        if request.operation == "tool_check" {
+            return ["event": "checked", "input_tokens": tokens]
+        }
         do {
             let response = try await session.respond(to: prepared.prompt)
             return ["event": "complete", "text": response.content,
@@ -231,7 +235,7 @@ enum NativeTools {
                 "protocol", "operation", "request_id", "step", "remaining_steps",
                 "tool_choice", "instructions", "tools", "history", "generation_options"]),
               fields["protocol"]?.number == 4,
-              fields["operation"]?.text == "tool_step" else { throw Failure.invalid }
+              ["tool_step", "tool_check"].contains(fields["operation"]?.text ?? "") else { throw Failure.invalid }
         let request = try JSONDecoder().decode(Request.self, from: data)
         guard validID(request.requestID), request.step > 0, request.remainingSteps > 0,
               request.step <= 128, request.remainingSteps <= 128,

@@ -2,6 +2,7 @@ package runner
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"strings"
 	"unicode"
@@ -84,7 +85,7 @@ func validNativeCallID(id string) bool {
 
 func (s NativeToolStep) validate() error {
 	bad := func() error { return nativeError(KindUsage, "invalid native tool step") }
-	if s.Protocol != 4 || s.Operation != "tool_step" || !validNativeCallID(s.RequestID) ||
+	if s.Protocol != 4 || (s.Operation != "tool_step" && s.Operation != "tool_check") || !validNativeCallID(s.RequestID) ||
 		s.Step < 1 || s.Step > 128 || s.RemainingSteps < 1 || s.RemainingSteps > 128 ||
 		len(s.Tools) > MaxToolOffers || len(s.History) == 0 {
 		return bad()
@@ -167,7 +168,9 @@ func (s NativeToolStep) validate() error {
 		return bad()
 	}
 	if size > NativeMaxPromptBytes {
-		return nativeError(KindContextCapacity, "native history and tools exceed 128 KiB; nothing was truncated")
+		failure := nativeError(KindContextCapacity, fmt.Sprintf("native history and tools use %d bytes; the limit is %d bytes; nothing was truncated", size, NativeMaxPromptBytes))
+		failure.PromptBytes = size
+		return failure
 	}
 	return nil
 }

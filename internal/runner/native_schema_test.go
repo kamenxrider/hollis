@@ -274,7 +274,7 @@ func TestNativeSchemaRefusesUnusableProtocolProbe(t *testing.T) {
 	_, err = outOfRange.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	requireNativeKind(t, err, KindNativeFailed)
 
-	newer := nativeProtocolHelper(t, "4", "cat >/dev/null\n")
+	newer := nativeProtocolHelper(t, strconv.Itoa(NativeProtocol+1), "cat >/dev/null\n")
 	_, err = newer.RunSchema(t.Context(), ModelLocal, "prompt", mustParseSchema(t, guidedSchema))
 	requireNativeKind(t, err, KindNativeProtocol)
 	if !strings.Contains(err.Error(), "install the matching bundle") {

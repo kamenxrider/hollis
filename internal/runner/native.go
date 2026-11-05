@@ -24,7 +24,7 @@ import (
 // speaks. Protocol 3 adds capability advertisement and named refusals, not new
 // model features. Older request formats remain accepted by the helper, but
 // strict version identity rejects mismatched CLI/helper pairs in either direction.
-const NativeProtocol = 3
+const NativeProtocol = 4
 const NativeVersion = "0.7.0"
 const NativeMaxPromptBytes = 128 << 10
 const nativeMaxRequestBytes = 1 << 20
@@ -90,6 +90,8 @@ type ImageCapability struct {
 // request that asks for a mode the helper cannot apply must be refused, never
 // served as a plain completion that silently dropped it.
 type ToolCapability struct {
+	Executable        bool   `json:"executable"`
+	TurnHandoff       bool   `json:"turn_handoff"`
 	Supported         bool   `json:"supported"`
 	Reason            string `json:"reason,omitempty"`
 	ToolCallingMode   bool   `json:"tool_calling_mode"`
@@ -170,6 +172,12 @@ func decodeCapabilities(raw json.RawMessage) (*Capabilities, error) {
 // cached pre-spawn probe means the answer cannot go stale against a replaced
 // helper.
 func requireAdvertised(status LocalStatus, opts nativeOptions) *Error {
+	if opts.ToolStep != nil {
+		if tools := status.Capabilities.tools(); tools != nil && tools.Supported && tools.Executable && tools.TurnHandoff {
+			return nil
+		}
+		return capabilityRefusal("tools", status.Capabilities.toolsReason())
+	}
 	if opts.Source != "" {
 		return requireExtract(status, opts)
 	}
@@ -425,6 +433,7 @@ func helperMismatch() *Error {
 func GuidedOutputRefusal() *Error { return helperMismatch() }
 
 type nativeRequest struct {
+	GenerationOptions  *GenerationOptions  `json:"generation_options,omitempty"`
 	Protocol           int                 `json:"protocol"`
 	Operation          string              `json:"operation"`
 	Prompt             string              `json:"prompt,omitempty"`
@@ -445,6 +454,8 @@ type nativeRequest struct {
 // value is a plain generation request: every member is omitted unless a caller
 // asked for it.
 type nativeOptions struct {
+	ToolStep          *NativeToolStep
+	GenerationOptions *GenerationOptions
 	// ToolCalling is "allowed", "disallowed", or empty. It is refused outright
 	// when the helper did not advertise that it applies the mode, because a
 	// helper that ignores it would serve a plain answer over a tool request.
@@ -462,6 +473,15 @@ type nativeOptions struct {
 }
 
 func (o nativeOptions) validate() error {
+	if o.ToolStep != nil {
+		if o.ToolCalling != "" || o.hasToolMetadata() || o.Source != "" || len(o.Images) > 0 || o.GenerationOptions != nil {
+			return nativeError(KindUsage, "native tool steps cannot mix legacy generation fields")
+		}
+		return o.ToolStep.validate()
+	}
+	if err := o.GenerationOptions.Validate(); err != nil {
+		return err
+	}
 	switch o.ToolCalling {
 	case "", "allowed", "disallowed":
 	default:
@@ -533,16 +553,20 @@ func (u *nativeUsage) valid() bool {
 }
 
 type nativeEvent struct {
-	Protocol   int          `json:"protocol"`
-	Version    string       `json:"version"`
-	Model      Model        `json:"model"`
-	Event      string       `json:"event"`
-	Available  *bool        `json:"available,omitempty"`
-	Reason     string       `json:"reason,omitempty"`
-	Text       *string      `json:"text,omitempty"`
-	Usage      *nativeUsage `json:"usage,omitempty"`
-	Kind       Kind         `json:"kind,omitempty"`
-	Capability string       `json:"capability,omitempty"`
+	CheckedTokens *int             `json:"input_tokens,omitempty"`
+	RequestID     string           `json:"request_id,omitempty"`
+	Step          *int             `json:"step,omitempty"`
+	Calls         []NativeToolCall `json:"calls,omitempty"`
+	Protocol      int              `json:"protocol"`
+	Version       string           `json:"version"`
+	Model         Model            `json:"model"`
+	Event         string           `json:"event"`
+	Available     *bool            `json:"available,omitempty"`
+	Reason        string           `json:"reason,omitempty"`
+	Text          *string          `json:"text,omitempty"`
+	Usage         *nativeUsage     `json:"usage,omitempty"`
+	Kind          Kind             `json:"kind,omitempty"`
+	Capability    string           `json:"capability,omitempty"`
 	// ContextSize is the measured context window a protocol-2 status reports.
 	ContextSize *int `json:"context_size,omitempty"`
 	// Capabilities is the protocol-3 advertisement, kept as raw JSON so the
@@ -592,7 +616,7 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	if opts.hasToolMetadata() && (operation != "complete" || schema != nil || len(opts.Images) > 0 || opts.Source != "") {
 		return fail(nativeError(KindUsage, "native definitions require complete generation"))
 	}
-	if operation != "status" && operation != "extract" {
+	if operation != "status" && operation != "extract" && operation != "tool_step" && operation != "tool_check" {
 		if strings.TrimSpace(prompt) == "" {
 			return fail(nativeError(KindEmptyPrompt, "empty prompt"))
 		}
@@ -618,6 +642,12 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		wire.Source, wire.Pages, wire.Media = &nativeSource{Path: opts.Source}, opts.Pages, opts.Media
 	}
 	request, err := json.Marshal(wire)
+	if opts.ToolStep != nil {
+		request, err = json.Marshal(opts.ToolStep)
+	} else {
+		wire.GenerationOptions = opts.GenerationOptions
+		request, err = json.Marshal(wire)
+	}
 	if err != nil {
 		return fail(nativeError(KindTransport, "could not encode native request"))
 	}
@@ -641,7 +671,7 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	}
 	// Old helpers must never receive a metadata generation request. This
 	// bounded status request shares the deadline and performs no tokenization.
-	if opts.hasToolMetadata() {
+	if opts.hasToolMetadata() || opts.ToolStep != nil {
 		_, advertised, err := r.invoke(ctx, model, "status", "", nil, nil, nativeOptions{})
 		if err != nil {
 			return fail(err)
@@ -683,6 +713,9 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		if !utf8.Valid(line) {
 			return nativeError(KindNativeProtocol, "native event is not valid UTF-8")
 		}
+		if _, err := decodeToolDocument(line); err != nil {
+			return nativeError(KindNativeProtocol, "native event is not strict JSON")
+		}
 		var event nativeEvent
 		decoder := json.NewDecoder(bytes.NewReader(line))
 		decoder.DisallowUnknownFields()
@@ -698,6 +731,19 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		}
 		if event.Protocol != NativeProtocol || event.Version != NativeVersion || event.Model != ModelLocal {
 			return nativeDiagnosticError(KindNativeProtocol, "helper_mismatch", "native helper version, protocol or model mismatch; install the matching bundle")
+		}
+		if opts.ToolStep != nil {
+			if event.RequestID != opts.ToolStep.RequestID {
+				return nativeError(KindNativeProtocol, "native tool request identity mismatch")
+			}
+		} else if event.RequestID != "" {
+			return nativeError(KindNativeProtocol, "unexpected native request identity")
+		}
+		if (event.Step != nil || len(event.Calls) > 0) && event.Event != "tool_calls" {
+			return nativeError(KindNativeProtocol, "unexpected native tool batch")
+		}
+		if event.CheckedTokens != nil && event.Event != "checked" {
+			return nativeError(KindNativeProtocol, "unexpected native preflight counts")
 		}
 		if event.Capability != "" && (event.Event != "error" || event.Kind != KindUnsupportedCapability) {
 			return nativeError(KindNativeProtocol, "unexpected native capability refusal")
@@ -727,6 +773,31 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 			return nativeError(KindNativeProtocol, "unexpected native extraction data")
 		}
 		switch event.Event {
+		case "checked":
+			if !ready || operation != "tool_check" || event.CheckedTokens == nil || *event.CheckedTokens < 0 ||
+				event.Text != nil || event.Usage != nil || event.Kind != "" {
+				return nativeError(KindNativeProtocol, "invalid native history preflight")
+			}
+			terminal = true
+		case "tool_calls":
+			if !ready || operation != "tool_step" || opts.ToolStep == nil || event.Step == nil || *event.Step != opts.ToolStep.Step ||
+				event.Text != nil || event.Usage != nil || event.Kind != "" || len(event.Structured) > 0 ||
+				len(event.Calls) == 0 || len(event.Calls) > MaxToolCallsPerRound {
+				return nativeError(KindNativeProtocol, "invalid native tool handoff")
+			}
+			seen := map[string]bool{}
+			allowed := map[string]bool{}
+			for _, tool := range opts.ToolStep.Tools {
+				allowed[tool.Name] = true
+			}
+			for _, call := range event.Calls {
+				if !validNativeCallID(call.ID) || seen[call.ID] || !allowed[call.Name] {
+					return nativeError(KindNativeProtocol, "invalid native tool call identity")
+				}
+				seen[call.ID] = true
+			}
+			result.NativeCalls = event.Calls
+			terminal = true
 		case "status":
 			if ready || event.Available == nil {
 				return nativeError(KindNativeProtocol, "invalid native status sequence")
@@ -779,6 +850,9 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 			}
 			previous = *event.Text
 		case "complete":
+			if operation == "tool_check" {
+				return nativeError(KindNativeProtocol, "history preflight returned a generation terminal")
+			}
 			if ready && operation == "extract" {
 				extraction, err := readExtraction(event, opts)
 				if err != nil {
@@ -874,7 +948,9 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	// protocol is rejected or the deadline expires, and closes the read end so
 	// a descendant retaining an inherited pipe cannot hold the scan.
 	var args []string
-	if opts.hasToolMetadata() {
+	if opts.ToolStep != nil {
+		args = []string{"--native-tools"}
+	} else if opts.hasToolMetadata() {
 		// A replaced 0.6.0 helper rejects this argument before model access,
 		// rather than silently ignoring metadata JSON it does not understand.
 		args = []string{"--native-definitions"}
