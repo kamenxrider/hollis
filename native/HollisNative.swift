@@ -3,12 +3,11 @@ import Foundation
 import FoundationModels
 import CoreGraphics
 
-// One request per process. No executable tools, persistent session, truncation,
-// implicit fallback, or diagnostic reflection of the request contents.
+// One request per process. Tool callbacks only hand off to the parent.
 @main
 struct HollisNative {
     static let version = "0.7.0"
-    static let protocolVersion = 3
+    static let protocolVersion = 4
 
     struct Request: Decodable {
         let `protocol`: Int
@@ -20,12 +19,14 @@ struct HollisNative {
         let pages: [Int]?
         let media: String?
         let images: [Source]?
+        let generationOptions: NativeTools.Options?
 
         // Member names are the wire contract; the Swift property names are not.
         enum CodingKeys: String, CodingKey {
             case `protocol`, operation, prompt, schema
             case toolCalling = "tool_calling"
             case source, pages, media, images
+            case generationOptions = "generation_options"
         }
     }
 
@@ -68,7 +69,8 @@ struct HollisNative {
                                       "extract": extractCapability,
                                       "images": imageCapability(vision: vision, macOSMajor: macOSMajor),
                                       "tools": ["supported": tools, "tool_calling_mode": true,
-                                                "native_definitions": tools, "hybrid_tools": tools]]
+                                                "native_definitions": tools, "hybrid_tools": tools,
+                                                "executable": tools, "turn_handoff": tools]]
         }
         return fields
     }
@@ -119,7 +121,8 @@ struct HollisNative {
         }
         let hybridMode = CommandLine.arguments == [CommandLine.arguments[0], "--hybrid-tools"]
         let metadataMode = hybridMode || CommandLine.arguments == [CommandLine.arguments[0], "--native-definitions"]
-        guard CommandLine.arguments.count == 1 || metadataMode else { fail("native_failed"); return }
+        let nativeMode = CommandLine.arguments == [CommandLine.arguments[0], "--native-tools"]
+        guard CommandLine.arguments.count == 1 || metadataMode || nativeMode else { fail("native_failed"); return }
         var effective = protocolVersion
         do {
             // The maximum encoded request allows worst-case JSON escaping of
@@ -131,6 +134,46 @@ struct HollisNative {
             while let rest = try FileHandle.standardInput.read(upToCount: 1_048_577 - input.count), !rest.isEmpty {
                 input.append(rest)
                 if input.count > 1_048_576 { fail("context_capacity"); return }
+            }
+            if nativeMode {
+                let prepared: NativeTools.Prepared
+                do { prepared = try NativeTools.prepare(input) }
+                catch NativeTools.Failure.capacity { fail("context_capacity"); return }
+                catch { fail("native_protocol"); return }
+                func send(_ fields: [String: Any]) throws {
+                    var fields = fields
+                    fields["request_id"] = prepared.request.requestID
+                    try emit(fields, protocol: protocolVersion)
+                }
+                let model = SystemLanguageModel.default
+                try send(statusFields(
+                    available: model.isAvailable, reason: String(describing: model.availability),
+                    contextSize: model.contextSize, vision: model.capabilities.contains(.vision),
+                    tools: model.isAvailable && model.capabilities.contains(.toolCalling),
+                    macOSMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
+                    protocol: protocolVersion))
+                guard model.isAvailable else { return }
+                guard model.capabilities.contains(.toolCalling) else {
+                    try send(["event": "error", "kind": "unsupported_capability",
+                              "capability": "tools", "reason": "no_tool_calling"])
+                    return
+                }
+                do { try send(await NativeTools.run(prepared)) }
+                catch NativeTools.Failure.capacity {
+                    try send(["event": "error", "kind": "context_capacity"])
+                } catch NativeTools.Failure.partialBatch {
+                    try send(["event": "error", "kind": "native_protocol"])
+                } catch let error as LanguageModelError {
+                    let kind: String
+                    switch error {
+                    case .contextSizeExceeded: kind = "context_capacity"
+                    case .rateLimited: kind = "rate_limited"
+                    case .refusal, .guardrailViolation: kind = "request_declined"
+                    default: kind = "native_failed"
+                    }
+                    try send(["event": "error", "kind": kind])
+                } catch { try send(["event": "error", "kind": "native_failed"]) }
+                return
             }
             // Foundation's decoder accepts a leading byte-order mark, trailing
             // commas and repeated object keys (keeping the first value). Go
@@ -150,7 +193,7 @@ struct HollisNative {
             // this build's version. Older CLIs reject that version: only a
             // matched bundle is supported. Era-specific fields stay omitted
             // below their protocol, independently of version identity.
-            let accepted = [1, 2, protocolVersion]
+            let accepted = [1, 2, 3, protocolVersion]
             guard accepted.contains(request.`protocol`) else {
                 fail("native_failed"); return
             }
@@ -226,7 +269,12 @@ struct HollisNative {
             // two measured modes exist: the SDK's required mode throws on this
             // OS build. Any other value, era or operation is refused rather
             // than served as a completion that silently dropped the mode.
-            var options = GenerationOptions()
+            var options = try request.generationOptions?.generationOptions() ?? GenerationOptions()
+            if request.generationOptions != nil {
+                guard effective == 4,
+                      request.operation == "complete" || request.operation == "stream" || request.operation == "schema"
+                else { fail("native_failed", protocol: effective); return }
+            }
             if let mode = request.toolCalling {
                 guard effective >= 3,
                       request.operation == "complete" || request.operation == "stream" else {
@@ -302,7 +350,7 @@ struct HollisNative {
             }
             if request.operation == "schema" {
                 let response = try await session.respond(
-                    to: prompt, schema: try SchemaSubset.schema(for: requested!))
+                    to: prompt, schema: try SchemaSubset.schema(for: requested!), options: options)
                 // The SDK decode is necessary but not trusted: validate the
                 // emitted object against the requested subset before emitting.
                 // The raw text is scanned first, so a repeated key or a

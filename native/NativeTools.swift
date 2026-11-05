@@ -97,6 +97,122 @@ enum NativeTools {
         let prompt: String
     }
 
+    private struct Handoff: Error {}
+
+    private struct HandoffTool: Tool {
+        typealias Arguments = GeneratedContent
+        let name: String
+        let description: String
+        let parameters: GenerationSchema
+
+        func call(arguments: GeneratedContent) async throws -> String {
+            throw Handoff()
+        }
+    }
+
+    private struct Profile: LanguageModelSession.DynamicProfile {
+        let tools: [any Tool]
+        let instructions: String
+        let options: GenerationOptions
+
+        var body: some LanguageModelSession.DynamicProfile {
+            LanguageModelSession.Profile {
+                Instructions(instructions)
+                tools
+            }
+            .model(SystemLanguageModel.default)
+            .transcriptErrorHandlingPolicy(.preserveTranscript)
+            .toolCallingMode(options.toolCallingMode)
+            .temperature(options.temperature)
+            .samplingMode(options.samplingMode)
+            .maximumResponseTokens(options.maximumResponseTokens)
+        }
+    }
+
+    static func capture(_ entries: [Transcript.Entry], allowedNames: Set<String>) throws -> [Call] {
+        var batch: Transcript.ToolCalls?
+        var prompts = 0
+        for entry in entries {
+            switch entry {
+            case .prompt:
+                prompts += 1
+                guard prompts == 1, batch == nil else { throw Failure.partialBatch }
+            case .toolCalls(let calls):
+                guard batch == nil, prompts == 1, !calls.isEmpty, calls.count <= 16
+                else { throw Failure.partialBatch }
+                batch = calls
+            case .reasoning:
+                guard batch == nil else { throw Failure.partialBatch }
+            default: throw Failure.partialBatch
+            }
+        }
+        guard let batch else { throw Failure.partialBatch }
+        var ids = Set<String>()
+        return try batch.map { call in
+            guard validID(call.id), ids.insert(call.id).inserted,
+                  allowedNames.contains(call.toolName), call.arguments.isComplete
+            else { throw Failure.partialBatch }
+            let arguments = call.arguments.jsonString
+            guard arguments.utf8.count <= 65_536 else { throw Failure.partialBatch }
+            try StrictJSON.scan(Data(arguments.utf8), subject: "native arguments")
+            guard try JSONDecoder().decode(JSONValue.self, from: Data(arguments.utf8)).fields != nil
+            else { throw Failure.partialBatch }
+            return Call(id: call.id, name: call.toolName, arguments: arguments)
+        }
+    }
+
+    static func run(_ prepared: Prepared) async throws -> [String: Any] {
+        let request = prepared.request
+        var fulfilled = false
+        for entry in request.history {
+            if entry.type == "user" { fulfilled = false }
+            if entry.type == "calls", let calls = entry.calls {
+                if request.toolChoice.type == "required" {
+                    fulfilled = true
+                } else if request.toolChoice.type == "function" {
+                    fulfilled = fulfilled || calls.contains { $0.name == request.toolChoice.name }
+                }
+            }
+        }
+        var options = prepared.options
+        switch request.toolChoice.type {
+        case "none": options.toolCallingMode = .disallowed
+        case "required": options.toolCallingMode = fulfilled ? .allowed : .required
+        case "function": options.toolCallingMode = fulfilled ? .disallowed : .required
+        default: options.toolCallingMode = .allowed
+        }
+        let tools: [any Tool] = prepared.definitions.compactMap { definition, schema in
+            if request.toolChoice.type == "none" { return nil }
+            if request.toolChoice.type == "function",
+               fulfilled || definition.name != request.toolChoice.name { return nil }
+            return HandoffTool(name: definition.name, description: definition.description, parameters: schema)
+        }
+        let session = LanguageModelSession(profile: Profile(
+            tools: tools, instructions: request.instructions, options: options), history: prepared.history)
+        let startCount = session.transcript.count
+        let entries = Array(session.transcript) + [
+            .prompt(Transcript.Prompt(segments: [segment(prepared.prompt)], options: options))]
+        let tokens = try await SystemLanguageModel.default.tokenCount(for: entries)
+        guard tokens + (options.maximumResponseTokens ?? 512) <= SystemLanguageModel.default.contextSize
+        else { throw Failure.capacity }
+        do {
+            let response = try await session.respond(to: prepared.prompt)
+            return ["event": "complete", "text": response.content,
+                    "usage": ["input_tokens": response.usage.input.totalTokenCount,
+                              "output_tokens": response.usage.output.totalTokenCount,
+                              "reasoning_tokens": response.usage.output.reasoningTokenCount]]
+        } catch is Handoff {
+        } catch let error as LanguageModelSession.ToolCallError
+            where error.underlyingError is Handoff {
+        }
+        guard options.toolCallingMode != .disallowed else { throw Failure.partialBatch }
+        let calls = try capture(Array(session.transcript).dropFirst(startCount).map { $0 },
+                                allowedNames: Set(tools.map(\.name)))
+        let encoded = try JSONEncoder().encode(calls)
+        return ["event": "tool_calls", "step": request.step,
+                "calls": try JSONSerialization.jsonObject(with: encoded)]
+    }
+
     static func validID(_ id: String) -> Bool {
         !id.isEmpty && id.utf8.count <= 128 && !id.unicodeScalars.contains {
             CharacterSet.controlCharacters.contains($0)

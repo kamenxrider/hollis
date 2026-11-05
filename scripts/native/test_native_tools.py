@@ -21,8 +21,40 @@ class NativeToolsContractTests(unittest.TestCase):
 import Foundation
 import FoundationModels
 do {
-    _ = try NativeTools.prepare(FileHandle.standardInput.readDataToEndOfFile())
-    print("valid")
+    let data = FileHandle.standardInput.readDataToEndOfFile()
+    if String(decoding: data, as: UTF8.self) == "capture" {
+        let prompt = Transcript.Entry.prompt(Transcript.Prompt(
+            segments: [NativeTools.segment("Weather?")]))
+        let call = Transcript.ToolCall(id: "native:id/1", toolName: "weather",
+            arguments: try GeneratedContent(json: "{\\"city\\":\\"Zürich\\"}"))
+        let batch = Transcript.Entry.toolCalls(Transcript.ToolCalls([call]))
+        let output = Transcript.Entry.toolOutput(Transcript.ToolOutput(
+            id: call.id, toolName: call.toolName, segments: [NativeTools.segment("")]))
+        let response = Transcript.Entry.response(Transcript.Response(
+            segments: [NativeTools.segment("unfinished")]))
+        let accepted = try NativeTools.capture([prompt, batch], allowedNames: ["weather"])
+        precondition(accepted.count == 1 && accepted[0].id == call.id)
+        let rejected: [[Transcript.Entry]] = [
+            [], [prompt], [batch], [prompt, batch, batch],
+            [prompt, batch, output], [prompt, response, batch],
+            [prompt, .toolCalls(Transcript.ToolCalls([call, call]))],
+            [prompt, .toolCalls(Transcript.ToolCalls([]))],
+        ]
+        for entries in rejected {
+            do {
+                _ = try NativeTools.capture(entries, allowedNames: ["weather"])
+                fatalError("partial batch accepted")
+            } catch {}
+        }
+        do {
+            _ = try NativeTools.capture([prompt, batch], allowedNames: [])
+            fatalError("unknown tool accepted")
+        } catch {}
+        print("capture-ok")
+    } else {
+        _ = try NativeTools.prepare(data)
+        print("valid")
+    }
 } catch {
     print("invalid")
 }
@@ -52,3 +84,8 @@ do {
                 result = protocol.command(str(self.binary), input=json.dumps(request))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout.strip(), "valid" if case["valid"] else "invalid")
+
+    def test_complete_batch_only(self):
+        result = protocol.command(str(self.binary), input="capture")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "capture-ok")
