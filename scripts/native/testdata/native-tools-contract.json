@@ -1,0 +1,50 @@
+{
+  "base": {
+    "protocol": 4,
+    "operation": "tool_step",
+    "request_id": "request-1",
+    "step": 1,
+    "remaining_steps": 8,
+    "tool_choice": {"type": "auto"},
+    "instructions": "Use tools only when needed.",
+    "tools": [{
+      "name": "get_weather",
+      "description": "Get current weather.",
+      "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"], "additionalProperties": false},
+      "source": "caller",
+      "validation": "strict"
+    }],
+    "history": [
+      {"type": "user", "text": "Weather in Zürich?"},
+      {"type": "calls", "calls": [{"id": "native:id/1", "name": "get_weather", "arguments": "{\"city\":\"Zürich\"}"}]},
+      {"type": "output", "id": "native:id/1", "name": "get_weather", "text": ""}
+    ]
+  },
+  "cases": [
+    {"name": "empty-output-exact-id", "valid": true, "changes": []},
+    {"name": "duplicate-output", "valid": false, "changes": [["history", 3, {"type": "output", "id": "native:id/1", "name": "get_weather", "text": ""}]]},
+    {"name": "orphan-output", "valid": false, "changes": [["history", 2, "id", "other"]]},
+    {"name": "wrong-output-name", "valid": false, "changes": [["history", 2, "name", "other"]]},
+    {"name": "missing-output", "valid": false, "changes": [["history", [{"type": "user", "text": "Weather?"}, {"type": "calls", "calls": [{"id": "x", "name": "get_weather", "arguments": "{\"city\":\"Zürich\"}"}]}]]]},
+    {"name": "unknown-historical-tool", "valid": false, "changes": [["history", 1, "calls", 0, "name", "other"]]},
+    {"name": "duplicate-argument-key", "valid": false, "changes": [["history", 1, "calls", 0, "arguments", "{\"city\":\"A\",\"city\":\"B\"}"]]},
+    {"name": "non-object-arguments", "valid": false, "changes": [["history", 1, "calls", 0, "arguments", "[]"]]},
+    {"name": "required", "valid": true, "changes": [["tool_choice", {"type": "required"}]]},
+    {"name": "named", "valid": true, "changes": [["tool_choice", {"type": "function", "name": "get_weather"}]]},
+    {"name": "unknown-named", "valid": false, "changes": [["tool_choice", {"type": "function", "name": "other"}]]},
+    {"name": "missing-required-tools", "valid": false, "changes": [["tools", []], ["history", [{"type": "user", "text": "Hello"}]], ["tool_choice", {"type": "required"}]]},
+    {"name": "none-no-tools", "valid": true, "changes": [["tools", []], ["history", [{"type": "user", "text": "Hello"}]], ["tool_choice", {"type": "none"}]]},
+    {"name": "greedy", "valid": true, "changes": [["generation_options", {"temperature": 0, "max_tokens": 12}]]},
+    {"name": "seed-only", "valid": true, "changes": [["generation_options", {"seed": 18446744073709551615}]]},
+    {"name": "greedy-seed", "valid": false, "changes": [["generation_options", {"temperature": 0, "seed": 1}]]},
+    {"name": "greedy-top-p", "valid": false, "changes": [["generation_options", {"temperature": 0, "top_p": 1}]]},
+    {"name": "temperature-range", "valid": false, "changes": [["generation_options", {"temperature": 2.1}]]},
+    {"name": "top-p-zero", "valid": false, "changes": [["generation_options", {"top_p": 0}]]},
+    {"name": "tokens-zero", "valid": false, "changes": [["generation_options", {"max_tokens": 0}]]},
+    {"name": "tokens-fraction", "valid": false, "changes": [["generation_options", {"max_tokens": 1.5}]]},
+    {"name": "seed-negative", "valid": false, "changes": [["generation_options", {"seed": -1}]]},
+    {"name": "seed-overflow", "valid": false, "changes": [["generation_options", {"seed": 18446744073709551616}]]},
+    {"name": "server-tier-caller", "valid": false, "changes": [["tools", 0, "validation", "server"]]},
+    {"name": "no-remaining-decisions", "valid": false, "changes": [["remaining_steps", 0]]}
+  ]
+}
