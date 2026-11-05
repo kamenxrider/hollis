@@ -297,6 +297,12 @@ greedy. Top-p is in (0,1]. Seed is UInt64; seed alone selects top-p 1.
 Greedy with seed or top-p is a usage error. Max tokens is a positive integer
 per model decision, not a cumulative tool-loop allowance.
 
+`--max-tokens`, HTTP `max_tokens` and `max_output_tokens` pass unchanged to
+Apple's `GenerationOptions.maximumResponseTokens`. This is an approximate
+limit, not an exact output-token cap. Reported completion usage can exceed
+the requested value slightly. Hollis does not truncate the response or
+rewrite measured usage to enforce an exact cap.
+
 HTTP uses `temperature`, `top_p`, `seed` and `max_tokens` for Chat Completions,
 or `max_output_tokens` for Responses. Sampling is Local-only and cannot accompany
 image generation. Text, streaming, guided output and tool generation share the

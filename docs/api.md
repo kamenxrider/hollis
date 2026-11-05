@@ -266,6 +266,11 @@ in 0..2; zero selects greedy. Top-p is in (0,1]. Seed alone selects top-p 1.
 Greedy with seed or top-p is rejected. Token limits apply per model decision,
 not across a whole tool loop.
 
+Hollis passes `max_tokens` and `max_output_tokens` unchanged to Apple's
+`GenerationOptions.maximumResponseTokens`. The limit is approximate.
+Reported completion usage can exceed the requested value slightly.
+Hollis does not truncate output or rewrite measured usage to enforce an exact cap.
+
 Sampling applies to Local text, streaming, guided output and tool generation.
 Other routes and image generation reject sampling before model access.
 Invalid types, out-of-range values and conflicting options are **400**
