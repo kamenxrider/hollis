@@ -311,12 +311,12 @@ unproven.
 
 ### Tools on local
 
-Tool calling on `local`, with caller tools or MCP servers, is best for simple,
-single tool calls; the on-device model is less reliable with chained or
-complex calls. Hollis validates every call before it runs, allows one
-correction, and otherwise stops with `tool_call_invalid`: a malformed call never
-runs and is never returned as a plain answer. MCP calls in `ask` mode run only
-after you approve them. [MCP servers](docs/mcp.md).
+Local tools use native SDK callbacks and return control to Go for validation,
+approval and sequential MCP execution. Caller tools remain external.
+Required and named choices are supported. Call-shaped prose never executes,
+and invalid native arguments stop without repair. The default limit is eight
+model decisions. [Native tools and sampling](docs/native-local.md#tools) and
+[MCP servers](docs/mcp.md).
 
 ### Documents
 

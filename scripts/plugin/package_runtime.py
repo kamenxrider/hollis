@@ -9,9 +9,8 @@ import stat
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-# The inner manifest describes the helper packed beside the CLI: protocol 3
-# ships with source helper 0.7.0 and its capability advertisement.
-NATIVE_PROTOCOL = 3
+# The inner manifest describes the helper packed beside the CLI.
+NATIVE_PROTOCOL = 4
 
 
 def package(dist, version):

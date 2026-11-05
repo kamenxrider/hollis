@@ -23,7 +23,7 @@ The Responses reply text is at `output[0].content[0].text`. Its `input` may be a
 ## Guided JSON output
 
 Both endpoints can ask native `local` for an object that follows a JSON Schema
-subset. It needs the helper from the same release (protocol 3, helper 0.7.0),
+subset. It needs the helper from the same release (protocol 4, helper 0.7.0),
 and it is not available on any Shortcut route.
 
 Chat Completions uses the OpenAI `response_format` shape:
@@ -203,96 +203,73 @@ definition problem. Hollis never executes tools server-side.
 
 ## Tools on `local`
 
-Both endpoints accept caller-provided tools on `model:"local"`: `tools` (an
-array in the OpenAI function shape), `tool_choice` (`"auto"`, the default, or
-`"none"`), and `parallel_tool_calls` (absent or `true`). The server never runs a
-tool and never adds tools of its own. When the model asks for a call, Hollis
-returns it to you; you run the tool and send the result back in the next
-request.
+Both endpoints accept caller tools on `model:"local"`, `tool_choice` and
+`parallel_tool_calls` absent or true. The server never executes tools or adds
+tools of its own. Run returned calls yourself and replay their results.
 
-Definitions use each endpoint's wire shape: Chat Completions accepts
-`{"type":"function","function":{"name":"get_weather","description":"Get weather","parameters":{...},"strict":true}}`;
-Responses accepts
+Chat Completions definitions use
+`{"type":"function","function":{"name":"get_weather","description":"Get weather","parameters":{...},"strict":true}}`.
+Responses definitions use
 `{"type":"function","name":"get_weather","description":"Get weather","parameters":{...},"strict":true}`.
-`strict` may be omitted, `true` or `false`; Hollis always validates against its
-supported subset. The other endpoint's definition shape is rejected.
+`strict` may be omitted, true or false. The supported
+[guided-output subset](native-local.md#guided-output) is always validated.
+There are at most 32 caller tools and 16 calls per batch. Names are 1 to 64
+letters, digits, underscores or hyphens. Descriptions must be nonempty.
 
-The model writes a call as ordinary text. Hollis finds it, normalizes it (a
-bare function name, arguments sent as an object, numbers sent as strings, a
-missing id, a missing closing bracket), and validates the arguments against
-the tool's `parameters` schema before returning anything. Each tool's schema
-must fit the same subset `--schema` uses (see
-[Guided output](native-local.md#guided-output)); string length, pattern and
-format are accepted but not enforced. At most 32 tools; names are 1 to 64
-letters, digits, `_` or `-`, and each tool needs a non-empty description.
+`tool_choice` accepts `"auto"` (default), `"none"` and `"required"`.
+Named Chat Completions choice is
+`{"type":"function","function":{"name":"get_weather"}}`.
+Named Responses choice is `{"type":"function","name":"get_weather"}`.
+The exact name must be offered. Required forces at least one real call, then
+allows dependencies. Named permits only the selected tool initially and disables
+callbacks after its result. Structured history satisfies the obligation for that
+user transaction; a new user turn resets it. No synthetic exit function is added.
 
-Structural recovery also accepts a whole JSON reply whose outer `tool_calls`
-array is missing only its `]` immediately before the final `}`. It does not
-repair mismatched argument containers or change argument values; the recovered
-document still passes the same JSON, tool-name and schema validation. This
-local parse step adds no generation and does not extend the one-repair limit.
+The helper uses executable Swift tools, not text extraction. Callbacks capture
+one complete native batch and return it to Go for independent validation.
+Framework IDs and argument bytes are preserved. Invalid arguments are **502**
+`tool_call_invalid` with no automatic repair or coercion. Call-shaped text,
+including quoted JSON or CALL text, remains ordinary content. Invalid names,
+partial batches and callback/choice violations fail closed.
 
-Definitions travel as native transcript metadata alongside fixed format
-instructions, not as executable SDK tools or duplicated prompt text. Each
-tool generation first runs a non-generative status process to verify helper
-0.7.0 and `tools.native_definitions`, within the same request deadline.
-No capability or conversion failure falls back to text-only definitions.
+Chat Completions returns `finish_reason:"tool_calls"` with an assistant
+`tool_calls` array and null content. Each call has `id`, `type:"function"` and
+`function` containing `name` and string `arguments`. Replay that assistant message
+followed by `role:"tool"` messages with matching `tool_call_id` and string
+content. Responses returns `function_call` items with `call_id`, `name` and string
+`arguments`; replay `function_call_output` with the same `call_id` and string
+`output`. Empty results are valid, but missing or null results are not.
+Duplicate, orphan or mismatched IDs fail before inference.
 
-Chat Completions returns a call as:
+The default budget is eight decisions, including final synthesis and visible
+prior call batches since the most recent user turn. A batch on the final
+decision fails before dispatch with **502** `tool_round_cap`. Stateless replay
+is not a tamper-proof global quota.
 
-```json
-{"choices":[{"index":0,"finish_reason":"tool_calls","message":{"role":"assistant","content":null,
-  "tool_calls":[{"id":"call_1_0","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Tokyo\"}"}}]}}]}
-```
+Results are untrusted data. Full typed history, fixed instructions and
+definitions share 128 KiB, plus the SDK context-capacity check. Oversize is
+**413** `context_too_large`, without truncation. Native handoff usage is absent
+unless all decisions have qualified measured counts. One capacity slot and one
+deadline cover the whole loop.
 
-Send the result back as a `role:"tool"` message with `tool_call_id`, after the
-assistant message that carried `tool_calls`. Responses returns a
-`function_call` output item (`{"type":"function_call","id":"fc_...","call_id":"call_1_0","name":"get_weather","arguments":"{...}","status":"completed"}`)
-with no `output_text`; send the result back as a `function_call_output` item
-with that `call_id` and a string `output`. The final message may be a tool
-result or an assistant turn carrying calls; otherwise it must still be `user`.
-Tool result content/output may be an empty string, but must not be missing or
-`null`. Chat Completions also accepts an array of text parts.
+Tools refuse `stream:true`, images, image generation, guided output,
+`parallel_tool_calls:false` and non-Local routes with **400**
+`unsupported_parameter`. Helper 0.7.0/protocol 4 must advertise both
+`tools.executable` and `tools.turn_handoff`. Metadata-only support does not qualify.
 
-Limits and behavior:
+## Local sampling
 
-- **One validation repair.** A call whose arguments fail validation gets one
-  repair round that restates the format and the fixed reason. Unparseable JSON
-  with a recognizable single-call header naming an offered tool gets the same
-  correction opportunity. Hollis does not guess argument values or replace
-  control-token text with quotes. If the corrected call is still recognizable
-  but malformed or invalid, the request is **502** `tool_call_invalid`.
-  Other unparseable replies, including ambiguous headers or multiple-call
-  attempts, remain plain text rather than being partially salvaged.
-  More than 16 parsed calls in one round is
-  `tool_call_invalid` immediately.
-- **Three-call budget.** Each loop counts visible assistant tool-call turns
-  since the last user message plus every new model dispatch. Repairs, final
-  answers and `tool_choice: "none"` all consume the same budget. No fourth
-  dispatch is allowed; a tool call at the cap is **502** `tool_round_cap`.
-  Stateless follow-up requests cannot reconstruct hidden repairs from earlier
-  requests. This is a loop boundary with visible-history accounting, not a
-  global cross-request quota; tool-call IDs carry no budget state.
-- **Invented tool names are text.** A reply that names a tool you did not offer
-  is returned verbatim as the assistant's content with `finish_reason: "stop"`.
-  It is never surfaced as a call. With `tool_choice: "none"` the tools are not
-  sent to the model at all, and any call-shaped text is returned as content.
-- **False calls happen.** In live checks the model sometimes called a tool for
-  a question that needed none. A final answer that quotes an example
-  `{"tool_calls": ...}` object is also read as a call. Treat every call as a
-  request, not a decision.
-- **Tool results are data.** Results are inserted verbatim inside fixed markers
-  and count, with the conversation, fixed instructions and normalized tool
-  metadata, against the 128 KiB input limit; a round that does not fit is
-  **413** `context_too_large` with both byte counts. Nothing is truncated.
-- **Refused combinations (400 `unsupported_parameter`):** `stream: true`,
-  image input, `image_generation`, guided output (`response_format` or
-  `text.format` `json_schema`), `parallel_tool_calls: false`, a named or
-  `"required"` `tool_choice`, any route other than `local`, and a tool result
-  whose `tool_call_id` matches no earlier call.
+Both endpoints accept optional `temperature`, `top_p` and UInt64 `seed`.
+Chat Completions accepts positive integral `max_tokens`; Responses uses
+`max_output_tokens`. Omitted fields retain SDK defaults. Temperature is finite
+in 0..2; zero selects greedy. Top-p is in (0,1]. Seed alone selects top-p 1.
+Greedy with seed or top-p is rejected. Token limits apply per model decision,
+not across a whole tool loop.
 
-The whole loop holds one concurrency slot and one deadline. A helper that does
-not advertise tool calling is **502** `unsupported_capability`.
+Sampling applies to Local text, streaming, guided output and tool generation.
+Other routes and image generation reject sampling before model access.
+Invalid types, out-of-range values and conflicting options are **400**
+`unsupported_parameter`. Reproducibility across OS/model versions is not promised.
 ## Generate an image through the API
 
 After [image setup](image-generation.md#setup), restart the server and call

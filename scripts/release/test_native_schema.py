@@ -319,7 +319,7 @@ class HelperProtocolTests(unittest.TestCase):
 @main
 struct ProtocolGolden {
     static func main() throws {
-        for era in [1, 2, 3] {
+        for era in [1, 2, 3, 4] {
             let fields = HollisNative.statusFields(
                 available: true, reason: "fixture", contextSize: 8192,
                 vision: true, tools: true, macOSMajor: 27, protocol: era)
@@ -333,13 +333,13 @@ struct ProtocolGolden {
             result = command(
                 'xcrun', 'swiftc', '-parse-as-library', '-sdk', sdk_path,
                 '-target', 'arm64-apple-macosx27.0', str(source), str(SUBSET),
-                str(EXTRACTION), str(ROOT / 'native/ImageInput.swift'), str(ROOT / 'native/ToolMetadata.swift'), str(harness), '-o', str(binary))
+                str(EXTRACTION), str(ROOT / 'native/ImageInput.swift'), str(ROOT / 'native/ToolMetadata.swift'), str(ROOT / 'native/NativeTools.swift'), str(harness), '-o', str(binary))
             self.assertEqual(result.returncode, 0, result.stderr)
             result = command(str(binary))
             self.assertEqual(result.returncode, 0, result.stderr)
             events = [json.loads(line) for line in result.stdout.splitlines()]
             expected = []
-            for protocol in (1, 2, 3):
+            for protocol in (1, 2, 3, 4):
                 event = {'protocol': protocol, 'version': '0.7.0', 'model': 'local',
                          'event': 'status', 'available': True, 'reason': 'fixture'}
                 if protocol >= 2:
@@ -352,24 +352,26 @@ struct ProtocolGolden {
                         'extract': {'pdf': True, 'ocr': True, 'pages': True,
                                     'max_pages': 2000, 'max_text_bytes': 131072},
                         'tools': {'supported': True, 'tool_calling_mode': True,
-                                  'native_definitions': True, 'hybrid_tools': True}}
+                                  'native_definitions': True, 'hybrid_tools': True,
+                                  'executable': True, 'turn_handoff': True}}
                 expected.append(event)
             self.assertEqual(events, expected)
 
-    def test_source_pins_protocol_three_and_helper_version(self):
+    def test_source_pins_protocol_four_and_helper_version(self):
         source = HELPER.read_text()
-        self.assertIn('static let protocolVersion = 3', source)
+        self.assertIn('static let protocolVersion = 4', source)
         self.assertIn('static let version = "0.7.0"', source)
         # Request-format acceptance is independent of strict bundled version
         # identity: old CLIs still reject this helper's 0.7.0-stamped events.
-        self.assertIn('let accepted = [1, 2, protocolVersion]', source)
+        self.assertIn('let accepted = [1, 2, 3, protocolVersion]', source)
         self.assertIn('request.operation == "schema"', source)
-        # The tool mode maps to exactly the two measured SDK modes; the
-        # required mode is measured broken and must never be set.
+        # Legacy mode fields remain separate from executable native tools.
         self.assertIn('case toolCalling = "tool_calling"', source)
         self.assertIn('case "allowed": options.toolCallingMode = .allowed', source)
         self.assertIn('case "disallowed": options.toolCallingMode = .disallowed', source)
-        self.assertNotIn('.required', source)
+        native = (ROOT / 'native/NativeTools.swift').read_text()
+        self.assertIn('.required', native)
+        self.assertIn('Handoff', native)
         self.assertNotIn('not_implemented', source)
 
     def test_built_helper_metadata_and_model_free_rejections(self):
@@ -385,7 +387,7 @@ struct ProtocolGolden {
             if not can_execute_target():
                 raise unittest.SkipTest('the built helper requires macOS 27 to execute')
             self.assertEqual(command(str(helper), '--version').stdout.strip(), 'hollis-native 0.7.0')
-            self.assertEqual(command(str(helper), '--protocol-version').stdout.strip(), '3')
+            self.assertEqual(command(str(helper), '--protocol-version').stdout.strip(), '4')
             # Actual helper bytes pass through Go's runner and the frozen old
             # decoders. All requests stop before model access.
             result = command(
@@ -413,7 +415,7 @@ struct ProtocolGolden {
                       'schema': root({'name': {'type': 'string'}})}, 'native_failed'),
                     ({'protocol': 1, 'operation': 'complete', 'prompt': 'fixture',
                       'schema': root({'name': {'type': 'string'}})}, 'native_failed'),
-                    ({'protocol': 4, 'operation': 'status'}, 'native_failed'),
+                    ({'protocol': 5, 'operation': 'status'}, 'native_failed'),
                     ({'protocol': 0, 'operation': 'status'}, 'native_failed'),
                     ({'protocol': 3, 'operation': 'complete', 'prompt': 'fixture',
                       'tool_calling': 'required'}, 'native_failed'),

@@ -40,17 +40,17 @@ tools are covered under [Tools](#tools).
 
 ## Guided output
 
-This section describes Hollis 0.7.0, with helper 0.7.0/protocol 3. Runtime
+This section describes Hollis 0.7.0, with helper 0.7.0/protocol 4. Runtime
 0.4.0 and plugin 0.2.0's runtime use protocol 1 and do not include `--schema`
 or the protocol-2 and protocol-3 diagnostics described here. Use the CLI and
 helper from the same release bundle; do not mix a 0.7.0 CLI with an older
 helper.
 
 Protocol 3 adds a `capabilities` object to the helper's status event, and every
-operation negotiates before it runs. The helper accepts request formats 1, 2 and
-3, but stamps all events with version 0.7.0. Older CLIs reject that version;
+operation negotiates before it runs. The helper accepts request formats 1, 2, 3 and
+4, but stamps all events with version 0.7.0. Older CLIs reject that version;
 accepting their request format does not make them compatible. This CLI speaks
-protocol 3 only and checks strict version identity because the CLI and helper
+protocol 4 only and checks strict version identity because the CLI and helper
 ship as one bundle. A mismatched pair fails closed with a clear error asking
 for the matching bundle, never a plain-text downgrade. A capability the helper
 did not advertise (tool calling on an older build, for example) is refused by name as
@@ -178,7 +178,7 @@ the object as a JSON string. An old helper maps to HTTP 502 `native_protocol`,
 the same class as the CLI's exit 5. Field handling, error codes and examples are
 in [the API guide](api.md#guided-json-output).
 
-Guided output requires helper 0.7.0/protocol 3 matched to the CLI. The helper is
+Guided output requires helper 0.7.0/protocol 4 matched to the CLI. The helper is
 asked which protocol it speaks before any operation spawns, so an older helper
 costs no inference: it is refused, pointing at the matching bundle.
 Pairing the CLI with any other helper release is a
@@ -249,46 +249,55 @@ require `stream:false`. See [the API guide](api.md).
 
 ## Tools
 
-`hollis respond --model local --tools tools.json "..."` offers tools to the
-native model. `tools.json` is a JSON array in the OpenAI tools shape. Hollis
-never runs a tool; it prints one JSON document:
+`hollis respond --model local --tools tools.json "..."` offers executable native
+tools. The file uses Chat Completions' function-definition shape. Caller tools
+are never executed by Hollis. The command prints one JSON document with either
+`finish_reason:"tool_calls"` and validated calls, or `finish_reason:"stop"` and
+final text. Native framework call IDs are preserved.
 
-```json
-{"finish_reason":"tool_calls","model":"local","rounds":1,"tool_calls":[{"id":"call_1_0","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Tokyo\"}"}}],"usage":{...}}
-{"finish_reason":"stop","model":"local","rounds":1,"text":"Paris.","usage":{...}}
-```
+Tool choice accepts `auto`, `none`, `required` and `function:NAME`. Required means
+at least one real offered function; its continuation allows dependencies.
+Named choice offers only that function initially and disables further callbacks
+after its result. A replayed structured call satisfies the obligation for the
+current user transaction. A new user message resets it. None disables callbacks;
+call-shaped prose is ordinary text and is never executed.
 
-On a terminal the same document is printed indented. Tool definitions are native
-transcript metadata, with fixed format instructions separate from the conversation.
-They are not executable SDK tools. A bounded, non-generative status process
-verifies the matching helper and `tools.native_definitions` before each tool
-generation; it shares the request deadline and does not tokenize or generate.
-The helper also checks runtime tool support before tokenization. Missing support
-fails explicitly, never by falling back to text-only definitions.
+The helper registers real Swift tools. Their callbacks only capture a complete
+batch and return control to Go. Go validates every call before approval or
+execution. There is no CALL/JSON extraction, argument coercion, automatic repair
+or Local text fallback. Unsupported capability, invalid arguments and incomplete
+batches fail explicitly. Quoted calls in documents, results or assistant prose
+are not dispatchable.
 
-The 128 KiB input limit includes the conversation, fixed instructions, and
-normalized tool names, descriptions and parameter schemas. The encoded helper
-request must also fit 1 MiB. One native token preflight counts the instructions,
-definitions and exactly one pending prompt; the prompt is then sent once.
-`--tool-choice none` omits definitions and tool-format instructions, disables
-the model's tool mode and leaves ordinary conversation history intact. Each
-tool's `parameters` must fit the [guided-output subset](#guided-output);
-string length, pattern and format are not enforced. Arguments are validated
-before they are printed, an invalid call gets one repair round, and after that
-the command fails with `tool_call_invalid` (exit 5). The same correction covers
-any reply that contains `"tool_calls"` and quotes an offered tool's name,
-however broken its JSON; argument values are never guessed and nothing in
-such a reply runs or is partially salvaged. A reply that names no offered
-tool is printed as text. When MCP tools are attached, a call whose name
-matches exactly one MCP tool's name after its `<server>__` prefix is not text: it gets the same
-single correction round, which names the declared tool. The prefix-less call
-is never run or renamed; only a corrected reply can run. A name that matches
-no MCP tool, or several, is not an offered name. Each loop has a three-call
-budget, including repairs, final answers and `none`; visible prior tool-call
-turns consume budget too. A fourth dispatch or
-a tool call at the cap fails with `tool_round_cap` (exit 5). Hidden repairs from
-earlier stateless requests cannot be reconstructed, so this is not a global
-cross-request quota. The `rounds` field counts new dispatches in this request.
-`--tools` requires `--model local` and
-cannot be combined with `--stream`, `--schema`, `--image`, `--code`, `--json` or
-`--agent`; those are usage errors (exit 2) before anything runs.
+The default budget is eight model decisions, including visible prior tool
+batches since the last user turn and final synthesis. A call on the final
+decision fails before dispatch with `tool_round_cap` (exit 5). A batch has at
+most 16 calls, with at most 32 caller tools and 128 combined caller/MCP offers.
+Invalid native arguments fail `tool_call_invalid` (exit 5) without a repair.
+`rounds` counts only new decisions in the current request.
+
+Full typed history, framing and definitions share a 128 KiB byte budget.
+SDK token counting checks the native transcript before inference and after
+each completed MCP result, before any later approval or dispatch.
+Nothing is shortened or dropped. Handoff usage is absent unless measured for
+every decision. Tool schemas use the [guided-output subset](#guided-output).
+
+`--tools` requires Local and is complete-only. It refuses `--stream`, `--schema`,
+`--image`, `--code`, `--json` and `--agent`. CLI MCP tools use the existing
+approval manager, exact `server__tool` names and sequential execution.
+Ask-only server-validated schemas use a native JSON-string envelope and still
+require human approval and server validation. The HTTP server executes no MCP
+or caller tools. See [MCP servers](mcp.md).
+
+## Sampling
+
+Local `respond` accepts `--temperature`, `--top-p`, `--max-tokens` and `--seed`.
+Omission retains SDK defaults. Temperature is finite in 0..2; zero selects
+greedy. Top-p is in (0,1]. Seed is UInt64; seed alone selects top-p 1.
+Greedy with seed or top-p is a usage error. Max tokens is a positive integer
+per model decision, not a cumulative tool-loop allowance.
+
+HTTP uses `temperature`, `top_p`, `seed` and `max_tokens` for Chat Completions,
+or `max_output_tokens` for Responses. Sampling is Local-only and cannot accompany
+image generation. Text, streaming, guided output and tool generation share the
+same validated options. Reproducibility across OS/model versions is not promised.

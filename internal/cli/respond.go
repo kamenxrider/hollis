@@ -135,8 +135,9 @@ or agent output, --stream, --schema and --tools.
 Offer tools to the native model with --tools <file>, a JSON array in the
 OpenAI tools shape. Hollis never runs caller-provided tools: it prints one JSON document,
 either {"finish_reason":"tool_calls","tool_calls":[...]} with validated
-arguments, or {"finish_reason":"stop","text":"..."}. --tool-choice none keeps
-the tools out of the prompt and disables the model's tool mode. --tools
+arguments, or {"finish_reason":"stop","text":"..."}. --tool-choice none disables
+native callbacks. required forces a real offered call; function:NAME restricts
+the initial decision to that function. --tools
 requires --model local, completes without streaming, and cannot be combined
 with --image, --schema, --code, --json or --agent.
 

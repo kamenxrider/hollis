@@ -6,7 +6,7 @@
     {
       "event": "error",
       "kind": "native_failed",
-      "protocol": 3,
+      "protocol": 4,
       "version": "0.7.0",
       "model": "local"
     }

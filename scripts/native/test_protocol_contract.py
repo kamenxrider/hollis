@@ -22,19 +22,19 @@ import helper_protocol as protocol
 # tests below fail if either source grows a field without the other.
 METADATA_REQUEST_FIELDS = {'tool_instructions', 'tool_definitions',
                            'raw_tool_definitions', 'hybrid_tools'}
-GO_REQUEST_FIELDS = {'protocol', 'operation', 'prompt', 'schema', 'tool_calling',
+GO_REQUEST_FIELDS = {'protocol', 'operation', 'prompt', 'schema', 'tool_calling', 'generation_options',
                      'source', 'pages', 'media', 'images'} | METADATA_REQUEST_FIELDS
 GO_EVENT_FIELDS = {'protocol', 'version', 'model', 'event', 'available',
                    'reason', 'text', 'usage', 'kind', 'context_size',
                    'structured', 'capability', 'capabilities', 'media',
                    'page_count', 'pages', 'text_bytes', 'page', 'limit',
-                   'actual'}
+                   'actual', 'request_id', 'step', 'calls', 'input_tokens'}
 GO_CAPABILITY_FIELDS = {'extract', 'images', 'tools', 'vision', 'macos_major'}
 GO_EXTRACT_CAPABILITY_FIELDS = {'pdf', 'ocr', 'pages', 'max_pages', 'max_text_bytes'}
 GO_PAGE_FIELDS = {'page', 'text', 'method'}
 GO_SOURCE_FIELDS = {'path'}
 GO_IMAGE_CAPABILITY_FIELDS = {'supported', 'max_images', 'formats', 'max_side_px', 'reason'}
-GO_TOOL_CAPABILITY_FIELDS = {'supported', 'reason', 'tool_calling_mode',
+GO_TOOL_CAPABILITY_FIELDS = {'supported', 'reason', 'tool_calling_mode', 'executable', 'turn_handoff',
                              'native_definitions', 'hybrid_tools'}
 GO_USAGE_FIELDS = {'input_tokens', 'output_tokens', 'reasoning_tokens'}
 PROTOCOL_THREE_OPERATIONS = {'status', 'complete', 'stream', 'schema', 'extract'}
@@ -173,12 +173,12 @@ class MessageShapeTests(unittest.TestCase):
         self.assertTrue(emitted, 'helper emits no failure kinds')
         self.assertLessEqual(emitted, go_accepted_event_error_kinds())
 
-    def test_helper_accepts_exactly_protocols_one_two_and_three(self):
+    def test_helper_accepts_exactly_protocols_one_through_four(self):
         match = re.search(r'let accepted = \[([^\]]+)\]', self.swift)
         self.assertIsNotNone(match, 'helper accepted protocol set is missing')
         accepted = [protocol.swift_pins()[1] if value.strip() == 'protocolVersion'
                     else int(value.strip()) for value in match.group(1).split(',')]
-        self.assertEqual(sorted(accepted), [1, 2, 3])
+        self.assertEqual(sorted(accepted), [1, 2, 3, 4])
         self.assertIn('guard accepted.contains(request.`protocol`) else {',
                       self.swift)
 
@@ -207,9 +207,10 @@ class PrivacyOfTheChannelTests(unittest.TestCase):
         self.swift = protocol.HELPER_SOURCE.read_text()
 
     def test_prompt_never_travels_in_process_arguments(self):
-        # Four fixed metadata/mode comparisons and one argument-count guard.
+        # Fixed metadata/mode comparisons and one argument-count guard.
         occurrences = self.swift.count('CommandLine.arguments')
-        self.assertEqual(occurrences, 9, 'unexpected argument handling')
+        self.assertEqual(occurrences, 11, 'unexpected argument handling')
+        self.assertIn('CommandLine.arguments == [CommandLine.arguments[0], "--native-tools"]', self.swift)
         self.assertIn('CommandLine.arguments == [CommandLine.arguments[0], "--native-definitions"]', self.swift)
         self.assertIn('CommandLine.arguments == [CommandLine.arguments[0], "--hybrid-tools"]', self.swift)
         self.assertNotIn('CommandLine.arguments[1]', self.swift)

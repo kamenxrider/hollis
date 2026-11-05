@@ -1,13 +1,13 @@
 {
-  "stdin": "{\"protocol\":4,\"operation\":\"status\"}",
+  "stdin": "{\"protocol\":5,\"operation\":\"status\"}",
   "events": [
     {
       "event": "error",
       "kind": "native_failed",
-      "protocol": 3,
+      "protocol": 4,
       "version": "0.7.0",
       "model": "local"
     }
   ],
-  "name": "unsupported protocol four"
+  "name": "unsupported protocol five"
 }

@@ -85,6 +85,8 @@ class HelperEventTests(unittest.TestCase):
     def test_status_event_shape(self):
         version, _ = protocol.swift_pins()
         for number, expected_keys in (
+                (4, {'event', 'available', 'reason', 'context_size',
+                     'capabilities', 'protocol', 'version', 'model'}),
                 (3, {'event', 'available', 'reason', 'context_size',
                      'capabilities', 'protocol', 'version', 'model'}),
                 (2, {'event', 'available', 'reason', 'context_size',
@@ -113,7 +115,7 @@ class HelperEventTests(unittest.TestCase):
                     self.assertIsInstance(status['context_size'], int)
                     if status['available']:
                         self.assertGreater(status['context_size'], 0)
-                if number == 3:
+                if number >= 3:
                     capabilities = status['capabilities']
                     self.assertEqual(set(capabilities),
                                      {'vision', 'macos_major', 'extract', 'images', 'tools'})
@@ -122,11 +124,13 @@ class HelperEventTests(unittest.TestCase):
                         'max_pages': 2000, 'max_text_bytes': 131072})
                     tools = capabilities['tools']
                     self.assertEqual(set(tools),
-                                     {'supported', 'tool_calling_mode', 'native_definitions', 'hybrid_tools'})
+                                     {'supported', 'tool_calling_mode', 'native_definitions', 'hybrid_tools', 'executable', 'turn_handoff'})
                     self.assertIsInstance(tools['supported'], bool)
                     self.assertTrue(tools['tool_calling_mode'])
                     self.assertEqual(tools['native_definitions'], tools['supported'])
                     self.assertEqual(tools['hybrid_tools'], tools['supported'])
+                    self.assertEqual(tools['executable'], tools['supported'])
+                    self.assertEqual(tools['turn_handoff'], tools['supported'])
                     if not status['available']:
                         self.assertFalse(tools['supported'])
                     self.assertIsInstance(capabilities['vision'], bool)
