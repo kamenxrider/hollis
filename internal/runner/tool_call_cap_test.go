@@ -3,11 +3,10 @@ package runner
 
 import (
 	"context"
-	"strings"
-	"testing"
-
 	"github.com/kamenxrider/hollis/internal/chat"
 	"github.com/kamenxrider/hollis/internal/store"
+	"strings"
+	"testing"
 )
 
 func priorCallTurns(count int) []store.Message {
@@ -22,14 +21,18 @@ func priorCallTurns(count int) []store.Message {
 }
 
 func TestToolPhysicalCallCapIncludesCorrections(t *testing.T) {
-	good := `{"tool_calls":[{"function":"get_weather","arguments":{"city":"Tokyo"}}]}`
-	r := &scriptedRounds{replies: []string{malformedWeatherCall, good, malformedWeatherCall, good}}
+	c := nativeConversation(t, ToolChoiceAuto)
+	c.RoundLimit = 3
+	r := &nativeScript{replies: []Completion{
+		nativeReply("a", "get_weather", `{"city":"Tokyo"}`),
+		nativeReply("b", "get_weather", `{"city":"Tokyo"}`),
+		nativeReply("c", "get_weather", `{"city":"Tokyo"}`),
+	}}
 	executor := &recordingExecutor{output: "18C"}
-	out, err := RunToolLoop(t.Context(), r, ModelLocal,
-		ToolConversation{Tools: mustTools(t), Choice: ToolChoiceAuto, Messages: userTurn("weather")}, executor)
+	out, err := RunToolLoop(t.Context(), r, ModelLocal, c, executor)
 	requireNativeKind(t, err, KindToolRoundCap)
-	if len(r.prompts) != 3 || out.Rounds != 3 || executor.calls != 1 {
-		t.Fatalf("physical calls=%d rounds=%d executed=%d", len(r.prompts), out.Rounds, executor.calls)
+	if len(r.requests) != 3 || out.Rounds != 3 || executor.calls != 2 {
+		t.Fatalf("rounds=%d dispatched=%d", out.Rounds, executor.calls)
 	}
 }
 
@@ -38,28 +41,29 @@ func TestToolPhysicalCallCapContinuationAndNone(t *testing.T) {
 		name   string
 		prior  int
 		choice ToolChoice
-		reply  string
+		reply  Completion
 		calls  int
 		fail   bool
 	}{
-		{"last call may answer", 2, ToolChoiceAuto, "Done.", 1, false},
-		{"last call may not ask for another", 2, ToolChoiceAuto, `{"tool_calls":[{"function":"get_weather","arguments":{"city":"Tokyo"}}]}`, 1, true},
-		{"last call has no repair budget", 2, ToolChoiceAuto, malformedWeatherCall, 1, true},
-		{"none consumes last call", 2, ToolChoiceNone, "Done.", 1, false},
-		{"none cannot bypass exhausted history", 3, ToolChoiceNone, "Done.", 0, true},
-		{"auto exhausted history", 3, ToolChoiceAuto, "Done.", 0, true},
+		{"last may answer", 2, ToolChoiceAuto, Completion{Text: "Done."}, 1, false},
+		{"last may not dispatch", 2, ToolChoiceAuto, nativeReply("last", "get_weather", `{"city":"Tokyo"}`), 1, true},
+		{"none consumes last", 2, ToolChoiceNone, Completion{Text: "Done."}, 1, false},
+		{"none cannot bypass exhausted history", 3, ToolChoiceNone, Completion{Text: "Done."}, 0, true},
+		{"auto exhausted history", 3, ToolChoiceAuto, Completion{Text: "Done."}, 0, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := &scriptedRounds{replies: []string{tc.reply, "Done."}}
-			out, err := RunToolLoop(t.Context(), r, ModelLocal,
-				ToolConversation{Tools: mustTools(t), Choice: tc.choice, Messages: priorCallTurns(tc.prior)}, nil)
+			r := &nativeScript{replies: []Completion{tc.reply}}
+			c := nativeConversation(t, tc.choice)
+			c.RoundLimit = 3
+			c.Messages = priorCallTurns(tc.prior)
+			out, err := RunToolLoop(t.Context(), r, ModelLocal, c, nil)
 			if tc.fail {
 				requireNativeKind(t, err, KindToolRoundCap)
 			} else if err != nil {
 				t.Fatal(err)
 			}
-			if len(r.prompts) != tc.calls || out.Rounds != tc.calls {
-				t.Fatalf("calls=%d reported=%d", len(r.prompts), out.Rounds)
+			if len(r.requests) != tc.calls || out.Rounds != tc.calls || len(out.Calls) != 0 {
+				t.Fatalf("out=%+v decisions=%d", out, len(r.requests))
 			}
 		})
 	}
@@ -68,20 +72,20 @@ func TestToolPhysicalCallCapContinuationAndNone(t *testing.T) {
 func TestToolPhysicalCallCapAdmissionFailuresDoNotDispatch(t *testing.T) {
 	for _, canceled := range []bool{false, true} {
 		ctx, cancel := context.WithCancel(t.Context())
-		messages := userTurn(strings.Repeat("x", NativeMaxPromptBytes))
+		c := nativeConversation(t, ToolChoiceAuto)
+		c.Messages = userTurn(strings.Repeat("x", NativeMaxPromptBytes))
 		kind := KindContextCapacity
 		if canceled {
 			cancel()
-			messages = userTurn("weather")
+			c.Messages = userTurn("weather")
 			kind = KindContextCanceled
 		}
-		r := &scriptedRounds{replies: []string{"Done."}}
-		out, err := RunToolLoop(ctx, r, ModelLocal,
-			ToolConversation{Tools: mustTools(t), Choice: ToolChoiceAuto, Messages: messages}, nil)
+		r := &nativeScript{}
+		out, err := RunToolLoop(ctx, r, ModelLocal, c, nil)
 		cancel()
 		requireNativeKind(t, err, kind)
-		if len(r.prompts) != 0 || out.Rounds != 0 {
-			t.Fatalf("calls=%d rounds=%d", len(r.prompts), out.Rounds)
+		if len(r.requests) != 0 || out.Rounds != 0 {
+			t.Fatal("admission failure dispatched")
 		}
 	}
 }

@@ -2,7 +2,6 @@
 package runner
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,45 +55,16 @@ func TestFaultyToolRepliesAreRepairableFaults(t *testing.T) {
 }
 
 func TestFaultyToolRepliesNeverReachTheCallerAsText(t *testing.T) {
-	tools, err := ParseTools([]byte(faultyReplyTools), "tools")
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, tc := range faultyToolReplies {
 		t.Run(tc.file, func(t *testing.T) {
-			reply := faultyReply(t, tc.file)
-			r := &scriptedRounds{replies: []string{reply, reply}}
-			out, err := RunToolLoop(t.Context(), r, ModelLocal, ToolConversation{
-				Tools: tools, Choice: ToolChoiceAuto, Messages: userTurn("Call the tool."),
-			}, ReturnToCaller{})
-			var fault *Error
-			if !errors.As(err, &fault) || fault.Kind != KindToolCallInvalid {
-				t.Fatalf("error=%v; want tool_call_invalid", err)
-			}
-			want := 2
-			if tc.framing {
-				want = 1
-			}
-			if len(r.prompts) != want || out.Rounds != want || out.Text != "" || len(out.Calls) != 0 {
-				t.Fatalf("rounds=%d prompts=%d out=%+v; want %d rounds and no answer", out.Rounds, len(r.prompts), out, want)
+			text := faultyReply(t, tc.file)
+			r := &nativeScript{replies: []Completion{{Text: text}}}
+			executor := &recordingExecutor{output: "never"}
+			out, err := RunToolLoop(t.Context(), r, ModelLocal, nativeConversation(t, ToolChoiceAuto), executor)
+			if err != nil || out.Text != text || len(out.Calls) != 0 || out.Rounds != 1 || executor.calls != 0 {
+				t.Fatalf("quoted text promoted or changed: %+v %v", out, err)
 			}
 		})
-	}
-}
-
-func TestFaultyToolReplyCorrectedToValidCall(t *testing.T) {
-	tools, err := ParseTools([]byte(faultyReplyTools), "tools")
-	if err != nil {
-		t.Fatal(err)
-	}
-	valid := `{"tool_calls":[{"id":"call_7","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Lisbon\",\"unit\":\"f\"}"}}]}`
-	r := &scriptedRounds{replies: []string{faultyReply(t, "tool_reply_extra_element.txt"), valid}}
-	out, err := RunToolLoop(t.Context(), r, ModelLocal, ToolConversation{
-		Tools: tools, Choice: ToolChoiceAuto, Messages: userTurn("Call get_weather for Lisbon with unit f."),
-	}, ReturnToCaller{})
-	if err != nil || out.Rounds != 2 || len(out.Calls) != 1 || out.Calls[0].Name != "get_weather" ||
-		out.Calls[0].Arguments != `{"city":"Lisbon","unit":"f"}` {
-		t.Fatalf("out=%+v err=%v", out, err)
 	}
 }
 

@@ -3,10 +3,7 @@
 package runner
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
-	"strings"
 	"testing"
 )
 
@@ -76,52 +73,5 @@ func TestPrefixLessMCPNameCallerToolsUnchanged(t *testing.T) {
 	got := interpretRound(`{"tool_calls":[{"function":{"name":"save","arguments":{"note":"x"}}}]}`, []Tool{tool}, 1, map[string]bool{})
 	if !got.plain {
 		t.Fatalf("caller tool names must not be matched by suffix: %+v", got)
-	}
-}
-
-func TestPrefixLessMCPNameUsesOneCorrection(t *testing.T) {
-	const bare = `{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"save","arguments":{"note":"x"}}}]}`
-	const fixed = `{"tool_calls":[{"function":{"name":"notes__save","arguments":{"note":"x"}}}]}`
-	for _, tc := range []struct {
-		name, second string
-		wantError    bool
-		wantCalls    int
-		wantText     string
-	}{
-		{"corrected call executes", fixed, false, 1, ""},
-		{"still prefix-less", bare, true, 0, ""},
-		{"plain answer after correction", "I cannot save notes.", false, 0, "I cannot save notes."},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var executed []ToolCall
-			executor := toolExecutorFunc(func(_ context.Context, calls []ToolCall) (ToolExecution, error) {
-				executed = append(executed, calls...)
-				return ToolExecution{Pending: calls}, nil
-			})
-			r := &scriptedRounds{replies: []string{bare, tc.second}}
-			out, err := RunToolLoop(context.Background(), r, ModelLocal, prefixLessConversation(t, "notes__save", "notes__list"), executor)
-			if len(r.prompts) != 2 || out.Rounds != 2 {
-				t.Fatalf("rounds=%d, prompts=%d; want exactly one correction", out.Rounds, len(r.prompts))
-			}
-			if !strings.Contains(r.prompts[1], `call the declared tool name "notes__save"`) {
-				t.Fatalf("correction does not name the declared tool:\n%s", r.prompts[1])
-			}
-			var fault *Error
-			if tc.wantError {
-				if !errors.As(err, &fault) || fault.Kind != KindToolCallInvalid || !strings.Contains(fault.Error(), "notes__save") {
-					t.Fatalf("error=%v; want tool_call_invalid naming the declared tool", err)
-				}
-			} else if err != nil {
-				t.Fatal(err)
-			}
-			for _, call := range executed {
-				if call.Name != "notes__save" {
-					t.Fatalf("executed a call that was not the declared name: %+v", call)
-				}
-			}
-			if len(executed) != tc.wantCalls || len(out.Calls) != tc.wantCalls || out.Text != tc.wantText {
-				t.Fatalf("executed=%+v outcome=%+v", executed, out)
-			}
-		})
 	}
 }

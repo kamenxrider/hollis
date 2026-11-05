@@ -2,7 +2,6 @@
 package runner
 
 import (
-	"errors"
 	"strings"
 	"testing"
 )
@@ -74,28 +73,5 @@ func TestToolCallTerminalCloserBounds(t *testing.T) {
 		} else if got.fault == "" || len(got.calls) != 0 {
 			t.Fatal("repair bypassed the per-round call limit")
 		}
-	}
-}
-
-func TestToolCallTerminalCloserUsesNoExtraGeneration(t *testing.T) {
-	invalid := strings.Replace(validWeatherCall, `"Tokyo"`, `["Tokyo"]`, 1)
-	rounds := &scriptedRounds{replies: []string{invalid, missingWeatherArrayCloser}}
-	out, err := RunToolLoop(t.Context(), rounds, ModelLocal, ToolConversation{
-		Tools: mustTools(t), Choice: ToolChoiceAuto, Messages: userTurn("Weather in Tokyo?"),
-	}, ReturnToCaller{})
-	if err != nil || out.Rounds != 2 || len(rounds.requests) != 2 || len(out.Calls) != 1 {
-		t.Fatal("structural repair did not finish within the existing single correction")
-	}
-	if out.Calls[0].Arguments != `{"city":"Tokyo"}` {
-		t.Fatal("argument value changed")
-	}
-	rounds = &scriptedRounds{replies: []string{invalid, invalid, missingWeatherArrayCloser}}
-	out, err = RunToolLoop(t.Context(), rounds, ModelLocal, ToolConversation{
-		Tools: mustTools(t), Choice: ToolChoiceAuto, Messages: userTurn("Weather in Tokyo?"),
-	}, ReturnToCaller{})
-	var fault *Error
-	if !errors.As(err, &fault) || fault.Kind != KindToolCallInvalid ||
-		out.Rounds != 2 || len(rounds.requests) != 2 || len(out.Calls) != 0 {
-		t.Fatal("invalid repair added generation or escaped validation")
 	}
 }

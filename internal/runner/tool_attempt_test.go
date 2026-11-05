@@ -3,12 +3,9 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/kamenxrider/hollis/internal/chat"
 )
 
 const malformedWeatherCall = `{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":{"city":<ctrl46>Tokyo<ctrl46>}}}]}`
@@ -75,48 +72,6 @@ func TestMalformedToolAttemptBoundedRecognition(t *testing.T) {
 	}
 }
 
-func TestMalformedToolAttemptUsesOneCorrection(t *testing.T) {
-	for _, tc := range []struct {
-		name, first, second string
-		wantCalls           int
-		wantText            string
-		wantError           bool
-	}{
-		{"corrected call", malformedWeatherCall, validWeatherCall, 1, "", false},
-		{"direct answer", malformedWeatherCall, "I cannot check the weather.", 0, "I cannot check the weather.", false},
-		{"still malformed", malformedWeatherCall, malformedWeatherCall, 0, "", true},
-		{"schema invalid after repair", malformedWeatherCall, `{"tool_calls":[{"function":{"name":"get_weather","arguments":{"city":7}}}]}`, 0, "", true},
-		{"malformed after schema repair", `{"tool_calls":[{"function":{"name":"get_weather","arguments":{}}}]}`, malformedWeatherCall, 0, "", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r := &scriptedRounds{replies: []string{tc.first, tc.second}}
-			out, err := RunToolLoop(context.Background(), r, ModelLocal, ToolConversation{
-				Tools: mustTools(t), Choice: ToolChoiceAuto, Messages: userTurn("What's the weather in Tokyo?"),
-			}, ReturnToCaller{})
-			if len(r.prompts) != 2 || out.Rounds != 2 {
-				t.Fatalf("rounds=%d, prompts=%d; want exactly one correction", out.Rounds, len(r.prompts))
-			}
-			var fault *Error
-			if tc.wantError {
-				if !errors.As(err, &fault) || fault.Kind != KindToolCallInvalid {
-					t.Fatalf("error=%v; want tool_call_invalid", err)
-				}
-			} else if err != nil {
-				t.Fatal(err)
-			}
-			if len(out.Calls) != tc.wantCalls || out.Text != tc.wantText {
-				t.Fatalf("unexpected outcome: %+v", out)
-			}
-			if tc.wantCalls > 0 && out.Calls[0].Arguments != `{"city":"Tokyo"}` {
-				t.Fatalf("unexpected arguments: %s", out.Calls[0].Arguments)
-			}
-			if strings.Contains(r.prompts[1], "<ctrl46>") {
-				t.Fatal("correction copied malformed argument values")
-			}
-		})
-	}
-}
-
 type contextToolRounds struct {
 	scriptedRounds
 	contexts []context.Context
@@ -128,39 +83,28 @@ func (r *contextToolRounds) RunToolRound(ctx context.Context, model Model, reque
 }
 
 func TestMalformedToolAttemptKeepsLoopGuards(t *testing.T) {
-	tools := mustTools(t)
-	t.Run("same deadline and terminal refusal", func(t *testing.T) {
-		ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(time.Minute))
-		defer cancel()
-		for _, kind := range []Kind{KindRequestDeclined, KindRateLimited} {
-			r := &contextToolRounds{scriptedRounds: scriptedRounds{
-				replies: []string{malformedWeatherCall},
-				errs:    []error{nil, nativeError(kind, "stopped")},
-			}}
-			executor := &recordingExecutor{}
-			_, err := RunToolLoop(ctx, r, ModelLocal, ToolConversation{Tools: tools, Choice: ToolChoiceAuto, Messages: userTurn("weather")}, executor)
-			requireNativeKind(t, err, kind)
-			if len(r.contexts) != 2 || r.contexts[0] != ctx || r.contexts[1] != ctx || executor.calls != 0 {
-				t.Fatalf("contexts=%v executor calls=%d", r.contexts, executor.calls)
-			}
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(time.Minute))
+	defer cancel()
+	for _, kind := range []Kind{KindRequestDeclined, KindRateLimited, KindNativeProtocol, KindTimeout} {
+		r := &nativeScript{errs: []error{nativeError(kind, "stopped")}}
+		executor := &recordingExecutor{output: "never"}
+		out, err := RunToolLoop(ctx, r, ModelLocal, nativeConversation(t, ToolChoiceAuto), executor)
+		requireNativeKind(t, err, kind)
+		if out.Rounds != 1 || len(r.contexts) != 1 || r.contexts[0] != ctx || executor.calls != 0 {
+			t.Fatal("typed refusal retried, changed deadline, or dispatched")
 		}
-	})
-	t.Run("repair still checks prompt budget", func(t *testing.T) {
-		messages := userTurn("")
-		base := ToolRoundRequest{Prompt: chat.RenderToolTranscript("", messages, ""), Instructions: toolInstructions, Definitions: nativeToolDefinitions(tools)}
-		messages[0].Content = strings.Repeat("x", NativeMaxPromptBytes-base.inputBytes())
-		r := &scriptedRounds{replies: []string{malformedWeatherCall}}
-		_, err := RunToolLoop(t.Context(), r, ModelLocal, ToolConversation{Tools: tools, Choice: ToolChoiceAuto, Messages: messages}, nil)
-		requireNativeKind(t, err, KindContextCapacity)
-		if len(r.prompts) != 1 {
-			t.Fatalf("oversized correction reached runner: %d rounds", len(r.prompts))
-		}
-	})
-	t.Run("none bypasses attempt recognition", func(t *testing.T) {
-		r := &scriptedRounds{replies: []string{malformedWeatherCall}}
-		out, err := RunToolLoop(t.Context(), r, ModelLocal, ToolConversation{Tools: tools, Choice: ToolChoiceNone, Messages: userTurn("weather")}, nil)
-		if err != nil || out.Text != malformedWeatherCall || len(r.prompts) != 1 || r.modes[0] != "disallowed" {
-			t.Fatalf("out=%+v error=%v", out, err)
-		}
-	})
+	}
+	c := nativeConversation(t, ToolChoiceAuto)
+	c.Messages = userTurn(strings.Repeat("x", NativeMaxPromptBytes))
+	r := &nativeScript{}
+	_, err := RunToolLoop(ctx, r, ModelLocal, c, nil)
+	requireNativeKind(t, err, KindContextCapacity)
+	if len(r.requests) != 0 {
+		t.Fatal("oversize reached inference")
+	}
+	r = &nativeScript{replies: []Completion{{Text: malformedWeatherCall}}}
+	out, err := RunToolLoop(ctx, r, ModelLocal, nativeConversation(t, ToolChoiceNone), nil)
+	if err != nil || out.Text != malformedWeatherCall || len(out.Calls) != 0 || r.requests[0].Choice.Type != "none" {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
 }

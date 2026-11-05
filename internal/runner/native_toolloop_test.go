@@ -13,22 +13,107 @@ import (
 
 type nativeScript struct {
 	replies  []Completion
+	errs     []error
+	contexts []context.Context
+	onRound  func(context.Context)
 	requests []NativeToolStep
 	checks   []NativeToolStep
 	checkErr error
 }
 
-func (s *nativeScript) RunToolRound(_ context.Context, _ Model, r ToolRoundRequest) (Completion, error) {
+func (s *nativeScript) RunToolRound(ctx context.Context, _ Model, r ToolRoundRequest) (Completion, error) {
 	if r.Native == nil {
 		return Completion{}, errors.New("missing native history")
 	}
 	s.requests = append(s.requests, *r.Native)
+	s.contexts = append(s.contexts, ctx)
+	if s.onRound != nil {
+		s.onRound(ctx)
+	}
+	index := len(s.requests) - 1
+	if index < len(s.errs) && s.errs[index] != nil {
+		return Completion{}, s.errs[index]
+	}
 	if len(s.replies) == 0 {
 		return Completion{}, errors.New("unexpected model decision")
 	}
 	reply := s.replies[0]
 	s.replies = s.replies[1:]
 	return reply, nil
+}
+
+func TestNativeLoopCancellationAndDenial(t *testing.T) {
+	t.Run("cancellation after inference prevents approval", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		r := &nativeScript{replies: []Completion{nativeReply("a", "get_weather", `{"city":"Tokyo"}`)}, onRound: func(context.Context) { cancel() }}
+		executor := &recordingExecutor{output: "never"}
+		_, err := RunToolLoop(ctx, r, ModelLocal, nativeConversation(t, ToolChoiceAuto), executor)
+		requireNativeKind(t, err, KindContextCanceled)
+		if executor.calls != 0 || len(r.requests) != 1 {
+			t.Fatal("canceled decision reached executor")
+		}
+	})
+	t.Run("approval denial is terminal and preserves typed error", func(t *testing.T) {
+		r := &nativeScript{replies: []Completion{nativeReply("a", "get_weather", `{"city":"Tokyo"}`), {Text: "must not retry"}}}
+		denial := nativeError(Kind("tool_denied"), "denied")
+		approvals := 0
+		executor := toolExecutorFunc(func(_ context.Context, calls []ToolCall) (ToolExecution, error) {
+			approvals++
+			if len(calls) != 1 || calls[0].Arguments != `{"city":"Tokyo"}` {
+				t.Fatal("approval did not receive validated bytes")
+			}
+			return ToolExecution{}, denial
+		})
+		out, err := RunToolLoop(t.Context(), r, ModelLocal, nativeConversation(t, ToolChoiceAuto), executor)
+		if !errors.Is(err, denial) || approvals != 1 || out.Rounds != 1 || len(r.requests) != 1 || len(out.Messages) != 2 {
+			t.Fatalf("out=%+v err=%v", out, err)
+		}
+	})
+	t.Run("cancellation during execution preserves completed result", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		reply := nativeReply("a", "get_weather", `{"city":"Tokyo"}`)
+		reply.NativeCalls = append(reply.NativeCalls, NativeToolCall{"b", "get_weather", `{"city":"Berlin"}`})
+		r := &nativeScript{replies: []Completion{reply}}
+		dispatched := 0
+		executor := toolExecutorFunc(func(_ context.Context, calls []ToolCall) (ToolExecution, error) {
+			dispatched++
+			cancel()
+			return ToolExecution{Results: []ToolResult{{CallID: calls[0].ID, Output: "completed"}}}, nativeError(KindContextCanceled, "canceled")
+		})
+		out, err := RunToolLoop(ctx, r, ModelLocal, nativeConversation(t, ToolChoiceAuto), executor)
+		requireNativeKind(t, err, KindContextCanceled)
+		if dispatched != 1 || len(out.Messages) != 3 || len(r.requests) != 1 {
+			t.Fatal("cancellation lost partial result or retried")
+		}
+	})
+}
+
+func TestNativeLoopBatchIdentityAndCount(t *testing.T) {
+	for _, batch := range [][]NativeToolCall{
+		{{"a", "get_weather", `{"city":"Tokyo"}`}, {"a", "get_weather", `{"city":"Berlin"}`}},
+		{{"a", "save", `{}`}},
+	} {
+		r := &nativeScript{replies: []Completion{{NativeCalls: batch}}}
+		executor := &recordingExecutor{output: "never"}
+		_, err := RunToolLoop(t.Context(), r, ModelLocal, nativeConversation(t, ToolChoiceAuto), executor)
+		requireNativeKind(t, err, KindToolCallInvalid)
+		if executor.calls != 0 {
+			t.Fatal("invalid batch approved")
+		}
+	}
+	batch := []NativeToolCall{}
+	for i := 0; i < 17; i++ {
+		batch = append(batch, NativeToolCall{string(rune('a' + i)), "get_weather", `{"city":"Tokyo"}`})
+	}
+	r := &nativeScript{replies: []Completion{{NativeCalls: batch}}}
+	executor := &recordingExecutor{output: "never"}
+	_, err := RunToolLoop(t.Context(), r, ModelLocal, nativeConversation(t, ToolChoiceAuto), executor)
+	requireNativeKind(t, err, KindToolCallInvalid)
+	if executor.calls != 0 || len(r.requests) != 1 {
+		t.Fatal("over-limit batch executed or repaired")
+	}
 }
 
 func (s *nativeScript) CheckToolHistory(_ context.Context, step NativeToolStep) error {

@@ -163,38 +163,35 @@ func TestHybridAllRawCountAndBatchValidation(t *testing.T) {
 		c.Offers = append(c.Offers, mustMCPOffer(t, fmt.Sprintf("server__t%d", i), true))
 	}
 	_, request, err := prepareToolOffers(c)
-	if err != nil || len(request.RawDefinitions) != 128 || len(request.Definitions) != 0 {
+	if err != nil || len(nativeDefinitions(request)) != 128 {
 		t.Fatalf("raw count admission: %v", err)
-	}
-	if err := (nativeOptions{ToolCalling: request.Mode, ToolInstructions: request.Instructions, RawToolDefinitions: request.RawDefinitions, HybridTools: true}).validate(); err != nil {
-		t.Fatal(err)
 	}
 	c.Offers = append(c.Offers, mustMCPOffer(t, "server__overflow", true))
 	if _, _, err := prepareToolOffers(c); err == nil {
-		t.Fatal("129 raw offers admitted")
+		t.Fatal("129 offers admitted")
 	}
-
 	c.Offers = c.Offers[:1]
 	c.Tools = mustTools(t)
-	invalidBatch := `{"tool_calls":[{"function":{"name":"server__t0","arguments":{}}},{"function":{"name":"get_weather","arguments":{}}}]}`
-	r := &scriptedRounds{replies: []string{invalidBatch, invalidBatch}}
-	executor := &recordingExecutor{output: "must not execute"}
+	reply := rawNativeReply("a", "server__t0", `{}`)
+	reply.NativeCalls = append(reply.NativeCalls, NativeToolCall{"b", "get_weather", `{}`})
+	r := &nativeScript{replies: []Completion{reply}}
+	executor := &recordingExecutor{output: "never"}
 	_, err = RunToolLoop(t.Context(), r, ModelLocal, c, executor)
 	requireNativeKind(t, err, KindToolCallInvalid)
-	if executor.calls != 0 {
-		t.Fatal("valid prefix executed before full-batch validation")
+	if executor.calls != 0 || len(r.requests) != 1 {
+		t.Fatal("valid prefix dispatched or invalid batch repaired")
 	}
 }
 
 func TestHybridPhysicalCapStillPreventsDispatch(t *testing.T) {
-	valid := `{"tool_calls":[{"function":{"name":"server__raw","arguments":{}}}]}`
-	malformed := `{"tool_calls":[{"function":{"name":"server__raw","arguments":"{`
-	r := &scriptedRounds{replies: []string{malformed, valid, valid, "must not generate"}}
+	r := &nativeScript{replies: []Completion{
+		rawNativeReply("a", "server__raw", `{}`), rawNativeReply("b", "server__raw", `{}`), rawNativeReply("c", "server__raw", `{}`),
+	}}
+	c := ToolConversation{Offers: []ToolOffer{mustMCPOffer(t, "server__raw", true)}, Choice: ToolChoiceAuto, Messages: userTurn("cap"), RoundLimit: 3}
 	executor := &recordingExecutor{output: "framed"}
-	out, err := RunToolLoop(t.Context(), r, ModelLocal, ToolConversation{
-		Offers: []ToolOffer{mustMCPOffer(t, "server__raw", true)}, Choice: ToolChoiceAuto, Messages: userTurn("cap")}, executor)
+	out, err := RunToolLoop(t.Context(), r, ModelLocal, c, executor)
 	requireNativeKind(t, err, KindToolRoundCap)
-	if out.Rounds != 3 || len(r.requests) != 3 || executor.calls != 1 || len(out.Messages) != 3 {
+	if out.Rounds != 3 || len(r.requests) != 3 || executor.calls != 2 || len(out.Messages) != 5 {
 		t.Fatalf("out=%+v dispatched=%d", out, executor.calls)
 	}
 }
@@ -202,60 +199,45 @@ func TestHybridPhysicalCapStillPreventsDispatch(t *testing.T) {
 type toolExecutorFunc func(context.Context, []ToolCall) (ToolExecution, error)
 
 func TestHybridIncrementalBudgetIncludesHistoryCallsAndMetadata(t *testing.T) {
-	calls := []ToolCall{
-		{ID: "one", Name: "server__raw", Arguments: "{}"},
-		{ID: "two", Name: "server__raw", Arguments: "{}"},
-		{ID: "three", Name: "server__raw", Arguments: "{}"},
-	}
+	calls := []ToolCall{{"one", "server__raw", "{}"}, {"two", "server__raw", "{}"}, {"three", "server__raw", "{}"}}
 	raw := mustMCPOffer(t, "server__raw", true)
 	raw.description = strings.Repeat("metadata", 100)
-	conversation := ToolConversation{
-		Tools: mustTools(t), Offers: []ToolOffer{raw}, Choice: ToolChoiceAuto,
-		Messages: []store.Message{{Role: "user", Content: strings.Repeat("history", 1000)}, {Role: "assistant", Content: "Prior answer"}, {Role: "user", Content: "Now use tools"}},
-	}
-	_, request, err := prepareToolOffers(conversation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	messages := append([]store.Message(nil), conversation.Messages...)
-	messages = append(messages,
-		store.Message{Role: "assistant", Content: chat.EncodeToolCalls(toolCallRecords(calls))},
-		store.Message{Role: chat.RoleTool, Content: chat.EncodeToolResult("one", "")})
-	request.Prompt = chat.RenderToolTranscript("", messages, "")
-	room := NativeMaxPromptBytes - request.inputBytes()
+	c := ToolConversation{Tools: mustTools(t), Offers: []ToolOffer{raw}, Choice: ToolChoiceAuto,
+		Messages: []store.Message{{Role: "user", Content: strings.Repeat("history", 1000)}, {Role: "assistant", Content: "Prior answer"}, {Role: "user", Content: "Now use tools"}}}
+	room := nativeAdmissionRoom(t, c, calls)
 	for _, tc := range []struct {
 		name             string
 		size, dispatched int
 		fail             bool
 	}{
-		{"one-byte-over", room + 1, 1, true},
-		{"exact-first-limit", room, 2, true},
-		{"valid", 10, 3, false},
+		{"one-byte-over", room + 1, 1, true}, {"exact-first-limit", room, 2, true}, {"valid", 10, 3, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := &scriptedRounds{replies: []string{
-				`{"tool_calls":[{"id":"one","function":"server__raw","arguments":{}},{"id":"two","function":"server__raw","arguments":{}},{"id":"three","function":"server__raw","arguments":{}}]}`, "Done."}}
+			reply := Completion{}
+			for _, call := range calls {
+				reply.NativeCalls = append(reply.NativeCalls, rawNativeReply(call.ID, call.Name, call.Arguments).NativeCalls...)
+			}
+			r := &nativeScript{replies: []Completion{reply, {Text: "Done."}}}
 			executor := &recordingExecutor{output: strings.Repeat("x", tc.size)}
-			out, err := RunToolLoop(t.Context(), r, ModelLocal, conversation, executor)
+			out, err := RunToolLoop(t.Context(), r, ModelLocal, c, executor)
 			if tc.fail {
 				requireNativeKind(t, err, KindContextCapacity)
 			} else if err != nil {
 				t.Fatal(err)
 			}
-			wantRounds := 2
+			rounds := 2
 			if tc.fail {
-				wantRounds = 1
+				rounds = 1
 			}
-			if executor.calls != tc.dispatched || len(r.requests) != wantRounds ||
-				len(out.Messages) != len(conversation.Messages)+1+tc.dispatched {
-				t.Fatalf("wrong partial result accounting: dispatched=%d rounds=%d messages=%d", executor.calls, len(r.requests), len(out.Messages))
+			if executor.calls != tc.dispatched || len(r.requests) != rounds || len(out.Messages) != len(c.Messages)+1+tc.dispatched {
+				t.Fatalf("dispatched=%d rounds=%d messages=%d", executor.calls, len(r.requests), len(out.Messages))
 			}
-			if !reflect.DeepEqual(out.Messages[:len(conversation.Messages)], conversation.Messages) {
+			if !reflect.DeepEqual(out.Messages[:len(c.Messages)], c.Messages) {
 				t.Fatal("input history changed")
 			}
 			id, output, ok := chat.DecodeToolResult(out.Messages[len(out.Messages)-1].Content)
 			if !ok || id != calls[tc.dispatched-1].ID || output != executor.output {
-				t.Fatal("last completed result was lost or truncated")
+				t.Fatal("completed result lost or truncated")
 			}
 		})
 	}
@@ -274,38 +256,36 @@ func (f toolExecutorFunc) ExecuteTools(ctx context.Context, calls []ToolCall, ad
 }
 
 func TestHybridPendingStopsAndOrdersTranscript(t *testing.T) {
-	reply := `{"tool_calls":[{"id":"p1","function":{"name":"get_weather","arguments":{"city":"Tokyo"}}},{"id":"r1","function":{"name":"server__raw","arguments":{"n":1e400,"s":"12"}}},{"id":"r2","function":{"name":"server__native","arguments":{}}},{"id":"p2","function":{"name":"get_weather","arguments":{"city":"Osaka"}}}]}`
-	r := &scriptedRounds{replies: []string{reply, "must not continue"}}
+	reply := nativeReply("p1", "get_weather", `{"city":"Tokyo"}`)
+	reply.NativeCalls = append(reply.NativeCalls, rawNativeReply("r1", "server__raw", `{"n":1e400,"s":"12"}`).NativeCalls...)
+	reply.NativeCalls = append(reply.NativeCalls, NativeToolCall{"r2", "server__native", `{}`}, NativeToolCall{"p2", "get_weather", `{"city":"Osaka"}`})
+	r := &nativeScript{replies: []Completion{reply, {Text: "must not continue"}}}
 	c := ToolConversation{Tools: mustTools(t), Offers: []ToolOffer{mustMCPOffer(t, "server__raw", true), mustMCPOffer(t, "server__native", false)}, Choice: ToolChoiceAuto, Messages: userTurn("run mixed")}
 	executor := toolExecutorFunc(func(_ context.Context, calls []ToolCall) (ToolExecution, error) {
 		if calls[1].Arguments != `{"n":1e400,"s":"12"}` {
 			t.Fatalf("raw argument changed: %s", calls[1].Arguments)
 		}
-		return ToolExecution{Results: []ToolResult{{CallID: "r2", Output: "second"}, {CallID: "r1", Output: "first"}},
-			Pending: []ToolCall{calls[3], calls[0]}}, nil
+		return ToolExecution{Results: []ToolResult{{CallID: "r2", Output: "second"}, {CallID: "r1", Output: "first"}}, Pending: []ToolCall{calls[3], calls[0]}}, nil
 	})
 	out, err := RunToolLoop(t.Context(), r, ModelLocal, c, executor)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.requests) != 1 || out.Rounds != 1 || len(out.Calls) != 2 || out.Calls[0].ID != "p1" || out.Calls[1].ID != "p2" {
+	if len(r.requests) != 1 || out.Rounds != 1 || len(out.Calls) != 2 || out.Calls[0].ID != "p1" || out.Calls[1].ID != "p2" || len(out.Messages) != 4 {
 		t.Fatalf("out=%+v", out)
-	}
-	if len(out.Messages) != 4 {
-		t.Fatalf("messages=%+v", out.Messages)
 	}
 	calls, ok := chat.DecodeToolCalls(out.Messages[1].Content)
 	if !ok || len(calls) != 4 {
-		t.Fatal("original full assistant call batch missing")
+		t.Fatal("full assistant batch missing")
 	}
 	for i, want := range []string{"r1", "r2"} {
 		id, _, ok := chat.DecodeToolResult(out.Messages[i+2].Content)
 		if !ok || id != want {
-			t.Fatal("results not in original call order")
+			t.Fatal("results not in call order")
 		}
 	}
-	if !r.requests[0].Hybrid || len(r.requests[0].Definitions) != len(c.Tools)+1 || len(r.requests[0].RawDefinitions) != 1 {
-		t.Fatal("hybrid metadata missing")
+	if len(r.requests[0].Tools) != len(c.Tools)+2 {
+		t.Fatal("native offers missing")
 	}
 }
 
@@ -336,7 +316,9 @@ func TestHybridExecutorDispositions(t *testing.T) {
 }
 
 func TestHybridPartialFailurePreservesCompletedMessages(t *testing.T) {
-	r := &scriptedRounds{replies: []string{`{"tool_calls":[{"id":"one","function":{"name":"server__raw","arguments":{}}},{"id":"two","function":{"name":"server__raw","arguments":{}}}]}`}}
+	reply := rawNativeReply("one", "server__raw", `{}`)
+	reply.NativeCalls = append(reply.NativeCalls, rawNativeReply("two", "server__raw", `{}`).NativeCalls...)
+	r := &nativeScript{replies: []Completion{reply}}
 	stop := errors.New("adapter failure")
 	out, err := RunToolLoop(t.Context(), r, ModelLocal, ToolConversation{Offers: []ToolOffer{mustMCPOffer(t, "server__raw", true)}, Choice: ToolChoiceAuto, Messages: userTurn("two calls")},
 		toolExecutorFunc(func(_ context.Context, calls []ToolCall) (ToolExecution, error) {
@@ -349,31 +331,28 @@ func TestHybridPartialFailurePreservesCompletedMessages(t *testing.T) {
 
 func TestHybridRawValidationRepairAndContinuation(t *testing.T) {
 	c := ToolConversation{Offers: []ToolOffer{mustMCPOffer(t, "server__raw", true)}, Choice: ToolChoiceAuto, Messages: userTurn("raw only")}
-	for _, args := range []string{`[]`, `null`, `"not JSON"`, `"{\"x\":1,\"x\":2}"`, encodeCompact(map[string]string{"large": strings.Repeat("x", MaxToolArgumentsBytes)})} {
+	for _, args := range []string{`[]`, `null`, `"not JSON"`, `{"x":1,"x":2}`, encodeCompact(map[string]string{"large": strings.Repeat("x", MaxToolArgumentsBytes)})} {
 		t.Run(fmt.Sprintf("args-%d", len(args)), func(t *testing.T) {
-			reply := `{"tool_calls":[{"function":{"name":"server__raw","arguments":` + args + `}}]}`
-			r := &scriptedRounds{replies: []string{reply, reply}}
-			executed := false
-			_, err := RunToolLoop(t.Context(), r, ModelLocal, c, toolExecutorFunc(func(context.Context, []ToolCall) (ToolExecution, error) { executed = true; return ToolExecution{}, nil }))
+			r := &nativeScript{replies: []Completion{rawNativeReply("a", "server__raw", args)}}
+			executor := &recordingExecutor{output: "never"}
+			_, err := RunToolLoop(t.Context(), r, ModelLocal, c, executor)
 			requireNativeKind(t, err, KindToolCallInvalid)
-			if len(r.requests) != 2 || executed {
-				t.Fatal("invalid batch executed or repair count changed")
+			if len(r.requests) != 1 || executor.calls != 0 {
+				t.Fatal("invalid native envelope executed or repaired")
 			}
 		})
 	}
-	r := &scriptedRounds{replies: []string{`{"tool_calls":[{"function":{"name":"server__raw","arguments":{"s":"12","huge":1e400}}}]}`, "done"}}
+	r := &nativeScript{replies: []Completion{rawNativeReply("a", "server__raw", `{"s":"12","huge":1e400}`), {Text: "done"}}}
 	out, err := RunToolLoop(t.Context(), r, ModelLocal, c, &recordingExecutor{output: "framed result"})
-	if err != nil || out.Text != "done" || len(out.Messages) != 3 || out.Messages[2].Role != "tool" {
+	if err != nil || out.Text != "done" || len(out.Messages) != 3 || !reflect.DeepEqual(r.requests[0].Tools, r.requests[1].Tools) {
 		t.Fatalf("out=%+v err=%v", out, err)
 	}
-	if len(r.requests[0].Definitions) != 0 || !reflect.DeepEqual(r.requests[0].RawDefinitions, r.requests[1].RawDefinitions) {
-		t.Fatal("raw-only fabricated native definitions or changed metadata")
+	if r.requests[0].Tools[0].Validation != "server" || !strings.Contains(string(r.requests[0].Tools[0].Parameters), "arguments_json") {
+		t.Fatal("raw envelope tier lost")
 	}
-	r = &scriptedRounds{replies: []string{`{"tool_calls":[{"function":{"name":"unknown","arguments":{}}}]}`}}
-	out, err = RunToolLoop(t.Context(), r, ModelLocal, c, nil)
-	if err != nil || out.Text == "" || out.Rounds != 1 {
-		t.Fatal("unknown tool no longer plain text")
-	}
+	r = &nativeScript{replies: []Completion{nativeReply("b", "unknown", `{}`)}}
+	_, err = RunToolLoop(t.Context(), r, ModelLocal, c, nil)
+	requireNativeKind(t, err, KindToolCallInvalid)
 }
 
 func hybridStatus(native, hybrid bool) string {
@@ -385,23 +364,27 @@ func hybridStatus(native, hybrid bool) string {
 func TestHybridNativeWireAndCapabilityPreflight(t *testing.T) {
 	for _, raw := range []bool{false, true} {
 		t.Run(fmt.Sprintf("raw-%v", raw), func(t *testing.T) {
-			_, request, err := prepareToolOffers(ToolConversation{Offers: []ToolOffer{mustMCPOffer(t, "server__t", raw)}})
+			c := ToolConversation{Offers: []ToolOffer{mustMCPOffer(t, "server__t", raw)}, Choice: ToolChoiceAuto, Messages: userTurn("hello")}
+			tools, offers, err := prepareToolOffers(c)
 			if err != nil {
 				t.Fatal(err)
 			}
-			request.Prompt = "hello"
+			instructions, history, err := nativeHistory(c.Messages, tools)
+			if err != nil {
+				t.Fatal(err)
+			}
+			step := NativeToolStep{Protocol: NativeProtocol, Operation: "tool_step", RequestID: "test-request", Step: 1, RemainingSteps: 8, Choice: nativeChoice(c.Choice), Instructions: instructions, Tools: nativeDefinitions(offers), History: history}
+			request := ToolRoundRequest{Native: &step}
 			marker := filepath.Join(t.TempDir(), "generation")
-			r := fakeNative(t, "if [ \"$#\" -ne 0 ]; then touch '"+marker+"'; fi\ncat >/dev/null\n"+nativePrint(metadataStatus(true)))
+			r := fakeNative(t, "if [ \"$#\" -ne 0 ]; then touch '"+marker+"'; fi\ncat >/dev/null\n"+nativePrint(metadataStatus(false)))
 			_, err = r.RunToolRound(t.Context(), ModelLocal, request)
 			requireNativeKind(t, err, KindUnsupportedCapability)
 			if _, err := os.Stat(marker); !os.IsNotExist(err) {
-				t.Fatal("old helper received MCP generation")
+				t.Fatal("metadata-only helper received native request")
 			}
 			wirePath := filepath.Join(t.TempDir(), "request")
-			// Raw-only requests intentionally need no native definitions capability.
-			status := hybridStatus(!raw, true)
-			r = fakeNative(t, "if [ \"$#\" -eq 0 ]; then\ncat >/dev/null\n"+nativePrint(status)+"exit 0\nfi\n"+
-				"test \"$1\" = '--hybrid-tools'\ncat > '"+wirePath+"'\n"+nativePrint(status)+nativeDone("done", true))
+			r = fakeNative(t, "if [ \"$#\" -eq 0 ]; then\ncat >/dev/null\n"+nativePrint(metadataStatus(true))+"exit 0\nfi\n"+
+				"test \"$1\" = '--native-tools'\ncat > '"+wirePath+"'\n"+nativePrint(nativeRequestStatus(true))+nativeRequestDone("done"))
 			if _, err = r.RunToolRound(t.Context(), ModelLocal, request); err != nil {
 				t.Fatal(err)
 			}
@@ -409,19 +392,59 @@ func TestHybridNativeWireAndCapabilityPreflight(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var wire nativeRequest
-			if err = json.Unmarshal(data, &wire); err != nil {
-				t.Fatal(err)
+			var wire NativeToolStep
+			if err = json.Unmarshal(data, &wire); err != nil || !reflect.DeepEqual(wire, step) {
+				t.Fatalf("native wire changed: %s %v", data, err)
 			}
-			if !wire.HybridTools || !reflect.DeepEqual(wire.RawToolDefinitions, request.RawDefinitions) || !reflect.DeepEqual(wire.ToolDefinitions, request.Definitions) {
-				t.Fatal("metadata wire changed")
+			if raw && (wire.Tools[0].Validation != "server" || !strings.Contains(string(wire.Tools[0].Parameters), "arguments_json")) {
+				t.Fatal("server-validated tier not explicit")
 			}
-			if raw && strings.Contains(string(data), `"tool_definitions"`) {
-				t.Fatal("fabricated all-Tier2 native definitions")
-			}
-			request.Prompt = strings.Repeat("x", NativeMaxPromptBytes-request.inputBytes()+len(request.Prompt)+1)
+			text := strings.Repeat("x", NativeMaxPromptBytes)
+			request.Native.History[0].Text = &text
 			_, err = (&NativeRunner{}).RunToolRound(t.Context(), ModelLocal, request)
 			requireNativeKind(t, err, KindContextCapacity)
 		})
 	}
+}
+
+func rawNativeReply(id, name, arguments string) Completion {
+	return nativeReply(id, name, encodeCompact(map[string]string{"arguments_json": arguments}))
+}
+
+func nativeAdmissionRoom(t *testing.T, c ToolConversation, calls []ToolCall) int {
+	t.Helper()
+	tools, offers, err := prepareToolOffers(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fits := func(size int) bool {
+		messages := append([]store.Message(nil), c.Messages...)
+		messages = append(messages, store.Message{Role: "assistant", Content: chat.EncodeToolCalls(toolCallRecords(calls))})
+		for i, call := range calls {
+			text := ""
+			if i == 0 {
+				text = strings.Repeat("x", size)
+			}
+			messages = append(messages, store.Message{Role: chat.RoleTool, Content: chat.EncodeToolResult(call.ID, text)})
+		}
+		instructions, history, err := nativeHistory(messages, tools)
+		if err != nil {
+			t.Fatal(err)
+		}
+		step := NativeToolStep{Protocol: NativeProtocol, Operation: "tool_step", RequestID: "test", Step: 2, RemainingSteps: 7, Choice: nativeChoice(c.Choice), Instructions: instructions, Tools: nativeDefinitions(offers), History: history}
+		return step.validate() == nil
+	}
+	low, high := 0, NativeMaxPromptBytes
+	for low < high {
+		mid := (low + high + 1) / 2
+		if fits(mid) {
+			low = mid
+		} else {
+			high = mid - 1
+		}
+	}
+	if !fits(low) || fits(low+1) {
+		t.Fatal("could not locate exact byte boundary")
+	}
+	return low
 }

@@ -1,4 +1,3 @@
-// Copyright 2026 kamenxrider and contributors. Licensed under Apache-2.0. See LICENSE.
 package runner
 
 import (
@@ -10,19 +9,49 @@ import (
 	"testing"
 )
 
-func metadataStatus(definitions bool) string {
+func metadataStatus(executable bool) string {
 	return nativeLine("status", map[string]any{
 		"available": true,
 		"capabilities": map[string]any{"tools": map[string]any{
-			"supported": true, "tool_calling_mode": true, "native_definitions": definitions,
+			"supported": true, "tool_calling_mode": true, "native_definitions": true,
+			"executable": executable, "turn_handoff": executable,
 		}},
 	})
 }
 
 func metadataRound(t *testing.T) ToolRoundRequest {
 	t.Helper()
-	return ToolRoundRequest{Prompt: "Weather in Tokyo?", Mode: "allowed",
-		Instructions: toolInstructions, Definitions: nativeToolDefinitions(mustTools(t))}
+	c := nativeConversation(t, ToolChoiceAuto)
+	tools, offers, err := prepareToolOffers(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instructions, history, err := nativeHistory(c.Messages, tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ToolRoundRequest{Native: &NativeToolStep{
+		Protocol: NativeProtocol, Operation: "tool_step", RequestID: "test-request",
+		Step: 1, RemainingSteps: NativeToolRoundCap, Choice: nativeChoice(c.Choice),
+		Instructions: instructions, Tools: nativeDefinitions(offers), History: history,
+	}}
+}
+
+func nativeRequestStatus(executable bool) string {
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(metadataStatus(executable)), &fields); err != nil {
+		panic(err)
+	}
+	fields["request_id"] = "test-request"
+	data, _ := json.Marshal(fields)
+	return string(data)
+}
+
+func nativeRequestDone(text string) string {
+	return nativePrint(nativeLine("complete", map[string]any{
+		"request_id": "test-request", "text": text,
+		"usage": Usage{InputTokens: 7, OutputTokens: 3},
+	}))
 }
 
 func TestNativeMetadataPreflightAndWire(t *testing.T) {
@@ -30,41 +59,39 @@ func TestNativeMetadataPreflightAndWire(t *testing.T) {
 	probe, generation := filepath.Join(dir, "status"), filepath.Join(dir, "generation")
 	r := fakeNative(t, "if [ \"$#\" -eq 0 ]; then\ncat > '"+probe+"'\n"+
 		nativePrint(metadataStatus(true))+"exit 0\nfi\n"+
-		"test \"$1\" = '--native-definitions'\ncat > '"+generation+"'\n"+
-		nativePrint(metadataStatus(true))+nativeDone("Done.", true))
+		"test \"$1\" = '--native-tools'\ncat > '"+generation+"'\n"+
+		nativePrint(nativeRequestStatus(true))+nativeRequestDone("Done."))
 	request := metadataRound(t)
 	out, err := r.RunToolRound(t.Context(), ModelLocal, request)
 	if err != nil || out.Text != "Done." {
 		t.Fatalf("out=%+v error=%v", out, err)
 	}
-	read := func(path string) map[string]json.RawMessage {
-		t.Helper()
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(data, &fields); err != nil {
-			t.Fatal(err)
-		}
-		return fields
+	status, err := os.ReadFile(probe)
+	if err != nil {
+		t.Fatal(err)
 	}
-	status := read(probe)
-	if len(status) != 2 || string(status["operation"]) != `"status"` {
-		t.Fatalf("status probe carried generation data: %v", status)
+	var statusFields map[string]json.RawMessage
+	if err := json.Unmarshal(status, &statusFields); err != nil {
+		t.Fatal(err)
 	}
-	wire := read(generation)
-	var decoded nativeRequest
-	data, _ := json.Marshal(wire)
+	if len(statusFields) != 2 || string(statusFields["operation"]) != `"status"` {
+		t.Fatalf("status probe carried generation data: %s", status)
+	}
+	data, err := os.ReadFile(generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded NativeToolStep
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Prompt != request.Prompt || decoded.ToolInstructions != toolInstructions ||
-		!reflect.DeepEqual(decoded.ToolDefinitions, request.Definitions) {
-		t.Fatalf("metadata wire changed: %+v", decoded)
+	if !reflect.DeepEqual(decoded, *request.Native) {
+		t.Fatalf("native wire changed: %+v", decoded)
 	}
-	if strings.Contains(decoded.Prompt, "parameters") || strings.Contains(decoded.Prompt, toolFramingOpen) {
-		t.Fatal("metadata duplicated into prompt")
+	for _, field := range []string{`"tool_definitions"`, `"tool_instructions"`, `"prompt"`} {
+		if strings.Contains(string(data), field) {
+			t.Fatalf("legacy field %s sent", field)
+		}
 	}
 }
 
@@ -74,7 +101,7 @@ func TestNativeMetadataRefusesBeforeGenerationDispatch(t *testing.T) {
 		kind         Kind
 	}{
 		{"old version", strings.Replace(metadataStatus(true), NativeVersion, "0.6.0", 1), KindNativeProtocol},
-		{"mode only", metadataStatus(false), KindUnsupportedCapability},
+		{"metadata only", metadataStatus(false), KindUnsupportedCapability},
 		{"absent capability", nativeLine("status", map[string]any{"available": true}), KindUnsupportedCapability},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -83,7 +110,7 @@ func TestNativeMetadataRefusesBeforeGenerationDispatch(t *testing.T) {
 			_, err := r.RunToolRound(t.Context(), ModelLocal, metadataRound(t))
 			requireNativeKind(t, err, tc.kind)
 			if _, err := os.Stat(marker); !os.IsNotExist(err) {
-				t.Fatal("generation process dispatched after failed preflight")
+				t.Fatal("generation dispatched after failed preflight")
 			}
 		})
 	}
@@ -92,12 +119,9 @@ func TestNativeMetadataRefusesBeforeGenerationDispatch(t *testing.T) {
 func TestNativeMetadataReplacedHelperRejectsMode(t *testing.T) {
 	dir := t.TempDir()
 	replacement, marker := filepath.Join(dir, "old-helper"), filepath.Join(dir, "generation")
-	// Model the 0.6.0 argument contract exactly: unexpected argv returns
-	// before stdin, model status, tokenization or generation.
-	oldError := strings.Replace(nativeLine("error", map[string]any{"kind": "native_failed"}), NativeVersion, "0.6.0", 1)
+	oldError := nativePrint(nativeLineFor(3, NativeVersion, "error", map[string]any{"kind": "native_failed"}))
 	old := "#!/bin/sh\nif [ \"$#\" -eq 1 ] && [ \"$1\" = '--protocol-version' ]; then echo 3; exit 0; fi\n" +
-		"if [ \"$#\" -ne 0 ]; then\n" + nativePrint(oldError) + "exit 0\nfi\n" +
-		"touch '" + marker + "'\n"
+		"if [ \"$#\" -ne 0 ]; then\n" + oldError + "exit 0\nfi\ntouch '" + marker + "'\n"
 	if err := os.WriteFile(replacement, []byte(old), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -114,11 +138,19 @@ func TestNativeMetadataNoneAndPlainOmitEverything(t *testing.T) {
 	for _, none := range []bool{false, true} {
 		t.Run(map[bool]string{false: "plain", true: "none"}[none], func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "request")
-			r := fakeNative(t, "test \"$#\" -eq 0\ncat > '"+path+"'\n"+
-				nativePrint(metadataStatus(false))+nativeDone("Done.", true))
+			script := "cat > '" + path + "'\n" + nativePrint(metadataStatus(true)) + nativeRequestDone("Done.")
+			if none {
+				script = "if [ \"$#\" -eq 0 ]; then\ncat >/dev/null\n" + nativePrint(metadataStatus(true)) + "exit 0\nfi\n" +
+					"test \"$1\" = '--native-tools'\ncat > '" + path + "'\n" + nativePrint(nativeRequestStatus(true)) + nativeRequestDone("Done.")
+			} else {
+				script = "test \"$#\" -eq 0\ncat > '" + path + "'\n" + nativePrint(metadataStatus(true)) + nativeDone("Done.", true)
+			}
+			r := fakeNative(t, script)
 			var err error
 			if none {
-				_, err = r.RunToolRound(t.Context(), ModelLocal, ToolRoundRequest{Prompt: "hello", Mode: "disallowed"})
+				request := metadataRound(t)
+				request.Native.Choice = NativeToolChoice{Type: "none"}
+				_, err = r.RunToolRound(t.Context(), ModelLocal, request)
 			} else {
 				_, err = r.RunComplete(t.Context(), ModelLocal, "hello")
 			}
@@ -129,9 +161,18 @@ func TestNativeMetadataNoneAndPlainOmitEverything(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(body), "tool_definitions") || strings.Contains(string(body), "tool_instructions") ||
-				(!none && strings.Contains(string(body), "tool_calling")) {
-				t.Fatalf("unexpected metadata: %s", body)
+			for _, field := range []string{`"tool_definitions"`, `"tool_instructions"`, `"tool_calling"`} {
+				if strings.Contains(string(body), field) {
+					t.Fatalf("legacy metadata: %s", body)
+				}
+			}
+			if none {
+				var wire NativeToolStep
+				if err := json.Unmarshal(body, &wire); err != nil || wire.Choice.Type != "none" {
+					t.Fatalf("choice lost: %s", body)
+				}
+			} else if strings.Contains(string(body), `"tools"`) {
+				t.Fatal("plain completion offered tools")
 			}
 		})
 	}
@@ -140,44 +181,37 @@ func TestNativeMetadataNoneAndPlainOmitEverything(t *testing.T) {
 func TestNativeMetadataBudgetAndValidationBeforeHelper(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		mutate func(*ToolRoundRequest)
+		mutate func(*NativeToolStep)
 		kind   Kind
 	}{
-		{"metadata alone", func(r *ToolRoundRequest) { r.Definitions[0].Description = strings.Repeat("x", NativeMaxPromptBytes) }, KindContextCapacity},
-		{"aggregate", func(r *ToolRoundRequest) {
-			r.Prompt = strings.Repeat("x", NativeMaxPromptBytes-r.inputBytes()+len(r.Prompt)+1)
-		}, KindContextCapacity},
-		{"none with metadata", func(r *ToolRoundRequest) { r.Mode = "disallowed" }, KindUsage},
-		{"no instructions", func(r *ToolRoundRequest) { r.Instructions = "" }, KindUsage},
-		{"unfixed instructions", func(r *ToolRoundRequest) { r.Instructions = "invented" }, KindUsage},
-		{"invalid schema", func(r *ToolRoundRequest) {
-			r.Definitions[0].Parameters = json.RawMessage(`{"type":"object","additionalProperties":true}`)
+		{"metadata alone", func(r *NativeToolStep) { r.Tools[0].Description = strings.Repeat("x", NativeMaxPromptBytes) }, KindContextCapacity},
+		{"aggregate", func(r *NativeToolStep) { text := strings.Repeat("x", NativeMaxPromptBytes); r.History[0].Text = &text }, KindContextCapacity},
+		{"invalid choice", func(r *NativeToolStep) { r.Choice.Type = "invented" }, KindUsage},
+		{"missing named tool", func(r *NativeToolStep) { r.Choice = NativeToolChoice{Type: "function", Name: "unknown"} }, KindUsage},
+		{"invalid schema", func(r *NativeToolStep) {
+			r.Tools[0].Parameters = json.RawMessage(`{"type":"object","additionalProperties":true}`)
 		}, KindUsage},
-		{"repeated name", func(r *ToolRoundRequest) { r.Definitions[1].Name = r.Definitions[0].Name }, KindUsage},
+		{"repeated name", func(r *NativeToolStep) { r.Tools[1].Name = r.Tools[0].Name }, KindUsage},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := metadataRound(t)
-			tc.mutate(&request)
-			r := &NativeRunner{} // No helper/platform: admission must fail first.
-			_, err := r.RunToolRound(t.Context(), ModelLocal, request)
+			tc.mutate(request.Native)
+			_, err := (&NativeRunner{}).RunToolRound(t.Context(), ModelLocal, request)
 			requireNativeKind(t, err, tc.kind)
 		})
 	}
 }
 
 func TestNativeMetadataPreservedOnRepairAndContinuation(t *testing.T) {
-	tools := mustTools(t)
-	r := &scriptedRounds{replies: []string{malformedWeatherCall,
-		`{"tool_calls":[{"function":"get_weather","arguments":{"city":"Tokyo"}}]}`, "Done."}}
-	executor := &recordingExecutor{output: `{"temp_c":18}`}
-	out, err := RunToolLoop(t.Context(), r, ModelLocal,
-		ToolConversation{Tools: tools, Choice: ToolChoiceAuto, Messages: userTurn("Weather?")}, executor)
-	if err != nil || out.Rounds != 3 || len(r.requests) != 3 {
+	r := &nativeScript{replies: []Completion{nativeReply("call-1", "get_weather", `{"city":"Tokyo"}`), {Text: "Done."}}}
+	out, err := RunToolLoop(t.Context(), r, ModelLocal, nativeConversation(t, ToolChoiceAuto), &recordingExecutor{output: `{"temp_c":18}`})
+	if err != nil || out.Rounds != 2 || len(r.requests) != 2 {
 		t.Fatalf("out=%+v err=%v", out, err)
 	}
-	for _, request := range r.requests {
-		if request.Instructions != toolInstructions || !reflect.DeepEqual(request.Definitions, nativeToolDefinitions(tools)) {
-			t.Fatal("repair or continuation changed declared metadata")
-		}
+	if !reflect.DeepEqual(r.requests[0].Tools, r.requests[1].Tools) {
+		t.Fatal("continuation changed definitions")
+	}
+	if len(r.requests[1].History) != 3 || r.requests[1].History[0].Type != "user" || r.requests[1].History[1].Type != "calls" || r.requests[1].History[2].Type != "output" {
+		t.Fatal("continuation repeated or flattened user history")
 	}
 }
