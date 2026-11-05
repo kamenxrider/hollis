@@ -51,6 +51,32 @@ do {
             fatalError("unknown tool accepted")
         } catch {}
         print("capture-ok")
+    } else if String(decoding: data, as: UTF8.self) == "errors" {
+        let busy = NSError(domain: "ModelManagerError", code: 1012,
+            userInfo: [NSLocalizedDescriptionKey: "PRIVATE SDK DESCRIPTION"])
+        let wrapped = NSError(domain: "Wrapper", code: 1,
+            userInfo: [NSUnderlyingErrorKey: busy])
+        let context = LanguageModelSession.GenerationError.Context(debugDescription: "PRIVATE")
+        let cases: [(Error, String)] = [
+            (busy, "model_busy"), (wrapped, "model_busy"),
+            (NSError(domain: "ModelManagerError", code: 1000), "native_failed"),
+            (NSError(domain: "Other", code: 1012), "native_failed"),
+            (LanguageModelSession.GenerationError.guardrailViolation(context), "request_declined"),
+            (LanguageModelSession.GenerationError.exceededContextWindowSize(context), "context_capacity"),
+            (LanguageModelSession.GenerationError.decodingFailure(context), "native_failed"),
+        ]
+        for (error, expected) in cases {
+            let event = NativeTools.failureEvent(error, callbackCaptured: false)
+            precondition(event["kind"] as? String == expected)
+            let encoded = try JSONSerialization.data(withJSONObject: event)
+            precondition(!String(decoding: encoded, as: UTF8.self).contains("PRIVATE"))
+        }
+        let event = NativeTools.failureEvent(busy, callbackCaptured: true)
+        let info = event["error_info"] as! [String: Any]
+        precondition(info["callback_captured"] as? Bool == true)
+        precondition(info["domain"] as? String == "ModelManagerError")
+        precondition(info["code"] as? Int == 1012)
+        print("errors-ok")
     } else {
         _ = try NativeTools.prepare(data)
         print("valid")
@@ -89,3 +115,8 @@ do {
         result = protocol.command(str(self.binary), input="capture")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "capture-ok")
+
+    def test_error_classification_is_content_free(self):
+        result = protocol.command(str(self.binary), input="errors")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "errors-ok")

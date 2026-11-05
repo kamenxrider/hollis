@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -552,21 +553,42 @@ func (u *nativeUsage) valid() bool {
 	return u != nil && u.InputTokens != nil && u.OutputTokens != nil && u.ReasoningTokens != nil && *u.InputTokens >= 0 && *u.OutputTokens >= 0 && *u.ReasoningTokens >= 0 && *u.ReasoningTokens <= *u.OutputTokens
 }
 
+// NativeFailureInfo contains identifiers and integers only, never SDK descriptions.
+type NativeFailureInfo struct {
+	SwiftType        string `json:"swift_type"`
+	Domain           string `json:"domain"`
+	Code             *int   `json:"code"`
+	CallbackCaptured *bool  `json:"callback_captured"`
+}
+
+func nativeErrorIdentifier(value string) bool {
+	if len(value) == 0 || len(value) > 192 {
+		return false
+	}
+	for _, c := range []byte(value) {
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '.') {
+			return false
+		}
+	}
+	return true
+}
+
 type nativeEvent struct {
-	CheckedTokens *int             `json:"input_tokens,omitempty"`
-	RequestID     string           `json:"request_id,omitempty"`
-	Step          *int             `json:"step,omitempty"`
-	Calls         []NativeToolCall `json:"calls,omitempty"`
-	Protocol      int              `json:"protocol"`
-	Version       string           `json:"version"`
-	Model         Model            `json:"model"`
-	Event         string           `json:"event"`
-	Available     *bool            `json:"available,omitempty"`
-	Reason        string           `json:"reason,omitempty"`
-	Text          *string          `json:"text,omitempty"`
-	Usage         *nativeUsage     `json:"usage,omitempty"`
-	Kind          Kind             `json:"kind,omitempty"`
-	Capability    string           `json:"capability,omitempty"`
+	ErrorInfo     *NativeFailureInfo `json:"error_info,omitempty"`
+	CheckedTokens *int               `json:"input_tokens,omitempty"`
+	RequestID     string             `json:"request_id,omitempty"`
+	Step          *int               `json:"step,omitempty"`
+	Calls         []NativeToolCall   `json:"calls,omitempty"`
+	Protocol      int                `json:"protocol"`
+	Version       string             `json:"version"`
+	Model         Model              `json:"model"`
+	Event         string             `json:"event"`
+	Available     *bool              `json:"available,omitempty"`
+	Reason        string             `json:"reason,omitempty"`
+	Text          *string            `json:"text,omitempty"`
+	Usage         *nativeUsage       `json:"usage,omitempty"`
+	Kind          Kind               `json:"kind,omitempty"`
+	Capability    string             `json:"capability,omitempty"`
 	// ContextSize is the measured context window a protocol-2 status reports.
 	ContextSize *int `json:"context_size,omitempty"`
 	// Capabilities is the protocol-3 advertisement, kept as raw JSON so the
@@ -589,7 +611,8 @@ type nativeEvent struct {
 	Actual    *int         `json:"actual,omitempty"`
 }
 
-// invoke never retries, truncates, or repairs model output. Complete events must
+// invoke retries one busy tool decision only before any callback was captured.
+// It never truncates or repairs output. Complete events must
 // be followed by clean EOF and a successful process exit before success is returned.
 func (r *NativeRunner) invoke(parent context.Context, model Model, operation, prompt string, emit func(string) error, schema *Schema, opts nativeOptions) (Completion, LocalStatus, error) {
 	result := Completion{Model: model}
@@ -745,6 +768,12 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		if event.CheckedTokens != nil && event.Event != "checked" {
 			return nativeError(KindNativeProtocol, "unexpected native preflight counts")
 		}
+		if info := event.ErrorInfo; info != nil {
+			if event.Event != "error" || !nativeErrorIdentifier(info.SwiftType) ||
+				!nativeErrorIdentifier(info.Domain) || info.Code == nil || info.CallbackCaptured == nil {
+				return nativeError(KindNativeProtocol, "invalid native error classification")
+			}
+		}
 		if event.Capability != "" && (event.Event != "error" || event.Kind != KindUnsupportedCapability) {
 			return nativeError(KindNativeProtocol, "unexpected native capability refusal")
 		}
@@ -892,6 +921,10 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 			}
 			terminal = true
 		case "error":
+			if info := event.ErrorInfo; info != nil {
+				slog.Info("native_model_error", "kind", event.Kind, "swift_type", info.SwiftType,
+					"domain", info.Domain, "code", *info.Code, "callback_captured", *info.CallbackCaptured)
+			}
 			if event.Media != "" && event.Kind != KindExtractMediaMismatch {
 				return nativeError(KindNativeProtocol, "unexpected native extraction data")
 			}
@@ -899,6 +932,13 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 				return nativeError(KindNativeProtocol, "unexpected native extraction data")
 			}
 			switch event.Kind {
+			case KindModelBusy:
+				if !ready || operation == "status" || operation == "extract" || event.ErrorInfo == nil {
+					return nativeError(KindNativeProtocol, "invalid native busy failure")
+				}
+				failure := nativeError(KindModelBusy, "the native local model is temporarily busy")
+				failure.NativeFailure = event.ErrorInfo
+				return failure
 			case KindInvalidImage, KindUnsupportedOS:
 				if len(opts.Images) == 0 || event.Limit != nil || event.Actual != nil {
 					return nativeError(KindNativeProtocol, "unexpected native image failure")
@@ -926,7 +966,9 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 				}
 				return nativeError(event.Kind, "local model context capacity exceeded; shorten the conversation explicitly or choose another model; no messages were removed")
 			case KindRequestDeclined, KindRateLimited, KindLocalUnavailable, KindNativeFailed:
-				return nativeError(event.Kind, "native local request failed: "+string(event.Kind))
+				failure := nativeError(event.Kind, "native local request failed: "+string(event.Kind))
+				failure.NativeFailure = event.ErrorInfo
+				return failure
 			case KindNativeProtocol:
 				// Kept for a helper that reports the shared code for a payload
 				// fault; it is not reused for capability refusals.
@@ -958,13 +1000,33 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 			args = []string{"--hybrid-tools"}
 		}
 	}
-	res, runErr := subproc.Scan(ctx, subproc.Spec{
+	spec := subproc.Spec{
 		Name:      path,
 		Args:      args,
 		Stdin:     append(request, '\n'),
 		StderrCap: -1,
 		LineCap:   nativeMaxOutputBytes,
-	}, handle)
+	}
+	res, runErr := subproc.Scan(ctx, spec, handle)
+	retried := false
+	var busy *Error
+	if operation == "tool_step" && errors.As(res.EmitErr, &busy) && busy.Kind == KindModelBusy &&
+		busy.NativeFailure != nil && busy.NativeFailure.CallbackCaptured != nil &&
+		!*busy.NativeFailure.CallbackCaptured && len(result.NativeCalls) == 0 && ctx.Err() == nil {
+		timer := time.NewTimer(500 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return fail(nativeContextError(ctx))
+		case <-timer.C:
+		}
+		slog.Info("native_model_retry", "kind", busy.Kind, "swift_type", busy.NativeFailure.SwiftType,
+			"domain", busy.NativeFailure.Domain, "code", *busy.NativeFailure.Code)
+		retried = true
+		ready, terminal, previous, total = false, false, "", 0
+		result, status = Completion{Model: model}, LocalStatus{}
+		res, runErr = subproc.Scan(ctx, spec, handle)
+	}
 	if !res.Started {
 		// A child that never started because the governing deadline expired is
 		// a timeout, not a transport failure. Check the context before the
@@ -998,6 +1060,10 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	}
 	if operation == "extract" && result.extraction == nil {
 		return fail(nativeError(KindNativeProtocol, "native helper ended without an extraction"))
+	}
+	if retried {
+		// The failed attempt supplied no usage, so a combined count is unknown.
+		result.Usage = nil
 	}
 	return result, status, nil
 }

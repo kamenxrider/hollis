@@ -116,6 +116,8 @@ func nativeError(err error) (int, map[string]any) {
 			code, message = string(classified.Kind), classified.Err.Error()
 		case runner.KindLocalUnavailable:
 			status, code, message = http.StatusServiceUnavailable, "model_unavailable", "the native local model or its matching helper is unavailable"
+		case runner.KindModelBusy:
+			status, code, message = http.StatusServiceUnavailable, "model_busy", "the native local model is temporarily busy"
 		case runner.KindRequestDeclined:
 			code, message = "request_declined", "the native local model declined the request"
 		case runner.KindRateLimited:

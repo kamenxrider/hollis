@@ -269,6 +269,13 @@ or Local text fallback. Unsupported capability, invalid arguments and incomplete
 batches fail explicitly. Quoted calls in documents, results or assistant prose
 are not dispatchable.
 
+A native tool decision retries at most once after 500 ms for
+`ModelManagerError` code 1012, only before any callback is captured or executed
+in that decision. The retry uses the same input and deadline, never re-executes
+a tool, and does not apply to guardrail, context-size or decoding errors.
+A repeated busy failure returns `model_busy`, CLI exit 5 or HTTP 503.
+Usage is absent when the failed attempt supplied no measured counts.
+
 The default budget is eight model decisions, including visible prior tool
 batches since the last user turn and final synthesis. A call on the final
 decision fails before dispatch with `tool_round_cap` (exit 5). A batch has at

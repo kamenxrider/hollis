@@ -4,6 +4,64 @@ import FoundationModels
 enum NativeTools {
     enum Failure: Error { case invalid, capacity, partialBatch }
 
+    struct GenerationFailure: Error {
+        let underlying: Error
+        let callbackCaptured: Bool
+    }
+
+    actor CallbackState {
+        private(set) var captured = false
+        func record() { captured = true }
+    }
+
+    static func failureEvent(_ error: Error, callbackCaptured: Bool) -> [String: Any] {
+        var current = error
+        for _ in 0..<4 {
+            let ns = current as NSError
+            let type = String(reflecting: Swift.type(of: current))
+            var kind = "native_failed"
+            var classified = false
+            if let typed = current as? LanguageModelError {
+                classified = true
+                switch typed {
+                case .contextSizeExceeded: kind = "context_capacity"
+                case .rateLimited: kind = "rate_limited"
+                case .refusal, .guardrailViolation: kind = "request_declined"
+                default: break
+                }
+            } else if let typed = current as? LanguageModelSession.GenerationError {
+                classified = true
+                switch typed {
+                case .exceededContextWindowSize: kind = "context_capacity"
+                case .rateLimited: kind = "rate_limited"
+                case .refusal, .guardrailViolation: kind = "request_declined"
+                default: break
+                }
+            }
+            let manager = ns.domain == "ModelManagerError" || ns.domain.hasSuffix(".ModelManagerError")
+                || type == "ModelManagerError" || type.hasSuffix(".ModelManagerError")
+            if !classified && manager && ns.code == 1012 { kind = "model_busy" }
+            if !classified && kind != "model_busy",
+               let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error {
+                current = underlying
+                continue
+            }
+            return ["event": "error", "kind": kind, "error_info": [
+                "swift_type": errorIdentifier(type), "domain": errorIdentifier(ns.domain),
+                "code": ns.code, "callback_captured": callbackCaptured]]
+        }
+        return ["event": "error", "kind": "native_failed"]
+    }
+
+    private static func errorIdentifier(_ value: String) -> String {
+        guard !value.isEmpty, value.utf8.count <= 192,
+              value.utf8.allSatisfy({
+                  (65...90).contains($0) || (97...122).contains($0)
+                    || (48...57).contains($0) || $0 == 95 || $0 == 46
+              }) else { return "unknown" }
+        return value
+    }
+
     struct Call: Codable {
         let id: String
         let name: String
@@ -105,8 +163,10 @@ enum NativeTools {
         let name: String
         let description: String
         let parameters: GenerationSchema
+        let callbacks: CallbackState
 
         func call(arguments: GeneratedContent) async throws -> String {
+            await callbacks.record()
             throw Handoff()
         }
     }
@@ -182,11 +242,13 @@ enum NativeTools {
         case "function": options.toolCallingMode = fulfilled ? .disallowed : .required
         default: options.toolCallingMode = .allowed
         }
+        let callbacks = CallbackState()
         let tools: [any Tool] = prepared.definitions.compactMap { definition, schema in
             if request.toolChoice.type == "none" { return nil }
             if request.toolChoice.type == "function",
                fulfilled || definition.name != request.toolChoice.name { return nil }
-            return HandoffTool(name: definition.name, description: definition.description, parameters: schema)
+            return HandoffTool(name: definition.name, description: definition.description,
+                               parameters: schema, callbacks: callbacks)
         }
         let session = LanguageModelSession(profile: Profile(
             tools: tools, instructions: request.instructions, options: options), history: prepared.history)
@@ -208,6 +270,13 @@ enum NativeTools {
         } catch is Handoff {
         } catch let error as LanguageModelSession.ToolCallError
             where error.underlyingError is Handoff {
+        } catch {
+            let invoked = await callbacks.captured
+            let recorded = session.transcript.dropFirst(startCount).contains {
+                if case .toolCalls = $0 { return true }
+                return false
+            }
+            throw GenerationFailure(underlying: error, callbackCaptured: invoked || recorded)
         }
         guard options.toolCallingMode != .disallowed else { throw Failure.partialBatch }
         let calls = try capture(Array(session.transcript).dropFirst(startCount).map { $0 },

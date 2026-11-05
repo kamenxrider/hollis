@@ -28,7 +28,7 @@ GO_EVENT_FIELDS = {'protocol', 'version', 'model', 'event', 'available',
                    'reason', 'text', 'usage', 'kind', 'context_size',
                    'structured', 'capability', 'capabilities', 'media',
                    'page_count', 'pages', 'text_bytes', 'page', 'limit',
-                   'actual', 'request_id', 'step', 'calls', 'input_tokens'}
+                   'actual', 'request_id', 'step', 'calls', 'input_tokens', 'error_info'}
 GO_CAPABILITY_FIELDS = {'extract', 'images', 'tools', 'vision', 'macos_major'}
 GO_EXTRACT_CAPABILITY_FIELDS = {'pdf', 'ocr', 'pages', 'max_pages', 'max_text_bytes'}
 GO_PAGE_FIELDS = {'page', 'text', 'method'}

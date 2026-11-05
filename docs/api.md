@@ -232,6 +232,13 @@ Framework IDs and argument bytes are preserved. Invalid arguments are **502**
 including quoted JSON or CALL text, remains ordinary content. Invalid names,
 partial batches and callback/choice violations fail closed.
 
+One native tool decision can retry once after 500 ms for an in-process
+`ModelManagerError` with code 1012, before any callback is captured or executed
+in that decision. The retry preserves the exact input and shares the deadline.
+No tool execution is retried. Guardrail, context-size and decoding errors
+never retry. A repeated busy failure returns **503** `model_busy`.
+Measured usage is omitted if the failed attempt supplied no counts.
+
 Chat Completions returns `finish_reason:"tool_calls"` with an assistant
 `tool_calls` array and null content. Each call has `id`, `type:"function"` and
 `function` containing `name` and string `arguments`. Replay that assistant message

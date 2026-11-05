@@ -163,16 +163,12 @@ struct HollisNative {
                     try send(["event": "error", "kind": "context_capacity"])
                 } catch NativeTools.Failure.partialBatch {
                     try send(["event": "error", "kind": "native_protocol"])
-                } catch let error as LanguageModelError {
-                    let kind: String
-                    switch error {
-                    case .contextSizeExceeded: kind = "context_capacity"
-                    case .rateLimited: kind = "rate_limited"
-                    case .refusal, .guardrailViolation: kind = "request_declined"
-                    default: kind = "native_failed"
-                    }
-                    try send(["event": "error", "kind": kind])
-                } catch { try send(["event": "error", "kind": "native_failed"]) }
+                } catch let failure as NativeTools.GenerationFailure {
+                    try send(NativeTools.failureEvent(
+                        failure.underlying, callbackCaptured: failure.callbackCaptured))
+                } catch {
+                    try send(NativeTools.failureEvent(error, callbackCaptured: false))
+                }
                 return
             }
             // Foundation's decoder accepts a leading byte-order mark, trailing
@@ -387,16 +383,13 @@ struct HollisNative {
             fail("unsupported_media", protocol: effective)
         } catch ImageInput.Failure.invalidImage {
             fail("invalid_image", protocol: effective)
-        } catch let error as LanguageModelError {
-            switch error {
-            case .contextSizeExceeded: fail("context_capacity", protocol: effective)
-            case .rateLimited: fail("rate_limited", protocol: effective)
-            case .refusal, .guardrailViolation: fail("request_declined", protocol: effective)
-            default: fail("native_failed", protocol: effective)
-            }
         } catch {
-            // Never print error descriptions: SDK errors may contain input.
-            fail("native_failed", protocol: effective)
+            // Older protocols have no error-classification payload.
+            if effective == 4 {
+                try? emit(NativeTools.failureEvent(error, callbackCaptured: true), protocol: effective)
+            } else {
+                fail("native_failed", protocol: effective)
+            }
         }
     }
 }

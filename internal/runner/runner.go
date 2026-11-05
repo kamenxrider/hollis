@@ -99,6 +99,7 @@ const (
 	// the helper's payload was well formed and the pairing is correct.
 	KindUnsupportedCapability Kind = "unsupported_capability"
 	KindNativeFailed          Kind = "native_failed"
+	KindModelBusy             Kind = "model_busy"
 	// Document extraction outcomes. invalid_document and extract_no_text are
 	// helper-authoritative; unsupported_media, extract_media_mismatch and
 	// page_out_of_range are caller faults the CLI reports as usage errors.
@@ -134,7 +135,8 @@ const (
 
 // Error is a classified runner failure. Kind maps to a stable CLI exit code.
 type Error struct {
-	Kind Kind
+	Kind          Kind
+	NativeFailure *NativeFailureInfo
 	// NativeReason distinguishes platform and identity failures without parsing
 	// display text. Other native failures continue to use Kind.
 	NativeReason string
