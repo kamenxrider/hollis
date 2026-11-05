@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -29,14 +30,71 @@ func (r *toolFixtureRunner) Run(context.Context, runner.Model, string) (string, 
 }
 
 func (r *toolFixtureRunner) RunToolRound(_ context.Context, m runner.Model, request runner.ToolRoundRequest) (runner.Completion, error) {
-	r.prompts = append(r.prompts, request.Prompt)
-	r.modes = append(r.modes, request.Mode)
+	if request.Native == nil {
+		panic("Local tools must use a native decision")
+	}
+	r.prompts = append(r.prompts, nativeFixtureText(request))
+	mode := "allowed"
+	if request.Native.Choice.Type == "none" {
+		mode = "disallowed"
+	}
+	r.modes = append(r.modes, mode)
 	r.requests = append(r.requests, request)
 	if r.err != nil {
 		return runner.Completion{}, r.err
 	}
 	reply := r.replies[len(r.prompts)-1]
-	return runner.Completion{Text: reply, Model: m, Usage: &runner.Usage{InputTokens: 5, OutputTokens: 2}}, nil
+	return nativeFixtureCompletion(reply, m, request)
+}
+
+func nativeFixtureText(request runner.ToolRoundRequest) string {
+	text := request.Native.Instructions
+	for _, entry := range request.Native.History {
+		if entry.Text != nil {
+			text += "\n" + *entry.Text
+		}
+	}
+	return text
+}
+
+func nativeFixtureCompletion(reply string, model runner.Model, request runner.ToolRoundRequest) (runner.Completion, error) {
+	result := runner.Completion{Text: reply, Model: model, Usage: &runner.Usage{InputTokens: 5, OutputTokens: 2}}
+	if request.Native.Choice.Type == "none" || !strings.HasPrefix(reply, `{"tool_calls":`) {
+		return result, nil
+	}
+	var batch struct {
+		Calls []struct {
+			Function  string          `json:"function"`
+			Arguments json.RawMessage `json:"arguments"`
+		} `json:"tool_calls"`
+	}
+	if json.Unmarshal([]byte(reply), &batch) != nil {
+		return runner.Completion{}, &runner.Error{Kind: runner.KindToolCallInvalid, ExitCode: -1, Err: errors.New("invalid native fixture arguments")}
+	}
+	result.Text = ""
+	for i, call := range batch.Calls {
+		arguments := string(call.Arguments)
+		var encoded string
+		if json.Unmarshal(call.Arguments, &encoded) == nil {
+			arguments = encoded
+		}
+		for _, tool := range request.Native.Tools {
+			if tool.Name == call.Function && tool.Validation == "server" {
+				wrapped, _ := json.Marshal(map[string]string{"arguments_json": arguments})
+				arguments = string(wrapped)
+			}
+		}
+		id := fmt.Sprintf("call_%d_%d", request.Native.Step, i)
+		for _, entry := range request.Native.History {
+			for _, prior := range entry.Calls {
+				if prior.ID == id {
+					id += "_" + request.Native.RequestID
+				}
+			}
+		}
+		result.NativeCalls = append(result.NativeCalls, runner.NativeToolCall{ID: id, Name: call.Function, Arguments: arguments})
+	}
+	return result, nil
 }
 
 const cliTools = `[{"type":"function","function":{"name":"get_weather","description":"Get the weather",` +
@@ -64,8 +122,8 @@ func TestRespondToolsPreservesPDFExtraction(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(r.extractor.extracts) != 1 || len(r.requests) != 1 ||
-		len(r.requests[0].Definitions) != 1 ||
-		!strings.Contains(r.requests[0].Prompt, "--- Page 2 ---\nPage two text.") {
+		len(r.requests[0].Native.Tools) != 1 ||
+		!strings.Contains(nativeFixtureText(r.requests[0]), "--- Page 2 ---\nPage two text.") {
 		t.Fatalf("extracts=%d requests=%+v", len(r.extractor.extracts), r.requests)
 	}
 }
@@ -118,7 +176,7 @@ func TestRespondPDFToolRefusalContext(t *testing.T) {
 					if toolsEnabled {
 						calls, extracts = len(tool.requests), len(tool.extractor.extracts)
 						if calls == 1 {
-							prompt = tool.requests[0].Prompt
+							prompt = nativeFixtureText(tool.requests[0])
 						}
 					}
 					if calls != 1 || !strings.Contains(prompt, canary) || (extracts == 1) != input.pdf {
@@ -176,7 +234,7 @@ func TestRespondToolsPrintsValidatedCalls(t *testing.T) {
 	if call["id"] != "call_1_0" || call["type"] != "function" || function["name"] != "get_weather" || function["arguments"] != `{"city":"Tokyo"}` {
 		t.Fatalf("call = %#v", call)
 	}
-	if r.modes[0] != "allowed" || len(r.requests[0].Definitions) != 1 || r.requests[0].Definitions[0].Name != "get_weather" || strings.Contains(r.prompts[0], `"name":"get_weather"`) {
+	if r.modes[0] != "allowed" || len(r.requests[0].Native.Tools) != 1 || r.requests[0].Native.Tools[0].Name != "get_weather" || strings.Contains(r.prompts[0], `"name":"get_weather"`) {
 		t.Fatalf("round = %v %q", r.modes, r.prompts[0])
 	}
 }
@@ -219,8 +277,8 @@ func TestRespondToolsRefusalsHappenBeforeTheRunner(t *testing.T) {
 		{"code", []string{"respond", "--model", "local", "--tools", tools, "--code", "hi"}, "--tools cannot be combined with --code"},
 		{"json", []string{"respond", "--model", "local", "--tools", tools, "--json", "hi"}, "remove --json/--agent"},
 		{"agent", []string{"respond", "--model", "local", "--tools", tools, "--agent", "hi"}, "remove --json/--agent"},
-		{"named choice", []string{"respond", "--model", "local", "--tools", tools, "--tool-choice", "get_weather", "hi"}, "--tool-choice accepts only auto or none"},
-		{"required choice", []string{"respond", "--model", "local", "--tools", tools, "--tool-choice", "required", "hi"}, "--tool-choice accepts only auto or none"},
+		{"named choice", []string{"respond", "--model", "local", "--tools", tools, "--tool-choice", "get_weather", "hi"}, "--tool-choice accepts auto, none, required, or function:NAME"},
+		{"unknown named choice", []string{"respond", "--model", "local", "--tools", tools, "--tool-choice", "function:missing", "hi"}, "invalid native tool step"},
 		{"choice without tools", []string{"respond", "--model", "local", "--tool-choice", "none", "hi"}, "--tool-choice requires --tools"},
 		{"bad schema", []string{"respond", "--model", "local", "--tools", badTools, "hi"}, "--tools[0].function.parameters: schema at /additionalProperties"},
 		{"missing file", []string{"respond", "--model", "local", "--tools", filepath.Join(t.TempDir(), "absent.json"), "hi"}, "tools file \"absent.json\""},
@@ -248,43 +306,19 @@ func TestRespondToolsLoopFaultsAreExitFive(t *testing.T) {
 	if !errors.As(err, &classified) || ExitCode(err) != 5 || classified.machineCode != "tool_call_invalid" {
 		t.Fatalf("err=%v exit=%d", err, ExitCode(err))
 	}
-	if !strings.Contains(err.Error(), "round 1") || strings.Contains(err.Error(), "{}") {
+	if !strings.Contains(err.Error(), "nothing was dispatched") || strings.Contains(err.Error(), "{}") {
 		t.Fatalf("message = %q", err.Error())
 	}
 }
 
-func TestRespondToolsMalformedAttemptCorrection(t *testing.T) {
+func TestRespondToolsInvalidNativeArgumentsNeverRepair(t *testing.T) {
 	tools := writeToolsFixture(t, cliTools)
-	bad := `{"tool_calls":[{"function":{"name":"get_weather","arguments":{"city":<ctrl46>Tokyo<ctrl46>}}}]}`
-	for _, corrected := range []bool{false, true} {
-		t.Run(map[bool]string{false: "invalid", true: "corrected"}[corrected], func(t *testing.T) {
-			second := bad
-			if corrected {
-				second = `{"tool_calls":[{"function":"get_weather","arguments":{"city":"Tokyo"}}]}`
-			}
-			r := &toolFixtureRunner{replies: []string{bad, second}}
-			out, err := executeTools(t, r, "respond", "--model", "local", "--tools", tools, "Weather in Tokyo?")
-			if len(r.prompts) != 2 || strings.Contains(out, "ctrl46") {
-				t.Fatalf("rounds=%d output=%q", len(r.prompts), out)
-			}
-			if !corrected {
-				var failure *cliError
-				if !errors.As(err, &failure) || failure.machineCode != "tool_call_invalid" || ExitCode(err) != 5 || out != "" {
-					t.Fatalf("error=%v output=%q", err, out)
-				}
-				return
-			}
-			var got map[string]any
-			if err != nil || json.Unmarshal([]byte(out), &got) != nil {
-				t.Fatalf("error=%v output=%q", err, out)
-			}
-			if got["finish_reason"] != "tool_calls" || got["rounds"] != float64(2) {
-				t.Fatalf("output=%#v", got)
-			}
-			call := got["tool_calls"].([]any)[0].(map[string]any)["function"].(map[string]any)
-			if call["arguments"] != `{"city":"Tokyo"}` {
-				t.Fatalf("unvalidated call=%#v", call)
-			}
-		})
+	r := &toolFixtureRunner{replies: []string{
+		`{"tool_calls":[{"function":"get_weather","arguments":{"city":1}}]}`,
+		`{"tool_calls":[{"function":"get_weather","arguments":{"city":"Tokyo"}}]}`,
+	}}
+	out, err := executeTools(t, r, "respond", "--model", "local", "--tools", tools, "Weather in Tokyo?")
+	if errorCode(err) != "tool_call_invalid" || ExitCode(err) != 5 || out != "" || len(r.requests) != 1 {
+		t.Fatalf("error=%v output=%q decisions=%d", err, out, len(r.requests))
 	}
 }

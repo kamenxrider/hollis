@@ -56,7 +56,25 @@ func (s *Server) completePrepared(ctx context.Context, w http.ResponseWriter, mo
 	defer cancel()
 	var result runner.Completion
 	var err error
-	if request.hasImages() {
+	if request.Options != nil {
+		generation, ok := s.Runner.(runner.GenerationRunner)
+		if !ok {
+			writeNativeError(w, errors.New("native sampling runner unavailable"))
+			return runner.Completion{}, false
+		}
+		var staged stagedImages
+		if request.hasImages() {
+			var ok bool
+			staged, ok = s.stageNativeImages(ctx, w, request)
+			if !ok {
+				return runner.Completion{}, false
+			}
+			defer staged.Cleanup()
+		}
+		result, err = generation.RunGeneration(ctx, model, runner.GenerationRequest{
+			Prompt: request.Prompt, Options: request.Options, Images: staged.Paths,
+		}, nil)
+	} else if request.hasImages() {
 		imageRunner, ok := s.Runner.(runner.ImageCompleteRunner)
 		if !ok {
 			writeNativeError(w, errors.New("native image runner unavailable"))
@@ -256,7 +274,8 @@ func (e *streamEvents) failed(err error) {
 func (s *Server) streamPrepared(w http.ResponseWriter, r *http.Request, model runner.Model, request preparedRequest, responses bool) {
 	stream, ok := s.Runner.(runner.StreamRunner)
 	imageStream, imageOK := s.Runner.(runner.ImageStreamRunner)
-	if model != runner.ModelLocal || (!request.hasImages() && !ok) || (request.hasImages() && !imageOK) {
+	generation, samplingOK := s.Runner.(runner.GenerationRunner)
+	if model != runner.ModelLocal || (request.Options != nil && !samplingOK) || (request.Options == nil && ((!request.hasImages() && !ok) || (request.hasImages() && !imageOK))) {
 		unsupportedStreaming(w)
 		return
 	}
@@ -307,7 +326,11 @@ func (s *Server) streamPrepared(w http.ResponseWriter, r *http.Request, model ru
 	}
 	var result runner.Completion
 	var err error
-	if request.hasImages() {
+	if request.Options != nil {
+		result, err = generation.RunGeneration(ctx, model, runner.GenerationRequest{
+			Prompt: request.Prompt, Options: request.Options, Images: staged.Paths,
+		}, emit)
+	} else if request.hasImages() {
 		result, err = imageStream.StreamWithImages(ctx, model, request.Prompt, staged.Paths, emit)
 	} else {
 		result, err = stream.Stream(ctx, model, request.Prompt, emit)

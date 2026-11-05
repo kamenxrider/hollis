@@ -5,6 +5,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/kamenxrider/hollis/internal/runner"
 )
 
 const (
@@ -25,10 +27,11 @@ type encodedImage struct {
 // preparedRequest is the common endpoint-parser result consumed by the HTTP
 // integration. Prompt is the complete rendered prompt sent to the runner.
 type preparedRequest struct {
-	Model  string
-	Prompt string
-	Images []encodedImage
-	Stream bool
+	Options *runner.GenerationOptions
+	Model   string
+	Prompt  string
+	Images  []encodedImage
+	Stream  bool
 }
 
 func (r preparedRequest) hasImages() bool {
@@ -53,10 +56,13 @@ func (s stagedImages) Cleanup() {
 // existing HTTP decoder continues to enforce the top-level schema and body
 // limit.
 type chatCompletionsRequest struct {
-	Model           string          `json:"model"`
-	Messages        json.RawMessage `json:"messages"`
-	Stream          bool            `json:"stream"`
-	ImageGeneration json.RawMessage `json:"image_generation"`
+	samplingFields
+	MaxTokens       json.RawMessage           `json:"max_tokens"`
+	Options         *runner.GenerationOptions `json:"-"`
+	Model           string                    `json:"model"`
+	Messages        json.RawMessage           `json:"messages"`
+	Stream          bool                      `json:"stream"`
+	ImageGeneration json.RawMessage           `json:"image_generation"`
 	// ResponseFormat carries the OpenAI guided-output shape. It is decoded
 	// strictly by parseChatGuided only when present, so the plain-text path is
 	// unchanged.
@@ -68,11 +74,14 @@ type chatCompletionsRequest struct {
 }
 
 type responsesRequest struct {
-	Model           string          `json:"model"`
-	Instructions    string          `json:"instructions"`
-	Input           json.RawMessage `json:"input"`
-	Stream          bool            `json:"stream"`
-	ImageGeneration json.RawMessage `json:"image_generation"`
+	samplingFields
+	MaxOutputTokens json.RawMessage           `json:"max_output_tokens"`
+	Options         *runner.GenerationOptions `json:"-"`
+	Model           string                    `json:"model"`
+	Instructions    string                    `json:"instructions"`
+	Input           json.RawMessage           `json:"input"`
+	Stream          bool                      `json:"stream"`
+	ImageGeneration json.RawMessage           `json:"image_generation"`
 	// Text carries the Responses guided-output shape (text.format).
 	Text json.RawMessage `json:"text"`
 	// The tool members route a request to the tools handler; see tools.go.

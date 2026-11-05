@@ -53,7 +53,7 @@ func (r *mcpChatRunner) RunToolRound(_ context.Context, model runner.Model, requ
 	if index >= len(r.replies) {
 		return runner.Completion{}, errors.New("unexpected extra model request")
 	}
-	return runner.Completion{Text: r.replies[index], Model: model, Usage: &runner.Usage{InputTokens: 5, OutputTokens: 2}}, nil
+	return nativeFixtureCompletion(r.replies[index], model, request)
 }
 
 func stubMCPChatStore(t *testing.T) string {
@@ -181,8 +181,8 @@ func TestMCPChatPersistsToolsAndContinuesWithoutRedispatch(t *testing.T) {
 			if err != nil || len(next.requests) != 1 || calls.Load() != 1 {
 				t.Fatalf("continued turn = %v, requests %d calls %d, output %s", err, len(next.requests), calls.Load(), out)
 			}
-			if !strings.Contains(next.requests[0].Prompt, mcp.UntrustedPreamble) || !strings.Contains(next.requests[0].Prompt, "PRIVATE_MCP_CHAT_RESULT") || !strings.Contains(next.requests[0].Prompt, "First answer.") {
-				t.Fatalf("follow-up lost stored tool data: %s", next.requests[0].Prompt)
+			if !strings.Contains(nativeFixtureText(next.requests[0]), mcp.UntrustedPreamble) || !strings.Contains(nativeFixtureText(next.requests[0]), "PRIVATE_MCP_CHAT_RESULT") || !strings.Contains(nativeFixtureText(next.requests[0]), "First answer.") {
+				t.Fatalf("follow-up lost stored tool data: %s", nativeFixtureText(next.requests[0]))
 			}
 			if messages := readMCPChatMessages(t, path, id); len(messages) != 6 {
 				t.Fatalf("continuation stored %d messages, want 6", len(messages))
@@ -270,8 +270,8 @@ func TestMCPChatREPLAttachesOnceAndSuppressesDefaultStreaming(t *testing.T) {
 	if err != nil || calls.Load() != 1 || lists.Load() != 1 || len(r.requests) != 3 || r.streams != 0 {
 		t.Fatalf("REPL = %v, calls/list/rounds/stream %d/%d/%d/%d, output %s %s", err, calls.Load(), lists.Load(), len(r.requests), r.streams, out, stderr)
 	}
-	if !strings.Contains(r.requests[2].Prompt, "PRIVATE_MCP_CHAT_RESULT") || !strings.Contains(out, "< Second answer.") {
-		t.Fatalf("REPL did not replay results or print final answer: %s %s", r.requests[2].Prompt, out)
+	if !strings.Contains(nativeFixtureText(r.requests[2]), "PRIVATE_MCP_CHAT_RESULT") || !strings.Contains(out, "< Second answer.") {
+		t.Fatalf("REPL did not replay results or print final answer: %s %s", nativeFixtureText(r.requests[2]), out)
 	}
 	st, err := store.Open(path)
 	if err != nil {
@@ -354,8 +354,8 @@ func TestMCPChatREPLContinueUsesStoredToolHistory(t *testing.T) {
 	if err != nil || len(next.requests) != 1 || calls.Load() != 1 || lists.Load() != 2 {
 		t.Fatalf("REPL continuation = %v, calls/list/rounds %d/%d/%d", err, calls.Load(), lists.Load(), len(next.requests))
 	}
-	if !strings.Contains(next.requests[0].Prompt, "PRIVATE_MCP_CHAT_RESULT") || !strings.Contains(out, "< Continued.") {
-		t.Fatalf("REPL continuation lost prior tool result: %s, %s", next.requests[0].Prompt, out)
+	if !strings.Contains(nativeFixtureText(next.requests[0]), "PRIVATE_MCP_CHAT_RESULT") || !strings.Contains(out, "< Continued.") {
+		t.Fatalf("REPL continuation lost prior tool result: %s, %s", nativeFixtureText(next.requests[0]), out)
 	}
 	if messages := readMCPChatMessages(t, path, id); len(messages) != 6 {
 		t.Fatalf("continued REPL stored %d messages, want 6", len(messages))

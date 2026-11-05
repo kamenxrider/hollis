@@ -61,10 +61,10 @@ func TestMCPModelLoopCatalogCountAndCollision(t *testing.T) {
 	}
 	r := &toolFixtureRunner{replies: []string{"Done."}}
 	out, _, err := runMCPRespond(t, r, "--model", "local", "--mcp", "first", "--mcp", "second", "--json", "Inspect")
-	if err != nil || len(r.requests) != 1 || len(r.requests[0].Definitions) != 128 {
+	if err != nil || len(r.requests) != 1 || len(r.requests[0].Native.Tools) != 128 {
 		t.Fatalf("128-tool catalog was pruned or refused: %s %v", out, err)
 	}
-	if r.requests[0].Definitions[0].Description != "" {
+	if r.requests[0].Native.Tools[0].Description != "" {
 		t.Fatal("empty server description was fabricated")
 	}
 	for _, tc := range []struct {
@@ -213,7 +213,7 @@ func TestMCPModelLoopStdioCleanup(t *testing.T) {
 	r := &toolFixtureRunner{replies: []string{loopReadCall, "Done."}}
 	out, _, err := runMCPRespond(t, r, "--model", "local", "--mcp", "fixture", "Read")
 	if err != nil || out != "Done.\n" || len(r.requests) != 2 ||
-		!strings.Contains(r.requests[1].Prompt, "9007199254740993") || !strings.Contains(r.requests[1].Prompt, "1e400") {
+		!strings.Contains(nativeFixtureText(r.requests[1]), "9007199254740993") || !strings.Contains(nativeFixtureText(r.requests[1]), "1e400") {
 		t.Fatalf("stdio round: %s %v", out, err)
 	}
 	raw, err := os.ReadFile(pidFile)

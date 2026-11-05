@@ -377,6 +377,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !decodeRequest(w, r, &request) {
 		return
 	}
+	options, samplingErr := parseSampling(request.Model, request.samplingFields, request.MaxTokens, request.ImageGeneration)
+	if samplingErr != nil {
+		writeRequestValidationError(w, samplingErr)
+		return
+	}
+	request.Options = options
 	if (toolMembers{request.Tools, request.ToolChoice, request.ParallelToolCalls}).present() {
 		s.handleChatTools(w, r, request)
 		return
@@ -405,6 +411,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeRequestValidationError(w, err)
 		return
 	}
+	prepared.Options = request.Options
 	model, ok := s.validatePreparedModel(w, prepared)
 	if !ok || !validatePrompt(w, prepared.Prompt) {
 		return
@@ -434,6 +441,12 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if !decodeRequest(w, r, &request) {
 		return
 	}
+	options, samplingErr := parseSampling(request.Model, request.samplingFields, request.MaxOutputTokens, request.ImageGeneration)
+	if samplingErr != nil {
+		writeRequestValidationError(w, samplingErr)
+		return
+	}
+	request.Options = options
 	if (toolMembers{request.Tools, request.ToolChoice, request.ParallelToolCalls}).present() {
 		s.handleResponsesTools(w, r, request)
 		return
@@ -460,6 +473,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		writeRequestValidationError(w, err)
 		return
 	}
+	prepared.Options = request.Options
 	model, ok := s.validatePreparedModel(w, prepared)
 	if !ok || !validatePrompt(w, prepared.Prompt) {
 		return

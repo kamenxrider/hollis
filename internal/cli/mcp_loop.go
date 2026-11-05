@@ -164,6 +164,7 @@ var (
 )
 
 type mcpSession struct {
+	options      *runner.GenerationOptions
 	manager      *mcp.Manager
 	offers       []runner.ToolOffer
 	tools        map[string]mcp.Tool
@@ -345,11 +346,11 @@ func (s *mcpSession) run(ctx context.Context, r runner.Runner, messages []store.
 	s.round = 0
 	callStart := len(s.calls)
 	// An empty catalog never fabricates definitions or enables tool detection.
-	if len(callers)+len(s.offers) == 0 {
+	if len(callers)+len(s.offers) == 0 && (choice == runner.ToolChoiceAuto || choice == runner.ToolChoiceNone) {
 		choice = runner.ToolChoiceNone
 	}
 	outcome, err := runner.RunToolLoop(ctx, roundRunner, runner.ModelLocal, runner.ToolConversation{
-		Tools: callers, Offers: s.offers, Choice: choice, Messages: messages,
+		Tools: callers, Offers: s.offers, Choice: choice, Messages: messages, Options: s.options,
 	}, s)
 	var classified *cliError
 	var loopError *runner.Error
@@ -395,12 +396,15 @@ func writeMCPFailure(cmd *cobra.Command, flags *rootFlags, session *mcpSession, 
 	return &reportedError{err: err}
 }
 
-func runRespondMCP(ctx context.Context, cmd *cobra.Command, flags *rootFlags, r runner.Runner, prompt string, callers []runner.Tool, choice runner.ToolChoice, options *mcpFlags) error {
+func runRespondMCP(ctx context.Context, cmd *cobra.Command, flags *rootFlags, r runner.Runner, prompt string, callers []runner.Tool, choice runner.ToolChoice, options *mcpFlags, sampling ...*runner.GenerationOptions) error {
 	session, err := options.attach(ctx, cmd, flags, callers)
 	if err != nil {
 		return writeMCPFailure(cmd, flags, nil, err, callers != nil)
 	}
 	defer session.Close()
+	if len(sampling) > 0 {
+		session.options = sampling[0]
+	}
 	outcome, err := session.run(ctx, r, []store.Message{{Role: "user", Content: prompt}}, callers, choice)
 	if err != nil {
 		return writeMCPFailure(cmd, flags, session, err, callers != nil)

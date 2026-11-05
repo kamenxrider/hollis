@@ -38,7 +38,7 @@ func isAbsentOrNull(raw json.RawMessage) bool { return len(raw) == 0 || isNullJS
 
 // parseToolMembers validates the tool parameters before anything is staged
 // or spawned. Every rejection is a 400 unsupported_parameter.
-func parseToolMembers(m toolMembers) ([]runner.Tool, runner.ToolChoice, error) {
+func parseToolMembers(m toolMembers, responses ...bool) ([]runner.Tool, runner.ToolChoice, error) {
 	if isAbsentOrNull(m.Tools) {
 		return nil, "", unsupportedParameter("tool_choice and parallel_tool_calls require tools")
 	}
@@ -50,13 +50,45 @@ func parseToolMembers(m toolMembers) ([]runner.Tool, runner.ToolChoice, error) {
 	if !isAbsentOrNull(m.ToolChoice) {
 		var value string
 		if err := json.Unmarshal(m.ToolChoice, &value); err != nil {
-			return nil, "", unsupportedParameter("tool_choice naming a function is not supported; use \"auto\" or \"none\"")
+			var name string
+			if len(responses) > 0 && responses[0] {
+				var named struct {
+					Type string `json:"type"`
+					Name string `json:"name"`
+				}
+				if strictUnmarshal(m.ToolChoice, &named) != nil || named.Type != "function" {
+					return nil, "", unsupportedParameter("tool_choice must name a function with type and name")
+				}
+				name = named.Name
+			} else {
+				var named struct {
+					Type     string `json:"type"`
+					Function struct {
+						Name string `json:"name"`
+					} `json:"function"`
+				}
+				if strictUnmarshal(m.ToolChoice, &named) != nil || named.Type != "function" {
+					return nil, "", unsupportedParameter("tool_choice must name a function with type and function.name")
+				}
+				name = named.Function.Name
+			}
+			found := false
+			for _, tool := range tools {
+				found = found || tool.Name == name
+			}
+			if !found {
+				return nil, "", unsupportedParameter("tool_choice must name an offered function")
+			}
+			value = "function:" + name
 		}
 		switch runner.ToolChoice(value) {
-		case runner.ToolChoiceAuto, runner.ToolChoiceNone:
+		case runner.ToolChoiceAuto, runner.ToolChoiceNone, runner.ToolChoiceRequired:
 			choice = runner.ToolChoice(value)
 		default:
-			return nil, "", unsupportedParameter("tool_choice accepts only \"auto\" or \"none\"")
+			if !strings.HasPrefix(value, "function:") || bytes.HasPrefix(bytes.TrimSpace(m.ToolChoice), []byte(`"`)) {
+				return nil, "", unsupportedParameter("tool_choice accepts auto, none, required, or a named function object")
+			}
+			choice = runner.ToolChoice(value)
 		}
 	}
 	if !isAbsentOrNull(m.ParallelToolCalls) {
@@ -362,7 +394,7 @@ func (s *Server) handleChatTools(w http.ResponseWriter, r *http.Request, request
 	if !ok {
 		return
 	}
-	outcome, ok := s.runTools(r.Context(), w, rounds, runner.ToolConversation{Tools: tools, Choice: choice, Messages: messages})
+	outcome, ok := s.runTools(r.Context(), w, rounds, runner.ToolConversation{Tools: tools, Choice: choice, Messages: messages, Options: request.Options})
 	if !ok {
 		return
 	}
@@ -549,7 +581,7 @@ func (s *Server) handleResponsesTools(w http.ResponseWriter, r *http.Request, re
 		return
 	}
 	request.Tools = normalized
-	tools, choice, err := parseToolMembers(toolMembers{request.Tools, request.ToolChoice, request.ParallelToolCalls})
+	tools, choice, err := parseToolMembers(toolMembers{request.Tools, request.ToolChoice, request.ParallelToolCalls}, true)
 	if err != nil {
 		writeRequestValidationError(w, err)
 		return
@@ -572,7 +604,7 @@ func (s *Server) handleResponsesTools(w http.ResponseWriter, r *http.Request, re
 	if !ok {
 		return
 	}
-	outcome, ok := s.runTools(r.Context(), w, rounds, runner.ToolConversation{Tools: tools, Choice: choice, Messages: messages})
+	outcome, ok := s.runTools(r.Context(), w, rounds, runner.ToolConversation{Tools: tools, Choice: choice, Messages: messages, Options: request.Options})
 	if !ok {
 		return
 	}

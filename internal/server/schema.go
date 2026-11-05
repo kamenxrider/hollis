@@ -226,7 +226,7 @@ func (s *Server) validateGuidedModel(w http.ResponseWriter, name string) (runner
 // uses, then re-validates the returned object at the HTTP boundary. A fake or
 // future runner that returns a non-conforming object is refused here; no
 // partial or repaired value is ever written to the client.
-func (s *Server) completeGuided(ctx context.Context, w http.ResponseWriter, prompt string, schema *runner.Schema) (runner.Completion, bool) {
+func (s *Server) completeGuided(ctx context.Context, w http.ResponseWriter, prompt string, schema *runner.Schema, options ...*runner.GenerationOptions) (runner.Completion, bool) {
 	schemaRunner, ok := s.Runner.(runner.SchemaRunner)
 	if !ok {
 		writeNativeError(w, &runner.Error{Kind: runner.KindNativeFailed, ExitCode: -1,
@@ -241,7 +241,18 @@ func (s *Server) completeGuided(ctx context.Context, w http.ResponseWriter, prom
 
 	ctx, cancel := context.WithTimeout(ctx, runner.MaxTimeout)
 	defer cancel()
-	result, err := schemaRunner.RunSchema(ctx, runner.ModelLocal, prompt, schema)
+	var result runner.Completion
+	var err error
+	if len(options) > 0 && options[0] != nil {
+		generation, ok := s.Runner.(runner.GenerationRunner)
+		if !ok {
+			writeNativeError(w, errors.New("native sampling runner unavailable"))
+			return runner.Completion{}, false
+		}
+		result, err = generation.RunGeneration(ctx, runner.ModelLocal, runner.GenerationRequest{Prompt: prompt, Schema: schema, Options: options[0]}, nil)
+	} else {
+		result, err = schemaRunner.RunSchema(ctx, runner.ModelLocal, prompt, schema)
+	}
 	if err == nil {
 		if result.Model != runner.ModelLocal || len(result.Structured) == 0 {
 			err = invalidGuidedOutput()
@@ -294,7 +305,7 @@ func (s *Server) handleChatGuided(w http.ResponseWriter, r *http.Request, reques
 	if !validatePrompt(w, prepared.Prompt) {
 		return
 	}
-	completion, ok := s.completeGuided(r.Context(), w, prepared.Prompt, schema)
+	completion, ok := s.completeGuided(r.Context(), w, prepared.Prompt, schema, request.Options)
 	if !ok {
 		return
 	}
@@ -334,7 +345,7 @@ func (s *Server) handleResponsesGuided(w http.ResponseWriter, r *http.Request, r
 	if !validatePrompt(w, prepared.Prompt) {
 		return
 	}
-	completion, ok := s.completeGuided(r.Context(), w, prepared.Prompt, schema)
+	completion, ok := s.completeGuided(r.Context(), w, prepared.Prompt, schema, request.Options)
 	if !ok {
 		return
 	}

@@ -38,6 +38,7 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		toolsFile  string
 		toolChoice string
 		mcpOptions mcpFlags
+		sampling   generationFlags
 	)
 	validateRespondFlags := func(cmd *cobra.Command, args []string) error {
 		if err := validateTimeout(cmd, timeout); err != nil {
@@ -315,6 +316,10 @@ without another model round or a new resume protocol.`,
 			if !m.Valid() {
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", m))
 			}
+			generationOptions, err := sampling.options(cmd, m)
+			if err != nil {
+				return err
+			}
 			if mcpOptions.enabled() && m != runner.ModelLocal {
 				return usageErr(errors.New("MCP tools require --model local"))
 			}
@@ -396,17 +401,22 @@ without another model round or a new resume protocol.`,
 				defer cancel()
 			}
 			if mcpOptions.enabled() {
-				return withPDFRefusalContext(runRespondMCP(ctx, cmd, flags, r, prompt, toolSet, runner.ToolChoice(toolChoice), &mcpOptions), hasPDF)
+				return withPDFRefusalContext(runRespondMCP(ctx, cmd, flags, r, prompt, toolSet, runner.ToolChoice(toolChoice), &mcpOptions, generationOptions), hasPDF)
 			}
 			if toolSet != nil {
-				return withPDFRefusalContext(runRespondTools(ctx, cmd, r, prompt, toolSet, runner.ToolChoice(toolChoice)), hasPDF)
+				return withPDFRefusalContext(runRespondTools(ctx, cmd, r, prompt, toolSet, runner.ToolChoice(toolChoice), generationOptions), hasPDF)
 			}
 			var fallback runner.Fallback
 			var text string
 			var used runner.Model
 			var usage *runner.Usage
 			var structured json.RawMessage
-			if len(images) > 0 && m == runner.ModelLocal {
+			if generationOptions != nil {
+				completion, runErr := runLocalGeneration(ctx, r, runner.GenerationRequest{
+					Prompt: prompt, Options: generationOptions, Schema: schema, Images: images,
+				}, streaming, cmd.OutOrStdout())
+				text, used, usage, structured, err = completion.Text, completion.Model, completion.Usage, completion.Structured, runErr
+			} else if len(images) > 0 && m == runner.ModelLocal {
 				completion, runErr := runLocalImages(ctx, r, prompt, images, streaming, cmd.OutOrStdout())
 				text, used, usage, err = completion.Text, completion.Model, completion.Usage, runErr
 			} else if len(images) > 0 {
@@ -522,9 +532,10 @@ without another model round or a new resume protocol.`,
 	cmd.Flags().StringVar(&schemaFile, "schema", "", "JSON Schema file for guided native-local output; requires --model local and completes without streaming")
 	cmd.Flags().BoolVar(&code, "code", false, "Print the first complete non-empty fenced code block (or the whole answer when there is no complete fence); exit 3 when there is nothing to print")
 	cmd.Flags().StringVar(&toolsFile, "tools", "", "JSON file with an OpenAI-shaped tools array for native-local tool calling; prints the tool calls or the answer as one JSON document")
-	cmd.Flags().StringVar(&toolChoice, "tool-choice", string(runner.ToolChoiceAuto), "With --tools: auto (default) lets the model call a tool; none keeps tools out of the prompt")
+	cmd.Flags().StringVar(&toolChoice, "tool-choice", string(runner.ToolChoiceAuto), "With --tools or MCP: auto (default), none, required, or function:NAME")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	mcpOptions.addTo(cmd)
+	sampling.addTo(cmd)
 	flags.checkFlagsBeforeHelp(cmd, validateRespondFlags)
 	return cmd
 }
@@ -659,17 +670,21 @@ const toolsFileReadLimit = 4 << 20
 // anything is read, staged or spawned.
 func validateToolFlags(cmd *cobra.Command, flags *rootFlags, hasImages bool) error {
 	hasTools := cmd.Flags().Changed("tools")
-	if cmd.Flags().Changed("tool-choice") && !hasTools {
+	noMCP, _ := cmd.Flags().GetBool("no-mcp")
+	hasMCP := !noMCP && (cmd.Flags().Changed("mcp") || cmd.Flags().Changed("mcp-server"))
+	if cmd.Flags().Changed("tool-choice") && !hasTools && !hasMCP {
 		return usageErr(errors.New("--tool-choice requires --tools"))
-	}
-	if !hasTools {
-		return nil
 	}
 	choice, _ := cmd.Flags().GetString("tool-choice")
 	switch runner.ToolChoice(choice) {
-	case runner.ToolChoiceAuto, runner.ToolChoiceNone:
+	case runner.ToolChoiceAuto, runner.ToolChoiceNone, runner.ToolChoiceRequired:
 	default:
-		return usageErr(errors.New("--tool-choice accepts only auto or none"))
+		if !strings.HasPrefix(choice, "function:") || len(strings.TrimPrefix(choice, "function:")) == 0 {
+			return usageErr(errors.New("--tool-choice accepts auto, none, required, or function:NAME"))
+		}
+	}
+	if !hasTools {
+		return nil
 	}
 	if hasImages {
 		return usageErr(errors.New("--tools cannot be combined with --image: a later tool round could not see the image"))
@@ -716,14 +731,18 @@ func withPDFRefusalContext(err error, hasPDF bool) error {
 
 // runRespondTools runs the tool loop and prints its one JSON document. Calls
 // are returned to the caller; nothing is executed.
-func runRespondTools(ctx context.Context, cmd *cobra.Command, r runner.Runner, prompt string, tools []runner.Tool, choice runner.ToolChoice) error {
+func runRespondTools(ctx context.Context, cmd *cobra.Command, r runner.Runner, prompt string, tools []runner.Tool, choice runner.ToolChoice, options ...*runner.GenerationOptions) error {
 	roundRunner, ok := r.(runner.ToolRoundRunner)
 	if !ok {
 		return transportErr(errors.New("configured runner does not support native-local tool calling"))
 	}
-	outcome, err := runner.RunToolLoop(ctx, roundRunner, runner.ModelLocal, runner.ToolConversation{
+	conversation := runner.ToolConversation{
 		Tools: tools, Choice: choice, Messages: []store.Message{{Role: "user", Content: prompt}},
-	}, runner.ReturnToCaller{})
+	}
+	if len(options) > 0 {
+		conversation.Options = options[0]
+	}
+	outcome, err := runner.RunToolLoop(ctx, roundRunner, runner.ModelLocal, conversation, runner.ReturnToCaller{})
 	if err != nil {
 		return toCLIError(err)
 	}

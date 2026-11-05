@@ -110,7 +110,7 @@ func TestMCPModelLoopAutoPrecisionAndSelection(t *testing.T) {
 			if calls.Load() != 1 || len(r.requests) != 2 {
 				t.Fatalf("tool calls=%d model calls=%d", calls.Load(), len(r.requests))
 			}
-			next := r.requests[1].Prompt
+			next := nativeFixtureText(r.requests[1])
 			if !strings.Contains(next, "9007199254740993") || !strings.Contains(next, "1e400") ||
 				!strings.Contains(next, mcp.UntrustedPreamble) || strings.Contains(next, "<<<<end") {
 				t.Fatalf("result framing or precision lost: %s", next)
@@ -237,11 +237,11 @@ func TestMCPModelLoopValidationAndPhysicalCap(t *testing.T) {
 		code    string
 		calls   int64
 	}{
-		{"repair", []string{`{"tool_calls":[{"function":"fixture__read","arguments":{}}]}`, loopReadCall, "Done."}, "", 1},
-		{"repair-exhausts-cap", []string{loopReadCall, `{"tool_calls":[{"function":"fixture__read","arguments":{}}]}`, loopReadCall}, "tool_round_cap", 1},
-		{"invalid-twice", []string{`{"tool_calls":[{"function":"fixture__read","arguments":{}}]}`, `{"tool_calls":[{"function":"fixture__read","arguments":{}}]}`}, "tool_call_invalid", 0},
-		{"invented-name", []string{`{"tool_calls":[{"function":"invented","arguments":{}}]}`}, "", 0},
-		{"whole-batch-validation", []string{`{"tool_calls":[{"function":"fixture__read","arguments":{"page":"one"}},{"function":"fixture__read","arguments":{}}]}`, "No call."}, "", 0},
+		{"invalid-first-no-repair", []string{`{"tool_calls":[{"function":"fixture__read","arguments":{}}]}`}, "tool_call_invalid", 0},
+		{"invalid-after-execution", []string{loopReadCall, `{"tool_calls":[{"function":"fixture__read","arguments":{}}]}`}, "tool_call_invalid", 1},
+		{"decision-cap", []string{loopReadCall, loopReadCall, loopReadCall, loopReadCall, loopReadCall, loopReadCall, loopReadCall, loopReadCall}, "tool_round_cap", 7},
+		{"invented-name", []string{`{"tool_calls":[{"function":"invented","arguments":{}}]}`}, "tool_call_invalid", 0},
+		{"whole-batch-validation", []string{`{"tool_calls":[{"function":"fixture__read","arguments":{"page":"one"}},{"function":"fixture__read","arguments":{}}]}`}, "tool_call_invalid", 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

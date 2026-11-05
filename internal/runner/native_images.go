@@ -46,7 +46,7 @@ func (r *NativeRunner) StreamWithImages(ctx context.Context, model Model, prompt
 	return r.invokeImages(ctx, model, prompt, images, emit)
 }
 
-func (r *NativeRunner) invokeImages(ctx context.Context, model Model, prompt string, images []string, emit func(string) error) (Completion, error) {
+func (r *NativeRunner) invokeImages(ctx context.Context, model Model, prompt string, images []string, emit func(string) error, options ...*GenerationOptions) (Completion, error) {
 	if model != ModelLocal {
 		return Completion{}, nativeError(KindUsage, "native backend only supports model local")
 	}
@@ -71,9 +71,11 @@ func (r *NativeRunner) invokeImages(ctx context.Context, model Model, prompt str
 	if emit != nil {
 		operation = "stream"
 	}
-	result, _, err := r.invoke(ctx, model, operation, prompt, emit, nil, nativeOptions{
-		Images: []nativeSource{{Path: staged[0]}},
-	})
+	opts := nativeOptions{Images: []nativeSource{{Path: staged[0]}}}
+	if len(options) > 0 {
+		opts.GenerationOptions = options[0]
+	}
+	result, _, err := r.invoke(ctx, model, operation, prompt, emit, nil, opts)
 	return result, err
 }
 
