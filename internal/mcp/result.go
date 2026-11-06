@@ -28,6 +28,8 @@ const (
 type Result struct {
 	// Text is the result as the model will read it, before framing.
 	Text string
+	// TextBytes is the normalized text-block prefix, before structured content.
+	TextBytes int
 	// IsError is the server's own error flag: the call ran and the tool
 	// reported a failure the model may see.
 	IsError bool
@@ -56,6 +58,7 @@ func mapResult(server, tool string, result *sdk.CallToolResult) (Result, error) 
 		}
 		parts = append(parts, text.Text)
 	}
+	textBytes := len(normalizeText(strings.Join(parts, "\n")))
 	if result.StructuredContent != nil {
 		encoded, err := json.Marshal(result.StructuredContent)
 		if err != nil {
@@ -78,7 +81,7 @@ func mapResult(server, tool string, result *sdk.CallToolResult) (Result, error) 
 	if len(text) > MaxResultText {
 		return Result{}, newError(CodeResultTooLarge, server, tool, "the result is %d bytes; the limit is %d. Nothing was truncated", len(text), MaxResultText)
 	}
-	return Result{Text: text, IsError: result.IsError, Bytes: len(text)}, nil
+	return Result{Text: text, TextBytes: textBytes, IsError: result.IsError, Bytes: len(text)}, nil
 }
 
 func contentKind(content sdk.Content) string {

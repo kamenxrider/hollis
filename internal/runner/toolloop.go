@@ -74,6 +74,8 @@ type ToolExecution struct {
 // After appending each completed result, executors must call admit and stop on
 // error before any later approval or dispatch. Keep that result in the partial
 // execution returned on error; admission does not undo a completed operation.
+// A failed admission does not retain the candidate. An executor may try a
+// disclosed excerpt of that same result, but must not repeat the tool call.
 type ToolExecutor interface {
 	ExecuteTools(ctx context.Context, calls []ToolCall, admit func(ToolResult) error) (ToolExecution, error)
 }
@@ -95,6 +97,9 @@ type ToolConversation struct {
 	Choice   ToolChoice
 	Messages []store.Message
 	Options  *GenerationOptions
+	// ResultSafetyTokens adds space beyond the answer reserve during admission.
+	// It is internal configuration for disclosed Local MCP excerpts.
+	ResultSafetyTokens int
 	// RoundLimit is internal configuration, not an API parameter.
 	RoundLimit int
 }

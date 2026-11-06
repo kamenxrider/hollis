@@ -84,6 +84,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 	text.fields["mcp_servers"] = resultType(reflect.TypeFor[[]mcpServerStatus]())
 	text.fields["tool_calls"] = resultType(reflect.TypeFor[[]mcpCallAudit]())
 	text.fields["tool_dispositions"] = resultType(reflect.TypeFor[[]mcpDisposition]())
+	text.fields["tool_results_bounded"] = resultType(reflect.TypeFor[[]boundedToolResult]())
 	image := resultFields("path", "format", "bytes", "width", "height", "checksum",
 		"native_width", "native_height", "reference_image_sent", "reference_sha256")
 	image.fields["output_processing"] = processing

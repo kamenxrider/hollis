@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 	"unicode"
@@ -19,10 +20,11 @@ import (
 )
 
 type mcpFlags struct {
-	names    []string
-	servers  []string
-	timeout  time.Duration
-	disabled bool
+	names            []string
+	servers          []string
+	timeout          time.Duration
+	disabled         bool
+	noBoundedResults bool
 }
 
 func (f *mcpFlags) addTo(cmd *cobra.Command) {
@@ -30,6 +32,7 @@ func (f *mcpFlags) addTo(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&f.servers, "mcp-server", nil, "Ad-hoc MCP command with quoted arguments, or HTTP URL; always ask, no shell")
 	cmd.Flags().DurationVar(&f.timeout, "mcp-timeout", 0, "Override MCP call deadlines (positive, at most 120s, within the command deadline)")
 	cmd.Flags().BoolVar(&f.disabled, "no-mcp", false, "Never read MCP configuration or attach servers, even with MCP flags")
+	cmd.Flags().BoolVar(&f.noBoundedResults, "no-bounded-results", false, "Stop on Local MCP result capacity instead of showing a disclosed excerpt")
 }
 
 func (f *mcpFlags) enabled() bool { return !f.disabled && len(f.names)+len(f.servers) > 0 }
@@ -164,14 +167,18 @@ var (
 )
 
 type mcpSession struct {
-	options      *runner.GenerationOptions
-	manager      *mcp.Manager
-	offers       []runner.ToolOffer
-	tools        map[string]mcp.Tool
-	framer       *mcp.Framer
-	calls        []mcpCallAudit
-	dispositions []mcpDisposition
-	round        int
+	options          *runner.GenerationOptions
+	manager          *mcp.Manager
+	offers           []runner.ToolOffer
+	tools            map[string]mcp.Tool
+	framer           *mcp.Framer
+	calls            []mcpCallAudit
+	dispositions     []mcpDisposition
+	round            int
+	noBoundedResults bool
+	boundResults     bool
+	bounded          []boundedToolResult
+	diagnostic       io.Writer
 }
 
 func (f *mcpFlags) attach(ctx context.Context, cmd *cobra.Command, flags *rootFlags, callers []runner.Tool) (*mcpSession, error) {
@@ -191,6 +198,8 @@ func (f *mcpFlags) attach(ctx context.Context, cmd *cobra.Command, flags *rootFl
 		return nil, mcpCLIError(err)
 	}
 	session := &mcpSession{manager: manager, tools: map[string]mcp.Tool{}, calls: []mcpCallAudit{}, dispositions: []mcpDisposition{}}
+	session.noBoundedResults = f.noBoundedResults
+	session.diagnostic = cmd.ErrOrStderr()
 	ok := false
 	defer func() {
 		if !ok {
@@ -276,9 +285,10 @@ type mcpDisposition struct {
 }
 
 type mcpRunMetadata struct {
-	Servers      []mcpServerStatus `json:"servers"`
-	ToolCalls    []mcpCallAudit    `json:"tool_calls"`
-	Dispositions []mcpDisposition  `json:"dispositions"`
+	Servers      []mcpServerStatus   `json:"servers"`
+	ToolCalls    []mcpCallAudit      `json:"tool_calls"`
+	Dispositions []mcpDisposition    `json:"dispositions"`
+	Bounded      []boundedToolResult `json:"tool_results_bounded,omitempty"`
 }
 
 func (s *mcpSession) metadata() mcpRunMetadata {
@@ -291,11 +301,15 @@ func (s *mcpSession) metadata() mcpRunMetadata {
 	}
 	meta.ToolCalls = append(meta.ToolCalls, s.calls...)
 	meta.Dispositions = append(meta.Dispositions, s.dispositions...)
+	meta.Bounded = append(meta.Bounded, s.bounded...)
 	return meta
 }
 
 func (meta mcpRunMetadata) addTo(data map[string]any) {
 	data["mcp_servers"], data["tool_calls"], data["tool_dispositions"] = meta.Servers, meta.ToolCalls, meta.Dispositions
+	if len(meta.Bounded) > 0 {
+		data["tool_results_bounded"] = meta.Bounded
+	}
 }
 
 func (s *mcpSession) ExecuteTools(ctx context.Context, calls []runner.ToolCall, admit func(runner.ToolResult) error) (runner.ToolExecution, error) {
@@ -330,9 +344,9 @@ func (s *mcpSession) ExecuteTools(ctx context.Context, calls []runner.ToolCall, 
 			return execution, mcpCLIError(err)
 		}
 		disposition.State = "completed"
-		framed := runner.ToolResult{CallID: call.ID, Output: s.framer.Frame(tool.Server, tool.Name, result)}
+		framed, err := s.admitResult(tool, call.ID, result, admit)
 		execution.Results = append(execution.Results, framed)
-		if err := admit(framed); err != nil {
+		if err != nil {
 			return execution, err
 		}
 	}
@@ -345,6 +359,15 @@ func (s *mcpSession) run(ctx context.Context, r runner.Runner, messages []store.
 		return runner.ToolOutcome{}, transportErr(errors.New("configured runner does not support native-local tool calling"))
 	}
 	s.round = 0
+	_, checked := r.(interface {
+		CheckToolHistory(context.Context, runner.NativeToolStep) error
+	})
+	// Never shorten data without the native SDK preflight.
+	s.boundResults = !s.noBoundedResults && checked
+	safety := 0
+	if s.boundResults {
+		safety = 128
+	}
 	callStart := len(s.calls)
 	// An empty catalog never fabricates definitions or enables tool detection.
 	if len(callers)+len(s.offers) == 0 && (choice == runner.ToolChoiceAuto || choice == runner.ToolChoiceNone) {
@@ -352,6 +375,7 @@ func (s *mcpSession) run(ctx context.Context, r runner.Runner, messages []store.
 	}
 	outcome, err := runner.RunToolLoop(ctx, roundRunner, runner.ModelLocal, runner.ToolConversation{
 		Tools: callers, Offers: s.offers, Choice: choice, Messages: messages, Options: s.options,
+		ResultSafetyTokens: safety,
 	}, s)
 	var classified *cliError
 	var loopError *runner.Error

@@ -128,8 +128,8 @@ automatic-execution allow list and pins. Calls still need approval by default.
 
 This DeepWiki recipe offers only `ask_wiki_question`, not `read_wiki_contents`,
 which can return an entire repository exceeding Local's 128 KiB input limit.
-A focused answer can still exceed byte or context limits; the filter is not
-a result-size cap and nothing is truncated.
+A focused answer can still exceed byte or context limits. The filter is not
+a result-size cap. The experimental result policy below applies independently.
 
 The filter is saved as `"tools": ["ask_wiki_question"]` on the server in
 `mcp.json`. Missing or empty `tools` means all supported tools, preserving
@@ -141,6 +141,30 @@ their names. Attachment counts report how many tools were filtered out.
 
 This filter is separate from `allow`/`deny`: those control automatic approval,
 not which tools are offered. Selecting a tool never grants permission to run it.
+
+### Experimental bounded Local results
+
+On this experimental branch, Local MCP results that cannot fit the next
+decision use a disclosed prefix. SDK token counting admits the framed prefix
+only when it leaves at least 512 answer tokens plus 128 safety tokens.
+An explicit larger answer limit is reserved instead of 512.
+Text blocks take priority over structured content when both are present.
+Cuts prefer complete lines or JSON elements, with word boundaries as a fallback.
+
+The original untrusted-content delimiters wrap the excerpt and its partial-result
+marker. Stderr reports the full and shown byte counts and the private full-result
+file. JSON adds `tool_results_bounded` entries with `server`, `tool`, `full_bytes`,
+`shown_bytes`, and `path`. Full normalized results, including structured content,
+are saved in the state directory's `tool-results` folder, mode 0700, with file
+mode 0600. Saving beneath `/tmp`, including symlink aliases, is refused.
+Files remain until you remove them. They can contain sensitive tool data.
+If saving or disclosure fails, the request stops before synthesis.
+
+Use `--no-bounded-results` on `respond` or `chat` to restore the hard capacity
+stop. Other routes, approval, validation, and the hard 1 MiB MCP result ceiling
+are unchanged. Results that fit remain complete and are not saved separately.
+A partial result may omit the answer or an important qualification. Check the
+full result before relying on an answer that needs complete evidence.
 
 ## Secrets never live in `mcp.json`
 
@@ -201,7 +225,8 @@ it. It never runs a tool and never calls a model. For each tool:
   Excluded/unsupported tools remain visible in inspection and attachment counts.
 - Native definitions, server-validated metadata, conversation and framed results
   share the 128 KiB input bound and native token preflight. The encoded helper
-  request stays within 1 MiB. Oversized input/results fail without truncation.
+  request stays within 1 MiB. Disclosed excerpts can reduce MCP result data,
+  not definitions or user messages. Above 1 MiB, an MCP result always stops.
 - Connect deadline 10 s by default (`--connect-timeout`, up to 60 s); call
   deadline 20 s (`--call-timeout`, up to 120 s).
 - HTTP: TLS 1.2 or newer, no redirects, no retries, no background event
@@ -217,24 +242,29 @@ preflight reports token costs for base/profile instructions, tool definitions
 (including MCP schemas), existing conversation, returned results with framing,
 the answer reservation and measured context capacity, plus component byte
 counts. Token costs are incremental in that order and sum to `input_tokens`.
-The answer reservation is the requested per-decision maximum, or 512 when
-omitted; it does not change the SDK's default generation options.
+During result admission, the experimental policy reserves at least 512 answer
+tokens plus 128 safety tokens. A larger requested maximum replaces 512.
+Generation keeps the requested options. With `--no-bounded-results`, admission
+reserves the requested maximum or 512 when omitted.
 MCP diagnostics separately report text/structured-result bytes, byte-identical
 JSON duplication, and result versus framed bytes. No tool names, schemas,
 arguments, result content or credentials enter these diagnostic records.
 
 A small user prompt can still exceed Local capacity after a large search
 result. For example, anonymous Parallel search can return more than Local can
-admit; approval and a valid search do not imply a completed answer. Hollis
-preserves the full result and refuses with `context_capacity` when the native
-token preflight fails. `tool_result_too_large` instead identifies an MCP
-byte-limit failure. Neither path truncates or automatically summarizes content.
+admit; approval and a valid search do not imply a completed answer. This branch
+can supply a disclosed excerpt and save the full result privately. With
+`--no-bounded-results`, native token and history-capacity failures remain hard
+stops. The existing MCP CLI also labels post-call capacity errors
+`tool_result_too_large`; the diagnostic distinguishes them from the MCP byte cap.
+Neither policy automatically summarizes content.
 Where the provider supports them, explicitly request smaller results or select
 fewer tools at the server.
 
 ### Provider-side result caps
 
-Large-result servers need provider-side limits, not client-side truncation.
+Provider-side result limits can reduce data before transport and avoid partial
+results. They remain useful alongside the experimental client-side policy.
 For a server that accepts a non-secret configuration header, for example:
 
 ```bash

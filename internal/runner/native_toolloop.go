@@ -285,9 +285,9 @@ func RunToolLoop(ctx context.Context, r ToolRoundRunner, model Model, conversati
 		assistant := store.Message{Role: "assistant", Content: chat.EncodeToolCalls(toolCallRecords(calls))}
 		admitted := append(append([]store.Message(nil), out.Messages...), assistant)
 		admit := func(result ToolResult) error {
-			admitted = append(admitted, store.Message{Role: chat.RoleTool, Content: chat.EncodeToolResult(result.CallID, result.Output)})
+			message := store.Message{Role: chat.RoleTool, Content: chat.EncodeToolResult(result.CallID, result.Output)}
 			// Incomplete batches are legal during admission, but never at inference.
-			projected := append([]store.Message(nil), admitted...)
+			projected := append(append([]store.Message(nil), admitted...), message)
 			known := map[string]bool{}
 			for _, message := range projected {
 				if message.Role == chat.RoleTool {
@@ -307,11 +307,31 @@ func RunToolLoop(ctx context.Context, r ToolRoundRunner, model Model, conversati
 				return err
 			}
 			if checker, ok := r.(nativeHistoryChecker); ok {
+				if conversation.ResultSafetyTokens > 0 {
+					options := GenerationOptions{}
+					if next.Options != nil {
+						options = *next.Options
+					}
+					answer := 512
+					if options.MaxTokens != nil && *options.MaxTokens > answer {
+						answer = *options.MaxTokens
+					}
+					if answer > int(^uint(0)>>1)-conversation.ResultSafetyTokens {
+						return nativeError(KindContextCapacity, "answer reservation exceeds context capacity")
+					}
+					reserve := answer + conversation.ResultSafetyTokens
+					options.MaxTokens = &reserve
+					next.Options = &options
+				}
 				if err := checker.CheckToolHistory(ctx, next); err != nil {
 					return err
 				}
 			}
-			return nativeContextError(ctx)
+			if err := nativeContextError(ctx); err != nil {
+				return err
+			}
+			admitted = append(admitted, message)
+			return nil
 		}
 		execution, execErr := executor.ExecuteTools(ctx, append([]ToolCall(nil), calls...), admit)
 		results, pending, err := matchExecution(calls, execution, execErr != nil)
