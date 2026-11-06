@@ -16,7 +16,7 @@ agent schema version remain unchanged.
 | `tool_call_invalid` | A native callback batch failed independent validation, exceeded 16 calls, or did not satisfy tool choice. No argument repair or text-call extraction occurs, and no invalid batch is dispatched | 5 | 502 | Simplify the tools or the request; do not retry unchanged |
 | `tool_round_cap` | The default eight-decision budget was exhausted, or the model requested a batch on its last permitted decision; final synthesis also costs a decision | 5 | 502 | Answer from the results you have, or start a new turn; do not retry unchanged |
 | `local_unavailable` | The native local model or its paired helper is unavailable: no helper is installed or executable, or it cannot answer | 5 | 400 `model_unavailable` at admission; 503 `model_unavailable` mid-run | Install the matching bundle from the same release; do not retry the same invocation |
-| `model_busy` | The native model returned transient `ModelManagerError` code 1012 | 5 | 503 | A tool decision retries once after 500 ms only before any callback is captured or executed in that decision; no tool is re-executed |
+| `model_busy` | The native model returned transient `ModelManagerError` code 1012 or an `NSError` with exact domain `FoundationModels.LanguageModelError` and code -1 | 5 | 503 | A tool decision retries once after 500 ms only before any callback is captured or executed in that decision; no tool is re-executed |
 | `mcp_config` | `mcp.json` is invalid, or a `hollis mcp` edit would make it invalid; the file is left unchanged | 10 | n/a | Fix the field the message names, or run `hollis mcp list` to see the current file |
 | `mcp_unavailable` | A configured MCP server could not start, or its endpoint could not be reached or failed TLS verification | 5 | n/a | Check the command or URL with `hollis mcp tools <server>`; nothing was retried |
 | `mcp_protocol` | An MCP server broke the protocol, published a malformed tool list, redirected, or exceeded a size cap | 5 | n/a | Treat the server as broken for this run; Hollis never retries or uses a partial listing |
@@ -58,7 +58,12 @@ same request should not be retried unchanged.
 
 The one permitted transient `model_busy` retry is separate from argument
 repair, which Local does not perform, and from tool execution, which is never
-retried. Invalid or incomplete callbacks fail before approval or dispatch.
+retried. Both allowlisted errors share that one retry, identical input and the
+original deadline. A later synthesis decision may retry after earlier tools
+completed, but never after a callback in the failing decision. Other
+`LanguageModelError` codes, guardrail, context and decoding failures do not
+retry. A repeated allowlisted failure retains `model_busy`, exit 5 / HTTP 503.
+Invalid or incomplete callbacks fail before approval or dispatch.
 A missing named function is a usage error (CLI exit 2, HTTP 400
 `unsupported_parameter`), naming the function that was not offered and the
 offered names when the list is short. It costs no inference.

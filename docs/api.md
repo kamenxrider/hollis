@@ -235,10 +235,13 @@ including quoted JSON or CALL text, remains ordinary content. Invalid names,
 partial batches and callback/choice violations fail closed.
 
 One native tool decision can retry once after 500 ms for an in-process
-`ModelManagerError` with code 1012, before any callback is captured or executed
-in that decision. The retry preserves the exact input and shares the deadline.
-No tool execution is retried. Guardrail, context-size and decoding errors
-never retry. A repeated busy failure returns **503** `model_busy`.
+`ModelManagerError` with code 1012 or an `NSError` with exact domain
+`FoundationModels.LanguageModelError` and code -1, before any callback is
+captured or executed in that decision. Both errors share one retry, preserving
+the exact input and original deadline. A later synthesis decision can retry
+after earlier tools completed; no tool execution is retried. Other
+`LanguageModelError` codes, guardrail, context-size and decoding errors never
+retry. A repeated allowlisted failure returns **503** `model_busy` (CLI exit 5).
 Measured usage is omitted if the failed attempt supplied no counts.
 
 Chat Completions returns `finish_reason:"tool_calls"` with an assistant

@@ -561,6 +561,18 @@ type NativeFailureInfo struct {
 	CallbackCaptured *bool  `json:"callback_captured"`
 }
 
+func (info *NativeFailureInfo) retryable() bool {
+	if info == nil || info.Code == nil {
+		return false
+	}
+	if info.Domain == "FoundationModels.LanguageModelError" && *info.Code == -1 {
+		return true
+	}
+	manager := info.Domain == "ModelManagerError" || strings.HasSuffix(info.Domain, ".ModelManagerError") ||
+		info.SwiftType == "ModelManagerError" || strings.HasSuffix(info.SwiftType, ".ModelManagerError")
+	return manager && *info.Code == 1012
+}
+
 func nativeErrorIdentifier(value string) bool {
 	if len(value) == 0 || len(value) > 192 {
 		return false
@@ -1023,7 +1035,7 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	retried := false
 	var busy *Error
 	if operation == "tool_step" && errors.As(res.EmitErr, &busy) && busy.Kind == KindModelBusy &&
-		busy.NativeFailure != nil && busy.NativeFailure.CallbackCaptured != nil &&
+		busy.NativeFailure.retryable() && busy.NativeFailure.CallbackCaptured != nil &&
 		!*busy.NativeFailure.CallbackCaptured && len(result.NativeCalls) == 0 && ctx.Err() == nil {
 		timer := time.NewTimer(500 * time.Millisecond)
 		defer timer.Stop()

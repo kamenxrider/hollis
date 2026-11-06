@@ -40,7 +40,10 @@ enum NativeTools {
             }
             let manager = ns.domain == "ModelManagerError" || ns.domain.hasSuffix(".ModelManagerError")
                 || type == "ModelManagerError" || type.hasSuffix(".ModelManagerError")
-            if !classified && manager && ns.code == 1012 { kind = "model_busy" }
+            let languageModelTransient = ns.domain == "FoundationModels.LanguageModelError" && ns.code == -1
+            if !classified && ((manager && ns.code == 1012) || languageModelTransient) {
+                kind = "model_busy"
+            }
             if !classified && kind != "model_busy",
                let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error {
                 current = underlying

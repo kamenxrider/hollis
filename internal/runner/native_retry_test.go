@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -14,24 +15,32 @@ func TestNativeBusyDecisionRetry(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		kind     Kind
+		domain   string
+		code     int
 		captured bool
 		twice    bool
 		want     Kind
 		attempts int
 	}{
-		{"transient then success", KindModelBusy, false, false, "", 2},
-		{"transient twice", KindModelBusy, false, true, KindModelBusy, 2},
-		{"guardrail", KindRequestDeclined, false, false, KindRequestDeclined, 1},
-		{"context", KindContextCapacity, false, false, KindContextCapacity, 1},
-		{"decoding", KindNativeFailed, false, false, KindNativeFailed, 1},
-		{"captured callback", KindModelBusy, true, false, KindModelBusy, 1},
+		{"transient then success", KindModelBusy, "ModelManagerError", 1012, false, false, "", 2},
+		{"transient twice", KindModelBusy, "ModelManagerError", 1012, false, true, KindModelBusy, 2},
+		{"language model then success", KindModelBusy, "FoundationModels.LanguageModelError", -1, false, false, "", 2},
+		{"language model twice", KindModelBusy, "FoundationModels.LanguageModelError", -1, false, true, KindModelBusy, 2},
+		{"language model other code", KindNativeFailed, "FoundationModels.LanguageModelError", -2, false, false, KindNativeFailed, 1},
+		{"unallowlisted busy code", KindModelBusy, "FoundationModels.LanguageModelError", -2, false, false, KindModelBusy, 1},
+		{"language model other domain", KindNativeFailed, "Other.LanguageModelError", -1, false, false, KindNativeFailed, 1},
+		{"guardrail", KindRequestDeclined, "FoundationModels.LanguageModelError", -1, false, false, KindRequestDeclined, 1},
+		{"context", KindContextCapacity, "FoundationModels.LanguageModelError", -1, false, false, KindContextCapacity, 1},
+		{"decoding", KindNativeFailed, "FoundationModels.LanguageModelError", -1, false, false, KindNativeFailed, 1},
+		{"captured callback", KindModelBusy, "ModelManagerError", 1012, true, false, KindModelBusy, 1},
+		{"language model captured callback", KindModelBusy, "FoundationModels.LanguageModelError", -1, true, false, KindModelBusy, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			counter := filepath.Join(dir, "attempts")
 			requests := filepath.Join(dir, "request")
-			code, captured := 1012, tc.captured
-			info := NativeFailureInfo{SwiftType: "Foundation.NSError", Domain: "ModelManagerError",
+			code, captured := tc.code, tc.captured
+			info := NativeFailureInfo{SwiftType: "Foundation.NSError", Domain: tc.domain,
 				Code: &code, CallbackCaptured: &captured}
 			failure := nativePrint(nativeLine("error", map[string]any{
 				"kind": tc.kind, "request_id": "test-request", "error_info": info,
@@ -58,7 +67,8 @@ func TestNativeBusyDecisionRetry(t *testing.T) {
 				requireNativeKind(t, err, tc.want)
 				if tc.want == KindModelBusy {
 					failure := err.(*Error)
-					if failure.NativeFailure == nil || *failure.NativeFailure.Code != 1012 {
+					if failure.NativeFailure == nil || *failure.NativeFailure.Code != tc.code ||
+						failure.NativeFailure.Domain != tc.domain {
 						t.Fatalf("classification lost: %+v", failure)
 					}
 				}
@@ -87,6 +97,9 @@ func TestNativeBusyAfterEmittedCallbackDoesNotRetry(t *testing.T) {
 	request := metadataRound(t)
 	// Use the offered name rather than assuming fixture naming.
 	call.Name = request.Native.Tools[0].Name
+	code, captured := -1, false
+	info := NativeFailureInfo{SwiftType: "NSError", Domain: "FoundationModels.LanguageModelError",
+		Code: &code, CallbackCaptured: &captured}
 	script := "if [ \"$#\" -eq 0 ]; then cat >/dev/null\n" +
 		nativePrint(metadataStatus(true)) + "exit 0\nfi\n" +
 		"printf 'attempt\\n' >> '" + counter + "'\ncat >/dev/null\n" +
@@ -94,13 +107,76 @@ func TestNativeBusyAfterEmittedCallbackDoesNotRetry(t *testing.T) {
 		nativePrint(nativeLine("tool_calls", map[string]any{
 			"request_id": "test-request", "step": 1, "calls": []NativeToolCall{call},
 		})) +
-		nativePrint(nativeLine("error", map[string]any{"kind": KindModelBusy, "request_id": "test-request"}))
+		nativePrint(nativeLine("error", map[string]any{
+			"kind": KindModelBusy, "request_id": "test-request", "error_info": info,
+		}))
 	r := fakeNative(t, script)
 	_, err := r.RunToolRound(t.Context(), ModelLocal, request)
 	requireNativeKind(t, err, KindNativeProtocol)
 	raw, _ := os.ReadFile(counter)
 	if strings.Count(string(raw), "attempt") != 1 {
 		t.Fatal("a captured batch caused a retry")
+	}
+}
+
+func TestNativeTransientRetryDecisionBoundary(t *testing.T) {
+	for _, mode := range []string{"prior result", "original deadline", "mixed transient errors"} {
+		t.Run(mode, func(t *testing.T) {
+			counter := filepath.Join(t.TempDir(), "attempts")
+			code, captured := -1, false
+			info := NativeFailureInfo{SwiftType: "NSError", Domain: "FoundationModels.LanguageModelError",
+				Code: &code, CallbackCaptured: &captured}
+			first := nativePrint(nativeLine("error", map[string]any{
+				"kind": KindModelBusy, "request_id": "test-request", "error_info": info,
+			}))
+			second := nativeRequestDone("Done.")
+			if mode == "mixed transient errors" {
+				code = 1012
+				info.Domain = "ModelManagerError"
+				second = nativePrint(nativeLine("error", map[string]any{
+					"kind": KindModelBusy, "request_id": "test-request", "error_info": info,
+				}))
+			}
+			script := "if [ \"$#\" -eq 0 ]; then cat >/dev/null\n" +
+				nativePrint(metadataStatus(true)) + "exit 0\nfi\n" +
+				"printf 'attempt\\n' >> '" + counter + "'\ncat >/dev/null\n" +
+				nativePrint(nativeRequestStatus(true)) +
+				"if [ \"$(wc -l < '" + counter + "')\" -eq 1 ]; then\n" + first +
+				"else\n" + second + "fi\n"
+			r := fakeNative(t, script)
+			if _, err := r.NativeStatus(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			request := metadataRound(t)
+			if mode == "prior result" {
+				name, output := request.Native.Tools[0].Name, `{"temperature":21}`
+				request.Native.Step, request.Native.RemainingSteps = 2, NativeToolRoundCap-1
+				request.Native.History = append(request.Native.History,
+					NativeToolHistory{Type: "calls", Calls: []NativeToolCall{
+						{ID: "completed", Name: name, Arguments: `{"city":"Tokyo"}`},
+					}},
+					NativeToolHistory{Type: "output", ID: "completed", Name: name, Text: &output})
+			}
+			ctx, want, attempts := t.Context(), Kind(""), 2
+			if mode == "original deadline" {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, 250*time.Millisecond)
+				defer cancel()
+				want, attempts = KindTimeout, 1
+			} else if mode == "mixed transient errors" {
+				want = KindModelBusy
+			}
+			out, err := r.RunToolRound(ctx, ModelLocal, request)
+			if want != "" {
+				requireNativeKind(t, err, want)
+			} else if err != nil || out.Text != "Done." {
+				t.Fatalf("out=%+v err=%v", out, err)
+			}
+			raw, _ := os.ReadFile(counter)
+			if strings.Count(string(raw), "attempt") != attempts {
+				t.Fatalf("attempts=%q want=%d", raw, attempts)
+			}
+		})
 	}
 }
 

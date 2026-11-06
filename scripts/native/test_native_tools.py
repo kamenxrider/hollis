@@ -56,9 +56,14 @@ do {
             userInfo: [NSLocalizedDescriptionKey: "PRIVATE SDK DESCRIPTION"])
         let wrapped = NSError(domain: "Wrapper", code: 1,
             userInfo: [NSUnderlyingErrorKey: busy])
+        let transient = NSError(domain: "FoundationModels.LanguageModelError", code: -1,
+            userInfo: [NSLocalizedDescriptionKey: "PRIVATE SDK DESCRIPTION"])
         let context = LanguageModelSession.GenerationError.Context(debugDescription: "PRIVATE")
         let cases: [(Error, String)] = [
             (busy, "model_busy"), (wrapped, "model_busy"),
+            (transient, "model_busy"),
+            (NSError(domain: "FoundationModels.LanguageModelError", code: -2), "native_failed"),
+            (NSError(domain: "Other.LanguageModelError", code: -1), "native_failed"),
             (NSError(domain: "ModelManagerError", code: 1000), "native_failed"),
             (NSError(domain: "Other", code: 1012), "native_failed"),
             (LanguageModelSession.GenerationError.guardrailViolation(context), "request_declined"),
@@ -76,6 +81,12 @@ do {
         precondition(info["callback_captured"] as? Bool == true)
         precondition(info["domain"] as? String == "ModelManagerError")
         precondition(info["code"] as? Int == 1012)
+        let captured = NativeTools.failureEvent(transient, callbackCaptured: true)
+        let capturedInfo = captured["error_info"] as! [String: Any]
+        precondition(captured["kind"] as? String == "model_busy")
+        precondition(capturedInfo["callback_captured"] as? Bool == true)
+        precondition(capturedInfo["domain"] as? String == "FoundationModels.LanguageModelError")
+        precondition(capturedInfo["code"] as? Int == -1)
         print("errors-ok")
     } else {
         _ = try NativeTools.prepare(data)
