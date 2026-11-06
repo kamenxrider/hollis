@@ -51,6 +51,7 @@ type Conversation struct {
 // Message is one turn in a conversation. Content is stored verbatim; role
 // formatting is added only at replay time (rule 6: no invented newlines).
 type Message struct {
+	PromptAdjusted bool // trusted adjustment of the stored user content
 	ID             int64
 	ConversationID string
 	Seq            int64
@@ -844,7 +845,8 @@ func (s *Store) MessageCount(convID string) (int, error) {
 // Messages returns all messages of a conversation in seq order.
 func (s *Store) Messages(convID string) ([]Message, error) {
 	rows, err := s.db.Query(`SELECT id, conversation_id, seq, role, content, created_at,
-        CASE WHEN metadata_json = '{"hollis_image_artifact":true}' THEN 1 ELSE 0 END
+        CASE WHEN metadata_json = '{"hollis_image_artifact":true}' THEN 1 ELSE 0 END,
+        CASE WHEN metadata_json = '{"hollis_prompt_adjusted":true}' THEN 1 ELSE 0 END
         FROM messages WHERE conversation_id = ? ORDER BY seq ASC, id ASC`, convID)
 	if err != nil {
 		return nil, err
@@ -853,7 +855,7 @@ func (s *Store) Messages(convID string) ([]Message, error) {
 	var out []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Seq, &m.Role, &m.Content, &m.CreatedAt, &m.ImageArtifact); err != nil {
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Seq, &m.Role, &m.Content, &m.CreatedAt, &m.ImageArtifact, &m.PromptAdjusted); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -1046,6 +1048,9 @@ func insertTurnMessages(db dbConn, convID string, seq int64, messages []Message,
 	}
 	for i, message := range messages {
 		var metadata any
+		if message.Role == "user" && message.PromptAdjusted {
+			metadata = `{"hollis_prompt_adjusted":true}`
+		}
 		if i == len(messages)-1 {
 			metadata = assistantMetadata(run)
 		}

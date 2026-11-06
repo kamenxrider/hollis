@@ -36,6 +36,7 @@ func defaultOpenStore() (*store.Store, error) {
 }
 
 type turnResult struct {
+	PromptAdjusted bool
 	Text           string
 	ModelUsed      runner.Model
 	FallbackReason string
@@ -79,6 +80,7 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 	session, _ := ctx.Value(mcpChatSessionKey{}).(*mcpSession)
 	streamOut, streamed := ctx.Value(streamOutputKey{}).(io.Writer)
 	streamed = streamed && requested == runner.ModelLocal && session == nil
+	inputImages, _ := ctx.Value(inputImageTurnKey{}).(inputImageTurn)
 	if session != nil {
 		messages := append(append([]store.Message(nil), history...), store.Message{Role: "user", Content: prompt})
 		outcome, err := session.run(ctx, r, messages, nil, runner.ToolChoiceAuto)
@@ -94,6 +96,15 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 				toolMessages = append([]store.Message(nil), outcome.Messages[len(history):]...)
 				toolMessages = append(toolMessages, store.Message{Role: "assistant", Content: text})
 			}
+		}
+	} else if len(inputImages.paths) > 0 {
+		if requested == runner.ModelLocal {
+			completion, err := runLocalImages(ctx, r, transcript, inputImages.paths, streamed, streamOut)
+			text, used, usage, runErr = completion.Text, completion.Model, completion.Usage, err
+		} else if imageRunner, ok := r.(runner.ImageRunner); ok {
+			text, used, runErr = imageRunner.RunWithImages(ctx, requested, transcript, inputImages.paths)
+		} else {
+			runErr = errors.New("configured runner does not support image input")
 		}
 	} else if requested == runner.ModelLocal {
 		completion, err := runLocalText(ctx, r, transcript, streamed, streamOut)
@@ -141,6 +152,7 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 		return turnResult{}, record, toCLIError(runErr)
 	}
 	return turnResult{
+		PromptAdjusted: inputImages.adjusted,
 		Text:           text,
 		ModelUsed:      used,
 		FallbackReason: fallbackReason(requested, used, fallback),
@@ -183,7 +195,7 @@ func runTurnResult(ctx context.Context, st *store.Store, conv store.Conversation
 	}
 	messages := result.ToolMessages
 	if messages == nil {
-		messages = []store.Message{{Role: "user", Content: prompt}, {Role: "assistant", Content: result.Text}}
+		messages = []store.Message{{Role: "user", Content: prompt, PromptAdjusted: result.PromptAdjusted}, {Role: "assistant", Content: result.Text}}
 	}
 	if err := st.AppendToolTurn(conv.ID, messages, record); err != nil {
 		return turnResult{}, configErr(fmt.Errorf("store chat turn: %w", err))
@@ -211,7 +223,7 @@ func runFirstTurn(ctx context.Context, st *store.Store, model runner.Model, prom
 	}
 	messages := result.ToolMessages
 	if messages == nil {
-		messages = []store.Message{{Role: "user", Content: prompt}, {Role: "assistant", Content: result.Text}}
+		messages = []store.Message{{Role: "user", Content: prompt, PromptAdjusted: result.PromptAdjusted}, {Role: "assistant", Content: result.Text}}
 	}
 	conv, err := st.CreateConversationWithToolTurn(string(model), truncateTitle(prompt), messages, record)
 	if err != nil {
@@ -251,6 +263,8 @@ func newChatCmdWithImageGenerator(flags *rootFlags, newRunner newRunnerFunc, gen
 	var (
 		modelFlag      string
 		stream         bool
+		inputImages    []string
+		keepPrompt     bool
 		continueID     string
 		timeout        time.Duration
 		generateImage  bool
@@ -426,6 +440,17 @@ they do not control Image Playground's native generation canvas.`,
 			if mcpOptions.enabled() && selectedModel != runner.ModelLocal {
 				return usageErr(errors.New("MCP tools require model local"))
 			}
+			if len(inputImages) > 0 {
+				if interactive || generateImage || mcpOptions.enabled() {
+					return usageErr(errors.New("--image requires a one-shot text chat without image generation or MCP"))
+				}
+				if err := runner.ValidateImageRequest(selectedModel, prompt, inputImages); err != nil {
+					return toCLIError(err)
+				}
+				var adjusted bool
+				prompt, adjusted = adjustImagePrompt(cmd, flags, prompt, len(inputImages), keepPrompt)
+				requestContext = context.WithValue(requestContext, inputImageTurnKey{}, inputImageTurn{paths: inputImages, adjusted: adjusted})
+			}
 			streaming := false
 			if !mcpOptions.enabled() {
 				streaming, err = selectStreaming(cmd, flags, selectedModel, stream)
@@ -524,6 +549,8 @@ they do not control Image Playground's native generation canvas.`,
 		},
 	}
 	cmd.Flags().BoolVar(&stream, "stream", false, "Stream native-local human text (default on terminals); --stream=false waits for completion")
+	cmd.Flags().StringArrayVar(&inputImages, "image", nil, "Attach an input PNG/JPEG to this one-shot text chat turn; use an explicit image-capable model")
+	cmd.Flags().BoolVar(&keepPrompt, "keep-prompt", false, "Send original one-image wording without a singular rewrite")
 	cmd.Flags().StringVar(&modelFlag, "model", string(runner.ModelAuto), "Model for a new conversation: auto (default: cloud first, on-device fallback), cloud, cloud-pro, on-device, chatgpt, or local (see hollis models)")
 	cmd.Flags().StringVar(&continueID, "continue", "", "Continue an existing conversation by id")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-turn timeout (default 30s, ceiling 120s)")
@@ -765,6 +792,9 @@ func printChatJSON(cmd *cobra.Command, result turnResult, conv store.Conversatio
 		"model_used":      result.ModelUsed,
 		"response":        result.Text,
 	}
+	if result.PromptAdjusted {
+		data["prompt_adjusted"] = true
+	}
 	if result.Usage != nil {
 		data["usage"] = result.Usage
 	}
@@ -990,9 +1020,13 @@ func newChatsShowCmd(flags *rootFlags) *cobra.Command {
 			if flags.asJSON {
 				rows := make([]map[string]any, 0, len(msgs))
 				for _, m := range msgs {
-					rows = append(rows, map[string]any{
+					row := map[string]any{
 						"seq": m.Seq, "role": m.Role, "content": m.Content,
-					})
+					}
+					if m.PromptAdjusted {
+						row["prompt_adjusted"] = true
+					}
+					rows = append(rows, row)
 				}
 				return printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
 					"id": conv.ID, "title": conv.Title, "model": conv.Model,

@@ -105,6 +105,10 @@ func nativeError(err error) (int, map[string]any) {
 	var classified *runner.Error
 	if errors.As(err, &classified) {
 		switch classified.Kind {
+		case runner.KindNativeFailed:
+			if fixed := classified.NativeClientFailureMessage(); fixed != "" {
+				message = fixed
+			}
 		case runner.KindContextCapacity:
 			status, kind, code, message = http.StatusRequestEntityTooLarge, "invalid_request_error", "context_too_large", "the full conversation exceeds the local model's capacity; no messages were shortened or dropped"
 			if classified.PromptBytes > 0 {

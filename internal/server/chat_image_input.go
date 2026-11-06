@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/kamenxrider/hollis/internal/promptimage"
 )
 
 // prepareChatImageRequest parses the supported Chat Completions input forms.
@@ -38,11 +40,14 @@ func prepareChatImageRequest(request chatCompletionsRequest) (preparedRequest, e
 		return preparedRequest{}, err
 	}
 
+	content, adjusted := promptimage.Adjust(messages[len(messages)-1].Content, len(images), request.KeepPrompt)
+	messages[len(messages)-1].Content = content
 	return preparedRequest{
-		Model:  request.Model,
-		Prompt: transcriptFrom(messages),
-		Images: images,
-		Stream: request.Stream,
+		PromptAdjusted: adjusted,
+		Model:          request.Model,
+		Prompt:         transcriptFrom(messages),
+		Images:         images,
+		Stream:         request.Stream,
 	}, nil
 }
 

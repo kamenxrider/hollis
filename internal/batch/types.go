@@ -39,6 +39,7 @@ const (
 // Paths are absolute and intentionally local metadata; prompt and result content
 // are not embedded in the manifest.
 type Job struct {
+	Warnings          []string     `json:"warnings,omitempty"`
 	SchemaVersion     int          `json:"schema_version"`
 	ID                string       `json:"id"`
 	CreatedAt         time.Time    `json:"created_at"`

@@ -27,6 +27,8 @@ func TestNativeBusyDecisionRetry(t *testing.T) {
 		{"language model then success", KindModelBusy, "FoundationModels.LanguageModelError", -1, false, false, "", 2},
 		{"language model twice", KindModelBusy, "FoundationModels.LanguageModelError", -1, false, true, KindModelBusy, 2},
 		{"language model other code", KindNativeFailed, "FoundationModels.LanguageModelError", -2, false, false, KindNativeFailed, 1},
+		{"invalid client identifier", KindNativeFailed, "ModelManagerServices.ModelManagerError", 1042, false, false, KindNativeFailed, 1},
+		{"invalid client mislabeled busy", KindModelBusy, "ModelManagerServices.ModelManagerError", 1042, false, false, KindModelBusy, 1},
 		{"unallowlisted busy code", KindModelBusy, "FoundationModels.LanguageModelError", -2, false, false, KindModelBusy, 1},
 		{"language model other domain", KindNativeFailed, "Other.LanguageModelError", -1, false, false, KindNativeFailed, 1},
 		{"guardrail", KindRequestDeclined, "FoundationModels.LanguageModelError", -1, false, false, KindRequestDeclined, 1},

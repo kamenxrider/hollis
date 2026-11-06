@@ -409,6 +409,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		s.handleChatImageGeneration(w, r, request)
 		return
 	}
+	request.KeepPrompt = r.Header.Get("X-Hollis-Keep-Prompt") == "1"
 	prepared, err := prepareChatImageRequest(request)
 	if err != nil {
 		writeRequestValidationError(w, err)
@@ -418,6 +419,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	model, ok := s.validatePreparedModel(w, prepared)
 	if !ok || !validatePrompt(w, prepared.Prompt) {
 		return
+	}
+	if prepared.PromptAdjusted {
+		w.Header().Set("X-Hollis-Prompt-Adjusted", "true")
 	}
 	if request.Stream {
 		s.streamPrepared(w, r, model, prepared, false)
@@ -435,6 +439,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	if completion.Usage != nil {
 		result["usage"] = chatUsage(completion.Usage)
+	}
+	if prepared.PromptAdjusted {
+		result["prompt_adjusted"] = true
 	}
 	writeJSON(w, http.StatusOK, result)
 }
@@ -471,6 +478,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		s.handleResponsesImageGeneration(w, r, request)
 		return
 	}
+	request.KeepPrompt = r.Header.Get("X-Hollis-Keep-Prompt") == "1"
 	prepared, err := prepareResponsesImageRequest(request)
 	if err != nil {
 		writeRequestValidationError(w, err)
@@ -480,6 +488,9 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	model, ok := s.validatePreparedModel(w, prepared)
 	if !ok || !validatePrompt(w, prepared.Prompt) {
 		return
+	}
+	if prepared.PromptAdjusted {
+		w.Header().Set("X-Hollis-Prompt-Adjusted", "true")
 	}
 	if request.Stream {
 		s.streamPrepared(w, r, model, prepared, true)
@@ -498,6 +509,9 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	if completion.Usage != nil {
 		result["usage"] = responsesUsage(completion.Usage)
+	}
+	if prepared.PromptAdjusted {
+		result["prompt_adjusted"] = true
 	}
 	writeJSON(w, http.StatusOK, result)
 }

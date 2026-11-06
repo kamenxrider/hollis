@@ -66,6 +66,15 @@ original deadline. A later synthesis decision may retry after earlier tools
 completed, but never after a callback in the failing decision. Other
 `LanguageModelError` codes, guardrail, context and decoding failures do not
 retry. A repeated allowlisted failure retains `model_busy`, exit 5 / HTTP 503.
+
+`ModelManagerServices.ModelManagerError` code **1042** remains `native_failed`
+(exit 5 / HTTP 502), never `model_busy`. On the inspected macOS framework its
+error-code table maps `invalidClientIdentifier` to 1042, not a resource,
+timeout or asset-loading failure. The fixed public message identifies the
+rejected client identifier without exposing SDK descriptions. This private
+enum is not a documented cross-version API. Six isolated Local replays of
+the previously failing Chinese/Japanese cases succeeded without 1042; those
+observations do not prove a Unicode cause or justify automatic retry.
 Invalid or incomplete callbacks fail before approval or dispatch.
 A missing named function is a usage error (CLI exit 2, HTTP 400
 `unsupported_parameter`), naming the function that was not offered and the

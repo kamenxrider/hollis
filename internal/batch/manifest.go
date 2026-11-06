@@ -19,6 +19,7 @@ import (
 
 	"github.com/kamenxrider/hollis/internal/chat"
 	"github.com/kamenxrider/hollis/internal/docinput"
+	"github.com/kamenxrider/hollis/internal/promptimage"
 	"github.com/kamenxrider/hollis/internal/runner"
 )
 
@@ -200,6 +201,14 @@ func Plan(options PlanOptions) (*Job, error) {
 		Model:             options.Model,
 		Items:             items,
 		Skipped:           skipped,
+	}
+	if _, changed := promptimage.Adjust(string(instruction), 1, false); changed {
+		for _, item := range items {
+			if item.Kind == ItemImage {
+				job.Warnings = []string{"plural image wording detected; batch sends the unchanged manifest-bound instruction for each image; revise the prompt file and plan a new job if singular wording is intended"}
+				break
+			}
+		}
 	}
 	job.ID = stableJobID(job)
 	if err := ValidateJob(job); err != nil {

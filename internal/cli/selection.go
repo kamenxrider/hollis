@@ -79,7 +79,7 @@ var (
 func buildResultSchemas() map[string]*fieldSchema {
 	usage := resultType(reflect.TypeFor[runner.Usage]())
 	processing := resultType(reflect.TypeFor[imagegen.OutputOptions]())
-	text := resultFields("model_requested", "model_used", "response", "fallback_reason")
+	text := resultFields("model_requested", "model_used", "response", "fallback_reason", "prompt_adjusted")
 	text.fields["usage"] = usage
 	text.fields["mcp_servers"] = resultType(reflect.TypeFor[[]mcpServerStatus]())
 	text.fields["tool_calls"] = resultType(reflect.TypeFor[[]mcpCallAudit]())
@@ -120,11 +120,12 @@ func buildResultSchemas() map[string]*fieldSchema {
 	search := resultFields("id", "title", "model", "updated_at")
 	search.fields["hits"] = resultArray(resultFields("seq", "role", "snippet"))
 	show := resultFields("id", "title", "model", "created_at", "updated_at")
-	show.fields["messages"] = resultArray(resultFields("seq", "role", "content"))
+	show.fields["messages"] = resultArray(resultFields("seq", "role", "content", "prompt_adjusted"))
 	plan := resultFields("job_path", "schema_version", "model", "input_dir", "output_dir",
 		"instruction_source", "instruction_sha256", "item_count", "skipped_count")
 	plan.fields["items"] = resultType(reflect.TypeFor[[]batch.Item]())
 	plan.fields["skipped"] = resultType(reflect.TypeFor[[]batch.Skipped]())
+	plan.fields["warnings"] = resultType(reflect.TypeFor[[]string]())
 	invocation := resultFields("job_path", "attempted", "total_attempts", "pending", "succeeded",
 		"failed", "uncertain", "complete", "budget_exhausted")
 	context := resultType(reflect.TypeFor[agentContext]())

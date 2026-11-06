@@ -21,6 +21,32 @@ hollis respond --timeout 90s "A question worth waiting for"
 
 The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple. For Shortcuts routes, all rendered text reaches Shortcuts through a private temporary `.txt` file; see [transport and cleanup details](shortcuts.md#how-it-works).
 
+### One attached image
+
+With exactly one input `--image`, `respond` and one-shot saved `chat` detect
+the explicit English words `images`, `pictures` and `photos`. They drop the
+plural `s`; directly preceding `these`/`those` become `this`/`that`, and
+`both`/`two`/`all` become `the`. Capitalization and intervening spaces are
+preserved. This is a conservative word table, not a grammar or pronoun
+rewrite: surrounding verbs and independent pronouns are left alone.
+
+In a human Terminal, Hollis warns, shows the suggested prompt and asks
+`Use this wording? [Y/n]`. Enter, Y or yes accepts; no, EOF or an invalid
+answer keeps the original. Scripts, redirected output, JSON, agent and
+`--no-input` calls never wait: they apply the change, disclose it on stderr,
+and include `prompt_adjusted: true` in successful JSON output. Pass
+`--keep-prompt` to disable detection and send the original wording.
+Singular prompts and zero/multiple images are unchanged. No environment
+variable or saved default controls this feature.
+
+For a one-shot saved chat, attach `--image` with an explicit image-capable
+model (for example `--model local`). Only the new user's text is adjusted
+before normal history framing; the sent text and an adjustment flag are
+saved atomically. The attachment is not replayed on later turns.
+Input images are unavailable in the interactive chat loop or together with
+MCP/image generation. Batch never rewrites its manifest-bound instruction;
+planning records a warning instead.
+
 ### Saved defaults and environment
 
 ```sh

@@ -27,11 +27,12 @@ type encodedImage struct {
 // preparedRequest is the common endpoint-parser result consumed by the HTTP
 // integration. Prompt is the complete rendered prompt sent to the runner.
 type preparedRequest struct {
-	Options *runner.GenerationOptions
-	Model   string
-	Prompt  string
-	Images  []encodedImage
-	Stream  bool
+	PromptAdjusted bool
+	Options        *runner.GenerationOptions
+	Model          string
+	Prompt         string
+	Images         []encodedImage
+	Stream         bool
 }
 
 func (r preparedRequest) hasImages() bool {
@@ -56,6 +57,7 @@ func (s stagedImages) Cleanup() {
 // existing HTTP decoder continues to enforce the top-level schema and body
 // limit.
 type chatCompletionsRequest struct {
+	KeepPrompt bool `json:"-"`
 	samplingFields
 	MaxTokens       json.RawMessage           `json:"max_tokens"`
 	Options         *runner.GenerationOptions `json:"-"`
@@ -74,6 +76,7 @@ type chatCompletionsRequest struct {
 }
 
 type responsesRequest struct {
+	KeepPrompt bool `json:"-"`
 	samplingFields
 	MaxOutputTokens json.RawMessage           `json:"max_output_tokens"`
 	Options         *runner.GenerationOptions `json:"-"`

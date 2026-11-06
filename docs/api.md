@@ -140,6 +140,16 @@ protocol mismatch and does not fall back either.
 
 ## Inline image input
 
+For exactly one inline image, the final user text receives the same fixed
+English singular-wording adjustment as the [CLI](cli.md#one-attached-image).
+History, system instructions and normal transcript framing are unchanged.
+Send `X-Hollis-Keep-Prompt: 1` to preserve the original wording.
+An adjusted request returns `X-Hollis-Prompt-Adjusted: true`; successful
+non-streaming responses also include the optional top-level
+`prompt_adjusted: true`. Streaming discloses through the header without
+changing SSE event shapes. No prompt text is included in these headers.
+Singular prompts, text-only requests and multiple-image requests are unchanged.
+
 Both endpoints accept PNG/JPEG images as base64 data URLs in the final user message, alongside nonempty text. Earlier messages must remain text-only. Remote URLs and server file paths are rejected.
 
 Chat Completions uses this message content shape:

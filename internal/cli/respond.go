@@ -32,6 +32,7 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		documents  []string
 		pageSpecs  []string
 		images     []string
+		keepPrompt bool
 		stream     bool
 		schemaFile string
 		code       bool
@@ -333,6 +334,7 @@ without another model round or a new resume protocol.`,
 					return toCLIError(err)
 				}
 			}
+			prompt, promptAdjusted := adjustImagePrompt(cmd, flags, prompt, len(images), keepPrompt)
 			if schema != nil {
 				// Guided output is a route capability, read from the table
 				// rather than assumed for a model name. It is also
@@ -460,6 +462,9 @@ without another model round or a new resume protocol.`,
 					"model_used":      string(used),
 					"response":        text,
 				}
+				if promptAdjusted {
+					data["prompt_adjusted"] = true
+				}
 				// Guided output is a documented new-surface behavior: with
 				// --schema, response is the decoded object rather than a text
 				// field that happens to contain JSON.
@@ -534,6 +539,7 @@ without another model round or a new resume protocol.`,
 	cmd.Flags().StringArrayVar(&documents, "file", nil, "UTF-8 text document (any extension), or a PDF read on-device, to include; repeat to preserve source order")
 	cmd.Flags().StringArrayVar(&pageSpecs, "pages", nil, "PDF pages to read from a single --file PDF: 3, 3-7, or 1,4-6; repeatable, 1-based, at most 2000 pages")
 	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (ChatGPT accepts one; unavailable with auto/on-device)")
+	cmd.Flags().BoolVar(&keepPrompt, "keep-prompt", false, "Send original one-image wording without a singular rewrite")
 	cmd.Flags().StringVar(&schemaFile, "schema", "", "JSON Schema file for guided native-local output; requires --model local and completes without streaming")
 	cmd.Flags().BoolVar(&code, "code", false, "Print the first complete non-empty fenced code block (or the whole answer when there is no complete fence); exit 3 when there is nothing to print")
 	cmd.Flags().StringVar(&toolsFile, "tools", "", "JSON file with an OpenAI-shaped tools array for native-local tool calling; prints the tool calls or the answer as one JSON document")

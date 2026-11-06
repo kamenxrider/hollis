@@ -190,6 +190,9 @@ persistence, timeout, or cancellation error.`,
 }
 
 func printBatchPlan(cmd *cobra.Command, flags *rootFlags, job *batch.Job) error {
+	for _, warning := range job.Warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "hollis: %s\n", warning)
+	}
 	data := map[string]any{
 		"job_path":           job.JobPath,
 		"schema_version":     job.SchemaVersion,
@@ -202,6 +205,9 @@ func printBatchPlan(cmd *cobra.Command, flags *rootFlags, job *batch.Job) error 
 		"item_count":         len(job.Items),
 		"skipped":            job.Skipped,
 		"skipped_count":      len(job.Skipped),
+	}
+	if len(job.Warnings) != 0 {
+		data["warnings"] = job.Warnings
 	}
 	if flags.asJSON {
 		return printJSONFilteredTo(cmd.OutOrStdout(), data, flags)

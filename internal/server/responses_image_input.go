@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/kamenxrider/hollis/internal/promptimage"
 )
 
 // prepareResponsesImageRequest parses the supported Responses input forms.
@@ -21,11 +23,14 @@ func prepareResponsesImageRequest(request responsesRequest) (preparedRequest, er
 	if strings.TrimSpace(request.Instructions) != "" {
 		messages = append([]reqMessage{{Role: "system", Content: request.Instructions}}, messages...)
 	}
+	content, adjusted := promptimage.Adjust(messages[len(messages)-1].Content, len(images), request.KeepPrompt)
+	messages[len(messages)-1].Content = content
 	return preparedRequest{
-		Model:  request.Model,
-		Prompt: transcriptFrom(messages),
-		Images: images,
-		Stream: request.Stream,
+		PromptAdjusted: adjusted,
+		Model:          request.Model,
+		Prompt:         transcriptFrom(messages),
+		Images:         images,
+		Stream:         request.Stream,
 	}, nil
 }
 
