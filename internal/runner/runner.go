@@ -43,12 +43,12 @@ const (
 // Models returns Shortcut-backed tier IDs in canonical table order; native
 // ModelLocal has no bridge. ModelAuto is a strategy, not a tier: it tries the
 // default tier first and may fall back to the on-device model for confirmed
-// missing bridges or recognized rate limits, so it is valid for selection but
+// missing bridges, so it is valid for selection but
 // has no bridge of its own.
 func Models() []Model { return routeOrderSnapshot() }
 
 // ModelAuto selects the default tier (cloud) and falls back to the
-// on-device model only for a confirmed missing bridge or recognized rate limit.
+// on-device model only for a confirmed missing bridge.
 // Explicit tier selections never fall back.
 const ModelAuto Model = "auto"
 
@@ -114,6 +114,8 @@ const (
 	KindNoOutput             Kind = "shortcut_no_output" // exit 0 + empty stdout (also what a TTY run looks like)
 	KindShortcutMissing      Kind = "shortcut_missing"   // confirmed by Apple error text
 	KindRateLimited          Kind = "rate_limited"       // explicit rate-limit text from Apple
+	KindContentRefused       Kind = "content_refused"    // Shortcuts model rejection, code 900
+	KindAccessRequired       Kind = "access_required"    // Shortcuts account access, code 1511
 	KindUsage                Kind = "usage"              // exit 64
 	// KindUnsupportedParameter is a well-formed request that exceeds a route
 	// limit, such as its image count, refused before any staging or spawn.
@@ -153,9 +155,13 @@ type Error struct {
 	ExitCode int
 	// Signal is set when the child was terminated by a real POSIX signal.
 	Signal syscall.Signal
-	// Stderr carries the child's stderr verbatim (Apple prints useful hints).
-	Stderr string
-	Err    error
+	// Stderr and Stdout carry bounded sanitized excerpts on Shortcuts failures.
+	// Public messages use them only after the transport has sanitized them.
+	Stderr          string
+	Stdout          string
+	ShortcutFailure *ShortcutFailureInfo
+	appleSanitized  bool
+	Err             error
 	// ListTimeout marks a KindTimeout raised by ListShortcuts' own deadline.
 	// The CLI must not append the model-centric timeout hint ("the model
 	// request exceeded its deadline…"): a listing has nothing to do with
@@ -242,11 +248,11 @@ type FallbackRunner interface {
 }
 
 // FallbackEligible reports whether a primary-model failure may be retried on
-// the on-device tier. Only confirmed missing bridges and recognized rate limits
-// are eligible; ambiguous outcomes must never dispatch another model call.
+// the on-device tier. Only confirmed missing bridges are eligible; provider
+// limits and ambiguous outcomes must never dispatch another model call.
 func FallbackEligible(kind Kind) bool {
 	switch kind {
-	case KindShortcutMissing, KindRateLimited:
+	case KindShortcutMissing:
 		return true
 	default:
 		return false

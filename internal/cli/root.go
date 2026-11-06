@@ -16,7 +16,6 @@ import (
 
 	"github.com/kamenxrider/hollis/internal/imagegen"
 	"github.com/kamenxrider/hollis/internal/runner"
-	"github.com/kamenxrider/hollis/internal/shortcutdiagnostic"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -89,6 +88,10 @@ func reportCommandError(cmd *cobra.Command, flags *rootFlags, err error) error {
 				"code": errorCode(err), "message": err.Error(), "exit_code": ExitCode(err),
 			},
 		}
+		var classified *cliError
+		if errors.As(err, &classified) && len(classified.details) != 0 {
+			payload["error"].(map[string]any)["details"] = classified.details
+		}
 		if flags.agent {
 			payload["meta"] = agentMeta()
 		}
@@ -132,7 +135,7 @@ config override > installed name; a compiled placeholder UUID is retained only
 as an unverified candidate ('hollis config set bridge <tier> <name-or-uuid>'
 to override).
 Default model: auto (cloud first, then one on-device fallback only for an
-unavailable bridge or recognized rate limit).
+unavailable bridge). Provider limits never retry or fall back.
 Agent mode: add --agent to supported data commands for JSON output + non-interactive mode.
 Native local: --model local uses the Foundation Models SDK on Apple Silicon/macOS 27;
 human terminal output streams, JSON/agent output stays complete.
@@ -364,6 +367,7 @@ func wrapArgErrors(command *cobra.Command, helpRequested *bool) {
 }
 
 type cliError struct {
+	details     map[string]any
 	code        int
 	err         error
 	machineCode string
@@ -400,6 +404,10 @@ func executionErr(code, message string) error {
 	return &cliError{code: 5, machineCode: code, err: errors.New(message)}
 }
 
+func shortcutCLIError(re *runner.Error) error {
+	return &cliError{code: 5, machineCode: string(re.Kind), err: errors.New(re.PublicShortcutMessage()), details: re.ShortcutDetails()}
+}
+
 // ExitCode maps an error returned from Execute to a process exit code.
 // Exit codes are stable and agent-parseable (plan §23):
 // 0 success; 1 unclassified; 2 usage; 3 missing resource; 5 transport;
@@ -428,9 +436,11 @@ func toCLIError(err error) error {
 	}
 	switch re.Kind {
 	case runner.KindRequestDeclined:
-		return executionErr("request_declined", shortcutdiagnostic.DeclinedMessage)
+		return shortcutCLIError(re)
 	case runner.KindShortcutFailed:
-		return executionErr("shortcut_failed", shortcutdiagnostic.FailedMessage)
+		return shortcutCLIError(re)
+	case runner.KindContentRefused, runner.KindAccessRequired:
+		return shortcutCLIError(re)
 	case runner.KindEmptyPrompt:
 		return usageErr(fmt.Errorf("%s\nhint: give a prompt as an argument or pipe it via stdin", err))
 	case runner.KindContextCapacity:
@@ -462,7 +472,7 @@ func toCLIError(err error) error {
 	case runner.KindShortcutMissing:
 		return notFoundErr(fmt.Errorf("%s\nhint: install the AFM bridge shortcuts (bridges/*.shortcut) or run 'hollis doctor'", err))
 	case runner.KindRateLimited:
-		return transportErr(err)
+		return shortcutCLIError(re)
 	case runner.KindTimeout:
 		if re.ListTimeout {
 			// The list deadline already carries its own approved fixed

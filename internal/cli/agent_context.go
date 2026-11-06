@@ -127,7 +127,7 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 			ModelDefaults:     "positional model <tier> > explicit --model flag > HOLLIS_MODEL > config model > built-in default; text defaults to auto; with --image, saved auto behaves like unset and defaults to cloud, but explicit flag/positional/environment auto is refused; continuation retains its stored model",
 			TimeoutDefaults:   "--timeout > HOLLIS_TIMEOUT > saved timeout > command default for respond, chat and image generate; durations must be greater than zero and at most 120s; batch plans and HTTP are unchanged; empty or invalid environment values are usage errors unless overridden",
 			Doctor:            "plain doctor is an overview and exits 0 even when routes are unready; JSON/agent reports overview:true, readiness:not_assessed, inference_tested:false and diagnostics; doctor --model <route> is the nonzero readiness gate; availability never proves inference",
-			Fallback:          "auto tries cloud once, then on-device once, only for confirmed missing bridges or recognized rate limits; all other failures stop without another model call",
+			Fallback:          "auto tries cloud once, then on-device once only for a confirmed missing bridge; rate limits and all other failures stop without another model call",
 			Network:           "HTTP defaults to loopback; remote bind requires --allow-remote plus bearer authentication and an external encrypted tunnel",
 			Local:             "local is explicit and independent of Shortcuts; streaming human text and HTTP SSE only; JSON/agent and batch outputs remain complete; complete usage is Apple-measured; context overflow fails without shortening history",
 			Stdout:            "successful command output only",

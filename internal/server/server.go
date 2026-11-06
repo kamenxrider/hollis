@@ -25,7 +25,6 @@ import (
 	"github.com/kamenxrider/hollis/internal/chat"
 	"github.com/kamenxrider/hollis/internal/imagegen"
 	"github.com/kamenxrider/hollis/internal/runner"
-	"github.com/kamenxrider/hollis/internal/shortcutdiagnostic"
 	"github.com/kamenxrider/hollis/internal/store"
 )
 
@@ -352,13 +351,17 @@ func writeRunResult(w http.ResponseWriter, requested runner.Model, text string, 
 	if errors.As(err, &runErr) {
 		switch runErr.Kind {
 		case runner.KindRequestDeclined:
-			writeAPIError(w, http.StatusBadGateway, "server_error", "request_declined", shortcutdiagnostic.DeclinedMessage)
+			writeShortcutError(w, http.StatusBadGateway, "server_error", runErr)
 		case runner.KindShortcutFailed:
-			writeAPIError(w, http.StatusBadGateway, "server_error", "shortcut_failed", shortcutdiagnostic.FailedMessage)
+			writeShortcutError(w, http.StatusBadGateway, "server_error", runErr)
 		case runner.KindTransport:
 			writeAPIError(w, http.StatusBadGateway, "server_error", "transport", "the Shortcut transport could not complete the request")
 		case runner.KindRateLimited:
-			writeAPIError(w, http.StatusTooManyRequests, "rate_limit_error", "rate_limited", "Apple Intelligence is rate limited")
+			writeShortcutError(w, http.StatusTooManyRequests, "rate_limit_error", runErr)
+		case runner.KindContentRefused:
+			writeShortcutError(w, http.StatusUnprocessableEntity, "invalid_request_error", runErr)
+		case runner.KindAccessRequired:
+			writeShortcutError(w, http.StatusForbidden, "permission_error", runErr)
 		case runner.KindTimeout, runner.KindContextCanceled:
 			writeAPIError(w, http.StatusGatewayTimeout, "server_error", "shortcut_timeout", "the Shortcut model run did not complete before its deadline")
 		case runner.KindShortcutMissing:
@@ -672,6 +675,14 @@ func writeAPIError(w http.ResponseWriter, status int, errorType, code, message s
 	writeJSON(w, status, map[string]any{
 		"error": map[string]any{"message": message, "type": errorType, "code": code},
 	})
+}
+
+func writeShortcutError(w http.ResponseWriter, status int, errorType string, failure *runner.Error) {
+	value := map[string]any{"message": failure.PublicShortcutMessage(), "type": errorType, "code": string(failure.Kind)}
+	if details := failure.ShortcutDetails(); len(details) != 0 {
+		value["details"] = details
+	}
+	writeJSON(w, status, map[string]any{"error": value})
 }
 
 func randomID() string {

@@ -67,7 +67,7 @@ func runnerWithFake(t *testing.T, mode string) (*ShortcutRunner, string) {
 		// `wait` keeps the script alive as the direct child. Tests assert
 		// against that exact PID rather than pgrep-ing for a command line.
 		"  hang) sleep 300 & echo $! > " + dir + "/child.pid; wait ;;\n" +
-		"  fail-once) if [ \"$count\" -le 1 ]; then echo 'Too many incoming requests' >&2; exit 1; fi; cat \"$6\" ;;\n" +
+		"  fail-once) if [ \"$count\" -le 1 ]; then echo 'The shortcut could not be found' >&2; exit 1; fi; cat \"$6\" ;;\n" +
 		"esac\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -467,7 +467,7 @@ func TestCanceledRunDoesNotFallback(t *testing.T) {
 }
 
 func TestAutoFallbackPolicy(t *testing.T) {
-	for _, mode := range []string{"rate", "missing"} {
+	for _, mode := range []string{"missing"} {
 		r, dir := runnerWithFake(t, mode)
 		// Both tiers report the same recognized failure. The strategy must
 		// stop at exactly two spawns, never a retry loop.
@@ -477,7 +477,7 @@ func TestAutoFallbackPolicy(t *testing.T) {
 			t.Fatalf("mode %s spawn count=%q, want two", mode, count)
 		}
 	}
-	for _, mode := range []string{"generic", "empty", "whitespace", "usage", "sigabrt", "sigterm"} {
+	for _, mode := range []string{"rate", "generic", "empty", "whitespace", "usage", "sigabrt", "sigterm"} {
 		r, dir := runnerWithFake(t, mode)
 		_, _, _ = r.Run(context.Background(), ModelAuto, "hello")
 		count, _ := os.ReadFile(dir + "/count.txt")

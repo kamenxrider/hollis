@@ -2,6 +2,23 @@
 
 These observations describe the tested macOS builds. For installation and supported systems, see [compatibility and troubleshooting](compatibility.md).
 
+## Cloud and refusal errors
+
+Shortcuts code 1508 is `rate_limited` (CLI exit 5 / HTTP 429), code 900 is
+`content_refused` (exit 5 / HTTP 422), and code 1511 is `access_required`
+(exit 5 / HTTP 403). A refusal on On-Device is not a cloud quota event.
+Usage-limit text on stdout with exit 0 is never delivered as an answer.
+Apple's sanitized error text is retained; unknown errors remain
+`shortcut_failed` (exit 5 / HTTP 502).
+
+Only after failure, Hollis can inspect the run's bounded unified-log window;
+it keeps domain/code/known keys, never log messages. Ambiguous overlapping runs
+remain unknown. Slow or unavailable logs fall back to text classification.
+Provider limits never trigger automatic retries, batch continuation or a
+model swap, including with `auto`. A limit may last hours; wait rather than
+probing repeatedly. Doctor checks availability, not remaining quota or whether
+the Shortcuts cloud path can generate. See [failures](errors.md).
+
 ## How it works
 
 ```text

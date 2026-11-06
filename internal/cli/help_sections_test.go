@@ -99,6 +99,7 @@ func TestAgentContextSharesHelpData(t *testing.T) {
 	wantCodes := map[string]int{
 		"success": 0, "unexpected": 1, "usage": 2, "missing": 3, "transport": 5,
 		"timeout": 7, "config": 10, "request_declined": 5, "shortcut_failed": 5,
+		"rate_limited": 5, "content_refused": 5, "access_required": 5,
 		"mcp_config": 10, "mcp_unavailable": 5, "mcp_protocol": 5, "mcp_auth": 5, "mcp_schema_unvalidated": 5,
 		"approval_required": 5, "approval_args_too_large": 5, "tool_denied": 5, "tool_not_allowlisted": 5,
 		"tool_definition_changed": 5, "tool_result_too_large": 5, "tool_name_conflict": 2, "tool_count_limit": 2,

@@ -8,6 +8,9 @@ agent schema version remain unchanged.
 
 | Machine code | Meaning | CLI exit | HTTP status | Next action |
 | --- | --- | --- | --- | --- |
+| `rate_limited` | Shortcuts code 1508, explicit usage-limit text, or likely-limit “can't be completed right now” diagnostic | 5 | 429, no Retry-After | Apple is rate-limiting cloud requests from this Mac. Wait before trying again (this can last hours). No automatic retry or model fallback |
+| `content_refused` | Shortcuts model rejection, code 900 | 5 | 422 | Apple declined this request. Rephrasing may help; retrying will not. |
+| `access_required` | Shortcuts account access failure, code 1511 | 5 | 403 | Cloud Pro is not available for this account. |
 | `request_declined` | The failed process returned Apple's recorded “Try describing something different to create an image” diagnostic | 5 | 502 | Review the description; a different request is a new experiment, not a silent retry |
 | `shortcut_failed` | The Shortcut executed unsuccessfully without a recognized diagnostic | 5 | 502 | Inspect the failure context before making another call |
 | `transport` | Launch, staging or other transport failure, including Shortcut stdout that exceeded the 1 MiB capture cap | 5 | 502 for typed launch/transport errors | Check host access and process setup; for an oversized response, narrow the request instead of expecting a partial answer |
@@ -97,8 +100,13 @@ answer, and do not treat the refusal as a missing bridge.
 `request_declined` does **not** establish why Apple declined. It is not proof of
 a safety-filter rejection, a rate limit, or a broken bridge. Hollis recognizes
 only the complete recorded failed-process diagnostic. It never classifies a
-successful answer by refusal-like wording. Public messages for declined and
-unknown execution errors omit raw stderr, private paths and credentials. The
+successful answer by refusal-like wording. Known Apple usage-limit diagnostics
+on stdout with exit 0 are an exception: they are errors, never answers.
+Shortcuts failures keep sanitized stdout/stderr excerpts (at most 2 KiB plus a
+truncation marker each) in the message and JSON/HTTP `error.details` as
+`apple_stdout`/`apple_stderr`. Prompt text, private paths, control characters
+and credential-like values are removed. Arbitrary nested transport diagnostics
+are not exposed as Apple excerpts. The
 blocked ChatGPT image style reports this code when the Shortcut declines the
 request; observed signatures have changed between builds, and the code names
 the refusal, not its cause.
@@ -138,10 +146,20 @@ prose. Without a complete fence, the whole answer is printed. Exit 7 remains
 reserved for timeouts; `--code` rejects JSON and agent output.
 
 Runtime `auto` tries Cloud once and can try On-Device once **only** after a
-confirmed missing bridge or recognized rate limit. Declines, unknown failures,
+confirmed missing bridge. Rate limits, content refusals, access failures, declines, unknown failures,
 empty output, timeouts, cancellations and crashes stop without a second model
 call. Explicit models never fall back. The plugin chooses a concrete model
 (Cloud by default), so it does not invoke runtime `auto` implicitly.
+
+After a failed Shortcuts run, macOS unified logs may distinguish
+`WFAskLLMActionErrorDomain` codes 1508, 900 and 1511. Hollis bounds the check to
+five seconds, 1 MiB and the run's start minus one second through end plus two
+seconds. Classification uses event timestamps inside the actual invocation so
+serialized neighboring runs do not contaminate it. Only domain, code and known error keys survive parsing; no log message
+text is stored. Multiple runner processes or conflicting codes are unknown,
+never guessed. If the check fails or times out, text classification remains.
+“Try again” alone does not mean a rate limit: on-device code 900 is a refusal.
+Batch stops on the first provider failure; chat and server do not retry limits.
 
 Generation failures, photographic appearance, reference similarity and
 instruction-following are separate observations. A valid PNG proves image

@@ -1,0 +1,2 @@
+{"processID":1,"processImagePath":"/System/BackgroundShortcutRunner","eventMessage":"Encountering error: Error Domain=WFAskLLMActionErrorDomain Code=900 UserInfo={WFModelRejectionCauseErrorKey=<private>} when executing Use Model action"}
+{"processID":1,"processImagePath":"/System/BackgroundShortcutRunner","eventMessage":"Action finished with error {domain: WFAskLLMActionErrorDomain, code: 900}"}

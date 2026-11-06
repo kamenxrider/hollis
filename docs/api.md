@@ -172,6 +172,19 @@ Hollis calls, since removing the header does not disable a client's own policy.
 After native SSE starts, a provider limit is a stream failure, not a new HTTP
 429 or a successful completion.
 
+Shortcuts failures distinguish `rate_limited` (HTTP 429, no `Retry-After`),
+`content_refused` (HTTP 422) and `access_required` (HTTP 403). They never retry
+or swap models automatically. Code 1508 means a device limit that may last
+hours; 900 is a refusal, not a limit; 1511 means Cloud Pro account access is
+required. Usage-limit text on stdout with exit 0 is an error, never an answer.
+After a failed run only, a five-second, 1 MiB bounded macOS unified-log check
+can classify the run; overlapping/ambiguous runs or unavailable logs fall back
+to text. `error.message` preserves bounded sanitized Apple text, and optional
+`error.details` includes `apple_stderr`, `apple_stdout` and
+`shortcut_failure` (domain/code/known keys only). Prompt text, paths,
+credentials and raw log messages are not included. Unknown failures remain
+HTTP 502 `shortcut_failed`. See [failures](errors.md).
+
 ## Clients: listing is not the same as working
 
 Point an OpenAI-compatible client at `http://127.0.0.1:1978/v1` and it will usually **see** the models. That does not mean it can **call** them.

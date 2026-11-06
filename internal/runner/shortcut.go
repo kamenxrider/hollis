@@ -38,6 +38,7 @@ const (
 // policy) lives with callers. Run is safe for concurrent use — `shortcuts run`
 // is stateless and 4 parallel invocations were proven clean.
 type ShortcutRunner struct {
+	failureLog func(context.Context, time.Time, time.Time) ShortcutFailureInfo
 	// ShortcutsPath is the transport binary. Tests point this at a fake.
 	ShortcutsPath string
 	// BridgeRefs maps models to the identifier passed to `shortcuts run`.
@@ -85,7 +86,7 @@ func (r *ShortcutRunner) Run(ctx context.Context, model Model, prompt string) (s
 }
 
 // RunWithFallback implements FallbackRunner. ModelAuto tries cloud once and,
-// only for confirmed missing bridges or recognized rate limits, on-device once. Explicit
+// only for confirmed missing bridges, on-device once. Explicit
 // tiers never fall back.
 func (r *ShortcutRunner) RunWithFallback(ctx context.Context, model Model, prompt string) (string, Model, Fallback, error) {
 	if strings.TrimSpace(prompt) == "" {
@@ -403,7 +404,7 @@ func (r *ShortcutRunner) runTier(ctx context.Context, model Model, prompt string
 	return r.runTierWithImages(ctx, model, prompt, nil)
 }
 
-func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, prompt string, imagePaths []string) (string, error) {
+func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, prompt string, imagePaths []string) (text string, failure error) {
 	if !model.Valid() || model == ModelAuto {
 		return "", &Error{Kind: KindUsage, ExitCode: -1, Err: fmt.Errorf("%w: %q", ErrUnknownModel, model)}
 	}
@@ -483,12 +484,29 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 	// the context after Wait. SIGALRM was measured to terminate the hung
 	// child cleanly; SIGKILL on the group is at least as decisive.
 	stdout, stderr := &cappedBuffer{}, &cappedStderr{}
+	started := time.Now()
 	res, runErr := subproc.Run(ctx, subproc.Spec{
 		Name:       r.ShortcutsPath,
 		Args:       args,
 		StdoutSink: stdout,
 		StderrSink: stderr,
 	})
+	ended := time.Now()
+	defer func() {
+		var classified *Error
+		if !res.Started || !errors.As(failure, &classified) {
+			return
+		}
+		switch classified.Kind {
+		case KindShortcutFailed, KindNoOutput, KindRateLimited, KindRequestDeclined:
+			r.classifyFailure(parentCtx, classified, started, ended, prompt, stdout.String(), stderr.String())
+		default:
+			classified.Stderr = sanitizeAppleText(classified.Stderr, prompt)
+			if classified.Err != nil {
+				classified.Err = errors.New(sanitizeAppleText(classified.Err.Error(), prompt))
+			}
+		}
+	}()
 
 	if !res.Started {
 		startErr := res.StartErr
@@ -596,6 +614,11 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 
 	exitCode := exitOf(res.WaitErr)
 	stderrText := stderr.String()
+	if res.WaitErr == nil && strings.HasPrefix(strings.TrimSpace(out), "Error:") &&
+		(isRateLimited(out) || strings.Contains(out, "The model cannot provide a response for this request") ||
+			strings.Contains(out, "The Shortcut execution failed for an unrecognized reason")) {
+		return "", &Error{Kind: KindShortcutFailed, Ref: ref, ExitCode: 0}
+	}
 
 	// Rule 5: exit 0 + empty stdout is shortcut_no_output, never a response.
 	// On a TTY this is exactly what suppressed-but-successful output looks
@@ -998,7 +1021,10 @@ func isRateLimited(text string) bool {
 	lower := strings.ToLower(text)
 	return strings.Contains(lower, "too many incoming requests") ||
 		strings.Contains(lower, "rate limit") ||
-		strings.Contains(lower, "rate-limit")
+		strings.Contains(lower, "rate-limit") ||
+		strings.Contains(lower, "reached the usage limit") ||
+		strings.Contains(lower, "request can't be completed right now") ||
+		strings.Contains(lower, "request can’t be completed right now")
 }
 
 func isMissingShortcut(text string) bool {

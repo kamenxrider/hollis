@@ -141,7 +141,7 @@ Five model choices: four through Shortcuts, one native. `auto` is a routing stra
 | `on-device` | Shortcuts → your Mac | Works offline; complete responses |
 | `local` | Native SDK → your Mac | Text and one PNG/JPEG image; streams in a terminal; measured usage on complete responses; `--schema` and HTTP guided JSON output; caller tools and MCP tools |
 | `chatgpt` | Shortcuts → Apple’s ChatGPT extension | Not an Apple model; enable the extension in System Settings → Apple Intelligence & Siri |
-| `auto` | Cloud, then Shortcuts On-Device | Default; one fallback only for a confirmed missing bridge or recognized Cloud rate limit |
+| `auto` | Cloud, then Shortcuts On-Device | Default; one fallback only for a confirmed missing bridge. Provider limits stop without retry or fallback |
 
 Cloud and Cloud Pro are distinct selections in Shortcuts’ **Use Model** action.
 Apple does not publish stable backend model IDs for these choices.

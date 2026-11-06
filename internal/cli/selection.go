@@ -129,7 +129,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 		"failed", "uncertain", "complete", "budget_exhausted")
 	context := resultType(reflect.TypeFor[agentContext]())
 	context.fields["contracts"].fields["exit_codes"] = resultFields("success", "unexpected", "usage",
-		"missing", "transport", "timeout", "config", "request_declined", "shortcut_failed",
+		"missing", "transport", "timeout", "config", "request_declined", "shortcut_failed", "rate_limited", "content_refused", "access_required",
 		"mcp_config", "mcp_unavailable", "mcp_protocol", "mcp_auth", "mcp_schema_unvalidated",
 		"approval_required", "approval_args_too_large", "tool_denied", "tool_not_allowlisted",
 		"tool_definition_changed", "tool_result_too_large", "tool_name_conflict", "tool_count_limit")

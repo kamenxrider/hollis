@@ -50,6 +50,9 @@ type semanticCodeDoc struct {
 }
 
 var documentedSemanticCodes = []semanticCodeDoc{
+	{Name: "rate_limited", Code: 5},
+	{Name: "content_refused", Code: 5},
+	{Name: "access_required", Code: 5},
 	{Name: "request_declined", Code: 5},
 	{Name: "shortcut_failed", Code: 5},
 	{Name: "mcp_config", Code: 10},

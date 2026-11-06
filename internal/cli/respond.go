@@ -113,8 +113,9 @@ and piped stdin together with file input is refused rather than silently
 dropping one. A pipe held open with no data is not waited on. Each call is
 stateless; use "hollis chat" for persistent, SQLite-backed conversations.
 
-The default model is auto: cloud first, with automatic fallback to the
-on-device model if the cloud run fails. Explicit choices: cloud (AFM 3
+The default model is auto: cloud first, with one on-device fallback only for
+a confirmed missing bridge. Provider limits never retry or fall back.
+Explicit choices: cloud (AFM 3
 Cloud), cloud-pro (AFM 3 Cloud Pro; macOS 27+ — unavailable if that
 bridge is not installed), on-device (AFM 3 Core / Core Advanced by
 hardware), or chatgpt (ChatGPT extension; enable it in System Settings >
