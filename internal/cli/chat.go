@@ -149,7 +149,7 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 		if session != nil {
 			return turnResult{}, record, runErr
 		}
-		return turnResult{}, record, toCLIError(runErr)
+		return turnResult{}, record, toCLIRequestError(runErr, requested, timeout)
 	}
 	return turnResult{
 		PromptAdjusted: inputImages.adjusted,

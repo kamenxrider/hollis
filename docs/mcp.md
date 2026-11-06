@@ -256,9 +256,10 @@ preflight reports token costs for base/profile instructions, tool definitions
 (including MCP schemas), existing conversation, returned results with framing,
 the answer reservation and measured context capacity, plus component byte
 counts. Token costs are incremental in that order and sum to `input_tokens`.
-During result admission, the experimental policy reserves at least 512 answer
+With `--partial-results` or the `partial-results` config set to `on`, result
+admission reserves at least 512 answer
 tokens plus 128 safety tokens. A larger requested maximum replaces 512.
-Generation keeps the requested options. With `--no-bounded-results`, admission
+Generation keeps the requested options. By default, admission
 reserves the requested maximum or 512 when omitted.
 MCP diagnostics separately report text/structured-result bytes, byte-identical
 JSON duplication, and result versus framed bytes. No tool names, schemas,
@@ -266,11 +267,12 @@ arguments, result content or credentials enter these diagnostic records.
 
 A small user prompt can still exceed Local capacity after a large search
 result. For example, anonymous Parallel search can return more than Local can
-admit; approval and a valid search do not imply a completed answer. This branch
-can supply a disclosed excerpt and save the full result privately. With
-`--no-bounded-results`, native token and history-capacity failures remain hard
-stops. The existing MCP CLI also labels post-call capacity errors
-`tool_result_too_large`; the diagnostic distinguishes them from the MCP byte cap.
+admit; approval and a valid search do not imply a completed answer. By default,
+an oversized Local result stops with `tool_result_too_large_for_local`; no excerpt
+is admitted or saved. Opt in with `--partial-results` or set the `partial-results`
+config to `on` to supply a disclosed excerpt and save the full result privately.
+Other post-call capacity errors use `tool_result_too_large`; the diagnostic
+distinguishes them from the MCP byte cap.
 Neither policy automatically summarizes content.
 Where the provider supports them, explicitly request smaller results or select
 fewer tools at the server.

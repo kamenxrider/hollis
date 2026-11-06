@@ -159,8 +159,16 @@ locate the cause among approval, execution context, transport and provider,
 or prove whether the provider completed the request. Keep any known execution
 stage from the error, but do not diagnose the timeout as “Apple-side” from the
 deadline alone. Preserve the uncertain result and do not automatically retry.
-For a future request, `--timeout` can be raised up to the 120-second ceiling.
+Below the maximum, a future request can raise `--timeout` up to 120 seconds.
+At that ceiling, the hint does not suggest a larger timeout.
 CLI timeout remains exit 7 with machine code `timeout`.
+
+ChatGPT requests may wait silently for approval. Check for a macOS prompt or
+notification asking to allow the request or the shortcut, and choose **Always
+Allow**. If **Confirm ChatGPT requests** is on in **Apple Intelligence & Siri**
+settings, each request may need approval. This is a possible cause, not a
+diagnosis of a timeout. ChatGPT timeout JSON also includes this advice in
+`error.suggestion`.
 
 `respond --code` uses the existing missing-resource exit 3 for an empty response:
 "no code to print: the response contained no code". Empty or whitespace-only

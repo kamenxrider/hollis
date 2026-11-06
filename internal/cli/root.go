@@ -406,6 +406,29 @@ func transportErr(err error) error { return &cliError{code: 5, err: err} }
 func timeoutErr(err error) error   { return &cliError{code: 7, err: err} }
 func configErr(err error) error    { return &cliError{code: 10, err: err} }
 
+const chatGPTApprovalHint = `ChatGPT requests may wait silently for approval: check for a macOS prompt or notification asking to allow the request or the shortcut, and choose Always Allow. If "Confirm ChatGPT requests" is on in Apple Intelligence & Siri settings, each request may need approval.`
+
+// toCLIRequestError retains the configured request budget, rather than the
+// slightly shorter remaining context deadline, when choosing timeout advice.
+func toCLIRequestError(err error, model runner.Model, timeout time.Duration) error {
+	var re *runner.Error
+	if !errors.As(err, &re) || re.Kind != runner.KindTimeout || re.ListTimeout || re.ProbeTimeout {
+		return toCLIError(err)
+	}
+	hint := "the model request exceeded its deadline; this alone does not identify the cause or confirm whether it completed. Do not automatically retry"
+	if timeout >= runner.MaxTimeout {
+		hint += "; the 120s maximum --timeout was already selected"
+	} else {
+		hint += "; choose a larger --timeout (up to the 120s ceiling) for a future request if needed"
+	}
+	suggestion := ""
+	if model == runner.ModelChatGPT {
+		suggestion = chatGPTApprovalHint
+		hint += "\n" + suggestion
+	}
+	return &cliError{code: 7, err: fmt.Errorf("%w\nhint: %s", err, hint), suggestion: suggestion}
+}
+
 // executionErr keeps semantic codes separate from the stable numeric exit map.
 func executionErr(code, message string) error {
 	return &cliError{code: 5, machineCode: code, err: errors.New(message)}

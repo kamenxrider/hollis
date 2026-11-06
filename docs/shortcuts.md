@@ -65,6 +65,13 @@ The measured evidence behind these rules is summarized in [EVIDENCE.md](../EVIDE
 
 ### The ChatGPT quirk
 
+ChatGPT requests may wait silently for approval, including on the first run of
+a newly imported shortcut. Check for a macOS prompt or notification asking to
+allow the request or the shortcut, and choose **Always Allow**. If **Confirm
+ChatGPT requests** is on in **System Settings > Apple Intelligence & Siri**,
+each request may need approval; unattended calls can time out. A timeout alone
+does not prove that approval was the cause. Do not automatically retry.
+
 Measured on macOS 27 during development: a **signed-in** ChatGPT account made the Shortcuts extension fail with `login could not be verified`, and logging out let the bridge work. The macOS ChatGPT extension does not require an account for basic use.
 
 Image Playground's separate **ChatGPT** style has a different scoped result:

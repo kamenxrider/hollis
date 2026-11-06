@@ -449,7 +449,7 @@ without another model round or a new resume protocol.`,
 				}
 			}
 			if err != nil {
-				return withPDFRefusalContext(toCLIError(err), hasPDF)
+				return withPDFRefusalContext(toCLIRequestError(err, m, timeout), hasPDF)
 			}
 
 			if flags.asJSON {

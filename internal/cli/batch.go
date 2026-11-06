@@ -344,7 +344,7 @@ func (e *hollisBatchExecutor) Execute(ctx context.Context, request batch.Executi
 		}
 		text, used, err := r.Run(callCtx, request.Model, prompt)
 		if err != nil {
-			return batch.ExecutionOutput{}, err
+			return batch.ExecutionOutput{}, batchRequestError(err, request.Model)
 		}
 		if used != request.Model {
 			return batch.ExecutionOutput{}, fmt.Errorf("runner used model %q instead of requested %q", used, request.Model)
@@ -363,7 +363,7 @@ func (e *hollisBatchExecutor) Execute(ctx context.Context, request batch.Executi
 		}
 		text, used, err := imageRunner.RunWithImages(callCtx, request.Model, instruction, []string{staged})
 		if err != nil {
-			return batch.ExecutionOutput{}, err
+			return batch.ExecutionOutput{}, batchRequestError(err, request.Model)
 		}
 		if used != request.Model {
 			return batch.ExecutionOutput{}, fmt.Errorf("runner used model %q instead of requested %q", used, request.Model)
@@ -372,6 +372,14 @@ func (e *hollisBatchExecutor) Execute(ctx context.Context, request batch.Executi
 	default:
 		return batch.ExecutionOutput{}, fmt.Errorf("unsupported batch item kind %q", request.Kind)
 	}
+}
+
+func batchRequestError(err error, model runner.Model) error {
+	var re *runner.Error
+	if errors.As(err, &re) && re.Kind == runner.KindTimeout {
+		return toCLIRequestError(err, model, runner.MaxTimeout)
+	}
+	return err
 }
 
 func digestBytes(data []byte) string {
