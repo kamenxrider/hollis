@@ -83,15 +83,7 @@ func reportCommandError(cmd *cobra.Command, flags *rootFlags, err error) error {
 		return err
 	}
 	if flags.asJSON || flags.agent {
-		payload := map[string]any{
-			"error": map[string]any{
-				"code": errorCode(err), "message": err.Error(), "exit_code": ExitCode(err),
-			},
-		}
-		var classified *cliError
-		if errors.As(err, &classified) && len(classified.details) != 0 {
-			payload["error"].(map[string]any)["details"] = classified.details
-		}
+		payload := map[string]any{"error": commandErrorFields(err)}
 		if flags.agent {
 			payload["meta"] = agentMeta()
 		}
@@ -371,6 +363,21 @@ type cliError struct {
 	code        int
 	err         error
 	machineCode string
+	suggestion  string
+}
+
+func commandErrorFields(err error) map[string]any {
+	fields := map[string]any{"code": errorCode(err), "message": err.Error(), "exit_code": ExitCode(err)}
+	var classified *cliError
+	if errors.As(err, &classified) {
+		if len(classified.details) != 0 {
+			fields["details"] = classified.details
+		}
+		if classified.suggestion != "" {
+			fields["suggestion"] = classified.suggestion
+		}
+	}
+	return fields
 }
 
 type reportedError struct{ err error }

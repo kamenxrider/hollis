@@ -20,11 +20,11 @@ import (
 )
 
 type mcpFlags struct {
-	names            []string
-	servers          []string
-	timeout          time.Duration
-	disabled         bool
-	noBoundedResults bool
+	names          []string
+	servers        []string
+	timeout        time.Duration
+	disabled       bool
+	partialResults bool
 }
 
 func (f *mcpFlags) addTo(cmd *cobra.Command) {
@@ -32,7 +32,7 @@ func (f *mcpFlags) addTo(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&f.servers, "mcp-server", nil, "Ad-hoc MCP command with quoted arguments, or HTTP URL; always ask, no shell")
 	cmd.Flags().DurationVar(&f.timeout, "mcp-timeout", 0, "Override MCP call deadlines (positive, at most 120s, within the command deadline)")
 	cmd.Flags().BoolVar(&f.disabled, "no-mcp", false, "Never read MCP configuration or attach servers, even with MCP flags")
-	cmd.Flags().BoolVar(&f.noBoundedResults, "no-bounded-results", false, "Stop on Local MCP result capacity instead of showing a disclosed excerpt")
+	cmd.Flags().BoolVar(&f.partialResults, "partial-results", false, "Allow disclosed partial Local MCP results; overrides the saved partial-results setting")
 }
 
 func (f *mcpFlags) enabled() bool { return !f.disabled && len(f.names)+len(f.servers) > 0 }
@@ -167,23 +167,31 @@ var (
 )
 
 type mcpSession struct {
-	options          *runner.GenerationOptions
-	manager          *mcp.Manager
-	offers           []runner.ToolOffer
-	tools            map[string]mcp.Tool
-	framer           *mcp.Framer
-	calls            []mcpCallAudit
-	dispositions     []mcpDisposition
-	round            int
-	noBoundedResults bool
-	boundResults     bool
-	bounded          []boundedToolResult
-	diagnostic       io.Writer
+	options        *runner.GenerationOptions
+	manager        *mcp.Manager
+	offers         []runner.ToolOffer
+	tools          map[string]mcp.Tool
+	framer         *mcp.Framer
+	calls          []mcpCallAudit
+	dispositions   []mcpDisposition
+	round          int
+	partialResults bool
+	boundResults   bool
+	bounded        []boundedToolResult
+	diagnostic     io.Writer
 }
 
 func (f *mcpFlags) attach(ctx context.Context, cmd *cobra.Command, flags *rootFlags, callers []runner.Tool) (*mcpSession, error) {
 	if !f.enabled() {
 		return nil, nil
+	}
+	partial := f.partialResults
+	if !cmd.Flags().Changed("partial-results") {
+		config, err := loadConfig()
+		if err != nil {
+			return nil, configErr(err)
+		}
+		partial = config.PartialResults != nil && *config.PartialResults
 	}
 	attachments, err := f.attachments()
 	if err != nil {
@@ -198,7 +206,7 @@ func (f *mcpFlags) attach(ctx context.Context, cmd *cobra.Command, flags *rootFl
 		return nil, mcpCLIError(err)
 	}
 	session := &mcpSession{manager: manager, tools: map[string]mcp.Tool{}, calls: []mcpCallAudit{}, dispositions: []mcpDisposition{}}
-	session.noBoundedResults = f.noBoundedResults
+	session.partialResults = partial
 	session.diagnostic = cmd.ErrOrStderr()
 	ok := false
 	defer func() {
@@ -363,7 +371,7 @@ func (s *mcpSession) run(ctx context.Context, r runner.Runner, messages []store.
 		CheckToolHistory(context.Context, runner.NativeToolStep) error
 	})
 	// Never shorten data without the native SDK preflight.
-	s.boundResults = !s.noBoundedResults && checked
+	s.boundResults = s.partialResults && checked
 	safety := 0
 	if s.boundResults {
 		safety = 128
@@ -392,7 +400,7 @@ func writeMCPFailure(cmd *cobra.Command, flags *rootFlags, session *mcpSession, 
 	if err == nil || ErrorReported(err) || (!mixed && !flags.asJSON && !flags.agent) {
 		return err
 	}
-	payload := map[string]any{"error": map[string]any{"code": errorCode(err), "message": err.Error(), "exit_code": ExitCode(err)}}
+	payload := map[string]any{"error": commandErrorFields(err)}
 	meta := session.metadata()
 	if mixed {
 		payload["mcp"] = meta

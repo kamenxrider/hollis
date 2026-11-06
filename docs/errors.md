@@ -30,7 +30,8 @@ agent schema version remain unchanged.
 | `tool_denied` | The MCP call was not explicitly approved | 5 | n/a | The run stops; later calls do not execute |
 | `tool_not_allowlisted` | An automatic MCP call has no current reviewed allow-list entry | 5 | n/a | Review its definition with `hollis mcp tools` and pin it with `hollis mcp allow` |
 | `tool_definition_changed` | An automatic MCP tool no longer matches its reviewed definition pin | 5 | n/a | Review the changed definition before pinning again |
-| `tool_result_too_large` | An MCP result exceeds its cap or cannot fit the next bounded transcript | 5 | n/a | Narrow the request; nothing was truncated |
+| `tool_result_too_large` | An MCP result exceeds the hard 1 MiB cap, or still cannot fit with partial results enabled | 5 | n/a | Narrow the request or start a new chat |
+| `tool_result_too_large_for_local` | With partial results off, an MCP result cannot fit Local's next decision | 5 | n/a | Nothing was truncated. The message gives the server, tool, byte count, and `--partial-results` suggestion |
 | `tool_name_conflict` | Caller and MCP tools share a rendered name | 2 | n/a | Rename the caller tool or select noncolliding servers |
 | `tool_count_limit` | The combined offer exceeds 128, or caller tools exceed 32 | 2 | n/a | Select fewer servers or caller tools; no automatic pruning occurs |
 
@@ -54,6 +55,20 @@ The `mcp_*` codes come from `hollis mcp` commands and explicitly attached
 `respond`/`chat` tools. `hollis serve` never reads
 `mcp.json` or starts an MCP server, so none of them has an HTTP status. See
 [MCP servers](mcp.md) for the configuration rules behind each refusal.
+
+The default Local MCP size failure has the same exit 5 and message in a
+terminal, without a TTY, and with `--no-input`, `--json`, or `--agent`.
+JSON adds `error.suggestion`, even when `--select` requests only answer fields.
+For example:
+
+```text
+the result from wiki/read was 53472 bytes, too big for Local; nothing was truncated. Re-run with --partial-results to let Local answer from the first part of the result (you will be told how much it saw).
+```
+
+Opt-in through `--partial-results` or `config set partial-results on` applies
+to attached Local MCP requests in interactive and automated invocations.
+It does not bypass approval, validation, or the hard 1 MiB result cap.
+There is no MCP execution through HTTP or batch.
 
 `tool_call_invalid` and `tool_round_cap` are neither component faults nor caller mistakes:
 the helper and the request were both fine, but the tool loop could not converge. They share exit 5 and HTTP 502 because the

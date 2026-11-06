@@ -111,8 +111,8 @@ func TestMCPModelLoopResultErrorAndBudgets(t *testing.T) {
 	}{
 		{name: "server-error", size: 20, isError: true},
 		{name: "single-result-cap", size: (1 << 20) + 1, code: "tool_result_too_large"},
-		{name: "aggregate", size: 60000, code: "tool_result_too_large"},
-		{name: "mixed-aggregate", size: 60000, mixed: true, code: "tool_result_too_large"},
+		{name: "aggregate", size: 60000, code: localResultTooLargeCode},
+		{name: "mixed-aggregate", size: 60000, mixed: true, code: localResultTooLargeCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stubMCP(t)

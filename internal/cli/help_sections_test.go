@@ -102,7 +102,7 @@ func TestAgentContextSharesHelpData(t *testing.T) {
 		"rate_limited": 5, "content_refused": 5, "access_required": 5,
 		"mcp_config": 10, "mcp_unavailable": 5, "mcp_protocol": 5, "mcp_auth": 5, "mcp_schema_unvalidated": 5,
 		"approval_required": 5, "approval_args_too_large": 5, "tool_denied": 5, "tool_not_allowlisted": 5,
-		"tool_definition_changed": 5, "tool_result_too_large": 5, "tool_name_conflict": 2, "tool_count_limit": 2,
+		"tool_definition_changed": 5, "tool_result_too_large": 5, "tool_result_too_large_for_local": 5, "tool_name_conflict": 2, "tool_count_limit": 2,
 	}
 	if !reflect.DeepEqual(ctx.Contracts.ExitCodes, wantCodes) {
 		t.Fatalf("agent exit codes = %v, want %v", ctx.Contracts.ExitCodes, wantCodes)

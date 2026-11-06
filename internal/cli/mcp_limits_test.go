@@ -205,7 +205,7 @@ func TestMCPIncrementalResultBudgetStopsBeforeApproval(t *testing.T) {
 			if calls.Load() != int64(tc.want) || len(approval.prompts) != tc.want || len(r.requests) != 1 {
 				t.Fatalf("dispatch/approval continued: calls=%d approvals=%d rounds=%d err=%v", calls.Load(), len(approval.prompts), len(r.requests), err)
 			}
-			if tc.failure && errorCode(err) != "tool_result_too_large" || !tc.failure && err != nil {
+			if tc.failure && errorCode(err) != localResultTooLargeCode || !tc.failure && err != nil {
 				t.Fatalf("unexpected result: %v", err)
 			}
 			var document struct {

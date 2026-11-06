@@ -58,9 +58,12 @@ hollis config unset timeout
 hollis config unset model
 hollis config unset bridge cloud
 hollis config unset image-bridge sketch
+hollis config set partial-results on
+hollis config get partial-results
+hollis config unset partial-results
 ```
 
-`config get` and `config unset` accept `model`, `timeout`, `bridge <tier>` and
+`config get` and `config unset` accept `model`, `timeout`, `partial-results`, `bridge <tier>` and
 `image-bridge [style]`. With no style, the last key names the general image
 bridge; a style names only its fixed-style override. Unset is idempotent and
 preserves unrelated settings under the config lock. Get reads saved values,
@@ -79,6 +82,21 @@ than zero and at most 120 seconds. Empty or invalid environment values are
 usage errors unless a higher-priority explicit option overrides them.
 Environment defaults are not saved. Batch manifests and the HTTP API retain
 their own model and timeout contracts; these defaults do not alter them.
+
+Local MCP results that cannot fit stop by default with exit 5 and code
+`tool_result_too_large_for_local`, the full byte count, and a suggestion.
+No result is truncated. `respond --partial-results` and `chat --partial-results`
+explicitly permit disclosed prefixes. `config set partial-results on` saves
+this opt-in. `off` or `unset` restores the hard stop. Explicit
+`--partial-results=false` overrides a saved `on`. No environment variable
+controls this setting.
+
+Scripts, no-TTY, `--no-input`, JSON, and agent calls use the same default.
+JSON failure output includes `error.suggestion`. Opt-in also works in those
+modes, subject to normal approval. It adds a stderr notice and JSON
+`tool_results_bounded` metadata, and saves each full result privately at mode
+0600. HTTP and batch never execute MCP tools. See
+[MCP servers](mcp.md#opt-in-to-partial-local-results) for the disclosure and storage rules.
 
 ### Prompt or command
 

@@ -23,6 +23,9 @@ type boundedToolResult struct {
 	Path       string `json:"path"`
 }
 
+const partialResultsSuggestion = "Re-run with --partial-results to let Local answer from the first part of the result (you will be told how much it saw)."
+const localResultTooLargeCode = "tool_result_too_large_for_local"
+
 func resultCapacity(err error) bool {
 	var failure *runner.Error
 	return errors.As(err, &failure) && failure.Kind == runner.KindContextCapacity
@@ -31,7 +34,15 @@ func resultCapacity(err error) bool {
 func (s *mcpSession) admitResult(tool mcp.Tool, id string, full mcp.Result, admit func(runner.ToolResult) error) (runner.ToolResult, error) {
 	original := runner.ToolResult{CallID: id, Output: s.framer.Frame(tool.Server, tool.Name, full)}
 	err := admit(original)
-	if err == nil || !s.boundResults || !resultCapacity(err) {
+	if err == nil || !resultCapacity(err) {
+		return original, err
+	}
+	if !s.partialResults {
+		message := fmt.Sprintf("the result from %s/%s was %d bytes, too big for Local; nothing was truncated. %s",
+			mcp.EscapeTerminal(tool.Server), mcp.EscapeTerminal(tool.Name), len(full.Text), partialResultsSuggestion)
+		return original, &cliError{code: 5, machineCode: localResultTooLargeCode, err: errors.New(message), suggestion: partialResultsSuggestion}
+	}
+	if !s.boundResults {
 		return original, err
 	}
 	originalErr := err

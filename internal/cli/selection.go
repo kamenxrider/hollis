@@ -115,7 +115,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 	for name, field := range readiness.fields {
 		doctor.fields[name] = field
 	}
-	config := resultFields("path", "default_model", "image_bridge", "timeout")
+	config := resultFields("path", "default_model", "image_bridge", "timeout", "partial_results")
 	config.fields["bridges"] = resultFields("cloud", "cloud-pro", "on-device", "chatgpt")
 	config.fields["image_bridges"] = resultFields(imageStyles...)
 	search := resultFields("id", "title", "model", "updated_at")
@@ -134,7 +134,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 		"missing", "transport", "timeout", "config", "request_declined", "shortcut_failed", "rate_limited", "content_refused", "access_required",
 		"mcp_config", "mcp_unavailable", "mcp_protocol", "mcp_auth", "mcp_schema_unvalidated",
 		"approval_required", "approval_args_too_large", "tool_denied", "tool_not_allowlisted",
-		"tool_definition_changed", "tool_result_too_large", "tool_name_conflict", "tool_count_limit")
+		"tool_definition_changed", "tool_result_too_large", "tool_result_too_large_for_local", "tool_name_conflict", "tool_count_limit")
 	context.fields["commands"].element.fields["annotations"] = resultFields("mcp:read-only")
 	mcpServer := resultType(reflect.TypeFor[mcpServerView]())
 	mcpList := resultFields("path")

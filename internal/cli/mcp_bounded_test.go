@@ -87,7 +87,7 @@ func TestMCPBoundedResultDisclosureAndInjectionFraming(t *testing.T) {
 			})
 			configureLoopServer(t, url, true)
 			r := &boundedFixtureRunner{toolFixtureRunner: toolFixtureRunner{replies: []string{loopReadCall, "Done."}}, limit: 13000}
-			args := []string{"--model", "local", "--mcp", "fixture", "Read"}
+			args := []string{"--model", "local", "--mcp", "fixture", "--partial-results", "Read"}
 			if mode != "human" {
 				args = append(args, mode, "--select", "response,tool_results_bounded")
 			}
@@ -184,8 +184,8 @@ func TestMCPBoundedResultFitAndHardStops(t *testing.T) {
 				r.limit = 1
 			}
 			args := []string{"--model", "local", "--mcp", "fixture", "--json", "Read"}
-			if mode == "disabled" {
-				args = append(args, "--no-bounded-results")
+			if mode != "disabled" {
+				args = append(args, "--partial-results")
 			}
 			out, diagnostic, err := runMCPRespond(t, r, args...)
 			if mode == "fits" {
@@ -194,6 +194,9 @@ func TestMCPBoundedResultFitAndHardStops(t *testing.T) {
 				}
 			} else {
 				want := "tool_result_too_large"
+				if mode == "disabled" {
+					want = localResultTooLargeCode
+				}
 				if mode == "other-failure" {
 					want = "native_failed"
 				}

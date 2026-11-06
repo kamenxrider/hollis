@@ -70,7 +70,7 @@ func TestMCPStopAfterUnusableFramedResult(t *testing.T) {
 		"--tools", writeToolsFixture(t, cliTools), "Synthetic mixed request")
 	t.Logf("tool_dispatches=%d, model_generations=%d, code=%s, output=%s",
 		calls.Load(), len(r.requests), errorCode(err), out)
-	if errorCode(err) != "tool_result_too_large" || len(r.requests) != 1 {
+	if errorCode(err) != localResultTooLargeCode || len(r.requests) != 1 {
 		t.Fatalf("fixture did not reach the framed-result budget: %v", err)
 	}
 	if calls.Load() != 1 {

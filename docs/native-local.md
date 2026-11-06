@@ -31,6 +31,16 @@ Requests that exceed either supported input limits or Apple's context capacity
 fail clearly. Start a new conversation or explicitly provide a shorter request.
 Failed or interrupted assistant turns are not saved as successful answers.
 
+Attached MCP results also stop by default when they cannot fit Local, with
+exit 5, `tool_result_too_large_for_local`, the full byte count, and a
+`--partial-results` suggestion. This does not change in scripts, JSON, agent,
+or `--no-input` mode. JSON includes `error.suggestion`.
+Explicit `--partial-results` or `hollis config set partial-results on` allows
+a disclosed result prefix, not shorter user instructions or dropped history.
+The marker and stderr notice state how many bytes Local saw. Full results
+are saved privately at mode 0600. A prefix can omit essential evidence.
+See [partial Local results](mcp.md#opt-in-to-partial-local-results).
+
 Complete native responses include Apple's measured token usage. Streamed usage
 is unavailable; Hollis does not estimate it or report invented zeros. Native
 local supports text, including TXT/MD and extracted PDF document preparation.

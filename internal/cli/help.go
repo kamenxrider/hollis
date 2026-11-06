@@ -66,6 +66,7 @@ var documentedSemanticCodes = []semanticCodeDoc{
 	{Name: "tool_not_allowlisted", Code: 5},
 	{Name: "tool_definition_changed", Code: 5},
 	{Name: "tool_result_too_large", Code: 5},
+	{Name: "tool_result_too_large_for_local", Code: 5},
 	{Name: "tool_name_conflict", Code: 2},
 	{Name: "tool_count_limit", Code: 2},
 }

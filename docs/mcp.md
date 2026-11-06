@@ -129,7 +129,7 @@ automatic-execution allow list and pins. Calls still need approval by default.
 This DeepWiki recipe offers only `ask_wiki_question`, not `read_wiki_contents`,
 which can return an entire repository exceeding Local's 128 KiB input limit.
 A focused answer can still exceed byte or context limits. The filter is not
-a result-size cap. The experimental result policy below applies independently.
+a result-size cap. The partial-result policy below applies independently.
 
 The filter is saved as `"tools": ["ask_wiki_question"]` on the server in
 `mcp.json`. Missing or empty `tools` means all supported tools, preserving
@@ -142,10 +142,24 @@ their names. Attachment counts report how many tools were filtered out.
 This filter is separate from `allow`/`deny`: those control automatic approval,
 not which tools are offered. Selecting a tool never grants permission to run it.
 
-### Experimental bounded Local results
+### Opt in to partial Local results
 
-On this experimental branch, Local MCP results that cannot fit the next
-decision use a disclosed prefix. SDK token counting admits the framed prefix
+By default, a result that cannot fit Local stops with exit 5 and code
+`tool_result_too_large_for_local`. Nothing is truncated. The message names the
+server, tool, and full byte count, and suggests `--partial-results`.
+The same rule applies without a TTY, with `--no-input`, in JSON or agent mode,
+and in scripts. JSON errors include a machine-readable `error.suggestion`.
+Later calls stop, and helper and MCP sessions close before the command exits.
+
+`--partial-results` on `respond` or `chat` allows a disclosed prefix instead.
+`hollis config set partial-results on` saves this opt-in for attached Local
+MCP requests. `off` or `config unset partial-results` restores the hard stop.
+An explicit `--partial-results=false` overrides a saved `on` for one invocation.
+Opt-in works in interactive and non-interactive calls. It does not grant tool
+approval or bypass an auto allow list. HTTP and batch execute no MCP tools
+and do not accept this flag.
+
+SDK token counting admits the framed prefix
 only when it leaves at least 512 answer tokens plus 128 safety tokens.
 An explicit larger answer limit is reserved instead of 512.
 Text blocks take priority over structured content when both are present.
@@ -160,8 +174,8 @@ mode 0600. Saving beneath `/tmp`, including symlink aliases, is refused.
 Files remain until you remove them. They can contain sensitive tool data.
 If saving or disclosure fails, the request stops before synthesis.
 
-Use `--no-bounded-results` on `respond` or `chat` to restore the hard capacity
-stop. Other routes, approval, validation, and the hard 1 MiB MCP result ceiling
+The marker reads `[partial result: showing the first N of M bytes; the rest
+was not shown to the model]`. Other routes, approval, validation, and the hard 1 MiB MCP result ceiling
 are unchanged. Results that fit remain complete and are not saved separately.
 A partial result may omit the answer or an important qualification. Check the
 full result before relying on an answer that needs complete evidence.
