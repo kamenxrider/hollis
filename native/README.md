@@ -92,6 +92,12 @@ and the request ID, with no generation or callbacks. Go uses it for result
 admission, reserving `max_tokens` when supplied. History, framing and definitions
 share 128 KiB; the full transcript is never truncated or summarized.
 
+With explicit `HOLLIS_DEBUG_BUDGET=1`, a tool operation may emit one numeric
+`budget` event between status and its terminal, with the same request ID.
+The parent admits only a closed vocabulary of byte/token counters, never
+content or credentials, and writes it to stderr. It does not change admission,
+generation options or callback handling. See [context diagnostics](../docs/mcp.md#context-diagnostics).
+
 The default limit is eight model decisions, including final synthesis and
 visible prior tool batches since the last user turn. A batch on the final
 decision fails before dispatch. Stateless history is not a global quota.

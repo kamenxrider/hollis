@@ -13,8 +13,8 @@ agent schema version remain unchanged.
 | `transport` | Launch, staging or other transport failure, including Shortcut stdout that exceeded the 1 MiB capture cap | 5 | 502 for typed launch/transport errors | Check host access and process setup; for an oversized response, narrow the request instead of expecting a partial answer |
 | `native_protocol` | The paired native helper and this CLI disagree about their contract: an older or newer helper, an event that breaks the sequence, or a guided object that does not match the requested schema | 5 | 502 | Install the matching bundle from the same release; do not retry against the same helper |
 | `unsupported_capability` | The paired helper speaks this protocol era but did not advertise, or refused, a capability the request needs (for example native tool calling) | 5 | 502 | Install the matching bundle from the same release; the helper is newer than the request needs or was built without that capability |
-| `tool_call_invalid` | A recognized tool call remained malformed or failed validation after its one repair round, or one round carried more than 16 parsed calls. The message names the round and a fixed reason, never an argument value | 5 | 502 | Simplify the tools or the request; do not retry unchanged |
-| `tool_round_cap` | The model asked for another tool call in the third model round of one user turn | 5 | 502 | Answer from the results you have, or start a new turn; do not retry unchanged |
+| `tool_call_invalid` | A native callback batch failed independent validation, exceeded 16 calls, or did not satisfy tool choice. No argument repair or text-call extraction occurs, and no invalid batch is dispatched | 5 | 502 | Simplify the tools or the request; do not retry unchanged |
+| `tool_round_cap` | The default eight-decision budget was exhausted, or the model requested a batch on its last permitted decision; final synthesis also costs a decision | 5 | 502 | Answer from the results you have, or start a new turn; do not retry unchanged |
 | `local_unavailable` | The native local model or its paired helper is unavailable: no helper is installed or executable, or it cannot answer | 5 | 400 `model_unavailable` at admission; 503 `model_unavailable` mid-run | Install the matching bundle from the same release; do not retry the same invocation |
 | `model_busy` | The native model returned transient `ModelManagerError` code 1012 | 5 | 503 | A tool decision retries once after 500 ms only before any callback is captured or executed in that decision; no tool is re-executed |
 | `mcp_config` | `mcp.json` is invalid, or a `hollis mcp` edit would make it invalid; the file is left unchanged | 10 | n/a | Fix the field the message names, or run `hollis mcp list` to see the current file |
@@ -55,6 +55,13 @@ The `mcp_*` codes come from `hollis mcp` commands and explicitly attached
 `tool_call_invalid` and `tool_round_cap` are neither component faults nor caller mistakes:
 the helper and the request were both fine, but the tool loop could not converge. They share exit 5 and HTTP 502 because the
 same request should not be retried unchanged.
+
+The one permitted transient `model_busy` retry is separate from argument
+repair, which Local does not perform, and from tool execution, which is never
+retried. Invalid or incomplete callbacks fail before approval or dispatch.
+A missing named function is a usage error (CLI exit 2, HTTP 400
+`unsupported_parameter`), naming the function that was not offered and the
+offered names when the list is short. It costs no inference.
 
 `local_unavailable` is the companion code with a different cause: no paired
 helper is installed or executable, or the helper cannot answer at all. It shares

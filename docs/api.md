@@ -224,6 +224,8 @@ The exact name must be offered. Required forces at least one real call, then
 allows dependencies. Named permits only the selected tool initially and disables
 callbacks after its result. Structured history satisfies the obligation for that
 user transaction; a new user turn resets it. No synthetic exit function is added.
+An unoffered named function returns **400** `unsupported_parameter` before
+inference, naming that function and listing the offered names when short.
 
 The helper uses executable Swift tools, not text extraction. Callbacks capture
 one complete native batch and return it to Go for independent validation.

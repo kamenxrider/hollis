@@ -140,6 +140,9 @@ native callbacks. required forces a real offered call; function:NAME restricts
 the initial decision to that function. --tools
 requires --model local, completes without streaming, and cannot be combined
 with --image, --schema, --code, --json or --agent.
+Local admits eight model decisions including final synthesis, with no text-call
+extraction or argument repair. Only a transient model_busy decision can retry
+once before callback capture in that decision; tool execution never retries.
 
 Attach configured MCP tools with repeatable --mcp <server>, or an ad-hoc
 command/URL with --mcp-server. MCP requires model local and never streams.

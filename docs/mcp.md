@@ -6,9 +6,9 @@ HTTP. Calls need your approval (`ask`, the default) or an explicit allow list
 (`auto`). Runtime 0.4.0 does not include MCP. Servers in `mcp.json` remain
 inert until selected.
 
-The on-device model is best at simple, single tool calls. With several tools
-or complex arguments it more often sends a call that fails validation; Hollis
-then stops with `tool_call_invalid` and nothing runs.
+Local uses executable native tool callbacks, with independent Go validation
+before approval or execution. Invalid arguments stop with `tool_call_invalid`;
+an incomplete native batch stops with `native_protocol`. Nothing in that batch runs.
 `hollis serve` and
 `hollis batch` never read `mcp.json` and never start an MCP server.
 
@@ -37,22 +37,26 @@ for the invocation, but each turn has its own model/call deadline.
 At most 128 combined tools are offered, including at most 32 caller-provided
 `--tools`. Name collisions or excess counts fail before generation; no tool
 is silently selected or dropped to fit the model. Caller and locally validated
-MCP definitions use native metadata. Server-validated definitions use an
-explicit, capability-gated, bounded raw-schema instruction representation,
-including when every tool is server-validated. An old helper refuses this
-capability rather than falling back silently.
+MCP definitions become executable native tools. Ask-only server-validated
+definitions use an explicit native `arguments_json` string envelope, with the
+bounded original schema in escaped untrusted metadata. Go unwraps a strict
+JSON object without coercion or defaults, then asks with the full original
+arguments and a notice that the server validates them. An old helper refuses
+this capability rather than falling back silently.
 
-Each user turn admits at most three model generations, including argument
-corrections and final synthesis. Models see each MCP tool as
-`<server>__<tool>`. A call that names only `<tool>`, when exactly one attached
-server offers it, is corrected once with the declared name; it never runs as
-written and is never renamed. Any reply that contains `"tool_calls"` and quotes
-a declared or uniquely matching tool name is treated as a call attempt and
-corrected once, however broken it is; nothing in it runs. If the corrected
-reply is still wrong, the run fails with `tool_call_invalid`. Arguments for
-locally validated tools are checked before approval or execution. For server-validated tools, Hollis checks
-only a bounded JSON object, without coercion or defaults, then asks with the
-full arguments and a notice that the server validates them.
+The default budget is eight model decisions per visible user transaction,
+including prior structured call batches and final synthesis. A callback batch
+on the eighth decision fails with `tool_round_cap` before dispatch.
+Models must use the exact `<server>__<tool>` name. There is no Local text-call
+extraction, name correction or argument repair. Quoted `CALL:` or JSON calls
+in prose, documents and results stay content and never become executable.
+Shortcuts and ChatGPT bridge/client text protocols are unchanged; they do not
+enable MCP or the public tools API on those routes.
+
+Only a transient native `model_busy` decision can retry once, after 500 ms,
+with identical input and the original deadline, before a callback is captured
+or executed in that decision. This is not argument repair. Guardrail, context
+and decoding failures do not retry. Tool execution never retries.
 
 ### Mixed caller and MCP tools
 
@@ -154,7 +158,7 @@ it. It never runs a tool and never calls a model. For each tool:
 - At most 32 attached/configured servers, 64 tools per server and 128 combined offers.
 - Server-validated schema text is capped at 2 KiB per tool and 16 KiB total.
   Excluded/unsupported tools remain visible in inspection and attachment counts.
-- Native definitions, raw-schema instructions, conversation and framed results
+- Native definitions, server-validated metadata, conversation and framed results
   share the 128 KiB input bound and native token preflight. The encoded helper
   request stays within 1 MiB. Oversized input/results fail without truncation.
 - Connect deadline 10 s by default (`--connect-timeout`, up to 60 s); call
@@ -164,6 +168,26 @@ it. It never runs a tool and never calls a model. For each tool:
   but never shown.
 - Tool results are treated as untrusted data: a single text block, capped in
   size, and framed so instructions inside it cannot pass as Hollis's own.
+
+### Context diagnostics
+
+Set `HOLLIS_DEBUG_BUDGET=1` for opt-in numeric diagnostics on stderr. Native
+preflight reports token costs for base/profile instructions, tool definitions
+(including MCP schemas), existing conversation, returned results with framing,
+the answer reservation and measured context capacity, plus component byte
+counts. Token costs are incremental in that order and sum to `input_tokens`.
+The answer reservation is the requested per-decision maximum, or 512 when
+omitted; it does not change the SDK's default generation options.
+MCP diagnostics separately report text/structured-result bytes, byte-identical
+JSON duplication, and result versus framed bytes. No tool names, schemas,
+arguments, result content or credentials enter these diagnostic records.
+
+A small user prompt can still exceed Local capacity after a large search
+result. For example, anonymous Parallel search can return more than Local can
+admit; approval and a valid search do not imply a completed answer. Hollis
+preserves the full result and refuses with `tool_result_too_large`, without
+truncating or automatically summarizing it. Where the provider supports them,
+explicitly request smaller results or select fewer tools at the server.
 
 ## Failures
 

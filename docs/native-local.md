@@ -38,6 +38,12 @@ Native image input requires the helper's advertised vision capability, never
 just the model name; native image generation is not provided. Caller-provided
 tools are covered under [Tools](#tools).
 
+Local vision can invent an additional image when a prompt uses plural wording,
+even though exactly one attachment was validated. Explicit attachment-count
+instructions did not eliminate this in a bounded test and are not applied.
+Prefer singular wording for a single image, and verify the answer against the
+attachment; this is a model limitation, not a counting guarantee.
+
 ## Guided output
 
 This section describes Hollis 0.7.0, with helper 0.7.0/protocol 4. Runtime
@@ -261,6 +267,8 @@ Named choice offers only that function initially and disables further callbacks
 after its result. A replayed structured call satisfies the obligation for the
 current user transaction. A new user message resets it. None disables callbacks;
 call-shaped prose is ordinary text and is never executed.
+An unoffered named function fails before inference with exit 2 and a message
+naming the missing function and, when short, the offered list.
 
 The helper registers real Swift tools. Their callbacks only capture a complete
 batch and return control to Go. Go validates every call before approval or
@@ -288,6 +296,8 @@ SDK token counting checks the native transcript before inference and after
 each completed MCP result, before any later approval or dispatch.
 Nothing is shortened or dropped. Handoff usage is absent unless measured for
 every decision. Tool schemas use the [guided-output subset](#guided-output).
+Opt-in `HOLLIS_DEBUG_BUDGET=1` reports only numeric budget breakdowns to stderr;
+see [MCP context diagnostics](mcp.md#context-diagnostics).
 
 `--tools` requires Local and is complete-only. It refuses `--stream`, `--schema`,
 `--image`, `--code`, `--json` and `--agent`. CLI MCP tools use the existing
