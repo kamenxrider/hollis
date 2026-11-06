@@ -185,9 +185,11 @@ arguments, result content or credentials enter these diagnostic records.
 A small user prompt can still exceed Local capacity after a large search
 result. For example, anonymous Parallel search can return more than Local can
 admit; approval and a valid search do not imply a completed answer. Hollis
-preserves the full result and refuses with `tool_result_too_large`, without
-truncating or automatically summarizing it. Where the provider supports them,
-explicitly request smaller results or select fewer tools at the server.
+preserves the full result and refuses with `context_capacity` when the native
+token preflight fails. `tool_result_too_large` instead identifies an MCP
+byte-limit failure. Neither path truncates or automatically summarizes content.
+Where the provider supports them, explicitly request smaller results or select
+fewer tools at the server.
 
 ## Failures
 
