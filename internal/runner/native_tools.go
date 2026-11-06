@@ -129,7 +129,11 @@ func (s NativeToolStep) validate() error {
 		}
 	case "function":
 		if !names[s.Choice.Name] {
-			return bad()
+			offered := make([]string, 0, len(s.Tools))
+			for _, tool := range s.Tools {
+				offered = append(offered, tool.Name)
+			}
+			return ToolChoiceNotOffered(s.Choice.Name, offered)
 		}
 	default:
 		return bad()
@@ -173,4 +177,21 @@ func (s NativeToolStep) validate() error {
 		return failure
 	}
 	return nil
+}
+
+// ToolChoiceNotOffered gives CLI and HTTP the same bounded, escaped diagnostic.
+func ToolChoiceNotOffered(name string, offered []string) error {
+	if !toolNamePattern.MatchString(name) {
+		return nativeError(KindUsage, "tool_choice function name must be 1 to 64 letters, digits, underscores or hyphens")
+	}
+	message := fmt.Sprintf("tool_choice function %q was not offered", name)
+	list := strings.Join(offered, ", ")
+	if len(offered) == 0 {
+		message += "; no functions were offered"
+	} else if len(offered) <= 8 && len(list) <= 256 {
+		message += "; offered functions: " + list
+	} else {
+		message += fmt.Sprintf("; choose one of the %d offered functions", len(offered))
+	}
+	return nativeError(KindUsage, message)
 }

@@ -28,7 +28,7 @@ GO_EVENT_FIELDS = {'protocol', 'version', 'model', 'event', 'available',
                    'reason', 'text', 'usage', 'kind', 'context_size',
                    'structured', 'capability', 'capabilities', 'media',
                    'page_count', 'pages', 'text_bytes', 'page', 'limit',
-                   'actual', 'request_id', 'step', 'calls', 'input_tokens', 'error_info'}
+                   'actual', 'request_id', 'step', 'calls', 'input_tokens', 'error_info', 'budget'}
 GO_CAPABILITY_FIELDS = {'extract', 'images', 'tools', 'vision', 'macos_major'}
 GO_EXTRACT_CAPABILITY_FIELDS = {'pdf', 'ocr', 'pages', 'max_pages', 'max_text_bytes'}
 GO_PAGE_FIELDS = {'page', 'text', 'method'}
@@ -38,7 +38,7 @@ GO_TOOL_CAPABILITY_FIELDS = {'supported', 'reason', 'tool_calling_mode', 'execut
                              'native_definitions', 'hybrid_tools'}
 GO_USAGE_FIELDS = {'input_tokens', 'output_tokens', 'reasoning_tokens'}
 PROTOCOL_THREE_OPERATIONS = {'status', 'complete', 'stream', 'schema', 'extract'}
-PROTOCOL_EVENTS = {'status', 'snapshot', 'complete', 'error'}
+PROTOCOL_EVENTS = {'status', 'snapshot', 'complete', 'error', 'budget'}
 
 
 def go_struct_tags(source, name):

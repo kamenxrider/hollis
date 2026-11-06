@@ -222,7 +222,8 @@ enum NativeTools {
         }
     }
 
-    static func run(_ prepared: Prepared) async throws -> [String: Any] {
+    static func run(_ prepared: Prepared,
+                    budget: (([String: Int]) throws -> Void)? = nil) async throws -> [String: Any] {
         let request = prepared.request
         var fulfilled = false
         for entry in request.history {
@@ -256,6 +257,43 @@ enum NativeTools {
         let entries = Array(session.transcript) + [
             .prompt(Transcript.Prompt(segments: [segment(prepared.prompt)], options: options))]
         let tokens = try await SystemLanguageModel.default.tokenCount(for: entries)
+        if let budget {
+            // Incremental counts in installation order add up to the actual
+            // preflight. No prompt, schema, identifier or result text is emitted.
+            let model = SystemLanguageModel.default
+            let base = try await model.tokenCount(for: Array(LanguageModelSession(model: model).transcript))
+            let instructed = try await model.tokenCount(for: Array(
+                LanguageModelSession(model: model, instructions: request.instructions).transcript))
+            let installed = Array(session.transcript.prefix(startCount - prepared.history.count))
+            let definitions = try await model.tokenCount(for: installed)
+            let withoutResults = entries.filter {
+                if case .toolOutput = $0 { return false }
+                return true
+            }
+            let conversation = try await model.tokenCount(for: withoutResults)
+            let toolBytes = request.tools.reduce(0) {
+                $0 + $1.name.utf8.count + $1.description.utf8.count
+                    + ((try? JSONSerialization.data(withJSONObject: $1.parameters.foundationObject).count) ?? 0)
+            }
+            let historyBytes = request.history.filter { $0.type != "output" }.reduce(0) {
+                $0 + ($1.text?.utf8.count ?? 0) + ($1.calls ?? []).reduce(0) {
+                    $0 + $1.id.utf8.count + $1.name.utf8.count + $1.arguments.utf8.count
+                }
+            }
+            let resultBytes = request.history.filter { $0.type == "output" }.reduce(0) {
+                $0 + ($1.text?.utf8.count ?? 0) + ($1.id?.utf8.count ?? 0) + ($1.name?.utf8.count ?? 0)
+            }
+            try budget([
+                "base_tokens": base, "instructions_tokens": instructed - base,
+                "tools_tokens": definitions - instructed,
+                "conversation_tokens": conversation - definitions,
+                "results_framing_tokens": tokens - conversation,
+                "input_tokens": tokens, "answer_reserved_tokens": options.maximumResponseTokens ?? 512,
+                "context_tokens": model.contextSize, "tools_bytes": toolBytes,
+                "instructions_bytes": request.instructions.utf8.count,
+                "conversation_bytes": historyBytes, "results_framing_bytes": resultBytes,
+            ])
+        }
         guard (options.maximumResponseTokens ?? 512) <= SystemLanguageModel.default.contextSize - tokens
         else { throw Failure.capacity }
         if request.operation == "tool_check" {

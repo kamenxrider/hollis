@@ -278,7 +278,7 @@ func TestRespondToolsRefusalsHappenBeforeTheRunner(t *testing.T) {
 		{"json", []string{"respond", "--model", "local", "--tools", tools, "--json", "hi"}, "remove --json/--agent"},
 		{"agent", []string{"respond", "--model", "local", "--tools", tools, "--agent", "hi"}, "remove --json/--agent"},
 		{"named choice", []string{"respond", "--model", "local", "--tools", tools, "--tool-choice", "get_weather", "hi"}, "--tool-choice accepts auto, none, required, or function:NAME"},
-		{"unknown named choice", []string{"respond", "--model", "local", "--tools", tools, "--tool-choice", "function:missing", "hi"}, "invalid native tool step"},
+		{"unknown named choice", []string{"respond", "--model", "local", "--tools", tools, "--tool-choice", "function:missing", "hi"}, `tool_choice function "missing" was not offered; offered functions: get_weather`},
 		{"choice without tools", []string{"respond", "--model", "local", "--tool-choice", "none", "hi"}, "--tool-choice requires --tools"},
 		{"bad schema", []string{"respond", "--model", "local", "--tools", badTools, "hi"}, "--tools[0].function.parameters: schema at /additionalProperties"},
 		{"missing file", []string{"respond", "--model", "local", "--tools", filepath.Join(t.TempDir(), "absent.json"), "hi"}, "tools file \"absent.json\""},

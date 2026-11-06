@@ -232,7 +232,7 @@ func TestToolRefusalsBeforeDispatch(t *testing.T) {
 		{"chat guided", "/v1/chat/completions", `{"model":"local",` + tools + `,` + user + `,"response_format":{"type":"json_schema","json_schema":{"name":"x","schema":{"type":"object","properties":{}}}}}`, "tools cannot be combined with response_format json_schema", 400},
 		{"responses guided", "/v1/responses", `{"model":"local",` + tools + `,"input":"hi","text":{"format":{"type":"json_schema","name":"x","schema":{"type":"object","properties":{}}}}}`, "tools cannot be combined with text.format json_schema", 400},
 		{"parallel false", "/v1/chat/completions", `{"model":"local","parallel_tool_calls":false,` + tools + `,` + user + `}`, "parallel_tool_calls:false is not supported", 400},
-		{"unknown named choice", "/v1/chat/completions", `{"model":"local","tool_choice":{"type":"function","function":{"name":"missing"}},` + tools + `,` + user + `}`, "tool_choice must name an offered function", 400},
+		{"unknown named choice", "/v1/chat/completions", `{"model":"local","tool_choice":{"type":"function","function":{"name":"missing"}},` + tools + `,` + user + `}`, `tool_choice function \"missing\" was not offered; offered functions: get_weather`, 400},
 		{"invalid choice", "/v1/responses", `{"model":"local","tool_choice":"invalid",` + tools + `,"input":"hi"}`, "tool_choice accepts auto, none, required", 400},
 		{"choice without tools", "/v1/chat/completions", `{"model":"local","tool_choice":"auto",` + user + `}`, "tool_choice and parallel_tool_calls require tools", 400},
 		{"empty tools", "/v1/responses", `{"model":"local","tools":[],"input":"hi"}`, "tools must contain at least one tool", 400},

@@ -1,0 +1,14 @@
+{
+  "answer_reserved_tokens": 512,
+  "base_tokens": 1,
+  "context_tokens": 8192,
+  "conversation_bytes": 352,
+  "conversation_tokens": 98,
+  "input_tokens": 21508,
+  "instructions_bytes": 233,
+  "instructions_tokens": 87,
+  "results_framing_bytes": 58538,
+  "results_framing_tokens": 19737,
+  "tools_bytes": 7164,
+  "tools_tokens": 1585
+}

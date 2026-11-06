@@ -77,7 +77,11 @@ func parseToolMembers(m toolMembers, responses ...bool) ([]runner.Tool, runner.T
 				found = found || tool.Name == name
 			}
 			if !found {
-				return nil, "", unsupportedParameter("tool_choice must name an offered function")
+				names := make([]string, 0, len(tools))
+				for _, tool := range tools {
+					names = append(names, tool.Name)
+				}
+				return nil, "", unsupportedParameter(runner.ToolChoiceNotOffered(name, names).Error())
 			}
 			value = "function:" + name
 		}

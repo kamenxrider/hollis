@@ -574,6 +574,7 @@ func nativeErrorIdentifier(value string) bool {
 }
 
 type nativeEvent struct {
+	Budget        map[string]int     `json:"budget,omitempty"`
 	ErrorInfo     *NativeFailureInfo `json:"error_info,omitempty"`
 	CheckedTokens *int               `json:"input_tokens,omitempty"`
 	RequestID     string             `json:"request_id,omitempty"`
@@ -723,6 +724,7 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 	// The helper's stderr can contain framework diagnostics. Do not propagate or
 	// accumulate it: protocol errors provide deliberately prompt-free diagnostics.
 	ready, terminal := false, false
+	budgetSeen := false
 	previous := ""
 	total := 0
 	handle := func(line []byte) error {
@@ -768,6 +770,9 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		if event.CheckedTokens != nil && event.Event != "checked" {
 			return nativeError(KindNativeProtocol, "unexpected native preflight counts")
 		}
+		if event.Budget != nil && event.Event != "budget" {
+			return nativeError(KindNativeProtocol, "unexpected native budget")
+		}
 		if info := event.ErrorInfo; info != nil {
 			if event.Event != "error" || !nativeErrorIdentifier(info.SwiftType) ||
 				!nativeErrorIdentifier(info.Domain) || info.Code == nil || info.CallbackCaptured == nil {
@@ -802,6 +807,13 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 			return nativeError(KindNativeProtocol, "unexpected native extraction data")
 		}
 		switch event.Event {
+		case "budget":
+			if !ready || budgetSeen || opts.ToolStep == nil || os.Getenv("HOLLIS_DEBUG_BUDGET") != "1" ||
+				event.Text != nil || event.Usage != nil || event.Kind != "" || !validNativeBudget(event.Budget) {
+				return nativeError(KindNativeProtocol, "invalid native budget")
+			}
+			budgetSeen = true
+			slog.Info("native_budget", "counts", event.Budget)
 		case "checked":
 			if !ready || operation != "tool_check" || event.CheckedTokens == nil || *event.CheckedTokens < 0 ||
 				event.Text != nil || event.Usage != nil || event.Kind != "" {
@@ -1024,6 +1036,7 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 			"domain", busy.NativeFailure.Domain, "code", *busy.NativeFailure.Code)
 		retried = true
 		ready, terminal, previous, total = false, false, "", 0
+		budgetSeen = false
 		result, status = Completion{Model: model}, LocalStatus{}
 		res, runErr = subproc.Scan(ctx, spec, handle)
 	}

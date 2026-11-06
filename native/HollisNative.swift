@@ -158,7 +158,12 @@ struct HollisNative {
                               "capability": "tools", "reason": "no_tool_calling"])
                     return
                 }
-                do { try send(await NativeTools.run(prepared)) }
+                do {
+                    let diagnostics = ProcessInfo.processInfo.environment["HOLLIS_DEBUG_BUDGET"] == "1"
+                    try send(await NativeTools.run(prepared, budget: diagnostics ? { counts in
+                        try send(["event": "budget", "budget": counts])
+                    } : nil))
+                }
                 catch NativeTools.Failure.capacity {
                     try send(["event": "error", "kind": "context_capacity"])
                 } catch NativeTools.Failure.partialBatch {

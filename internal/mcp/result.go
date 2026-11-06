@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -58,6 +60,17 @@ func mapResult(server, tool string, result *sdk.CallToolResult) (Result, error) 
 		encoded, err := json.Marshal(result.StructuredContent)
 		if err != nil {
 			return Result{}, newError(CodeProtocol, server, tool, "structured content is not valid JSON")
+		}
+		if os.Getenv("HOLLIS_DEBUG_BUDGET") == "1" {
+			duplicate := 0
+			for _, part := range parts {
+				var compact bytes.Buffer
+				if json.Compact(&compact, []byte(part)) == nil && bytes.Equal(compact.Bytes(), encoded) {
+					duplicate += len(part)
+				}
+			}
+			slog.Info("mcp_result_budget", "text_bytes", len(strings.Join(parts, "\n")),
+				"structured_bytes", len(encoded), "duplicate_bytes", duplicate)
 		}
 		parts = append(parts, structuredLabel+"\n"+string(encoded))
 	}
@@ -125,6 +138,9 @@ func (f *Framer) Frame(server, tool string, result Result) string {
 		b.WriteByte('\n')
 	}
 	fmt.Fprintf(&b, "<<<end hollis tool result %s>>>", f.nonce)
+	if os.Getenv("HOLLIS_DEBUG_BUDGET") == "1" {
+		slog.Info("mcp_frame_budget", "result_bytes", len(result.Text), "framed_bytes", b.Len())
+	}
 	return b.String()
 }
 
