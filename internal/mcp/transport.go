@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"sync"
@@ -176,7 +177,7 @@ func newHTTPLink(name string, s Server, lookup func(string) (string, bool)) (*ht
 	base.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	base.ForceAttemptHTTP2 = true
 	l.client = &http.Client{
-		Transport: &linkRoundTripper{link: l, base: base, header: header, value: value},
+		Transport: &linkRoundTripper{link: l, base: base, header: header, value: value, headers: maps.Clone(s.Headers)},
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			l.redirected.Store(true)
 			return errRedirect
@@ -214,10 +215,11 @@ func (l *httpLink) facts() linkFacts {
 // body. The SDK detaches some requests from the caller's context, so the
 // link's own cancellation is what bounds them.
 type linkRoundTripper struct {
-	link   *httpLink
-	base   http.RoundTripper
-	header string
-	value  string
+	link    *httpLink
+	base    http.RoundTripper
+	header  string
+	value   string
+	headers map[string]string
 }
 
 func (rt *linkRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -227,6 +229,9 @@ func (rt *linkRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	ctx, cancel := context.WithCancel(req.Context())
 	stop := context.AfterFunc(rt.link.ctx, cancel)
 	out := req.Clone(ctx)
+	for name, value := range rt.headers {
+		out.Header.Set(name, value)
+	}
 	if rt.header != "" {
 		out.Header.Set(rt.header, rt.value)
 	}

@@ -67,8 +67,9 @@ type Server struct {
 	EnvFrom map[string]string `json:"env_from,omitempty"`
 	Dir     string            `json:"dir,omitempty"`
 
-	URL  string `json:"url,omitempty"`
-	Auth *Auth  `json:"auth,omitempty"`
+	URL     string            `json:"url,omitempty"`
+	Auth    *Auth             `json:"auth,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
 
 	Approval string   `json:"approval,omitempty"`
 	Allow    []string `json:"allow,omitempty"`
@@ -244,6 +245,9 @@ func ValidateServer(name string, s Server) error {
 		return configError("%s: set exactly one of \"command\" (stdio) or \"url\" (HTTP)", "servers."+name)
 	}
 	if stdio {
+		if len(s.Headers) > 0 {
+			return configError("%s is only valid with \"url\"", field("headers"))
+		}
 		if s.Auth != nil {
 			return configError("%s is only valid with \"url\"", field("auth"))
 		}
@@ -297,6 +301,9 @@ func ValidateServer(name string, s Server) error {
 			if err := validateAuth(field("auth"), *s.Auth); err != nil {
 				return err
 			}
+		}
+		if err := validateHeaders(field("headers"), s.Headers, s.Auth); err != nil {
+			return err
 		}
 	}
 	switch s.Approval {
@@ -386,6 +393,47 @@ func isLoopbackHost(host string) bool {
 		return false
 	}
 	return addr.IsLoopback()
+}
+
+// validateHeaders accepts only non-secret provider settings, not credentials
+// or headers owned by the HTTP/MCP transport. Values are never echoed in errors.
+func validateHeaders(field string, headers map[string]string, auth *Auth) error {
+	if len(headers) > 32 {
+		return configError("%s allows at most 32 entries", field)
+	}
+	seen := map[string]bool{}
+	for _, name := range sortedKeys(headers) {
+		if !headerNamePattern.MatchString(name) {
+			return configError("%s: invalid header name", field)
+		}
+		lower := strings.ToLower(name)
+		if seen[lower] {
+			return configError("%s: duplicate header name (case-insensitive)", field)
+		}
+		seen[lower] = true
+		if secretLikeName(name) || strings.Contains(lower, "cookie") || strings.Contains(lower, "session") ||
+			(auth != nil && auth.Type == "header" && strings.EqualFold(name, auth.Name)) {
+			return configError("%s: credential-like header names are refused; use \"auth\" with an environment variable", field)
+		}
+		switch lower {
+		case "host", "content-type", "content-length", "accept", "accept-encoding", "connection",
+			"transfer-encoding", "te", "trailer", "upgrade", "keep-alive", "proxy-connection":
+			return configError("%s: transport header is reserved", field)
+		}
+		if strings.HasPrefix(lower, "mcp-") {
+			return configError("%s: MCP protocol headers are reserved", field)
+		}
+		value := headers[name]
+		if len(value) > 8<<10 {
+			return configError("%s: each value must be at most 8192 bytes", field)
+		}
+		for _, b := range []byte(value) {
+			if b < 0x20 || b == 0x7f {
+				return configError("%s: values must not contain control characters", field)
+			}
+		}
+	}
+	return nil
 }
 
 func validateAuth(field string, a Auth) error {

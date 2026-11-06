@@ -393,6 +393,7 @@ func newMCPAddCmd(flags *rootFlags) *cobra.Command {
 	var (
 		command, url, dir, approval, auth string
 		cmdArgs, env, envFrom, allow      []string
+		headers                           []string
 		callTimeout, connectTimeout       time.Duration
 	)
 	cmd := &cobra.Command{
@@ -424,6 +425,9 @@ reviewed definition.`,
 				return err
 			}
 			if s.EnvFrom, err = keyValues("--env-from", envFrom); err != nil {
+				return err
+			}
+			if s.Headers, err = parseHeaderFlags(headers); err != nil {
 				return err
 			}
 			if auth != "" {
@@ -462,6 +466,7 @@ reviewed definition.`,
 	f.StringVar(&dir, "dir", "", "Absolute working directory for a stdio server")
 	f.StringVar(&url, "url", "", "Streamable HTTP endpoint (https; http only for loopback)")
 	f.StringVar(&auth, "auth", "", "bearer:VAR or header:NAME:VAR, reading the credential from environment variable VAR")
+	f.StringArrayVar(&headers, "header", nil, "NAME:VALUE non-secret HTTP setting (stored literally); repeat; credentials require --auth")
 	f.StringVar(&approval, "approval", "", "ask (default) or auto")
 	f.StringArrayVar(&allow, "allow", nil, "Exact tool name for the allow list; repeat for more")
 	f.DurationVar(&callTimeout, "call-timeout", 0, "Per-call deadline (default 20s, ceiling 120s)")
@@ -483,6 +488,25 @@ func keyValues(flag string, values []string) (map[string]string, error) {
 			return nil, usageErr(fmt.Errorf("%s names %s twice", flag, key))
 		}
 		out[key] = val
+	}
+	return out, nil
+}
+
+func parseHeaderFlags(values []string) (map[string]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(values))
+	for _, value := range values {
+		name, val, ok := strings.Cut(value, ":")
+		if !ok || name == "" {
+			return nil, usageErr(errors.New("--header needs NAME:VALUE; credentials require --auth"))
+		}
+		name = strings.ToLower(name)
+		if _, duplicate := out[name]; duplicate {
+			return nil, usageErr(errors.New("--header names the same header twice (case-insensitive)"))
+		}
+		out[name] = strings.TrimSpace(val)
 	}
 	return out, nil
 }

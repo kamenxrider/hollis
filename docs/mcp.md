@@ -97,6 +97,13 @@ hollis mcp remove files
   no shell: `--command "npx -y pkg"` is refused. Pass each argument with `--arg`.
 - An HTTP server is an `https://` URL. Plain `http://` is accepted only for
   loopback addresses.
+- `--header NAME:VALUE` adds a non-secret HTTP provider setting, repeatable
+  for different names. It is stored literally in the server's `headers` map.
+  Names are case-insensitive; duplicates, credential-like names (including
+  cookies and session headers), and HTTP/MCP transport headers are refused.
+  At most 32 headers, each value at most 8 KiB with no control characters.
+  Use `--auth` for credentials, never `--header`. Header values are not shown
+  by `mcp list`; do not embed secrets inside configuration JSON.
 - `mcp.json` lives in the Hollis state directory
   (`~/Library/Application Support/hollis`, or `$HOLLIS_STATE_DIR`). It is
   written atomically under a lock, kept at mode 0600, and refused if it is a
@@ -190,6 +197,39 @@ token preflight fails. `tool_result_too_large` instead identifies an MCP
 byte-limit failure. Neither path truncates or automatically summarizes content.
 Where the provider supports them, explicitly request smaller results or select
 fewer tools at the server.
+
+### Provider-side result caps
+
+Large-result servers need provider-side limits, not client-side truncation.
+For a server that accepts a non-secret configuration header, for example:
+
+```bash
+hollis mcp add search --url https://api.example.dev/mcp \
+  --auth bearer:EXAMPLE_KEY \
+  --header 'X-Search-Config: {"max_results":3,"max_chars_total":6000}'
+```
+
+Header names and JSON formats are provider-specific. Parallel's
+[MCP configuration](https://docs.parallel.ai/integrations/mcp/quickstart#override-settings)
+uses `x-parallel-mcp-config` and requires authentication for overrides:
+
+```bash
+hollis mcp add parallel --url https://mcp.parallel.ai/mcp \
+  --auth bearer:EXAMPLE_KEY \
+  --header 'x-parallel-mcp-config: {"web_search":{"override":{"max_chars_total":6000,"advanced_settings":{"max_results":3,"excerpt_settings":{"max_chars_per_result":2000}}}}}'
+hollis respond --model local --mcp parallel \
+  'Find the official Go documentation page about slices. Report its title and URL.'
+```
+
+Set `EXAMPLE_KEY` in the launching environment; only its name is stored.
+Parallel also accepts `--auth header:x-api-key:EXAMPLE_KEY`. The current MCP
+endpoint does not accept the legacy `x-parallel-search-config` header or
+configuration query parameters; use the documented configuration header.
+Overrides apply after model arguments, so the model cannot raise these caps.
+The example caps excerpts, not metadata, framing or total native tokens.
+Use `HOLLIS_DEBUG_BUDGET=1` to measure the complete request and leave room
+for tool definitions, conversation and the answer. Adjust caps for each task;
+these values are not a guarantee for every result or conversation length.
 
 ## Failures
 
