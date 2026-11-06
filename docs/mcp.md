@@ -109,6 +109,39 @@ hollis mcp remove files
   written atomically under a lock, kept at mode 0600, and refused if it is a
   symlink, has unknown or duplicate keys, or is not valid UTF-8.
 
+### Offer only selected tools
+
+`--tool NAME` on `mcp add` restricts the model's offer to exact server tool
+names, not the rendered `server__tool` names. Repeat it for multiple tools:
+
+```bash
+hollis mcp add wiki --url https://mcp.deepwiki.com/mcp --tool ask_wiki_question
+hollis mcp set wiki --tool ask_wiki_question
+hollis mcp tools wiki
+hollis respond --model local --mcp wiki --timeout 120s --stream=false \
+  'In the modelcontextprotocol/go-sdk repository, how do I create a minimal MCP server with one tool? Look it up and give a brief answer with a source link.'
+```
+
+Use `add` for a new server or `set` for an existing one. `set` replaces the
+whole filter without contacting the server. It preserves approval mode,
+automatic-execution allow list and pins. Calls still need approval by default.
+
+This DeepWiki recipe offers only `ask_wiki_question`, not `read_wiki_contents`,
+which can return an entire repository exceeding Local's 128 KiB input limit.
+A focused answer can still exceed byte or context limits; the filter is not
+a result-size cap and nothing is truncated.
+
+The filter is saved as `"tools": ["ask_wiki_question"]` on the server in
+`mcp.json`. Missing or empty `tools` means all supported tools, preserving
+existing configurations. `hollis mcp set wiki --all-tools` removes the filter.
+Unknown selected names fail clearly at connection time. Filtered-out tools
+are never offered, and call-time checks reject them even if a model invents
+their names. Attachment counts report how many tools were filtered out.
+`mcp tools` lists them with `OFFER` set to `filtered`.
+
+This filter is separate from `allow`/`deny`: those control automatic approval,
+not which tools are offered. Selecting a tool never grants permission to run it.
+
 ## Secrets never live in `mcp.json`
 
 - `--env KEY=VALUE` is for non-secret settings. A name that looks like a
@@ -159,6 +192,7 @@ it. It never runs a tool and never calls a model. For each tool:
 | `MODEL NAME` | The name a model would see: `<server>__<tool>` |
 | `VALIDATION` | `local`: Hollis checks the arguments against the schema. `server`: only the server validates them, so the tool is ask-only. `unsupported`: the tool is never offered, with the reason printed below the table |
 | `ALLOW` | `-` (not allow-listed), `unpinned`, `current`, or `changed` |
+| `OFFER` | `yes`, `filtered` (excluded by `tools`), or `unsupported` |
 
 ## Limits
 

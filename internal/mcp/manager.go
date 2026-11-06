@@ -81,6 +81,8 @@ type ServerStatus struct {
 	ProtocolVersion  string
 	ToolsOffered     int
 	ToolsUnsupported int
+	// ToolsFiltered counts listed tools excluded by the configured filter.
+	ToolsFiltered int
 	// ToolsExcluded counts tools the SDK itself dropped from tools/list.
 	ToolsExcluded int
 	// StderrBytes counts bytes a stdio server wrote to stderr. The bytes are
@@ -369,11 +371,19 @@ func (s *session) adopt(listed []*sdk.Tool, late bool) error {
 		}
 		tool := classify(s.name, raw.Name, raw.Description, schema)
 		tool.Late = late
-		if !late && s.cfg.Mode() == ApprovalAuto && s.cfg.Allowed(tool.Name) && tool.Tier == TierServerValidated {
+		tool.Filtered = !s.cfg.Selected(tool.Name)
+		if !late && !tool.Filtered && s.cfg.Mode() == ApprovalAuto && s.cfg.Allowed(tool.Name) && tool.Tier == TierServerValidated {
 			return schemaUnvalidatedError(tool)
 		}
 		s.tools[tool.Name] = tool
 		s.order = append(s.order, tool.Name)
+	}
+	if !late {
+		for _, name := range s.cfg.Tools {
+			if !seen[name] {
+				return newError(CodeConfig, s.name, name, "configured tools filter names %q, but tools/list did not return it; check 'hollis mcp tools' or update the filter with 'hollis mcp set %s --tool NAME' (or --all-tools)", name, s.name)
+			}
+		}
 	}
 	return nil
 }
@@ -386,7 +396,7 @@ func (m *Manager) limitSchemaText() {
 			s.mu.Lock()
 			for _, name := range s.order {
 				t := s.tools[name]
-				if t.Tier != TierServerValidated || t.Late != late {
+				if t.Filtered || t.Tier != TierServerValidated || t.Late != late {
 					continue
 				}
 				if len(t.SchemaText) <= remaining {
@@ -470,7 +480,9 @@ func (m *Manager) Servers() []ServerStatus {
 			StderrBytes: s.link.facts().stderrBytes,
 		}
 		for _, tool := range s.snapshot(false) {
-			if tool.Offered() {
+			if tool.Filtered {
+				status.ToolsFiltered++
+			} else if tool.Offered() {
 				status.ToolsOffered++
 			} else {
 				status.ToolsUnsupported++
@@ -533,6 +545,12 @@ func (m *Manager) call(ctx context.Context, server, name string, arguments json.
 	}
 	if s.failed.Load() {
 		return Result{}, newError(CodeUnavailable, server, name, "the session was closed after an earlier failure")
+	}
+	// Enforce selection independently of the offered snapshot, before approval
+	// or re-listing, even for invented names and non-interactive requests.
+	if !s.cfg.Selected(name) {
+		rec.Decision = DecisionRefused
+		return Result{}, newError(CodeUnknownTool, server, name, "the tool is excluded by this server's tools filter")
 	}
 	// Ask mode without a way to ask is refused before any server round trip,
 	// including the re-list below.

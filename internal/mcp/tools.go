@@ -79,12 +79,14 @@ type Tool struct {
 	Pin string
 	// Late marks a tool that was absent from the attach-time snapshot.
 	Late bool
+	// Filtered marks a listed tool excluded by the configured offer filter.
+	Filtered bool
 
 	schema *runner.Schema
 }
 
 // Offered reports whether the model may see the tool.
-func (t Tool) Offered() bool { return t.Tier != TierUnsupported }
+func (t Tool) Offered() bool { return t.Tier != TierUnsupported && !t.Filtered }
 
 // ValidateArguments checks args against the tool's schema. A tier-1 tool is
 // validated fully; a tier-2 tool only has to be a JSON object.

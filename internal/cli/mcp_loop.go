@@ -226,10 +226,10 @@ func (f *mcpFlags) attach(ctx context.Context, cmd *cobra.Command, flags *rootFl
 		session.tools[tool.Rendered] = tool
 	}
 	for _, status := range manager.Servers() {
-		fmt.Fprintf(cmd.ErrOrStderr(), "MCP %s: %d offered, %d unsupported, %d excluded by SDK (approval %s)\n",
-			status.Name, status.ToolsOffered, status.ToolsUnsupported, status.ToolsExcluded, status.Approval)
+		fmt.Fprintf(cmd.ErrOrStderr(), "MCP %s: %d offered, %d unsupported, %d excluded by SDK, %d filtered out (approval %s)\n",
+			status.Name, status.ToolsOffered, status.ToolsUnsupported, status.ToolsExcluded, status.ToolsFiltered, status.Approval)
 		for _, tool := range manager.ServerTools(status.Name) {
-			if !tool.Offered() {
+			if tool.Tier == mcp.TierUnsupported && !tool.Filtered {
 				fmt.Fprintf(cmd.ErrOrStderr(), "MCP unsupported %s/%s: %s\n", status.Name, mcp.EscapeTerminal(tool.Name), mcp.EscapeTerminal(tool.Reason))
 			}
 		}
@@ -251,6 +251,7 @@ type mcpServerStatus struct {
 	ToolsOffered     int    `json:"tools_offered"`
 	ToolsUnsupported int    `json:"tools_unsupported"`
 	ToolsExcluded    int    `json:"tools_excluded"`
+	ToolsFiltered    int    `json:"tools_filtered"`
 }
 
 type mcpCallAudit struct {
@@ -286,7 +287,7 @@ func (s *mcpSession) metadata() mcpRunMetadata {
 		return meta
 	}
 	for _, status := range s.manager.Servers() {
-		meta.Servers = append(meta.Servers, mcpServerStatus{status.Name, status.Transport, status.Approval, status.ToolsOffered, status.ToolsUnsupported, status.ToolsExcluded})
+		meta.Servers = append(meta.Servers, mcpServerStatus{status.Name, status.Transport, status.Approval, status.ToolsOffered, status.ToolsUnsupported, status.ToolsExcluded, status.ToolsFiltered})
 	}
 	meta.ToolCalls = append(meta.ToolCalls, s.calls...)
 	meta.Dispositions = append(meta.Dispositions, s.dispositions...)

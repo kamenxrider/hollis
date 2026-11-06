@@ -116,7 +116,9 @@ func TestReadmeQuickstartVerifiesAllArtifactsBeforeUse(t *testing.T) {
 		`set -euo pipefail`,
 		`umask 077`,
 		`cd "$(mktemp -d)"`,
-		`HOLLIS_VERSION=0.4.0`,
+		`[release notes](docs/releases/README.md)`,
+		`: "${HOLLIS_VERSION:?Set the version from the pinned release notes}"`,
+		`: "${HOLLIS_SOURCE_DIGEST:?Set the full source commit from the pinned release notes}"`,
 		`HOLLIS_BUNDLE="hollis-$HOLLIS_VERSION-darwin-arm64.zip"`,
 		`gh release download "v$HOLLIS_VERSION" --repo kamenxrider/hollis`,
 		`--pattern "$HOLLIS_BUNDLE" --pattern SHA256SUMS`,
@@ -124,8 +126,8 @@ func TestReadmeQuickstartVerifiesAllArtifactsBeforeUse(t *testing.T) {
 		`shasum -a 256 -c SELECTED_SHA256SUMS`,
 		`gh attestation verify "$HOLLIS_BUNDLE" --repo kamenxrider/hollis`,
 		`--signer-workflow kamenxrider/hollis/.github/workflows/release.yml`,
-		`--source-ref refs/tags/v0.4.0`,
-		`--source-digest 1906721a1cd5594ce47be6d4d306d7daa1e6891f`,
+		`--source-ref "refs/tags/v$HOLLIS_VERSION"`,
+		`--source-digest "$HOLLIS_SOURCE_DIGEST"`,
 		`--deny-self-hosted-runners`,
 		`install -m 755 runtime/hollis runtime/hollis-native "$HOME/.local/bin/"`,
 	} {
@@ -135,6 +137,9 @@ func TestReadmeQuickstartVerifiesAllArtifactsBeforeUse(t *testing.T) {
 	}
 	if strings.Contains(quickstart, "--ignore-missing") || strings.Contains(quickstart, "releases/latest") {
 		t.Fatal("README must verify one selected release without ignoring missing checksums")
+	}
+	if strings.Contains(quickstart, "0.4.0") || strings.Contains(quickstart, "1906721a1cd5594ce47be6d4d306d7daa1e6891f") {
+		t.Fatal("README must not mix a selected release with obsolete version or source pins")
 	}
 	checksumAt := strings.Index(quickstart, `shasum -a 256 -c SELECTED_SHA256SUMS`)
 	verifyAt := strings.Index(quickstart, `gh attestation verify`)

@@ -77,6 +77,7 @@ to the definition reviewed by 'hollis mcp allow'.`,
 	cmd.AddCommand(newMCPListCmd(flags))
 	cmd.AddCommand(newMCPToolsCmd(flags))
 	cmd.AddCommand(newMCPAddCmd(flags))
+	cmd.AddCommand(newMCPSetCmd(flags))
 	cmd.AddCommand(newMCPRemoveCmd(flags))
 	cmd.AddCommand(newMCPAllowCmd(flags))
 	cmd.AddCommand(newMCPDenyCmd(flags))
@@ -151,6 +152,7 @@ type mcpServerView struct {
 	Approval  string        `json:"approval"`
 	Allow     []string      `json:"allow"`
 	Pinned    []string      `json:"pinned"`
+	Tools     []string      `json:"tools"`
 	Env       []string      `json:"env"`
 	EnvFrom   []mcpVariable `json:"env_from"`
 	Auth      *mcpAuthView  `json:"auth,omitempty"`
@@ -160,6 +162,7 @@ func viewServer(name string, s mcp.Server, lookup func(string) bool) mcpServerVi
 	view := mcpServerView{
 		Name: name, Transport: s.Transport(), Command: s.Command, ArgCount: len(s.Args), URL: s.URL,
 		Approval: s.Mode(), Allow: append([]string{}, s.Allow...), Pinned: []string{}, Env: []string{}, EnvFrom: []mcpVariable{},
+		Tools: append([]string{}, s.Tools...),
 	}
 	for _, tool := range s.Allow {
 		if s.Pins[tool] != "" {
@@ -220,7 +223,7 @@ never printed, and neither are command arguments.`,
 				return nil
 			}
 			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "NAME\tTRANSPORT\tAPPROVAL\tALLOW\tTARGET\tVARIABLES")
+			fmt.Fprintln(tw, "NAME\tTRANSPORT\tAPPROVAL\tALLOW\tTOOLS\tTARGET\tVARIABLES")
 			for _, v := range views {
 				target := v.Command
 				if v.Transport == "http" {
@@ -232,7 +235,11 @@ never printed, and neither are command arguments.`,
 				if len(v.Allow) > 0 {
 					allow = fmt.Sprintf("%d (%d pinned)", len(v.Allow), len(v.Pinned))
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", v.Name, v.Transport, v.Approval, allow, target, variableSummary(v))
+				selected := "all"
+				if len(v.Tools) > 0 {
+					selected = strings.Join(v.Tools, ", ")
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", v.Name, v.Transport, v.Approval, allow, selected, target, variableSummary(v))
 			}
 			return tw.Flush()
 		},
@@ -267,6 +274,7 @@ type mcpToolView struct {
 	SchemaBytes int    `json:"schema_bytes"`
 	Validation  string `json:"validation"`
 	Supported   bool   `json:"supported"`
+	Filtered    bool   `json:"filtered"`
 	Reason      string `json:"reason,omitempty"`
 	Pointer     string `json:"pointer,omitempty"`
 	Allowlisted bool   `json:"allowlisted"`
@@ -340,31 +348,38 @@ whether its allow-list pin still matches the live definition.`,
 				views = append(views, mcpToolView{
 					Rendered: tool.Rendered, Name: tool.Name, Description: tool.Description, SchemaBytes: len(tool.InputSchema),
 					Validation: validationWord(tool.Tier), Supported: tool.Offered(), Reason: tool.Reason, Pointer: tool.Pointer,
+					Filtered:    tool.Filtered,
 					Allowlisted: s.Allowed(tool.Name), Pin: pinStatus(s, tool),
 				})
 			}
 			if flags.asJSON {
 				return printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
 					"server": name, "transport": status.Transport, "approval": s.Mode(), "protocol_version": status.ProtocolVersion,
-					"offered": status.ToolsOffered, "unsupported": status.ToolsUnsupported, "excluded": status.ToolsExcluded, "tools": views,
+					"offered": status.ToolsOffered, "unsupported": status.ToolsUnsupported, "excluded": status.ToolsExcluded, "filtered": status.ToolsFiltered, "tools": views,
 				}, flags)
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "Server %s (%s, approval %s, protocol %s)\n", name, status.Transport, s.Mode(), mcp.EscapeTerminal(status.ProtocolVersion))
 			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "TOOL\tMODEL NAME\tVALIDATION\tSCHEMA\tALLOW\tDESCRIPTION")
+			fmt.Fprintln(tw, "TOOL\tMODEL NAME\tVALIDATION\tSCHEMA\tALLOW\tOFFER\tDESCRIPTION")
 			for _, v := range views {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%dB\t%s\t%s\n", mcp.EscapeTerminal(v.Name), v.Rendered, v.Validation, v.SchemaBytes, v.Pin, oneLine(mcp.EscapeTerminal(v.Description), 60))
+				offer := "yes"
+				if v.Filtered {
+					offer = "filtered"
+				} else if !v.Supported {
+					offer = "unsupported"
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%dB\t%s\t%s\t%s\n", mcp.EscapeTerminal(v.Name), v.Rendered, v.Validation, v.SchemaBytes, v.Pin, offer, oneLine(mcp.EscapeTerminal(v.Description), 60))
 			}
 			if err := tw.Flush(); err != nil {
 				return err
 			}
 			for _, v := range views {
-				if !v.Supported {
+				if v.Validation == "unsupported" {
 					fmt.Fprintf(out, "unsupported: %s: %s (at %s)\n", mcp.EscapeTerminal(v.Name), v.Reason, strconv.QuoteToASCII(v.Pointer))
 				}
 			}
-			fmt.Fprintf(out, "%d offered, %d unsupported, %d excluded by SDK\n", status.ToolsOffered, status.ToolsUnsupported, status.ToolsExcluded)
+			fmt.Fprintf(out, "%d offered, %d unsupported, %d excluded by SDK, %d filtered out\n", status.ToolsOffered, status.ToolsUnsupported, status.ToolsExcluded, status.ToolsFiltered)
 			return nil
 		},
 	}
@@ -394,6 +409,7 @@ func newMCPAddCmd(flags *rootFlags) *cobra.Command {
 		command, url, dir, approval, auth string
 		cmdArgs, env, envFrom, allow      []string
 		headers                           []string
+		tools                             []string
 		callTimeout, connectTimeout       time.Duration
 	)
 	cmd := &cobra.Command{
@@ -419,7 +435,7 @@ reviewed definition.`,
 			if err := mcpServerName(name); err != nil {
 				return err
 			}
-			s := mcp.Server{Command: command, Args: cmdArgs, URL: url, Dir: dir, Approval: approval, Allow: allow}
+			s := mcp.Server{Command: command, Args: cmdArgs, URL: url, Dir: dir, Approval: approval, Allow: allow, Tools: tools}
 			var err error
 			if s.Env, err = keyValues("--env", env); err != nil {
 				return err
@@ -469,8 +485,55 @@ reviewed definition.`,
 	f.StringArrayVar(&headers, "header", nil, "NAME:VALUE non-secret HTTP setting (stored literally); repeat; credentials require --auth")
 	f.StringVar(&approval, "approval", "", "ask (default) or auto")
 	f.StringArrayVar(&allow, "allow", nil, "Exact tool name for the allow list; repeat for more")
+	f.StringArrayVar(&tools, "tool", nil, "Offer only this exact server tool name; repeat for more (default: all tools)")
 	f.DurationVar(&callTimeout, "call-timeout", 0, "Per-call deadline (default 20s, ceiling 120s)")
 	f.DurationVar(&connectTimeout, "connect-timeout", 0, "Connect deadline (default 10s, ceiling 60s)")
+	return cmd
+}
+
+func newMCPSetCmd(flags *rootFlags) *cobra.Command {
+	var tools []string
+	var all bool
+	cmd := &cobra.Command{
+		Use:   "set <server> (--tool NAME ... | --all-tools)",
+		Short: "Replace a server's offered-tool filter without changing approval",
+		Long: `Replace the exact tool names offered from a configured server.
+
+Repeat --tool for more names, or use --all-tools to remove the filter.
+No server is contacted. Unknown names fail when the server next connects.
+Approval mode, automatic-execution allow list and definition pins are unchanged.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			if err := mcpServerName(name); err != nil {
+				return err
+			}
+			if (len(tools) > 0) == all || (cmd.Flags().Changed("all-tools") && !all) {
+				return usageErr(errors.New("choose one or more --tool NAME flags or --all-tools"))
+			}
+			path, err := mcpConfigPath()
+			if err != nil {
+				return configErr(err)
+			}
+			var updated mcp.Server
+			err = mcp.Update(path, func(cfg *mcp.Config) error {
+				current, ok := cfg.Servers[name]
+				if !ok {
+					return unknownServerErr(path, name)
+				}
+				current.Tools = slices.Clone(tools)
+				cfg.Servers[name] = current
+				updated = current
+				return nil
+			})
+			if err != nil {
+				return mcpCLIError(err)
+			}
+			return reportMCPChange(cmd, flags, path, name, "updated", updated)
+		},
+	}
+	cmd.Flags().StringArrayVar(&tools, "tool", nil, "Exact server tool name to offer; replaces the filter; repeat for more")
+	cmd.Flags().BoolVar(&all, "all-tools", false, "Remove the filter and offer every supported tool")
 	return cmd
 }
 
@@ -540,6 +603,11 @@ func reportMCPChange(cmd *cobra.Command, flags *rootFlags, path, name, action st
 	}
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "%s MCP server %s (%s, approval %s) in %s\n", capitalize(action), name, view.Transport, view.Approval, path)
+	if len(view.Tools) > 0 {
+		fmt.Fprintf(out, "Tool filter: %s\n", strings.Join(view.Tools, ", "))
+	} else {
+		fmt.Fprintln(out, "Tool filter: all")
+	}
 	if len(view.Allow) > 0 {
 		fmt.Fprintf(out, "Allow list: %s\n", strings.Join(view.Allow, ", "))
 	}
@@ -627,6 +695,9 @@ arguments only the server can validate are refused for "auto" servers.`,
 				return notFoundErr(fmt.Errorf("server %q does not list a tool named %q; run 'hollis mcp tools %s'", name, toolName, name))
 			}
 			tool := listed[idx]
+			if tool.Filtered {
+				return usageErr(fmt.Errorf("tool %q on server %q is excluded by its tools filter; update it with 'hollis mcp set %s --tool NAME' first", toolName, name, name))
+			}
 			if !tool.Offered() {
 				return &cliError{code: 5, machineCode: string(mcp.CodeProtocol), err: fmt.Errorf("tool %q on server %q is unsupported (%s at %s) and is never offered to a model", toolName, name, tool.Reason, strconv.QuoteToASCII(tool.Pointer))}
 			}

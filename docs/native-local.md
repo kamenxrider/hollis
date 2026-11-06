@@ -44,6 +44,11 @@ instructions did not eliminate this in a bounded test and are not applied.
 Prefer singular wording for a single image, and verify the answer against the
 attachment; this is a model limitation, not a counting guarantee.
 
+For exact text, numbers, dates or chart labels from a printed page or chart,
+Local can misread the image. Put the page in a PDF and use `--file` to extract
+text (with OCR for pages without a text layer), then check the result against
+the source.
+
 ## Guided output
 
 This section describes Hollis 0.7.0, with helper 0.7.0/protocol 4. Runtime
@@ -209,16 +214,19 @@ precompiled; end users do not need Xcode or a developer certificate to run it.
 Follow the existing platform consent prompts when applicable.
 
 Download and verify the bundle from the same pinned runtime release before
-extracting it. This requires the GitHub CLI for provenance verification:
+extracting it. Set `HOLLIS_VERSION` from its [release notes](releases/README.md);
+artifact names are fixed at publication. This requires the GitHub CLI for
+provenance verification:
 
 ```sh
 (
 set -eu
 umask 077
-HOLLIS_BUNDLE=hollis-0.4.0-darwin-arm64.zip
+: "${HOLLIS_VERSION:?Set the version from the pinned release notes}"
+HOLLIS_BUNDLE="hollis-$HOLLIS_VERSION-darwin-arm64.zip"
 HOLLIS_STAGE="$(mktemp -d)"
 cd "$HOLLIS_STAGE"
-gh release download v0.4.0 --repo kamenxrider/hollis \
+gh release download "v$HOLLIS_VERSION" --repo kamenxrider/hollis \
   --pattern "$HOLLIS_BUNDLE" --pattern SHA256SUMS
 awk -v asset="$HOLLIS_BUNDLE" '$2 == asset { count++; print } END { if (count != 1) exit 1 }' \
   SHA256SUMS > SELECTED_SHA256SUMS

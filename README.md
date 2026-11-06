@@ -295,8 +295,8 @@ usage limit. Pause after a limit rather than repeatedly retrying. No fixed reset
 interval, shared quota, or safe calls-per-minute allowance has been established.
 
 Explicit `cloud` and `cloud-pro` requests never silently switch models. Default
-`auto` may try Shortcuts On-Device once after a recognized Cloud limit or confirmed
-missing bridge. It never falls back to native local.
+`auto` may try Shortcuts On-Device once only after a confirmed missing bridge.
+Provider limits stop without retry or fallback. It never falls back to native local.
 
 Hollis requires no model API key and adds no inference charge. Apple’s limits and
 any charges from your agent host or linked service still apply.
@@ -345,8 +345,11 @@ installer’s checks yourself:
 <details>
 <summary>Verify manually</summary>
 
-These commands perform the installer’s checks and install the same matched
-0.4.0 bundle. The last command selects the bundled image bridge; skip it if you
+These commands verify and install a matched release bundle. Set `HOLLIS_VERSION`
+and `HOLLIS_SOURCE_DIGEST` from that release's [release notes](docs/releases/README.md)
+(the version and full source commit). Artifact names and source pins are fixed
+at publication; do not substitute a candidate build. The last command selects
+the bundled image bridge; skip it if you
 already use a custom image bridge. Do not install a bundle that fails either
 the checksum or the attestation check.
 
@@ -354,7 +357,8 @@ the checksum or the attestation check.
 (
 set -euo pipefail
 umask 077
-HOLLIS_VERSION=0.4.0
+: "${HOLLIS_VERSION:?Set the version from the pinned release notes}"
+: "${HOLLIS_SOURCE_DIGEST:?Set the full source commit from the pinned release notes}"
 HOLLIS_BUNDLE="hollis-$HOLLIS_VERSION-darwin-arm64.zip"
 cd "$(mktemp -d)"
 gh release download "v$HOLLIS_VERSION" --repo kamenxrider/hollis \
@@ -364,8 +368,8 @@ awk -v asset="$HOLLIS_BUNDLE" '$2 == asset { n++; print } END { if (n != 1) exit
 shasum -a 256 -c SELECTED_SHA256SUMS
 gh attestation verify "$HOLLIS_BUNDLE" --repo kamenxrider/hollis \
   --signer-workflow kamenxrider/hollis/.github/workflows/release.yml \
-  --source-ref refs/tags/v0.4.0 \
-  --source-digest 1906721a1cd5594ce47be6d4d306d7daa1e6891f \
+  --source-ref "refs/tags/v$HOLLIS_VERSION" \
+  --source-digest "$HOLLIS_SOURCE_DIGEST" \
   --deny-self-hosted-runners
 unzip -q "$HOLLIS_BUNDLE" -d runtime
 mkdir -p "$HOME/.local/bin"

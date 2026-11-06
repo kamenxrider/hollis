@@ -138,7 +138,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 	mcpServer := resultType(reflect.TypeFor[mcpServerView]())
 	mcpList := resultFields("path")
 	mcpList.fields["servers"] = resultArray(mcpServer)
-	mcpTools := resultFields("server", "transport", "approval", "protocol_version", "offered", "unsupported", "excluded")
+	mcpTools := resultFields("server", "transport", "approval", "protocol_version", "offered", "unsupported", "excluded", "filtered")
 	mcpTools.fields["tools"] = resultType(reflect.TypeFor[[]mcpToolView]())
 	mcpChange := resultFields("ok", "action", "path")
 	mcpChange.fields["server"] = mcpServer
@@ -146,6 +146,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 		"hollis mcp list":                mcpList,
 		"hollis mcp tools":               mcpTools,
 		"hollis mcp add":                 mcpChange,
+		"hollis mcp set":                 mcpChange,
 		"hollis mcp remove":              mcpChange,
 		"hollis mcp allow":               mcpChange,
 		"hollis mcp deny":                mcpChange,

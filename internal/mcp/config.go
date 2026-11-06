@@ -73,6 +73,9 @@ type Server struct {
 
 	Approval string   `json:"approval,omitempty"`
 	Allow    []string `json:"allow,omitempty"`
+	// Tools restricts the offered tools by exact server name. Empty means all.
+	// This is independent of the automatic-execution allowlist.
+	Tools []string `json:"tools,omitempty"`
 	// Pins maps an allowlisted tool to the SHA-256 of the definition that
 	// was reviewed when it was allowlisted. Automatic execution requires the
 	// live definition to still match.
@@ -108,6 +111,11 @@ func (s Server) Mode() string {
 
 // Allowed reports whether tool is in the allowlist by exact name.
 func (s Server) Allowed(tool string) bool { return slices.Contains(s.Allow, tool) }
+
+// Selected reports whether the configured offer filter includes tool.
+func (s Server) Selected(tool string) bool {
+	return len(s.Tools) == 0 || slices.Contains(s.Tools, tool)
+}
 
 // Names returns the configured server names in sorted order.
 func (c Config) Names() []string {
@@ -332,6 +340,19 @@ func ValidateServer(name string, s Server) error {
 		if !pinPattern.MatchString(s.Pins[tool]) {
 			return configError("%s.%s must be a lowercase SHA-256 hex digest", field("pins"), tool)
 		}
+	}
+	if len(s.Tools) > MaxToolsPerServer {
+		return configError("%s has %d entries; at most %d are allowed", field("tools"), len(s.Tools), MaxToolsPerServer)
+	}
+	selected := map[string]bool{}
+	for _, tool := range s.Tools {
+		if !toolNamePattern.MatchString(tool) {
+			return configError("%s: %q is not an exact tool name (letters, digits, '_', '.', '-'; at most 128); wildcards are not supported", field("tools"), tool)
+		}
+		if selected[tool] {
+			return configError("%s lists %q twice", field("tools"), tool)
+		}
+		selected[tool] = true
 	}
 	if s.CallTimeoutMS != 0 && (s.CallTimeoutMS < minTimeoutMS || s.CallTimeoutMS > maxCallTimeoutMS) {
 		return configError("%s must be between %d and %d", field("call_timeout_ms"), minTimeoutMS, maxCallTimeoutMS)
