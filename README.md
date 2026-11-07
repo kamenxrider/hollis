@@ -34,6 +34,9 @@ hollis chat                          # remembers the conversation
 hollis image generate "A red sailboat" --style illustration --output boat.png
 ```
 
+Local-only `respond` and `chat` accept opt-in `--retry` (3 extra attempts) or
+`--retry=N` (0–5); Cloud, ChatGPT, auto and image generation are never retried.
+
 <!-- SCREENSHOT PLACEHOLDER: replace with a real terminal screenshot of a
 `hollis respond --model local` run before release. Do not use a mock-up. -->
 

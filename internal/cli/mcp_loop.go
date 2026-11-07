@@ -452,6 +452,7 @@ func runRespondMCP(ctx context.Context, cmd *cobra.Command, flags *rootFlags, r 
 	}
 	if flags.asJSON {
 		data := map[string]any{"model_requested": "local", "model_used": outcome.Model, "response": outcome.Text}
+		addRetryAttempts(ctx, data)
 		if outcome.Usage != nil {
 			data["usage"] = outcome.Usage
 		}
