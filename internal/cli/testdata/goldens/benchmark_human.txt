@@ -1,0 +1,14 @@
+Hollis dev | macOS 27.0 (test-build) | test-model | test-chip
+Local context: 4096 tokens
+Results vary with system load.
+Helper start/status: 50.0 ms (includes platform/protocol checks)
+First call (short, separate): 100.0 ms; success true
+Requests attempted: 5/5 | warm runs/case: 1 | p95: nearest-rank
+
+CASE          OK/RUN  MEDIAN ms  P95 ms  MIN ms  MAX ms  TTFT ms*  TOK/s*
+short         1/1     100.0      100.0   100.0   100.0   -         50.0
+stream        1/1     200.0      200.0   200.0   200.0   150.0     25.0
+schema        1/1     100.0      100.0   100.0   100.0   -         50.0
+count_tokens  1/1     100.0      100.0   100.0   100.0   -         -
+* Medians of measured samples only; '-' means unavailable. Wall times include failures.
+Stream checks length only (70-140 words), not factual quality. JSON includes every sample.

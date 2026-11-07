@@ -1,0 +1,29 @@
+Measure native Local with fixed built-in prompts; no user input, saved chats,
+Shortcuts, other model routes or network requests are used.
+
+Runs one first-call short answer separately, then --runs warm attempts each of:
+short answer, streamed ~100-word explanation, guided JSON, and token counting
+(no generation). Calls are serial, with a 30s timeout per request and no retry.
+Each call starts a helper; "warm" means model/OS caches, not a persistent session.
+
+Reports all attempts, including failures: median, nearest-rank p95, min/max wall
+time; streamed time-to-first-text; and tokens/s only from measured SDK usage.
+Stream success checks length only (70-140 words), not factual quality.
+Results vary with system load. Ctrl-C prints partial results and exits 130.
+Any failed or wrong answer exits 5; unavailable Local keeps local_unavailable.
+--json and --agent return the same measurements without generated answer text.
+
+Usage:
+  hollis benchmark [flags]
+
+Flags:
+  -h, --help           help for benchmark
+      --model string   Must be local; no other route is used (default "local")
+      --runs int       Warm runs per case (1-20) (default 5)
+
+Global Flags:
+      --agent           Set all agent-friendly defaults (--json --no-input)
+      --json            Output as JSON
+      --no-input        Disable all interactive prompts (for CI/agents)
+  -q, --quiet           Hide notes, hints and progress on stderr; never hide errors or the answer
+      --select string   Comma-separated fields to include in JSON output (e.g. --select response)

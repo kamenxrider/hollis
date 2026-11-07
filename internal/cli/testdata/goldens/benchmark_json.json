@@ -1,0 +1,177 @@
+{
+  "schema_version": "1",
+  "model": "local",
+  "header": {
+    "hollis_version": "dev",
+    "macos_version": "27.0",
+    "macos_build": "test-build",
+    "mac_model": "test-model",
+    "chip": "test-chip",
+    "context_size": 4096,
+    "load_average_1m": null,
+    "note": "Results vary with system load."
+  },
+  "runs": 1,
+  "planned_requests": 5,
+  "attempted_requests": 5,
+  "interrupted": false,
+  "percentile_method": "nearest-rank",
+  "helper_start_ms": 50,
+  "first_call": {
+    "run": 1,
+    "success": true,
+    "wall_ms": 100,
+    "first_text_ms": null,
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 5,
+      "reasoning_tokens": 0
+    },
+    "output_tokens_per_second": 50,
+    "token_count": null,
+    "error_code": "",
+    "error": ""
+  },
+  "cases": [
+    {
+      "name": "short",
+      "check": "exactly OK after trimming whitespace",
+      "attempted": 1,
+      "succeeded": 1,
+      "wall_ms": {
+        "median": 100,
+        "p95": 100,
+        "min": 100,
+        "max": 100
+      },
+      "first_text_ms": null,
+      "output_tokens_per_second": {
+        "median": 50,
+        "p95": 50,
+        "min": 50,
+        "max": 50
+      },
+      "samples": [
+        {
+          "run": 1,
+          "success": true,
+          "wall_ms": 100,
+          "first_text_ms": null,
+          "usage": {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "reasoning_tokens": 0
+          },
+          "output_tokens_per_second": 50,
+          "token_count": null,
+          "error_code": "",
+          "error": ""
+        }
+      ]
+    },
+    {
+      "name": "stream",
+      "check": "70-140 whitespace-separated words; length only, not factual quality",
+      "attempted": 1,
+      "succeeded": 1,
+      "wall_ms": {
+        "median": 200,
+        "p95": 200,
+        "min": 200,
+        "max": 200
+      },
+      "first_text_ms": {
+        "median": 150,
+        "p95": 150,
+        "min": 150,
+        "max": 150
+      },
+      "output_tokens_per_second": {
+        "median": 25,
+        "p95": 25,
+        "min": 25,
+        "max": 25
+      },
+      "samples": [
+        {
+          "run": 1,
+          "success": true,
+          "wall_ms": 200,
+          "first_text_ms": 150,
+          "usage": {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "reasoning_tokens": 0
+          },
+          "output_tokens_per_second": 25,
+          "token_count": null,
+          "error_code": "",
+          "error": ""
+        }
+      ]
+    },
+    {
+      "name": "schema",
+      "check": "guided object: status=OK, count=3",
+      "attempted": 1,
+      "succeeded": 1,
+      "wall_ms": {
+        "median": 100,
+        "p95": 100,
+        "min": 100,
+        "max": 100
+      },
+      "first_text_ms": null,
+      "output_tokens_per_second": {
+        "median": 50,
+        "p95": 50,
+        "min": 50,
+        "max": 50
+      },
+      "samples": [
+        {
+          "run": 1,
+          "success": true,
+          "wall_ms": 100,
+          "first_text_ms": null,
+          "usage": {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "reasoning_tokens": 0
+          },
+          "output_tokens_per_second": 50,
+          "token_count": null,
+          "error_code": "",
+          "error": ""
+        }
+      ]
+    },
+    {
+      "name": "count_tokens",
+      "check": "positive measured token count fitting the reported context; no generation",
+      "attempted": 1,
+      "succeeded": 1,
+      "wall_ms": {
+        "median": 100,
+        "p95": 100,
+        "min": 100,
+        "max": 100
+      },
+      "first_text_ms": null,
+      "output_tokens_per_second": null,
+      "samples": [
+        {
+          "run": 1,
+          "success": true,
+          "wall_ms": 100,
+          "first_text_ms": null,
+          "usage": null,
+          "output_tokens_per_second": null,
+          "token_count": 25,
+          "error_code": "",
+          "error": ""
+        }
+      ]
+    }
+  ]
+}

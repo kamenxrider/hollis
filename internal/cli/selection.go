@@ -146,6 +146,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 	mcpChange := resultFields("ok", "action", "path")
 	mcpChange.fields["server"] = mcpServer
 	return map[string]*fieldSchema{
+		"hollis benchmark":               resultType(reflect.TypeFor[benchmarkReport]()),
 		"hollis mcp list":                mcpList,
 		"hollis mcp tools":               mcpTools,
 		"hollis mcp add":                 mcpChange,

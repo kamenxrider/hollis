@@ -60,6 +60,59 @@ See [Apple's API documentation](https://developer.apple.com/documentation/founda
 `--quiet` (`-q`) hides notes, hints and progress on stderr, not errors or the
 answer. It also works with saved chat; interactive approval is never bypassed.
 
+### Local speed test
+
+```sh
+hollis benchmark --runs 3
+hollis benchmark --runs 3 --json
+```
+
+`benchmark` always uses native Local. `--model` accepts only `local`; any other
+value exits 2 before a helper starts. Saved model/timeout defaults and environment
+overrides are ignored. No user input, chat history, tools, Shortcuts, Cloud,
+Cloud Pro, ChatGPT or network requests are used, and no answer text is stored.
+Unavailable Local reports the existing `local_unavailable` error (exit 5).
+
+`--runs N` selects warm attempts per case (default 5, range 1-20). The up-front
+stderr notice gives the bounded request count: `1 + 4*N` (13 for `--runs 3`,
+at most 81), plus a non-generative availability call and protocol probe.
+One short first call is separate from warm statistics. The four warm cases
+are an exact `OK` answer, a streamed ~100-word explanation, guided JSON with
+`status=OK` and `count=3`, and token counting without generation. All calls
+are serial, with 30 seconds per request and no retry or fallback. Each request
+starts a helper: warm means warmed model/OS caches, not a persistent helper.
+Stream success checks only a 70-140-word length, not factual quality.
+
+The header includes Hollis/macOS versions and build, hardware model and chip,
+measured Local context size, and 1-minute load average when available. Results
+vary with load. Helper start/status (including platform/protocol checks) and
+the first generation are reported separately; these are cold-ish timings,
+not a promise that the system model was unloaded before the run.
+
+Each case reports success/attempt counts and median, nearest-rank p95
+(`sorted[ceil(0.95*N)-1]`), minimum and maximum wall time, including failed
+attempts. The streamed case also records time-to-first-nonwhitespace-text.
+The table shows median first-text time and output tokens/second; JSON includes
+all samples and all four statistics for these measurements. Throughput uses
+only real SDK output token counts divided by total request wall time, including
+helper overhead; absent counts stay `null`/`-`, never character estimates.
+Failed/partial outputs do not contribute usage or throughput.
+
+`--json` emits stable report schema version `"1"` with `model`, `header`,
+`runs`, `planned_requests`, `attempted_requests`, `interrupted`,
+`percentile_method`, `helper_start_ms`, `first_call` and `cases`. Case rows
+contain `name`, `check`, `attempted`, `succeeded`, `wall_ms`, `first_text_ms`,
+`output_tokens_per_second` and `samples`; statistics contain `median`, `p95`,
+`min` and `max`. Samples contain `run`, `success`, `wall_ms`, `first_text_ms`,
+`usage`, `output_tokens_per_second`, `token_count`, `error_code` and `error`.
+No generated answer text is returned. `--agent` wraps the same report under
+`results` with the usual `meta`; `--select` works for declared report fields.
+`--quiet` hides the up-front stderr notice, not the results or failed checks.
+
+Ctrl-C cancels the active helper, immediately prints partial results, and exits
+130. Wrong or failed answers remain visible and cause exit 5 after the report;
+they are not retried, hidden or reported as successes.
+
 ### One attached image
 
 With exactly one input `--image`, `respond` and one-shot saved `chat` detect
