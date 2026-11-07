@@ -129,6 +129,13 @@ bridges even when native local works.
 older binary cannot read, and switching back does not undo that upgrade. Close
 older Hollis processes, including `hollis serve`, first and read the
 [database upgrade and recovery steps](docs/cli.md#database-upgrades-and-recovery).
+Run `hollis update` to check the latest stable GitHub release and print the
+upgrade command for your installation (`--json`/`--agent` are supported).
+Checks happen only when you run this command; there are no automatic checks.
+For Homebrew installs, `hollis update --apply` asks before running
+`brew upgrade kamenxrider/tap/hollis`; scripts need `--apply --yes`.
+Installer and manual installs only receive instructions, never an automatic
+download or installer execution. See [update details](docs/cli.md#checking-for-updates).
 
 ## Models
 

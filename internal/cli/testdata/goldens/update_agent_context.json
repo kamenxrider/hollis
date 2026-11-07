@@ -1,0 +1,65 @@
+{
+  "name": "update",
+  "use": "update",
+  "short": "Check for a newer stable release; upgrade Homebrew only with --apply",
+  "flags": [
+    {
+      "name": "agent",
+      "type": "bool",
+      "usage": "Set all agent-friendly defaults (--json --no-input)",
+      "default": "false"
+    },
+    {
+      "name": "apply",
+      "type": "bool",
+      "usage": "Upgrade a detected Homebrew installation after confirmation",
+      "default": "false"
+    },
+    {
+      "shorthand": "h",
+      "name": "help",
+      "type": "bool",
+      "usage": "help for update",
+      "default": "false"
+    },
+    {
+      "name": "json",
+      "type": "bool",
+      "usage": "Output as JSON",
+      "default": "false"
+    },
+    {
+      "name": "no-input",
+      "type": "bool",
+      "usage": "Disable all interactive prompts (for CI/agents)",
+      "default": "false"
+    },
+    {
+      "shorthand": "q",
+      "name": "quiet",
+      "type": "bool",
+      "usage": "Hide notes, hints and progress on stderr; never hide errors or the answer",
+      "default": "false"
+    },
+    {
+      "name": "select",
+      "type": "string",
+      "usage": "Comma-separated fields to include in JSON output (e.g. --select response)"
+    },
+    {
+      "name": "yes",
+      "type": "bool",
+      "usage": "Approve --apply without prompting",
+      "default": "false"
+    }
+  ],
+  "output_modes": [
+    "human",
+    "json",
+    "agent"
+  ],
+  "side_effects": [
+    "checks GitHub for the latest stable release only when explicitly invoked, with a 10s timeout and no automatic checks or retries",
+    "with --apply, runs brew upgrade kamenxrider/tap/hollis only for a detected Homebrew install after confirmation; non-interactive modes require --yes; never runs the installer"
+  ]
+}

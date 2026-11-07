@@ -2,6 +2,63 @@
 
 Start with the [verified install and first request](../README.md#install-verified). This guide keeps the detailed command and storage contracts together.
 
+## Checking for updates
+
+```sh
+hollis update
+hollis update --json
+hollis update --apply          # Homebrew only; asks first on a terminal
+hollis update --apply --yes --no-input
+```
+
+Only `hollis update` checks for updates. No startup, background, scheduled or
+automatic check is performed. It makes one explicit request to the public
+GitHub latest-release API for `kamenxrider/hollis`, with a `hollis/<version>`
+User-Agent, a 10-second timeout, no redirects and no retry. This is the same
+repository and `v<version>` tag convention used by the verified installer.
+Drafts and prereleases are ignored, including semver prerelease tags.
+Versions use SemVer 2.0.0 precedence, not lexical ordering; build metadata
+does not affect ordering. A development build newer than the published stable
+release is reported as newer, never offered a downgrade.
+
+Human output includes current/latest versions, availability, release URL,
+installation method and the exact upgrade command or manual download link.
+JSON fields are `current_version`, `latest_version`, `update_available`,
+`version_comparable`, `status`, `release_url`, `install_method`,
+`upgrade_command` and `applied`. `--agent` uses the standard `meta`/`results`
+envelope; `--select` selects these fields. `status` is `update_available`,
+`up_to_date`, `newer_than_published` or `unknown`. An unversioned source build
+(such as `dev`) reports `unknown`, `version_comparable: false` and
+`update_available: false` rather than inventing a version.
+
+Installation detection resolves executable symlinks: a `Cellar/hollis/<version>`
+layout is Homebrew, including nonstandard prefixes. No `brew` process is
+started for detection. The installer leaves no receipt: `~/.local/bin/hollis`
+with an executable sibling `hollis-native` is treated as the default installer
+layout, not proof of provenance. A standalone binary, custom installer
+`--bin-dir`, missing helper or unrecognized layout is `manual`.
+
+For Homebrew the command is `brew upgrade kamenxrider/tap/hollis`.
+`--apply` runs it without a shell only when a newer stable release is available.
+It asks first on a terminal; non-terminal, `--json`, `--no-input` and `--agent`
+invocations require explicit `--yes`. Brew output goes to stderr so JSON stdout
+stays valid. `applied: true` means brew exited successfully; the version fields
+describe the check before upgrading, not a post-upgrade verification.
+Installer and manual installs refuse `--apply` with exit 2 and print the
+documented installer command or release link instead. Hollis never runs that
+installer command or pipes a download into a shell.
+
+An available update is **exit 0**, as are same/newer/unknown current versions.
+No stable release (HTTP 404, or a draft/prerelease returned as latest) is exit
+3, code `missing`; a 404 can also mean the repository is unavailable. GitHub
+403/429 is exit 5, code `rate_limited`; offline/HTTP failures are exit 5,
+code `transport`; invalid JSON, version or release URL is exit 5,
+code `update_response`; timeout is exit 7, code `timeout`.
+Failed brew execution is exit 5, code `update_apply_failed`. These reuse the
+existing numeric exit table; machine codes distinguish failures sharing exit 5.
+Before applying an upgrade, close running Hollis chat and serve processes
+and follow [database upgrade and recovery guidance](#database-upgrades-and-recovery).
+
 ## Everyday use
 
 Run `hollis examples` for [job recipes](../examples/recipes.md), including
