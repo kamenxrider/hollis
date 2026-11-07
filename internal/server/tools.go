@@ -44,7 +44,8 @@ func parseToolMembers(m toolMembers, responses ...bool) ([]runner.Tool, runner.T
 	}
 	tools, err := runner.ParseTools(m.Tools, "tools")
 	if err != nil {
-		return nil, "", unsupportedParameter(err.Error())
+		// Schema pointers can include arbitrarily long caller property names.
+		return nil, "", unsupportedParameter("tools must contain valid function definitions")
 	}
 	choice := runner.ToolChoiceAuto
 	if !isAbsentOrNull(m.ToolChoice) {
@@ -77,11 +78,7 @@ func parseToolMembers(m toolMembers, responses ...bool) ([]runner.Tool, runner.T
 				found = found || tool.Name == name
 			}
 			if !found {
-				names := make([]string, 0, len(tools))
-				for _, tool := range tools {
-					names = append(names, tool.Name)
-				}
-				return nil, "", unsupportedParameter(runner.ToolChoiceNotOffered(name, names).Error())
+				return nil, "", unsupportedParameter("tool_choice function was not offered")
 			}
 			value = "function:" + name
 		}
@@ -130,7 +127,7 @@ func validateToolRoute(w http.ResponseWriter, name string) bool {
 	}
 	model := runner.Model(name)
 	if !model.Valid() {
-		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_parameter", fmt.Sprintf("unsupported model %q", name))
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_parameter", "unsupported model")
 		return false
 	}
 	if model != runner.ModelLocal {
@@ -386,7 +383,7 @@ func parseChatToolMessages(raw json.RawMessage) ([]store.Message, error) {
 				return nil, err
 			}
 		default:
-			return nil, fmt.Errorf("%s: unsupported role %q", subject, message.Role)
+			return nil, fmt.Errorf("%s: unsupported role", subject)
 		}
 	}
 	return history.finish()
@@ -567,7 +564,7 @@ func parseResponsesToolInput(input json.RawMessage, instructions string) ([]stor
 			continue
 		case "", "message":
 		default:
-			return nil, unsupportedParameter(fmt.Sprintf("%s: unsupported item type %q", subject, header.Type))
+			return nil, unsupportedParameter(fmt.Sprintf("%s: unsupported item type", subject))
 		}
 		flush()
 		var item responsesMessageItem

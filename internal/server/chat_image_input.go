@@ -78,7 +78,7 @@ func parseChatMessagesWithImages(incoming []inMessage) ([]reqMessage, []encodedI
 		case "developer":
 			role = "system"
 		default:
-			return nil, nil, fmt.Errorf("messages[%d]: unsupported role %q", i, message.Role)
+			return nil, nil, fmt.Errorf("messages[%d]: unsupported role", i)
 		}
 
 		content, messageImages, err := parseChatContent(message.Content)
@@ -199,7 +199,7 @@ func parseChatImageContent(content rawContent) (string, []encodedImage, error) {
 				}
 				return "", nil, errors.New("content contains an unsupported parameter")
 			}
-			return "", nil, fmt.Errorf("unsupported content part type %q", header.Type)
+			return "", nil, errors.New("unsupported content part type")
 		}
 	}
 	return prompt.String(), images, nil

@@ -281,7 +281,7 @@ func (s *Server) prepareImageGeneration(w http.ResponseWriter, options imageGene
 		style = defaultImageStyle
 	}
 	if !validImageStyle(style) {
-		writeRequestValidationError(w, unsupportedParameter(fmt.Sprintf("unsupported image style %q", style)))
+		writeRequestValidationError(w, unsupportedParameter("unsupported image style"))
 		return imageGenerationPlan{}, false
 	}
 	bridge := strings.TrimSpace(s.ImageBridges[style])
@@ -555,13 +555,13 @@ func parseGenerationMessages(raw json.RawMessage, field string, responses bool) 
 			role = "system"
 		}
 		if role != "system" && role != "user" && role != "assistant" {
-			return nil, nil, fmt.Errorf("%s[%d]: unsupported role %q", field, i, message.Role)
+			return nil, nil, fmt.Errorf("%s[%d]: unsupported role", field, i)
 		}
 		if message.Type != "" && (message.Type != "message" || role != "assistant") {
-			return nil, nil, fmt.Errorf("%s[%d]: unsupported item type %q", field, i, message.Type)
+			return nil, nil, fmt.Errorf("%s[%d]: unsupported item type", field, i)
 		}
 		if message.Status != "" && message.Status != "completed" {
-			return nil, nil, fmt.Errorf("%s[%d]: unsupported status %q", field, i, message.Status)
+			return nil, nil, fmt.Errorf("%s[%d]: unsupported status", field, i)
 		}
 		content, contentReference, err := parseGenerationContent(message.Content, role, responses)
 		if err != nil {
@@ -717,7 +717,7 @@ func parseGenerationContent(raw rawContent, role string, responses bool) (string
 			}
 			reference = parsed
 		default:
-			return "", nil, fmt.Errorf("unsupported content part type %q", header.Type)
+			return "", nil, errors.New("unsupported content part type")
 		}
 	}
 	if strings.TrimSpace(output.String()) == "" {

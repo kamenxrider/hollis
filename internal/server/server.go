@@ -253,7 +253,7 @@ func (c rawContent) text() (string, error) {
 		switch part.Type {
 		case "text", "input_text", "output_text":
 		default:
-			return "", fmt.Errorf("unsupported content part type %q", part.Type)
+			return "", errors.New("unsupported content part type")
 		}
 		if err := part.checkReplayMembers(); err != nil {
 			return "", err
@@ -295,7 +295,7 @@ func parseMessages(messages []inMessage) ([]reqMessage, error) {
 		case "developer":
 			role = "system"
 		default:
-			return nil, fmt.Errorf("messages[%d]: unsupported role %q", i, message.Role)
+			return nil, fmt.Errorf("messages[%d]: unsupported role", i)
 		}
 		content, err := message.Content.text()
 		if err != nil {
@@ -609,7 +609,7 @@ func (s *Server) validateModel(w http.ResponseWriter, name string) (runner.Model
 	}
 	model := runner.Model(name)
 	if !model.Valid() {
-		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_parameter", fmt.Sprintf("unsupported model %q", name))
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_parameter", "unsupported model")
 		return "", false
 	}
 	// Preserve a startup protocol diagnosis rather than reducing it to an

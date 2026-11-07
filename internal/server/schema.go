@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -91,8 +90,7 @@ func parseChatGuided(raw json.RawMessage) (*runner.Schema, error) {
 			return nil, invalidResponseFormat("response_format.json_schema is required with type \"json_schema\"")
 		}
 	default:
-		return nil, unsupportedParameter(fmt.Sprintf(
-			"unsupported response_format type %q; only \"json_schema\" is supported", format.Type))
+		return nil, unsupportedParameter("unsupported response_format type; only \"json_schema\" is supported")
 	}
 	var inner chatJSONSchema
 	if err := strictUnmarshal(format.JSONSchema, &inner); err != nil {
@@ -135,8 +133,7 @@ func parseResponsesGuided(raw json.RawMessage) (*runner.Schema, error) {
 		return nil, nil
 	case "json_schema":
 	default:
-		return nil, unsupportedParameter(fmt.Sprintf(
-			"unsupported text.format type %q; only \"json_schema\" is supported", format.Type))
+		return nil, unsupportedParameter("unsupported text.format type; only \"json_schema\" is supported")
 	}
 	if strings.TrimSpace(format.Name) == "" {
 		return nil, invalidResponseFormat("text.format.name must be a non-empty string")
@@ -152,10 +149,9 @@ func parseGuidedSchema(raw json.RawMessage, subject string) (*runner.Schema, err
 	if err != nil {
 		var failure *runner.SchemaError
 		if errors.As(err, &failure) {
-			// The same sentence the CLI reports, pointer included. It carries
-			// caller strings (property names) with control characters
-			// escaped, never raw schema content beyond the pointer.
-			return nil, invalidSchema(failure.Error())
+			// Reasons are fixed parser diagnostics. Unlike the CLI, HTTP
+			// omits pointers because they can contain caller property names.
+			return nil, invalidSchema(failure.Reason)
 		}
 		return nil, invalidSchema("schema is not valid JSON")
 	}
@@ -187,7 +183,7 @@ func (s *Server) validateGuidedModel(w http.ResponseWriter, name string) (runner
 	}
 	model := runner.Model(name)
 	if !model.Valid() {
-		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_parameter", fmt.Sprintf("unsupported model %q", name))
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_parameter", "unsupported model")
 		return "", false
 	}
 	if model != runner.ModelLocal {

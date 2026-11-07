@@ -68,7 +68,7 @@ func parseResponsesInput(input json.RawMessage) ([]reqMessage, []encodedImage, e
 	incoming := make([]inMessage, 0, len(items))
 	for i, item := range items {
 		if item.Type != "" && item.Type != "message" {
-			return nil, nil, unsupportedParameter(fmt.Sprintf("input[%d]: unsupported item type %q", i, item.Type))
+			return nil, nil, unsupportedParameter(fmt.Sprintf("input[%d]: unsupported item type", i))
 		}
 		incoming = append(incoming, inMessage{Role: item.Role, Content: item.Content})
 	}
@@ -129,7 +129,7 @@ func responsesMessageRole(role string, index int) (string, error) {
 	case "developer":
 		return "system", nil
 	default:
-		return "", fmt.Errorf("messages[%d]: unsupported role %q", index, role)
+		return "", fmt.Errorf("messages[%d]: unsupported role", index)
 	}
 }
 
@@ -227,7 +227,7 @@ func parseResponsesImageContent(content rawContent) (string, []encodedImage, boo
 				}
 				return "", nil, false, errors.New("content contains an unsupported parameter")
 			}
-			return "", nil, false, fmt.Errorf("unsupported content part type %q", header.Type)
+			return "", nil, false, errors.New("unsupported content part type")
 		}
 	}
 	return prompt.String(), images, hasInputText, nil

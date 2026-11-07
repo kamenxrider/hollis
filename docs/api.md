@@ -95,11 +95,13 @@ truncated value.
 - The schema is parsed and validated before any capacity is taken or helper
   spawned, so an unsupported schema costs no inference. It must fit the same
   subset as `hollis respond --schema`, including the 64 KiB normalized bound.
-- Schema rejection is **400** `invalid_schema`, and the message is the CLI's
-  sentence with the same JSON pointer, for example
-  `schema at /properties/p/const: unsupported schema keyword` or
-  `schema at /type: schema must not repeat an object key`. Schema values never
-  appear in the response beyond the pointer.
+- Schema rejection is **400** `invalid_schema`. HTTP returns the fixed
+  diagnostic reason, such as `unsupported schema keyword`, without the CLI's
+  JSON pointer: property names can contain caller content.
+- Local usage and tool-loop failures use fixed HTTP messages, not underlying
+  error text. Validation errors omit caller tool names and invalid role/type
+  values; tool-definition refusals use a fixed message. Statuses and machine
+  codes are unchanged.
 - Guided output is complete-only. `stream:true` with a schema is **400**
   `unsupported_parameter`, matching the CLI's refusal to combine `--schema` and
   `--stream`.

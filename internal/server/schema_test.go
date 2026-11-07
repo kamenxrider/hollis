@@ -174,8 +174,8 @@ func TestGuidedOutputRejectsUnsupportedSchemasBeforeTheRunner(t *testing.T) {
 		schema string
 		wantIn string
 	}{
-		{"unknown keyword", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string","const":"x"}}}`, "/properties/p/const"},
-		{"duplicate key", `{"type":"object","additionalProperties":false,"type":"array"}`, "schema at /type: schema must not repeat an object key"},
+		{"unknown keyword", `{"type":"object","additionalProperties":false,"properties":{"p":{"type":"string","const":"x"}}}`, "unsupported schema keyword"},
+		{"duplicate key", `{"type":"object","additionalProperties":false,"type":"array"}`, "schema must not repeat an object key"},
 		{"root not object", `"not a schema"`, "root schema must be an object"},
 		{"non-ascii name", `{"type":"object","additionalProperties":false,"properties":{"caf\u00e9":{"type":"string"}}}`, "property names must be printable ASCII"},
 		{"deep array chain", deepArrays(20), "schema nesting exceeds depth 16"},

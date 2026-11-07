@@ -17,8 +17,9 @@ func TestMissingNamedFunctionDiagnostic(t *testing.T) {
 			`{"model":"local","tools":`+endpoint.tools+`,"tool_choice":`+endpoint.choice+`,`+endpoint.input+`}`)
 		if res.Code != 400 || fake.calls.Load() != 0 ||
 			!strings.Contains(res.Body.String(), `"code":"unsupported_parameter"`) ||
-			!strings.Contains(res.Body.String(), `function \"missing\" was not offered`) ||
-			!strings.Contains(res.Body.String(), "offered functions: get_weather") {
+			!strings.Contains(res.Body.String(), "tool_choice function was not offered") ||
+			strings.Contains(res.Body.String(), "missing") ||
+			strings.Contains(res.Body.String(), "get_weather") {
 			t.Fatalf("status=%d calls=%d body=%s", res.Code, fake.calls.Load(), res.Body.String())
 		}
 	}

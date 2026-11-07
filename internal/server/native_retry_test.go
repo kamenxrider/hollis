@@ -12,7 +12,7 @@ import (
 func TestNativeUsageIsBadRequest(t *testing.T) {
 	status, detail := nativeError(&runner.Error{Kind: runner.KindUsage, Err: errors.New("invalid native tool step")})
 	if status != http.StatusBadRequest || detail["type"] != "invalid_request_error" || detail["code"] != "invalid_input" ||
-		detail["message"] != "invalid native tool step" {
+		detail["message"] != "invalid Local request" {
 		t.Fatalf("status=%d detail=%v", status, detail)
 	}
 }
