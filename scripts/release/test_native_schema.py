@@ -354,6 +354,8 @@ struct ProtocolGolden {
                         'tools': {'supported': True, 'tool_calling_mode': True,
                                   'native_definitions': True, 'hybrid_tools': True,
                                   'executable': True, 'turn_handoff': True}}
+                if protocol >= 4:
+                    event['capabilities']['stream_token_usage'] = True
                 expected.append(event)
             self.assertEqual(events, expected)
 

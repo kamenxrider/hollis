@@ -494,7 +494,7 @@
     "scripts/release/test_launchd_template.py": "5668b953f1b11c83b85985999499ec19ee9118d141a48b47225dc50570266832",
     "scripts/release/test_manifest.py": "0ce0581c466166eafddf8830dfe50d22b5596e86211542505eca7df8a22f05d5",
     "scripts/release/test_native_build.py": "1c6ca7cfd5bbe744733bb744e3db054605a1b448a2972e1bce42449829318f15",
-    "scripts/release/test_native_schema.py": "5d7a15e55b8cb5c4ca41c87ca082d4a14d1bb64269c0e96d88a085d56c4a37db",
+    "scripts/release/test_native_schema.py": "e4f85b9bbc33fd5a681bc92abb07506cd5f237ab57168a66463899035eb5cdea",
     "scripts/release/test_privacy.py": "676919486ac1fddb022c9c7a5125fb6175b35da534a71e27bcdae3df9042a6f6",
     "scripts/release/test_readme.py": "236b1605bffaf95f3f4aad3279d3b3d3eed554798111a47d634f144938442114",
     "scripts/release/test_sdk.py": "845c662a996bb34f093e12a0a4fe9067ef55a366ffc13d2e373773dcf9b82a48",
