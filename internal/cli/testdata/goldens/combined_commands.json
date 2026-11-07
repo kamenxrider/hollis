@@ -1,0 +1,77 @@
+{
+  "commands": [
+    "agent-context",
+    "batch",
+    "benchmark",
+    "chat",
+    "chats",
+    "completion",
+    "config",
+    "doctor",
+    "examples",
+    "help",
+    "image",
+    "mcp",
+    "models",
+    "respond",
+    "serve",
+    "setup",
+    "update",
+    "version"
+  ],
+  "conversation_flags": {
+    "chat": [
+      {
+        "name": "answer-reserve",
+        "type": "int",
+        "usage": "Local answer token reserve for --count-tokens or context shortening (not a generation limit)",
+        "default": "1024"
+      },
+      {
+        "name": "context-max-turns",
+        "type": "int",
+        "usage": "With sliding-window, keep at most N recent user turns, including the current turn",
+        "default": "6"
+      },
+      {
+        "name": "context-strategy",
+        "type": "string",
+        "usage": "Conversation policy: strict (default), drop-oldest, sliding-window, or summarize (Local only; one extra model call)",
+        "default": "strict"
+      },
+      {
+        "name": "retry",
+        "type": "int",
+        "usage": "Retry transient Local failures only; bare --retry means 3 extra attempts, --retry=N sets 0-5 (not --retry N); waits share --timeout",
+        "default": "3"
+      }
+    ],
+    "respond": [
+      {
+        "name": "answer-reserve",
+        "type": "int",
+        "usage": "Local answer token reserve for --count-tokens or context shortening (not a generation limit)",
+        "default": "1024"
+      },
+      {
+        "name": "context-max-turns",
+        "type": "int",
+        "usage": "With sliding-window, keep at most N recent user turns, including the current turn",
+        "default": "6"
+      },
+      {
+        "name": "context-strategy",
+        "type": "string",
+        "usage": "Conversation policy: strict (default), drop-oldest, sliding-window, or summarize (Local only; one extra model call)",
+        "default": "strict"
+      },
+      {
+        "name": "retry",
+        "type": "int",
+        "usage": "Retry transient Local failures only; bare --retry means 3 extra attempts, --retry=N sets 0-5 (not --retry N); waits share --timeout",
+        "default": "3"
+      }
+    ]
+  },
+  "local_contract": "local is explicit and independent of Shortcuts; streaming human text and HTTP SSE only; JSON/agent and batch outputs remain complete; complete usage is Apple-measured; context overflow fails by default; respond --messages and text chat can opt into disclosed context shortening without changing stored history; --retry applies only to final Local answers before output or tool activity, never extra summary calls"
+}

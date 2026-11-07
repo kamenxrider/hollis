@@ -265,6 +265,8 @@ func shortenContext(ctx context.Context, r runner.Runner, model runner.Model, me
 		}
 		maxTokens := 256
 		summaryRequest.Options = &runner.GenerationOptions{MaxTokens: &maxTokens}
+		// Context preparation receives the unwrapped runner. --retry applies
+		// only to the final answer, never this additional summary call.
 		completion, err := runLocalGeneration(ctx, r, summaryRequest, false, io.Discard)
 		if err != nil {
 			return nil, nil, toCLIError(err)

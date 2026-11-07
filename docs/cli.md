@@ -225,6 +225,13 @@ saved messages are never edited or deleted, and generated summaries are not save
   fit in one Local call; oversized sources fail, never recursively summarize or
   silently lose part of the source.
 
+With `--retry`, the extra summary call is not retried: a summary failure stops
+the request. Only the final answer gets the selected extra-attempt budget,
+under the same original timeout and output/tool safety rule. A successful
+summary is reused rather than generated again when the final answer retries.
+JSON `attempts` counts final-answer attempts, not the separate summary call.
+`-q` hides both context and retry notes; omitted-message JSON disclosure remains.
+
 Local fitting uses Apple's native tokenizer and the reported context window
 (8,192 tokens on the supported system model). `--answer-reserve` reuses the
 token-counting reserve (default 1024); it is available on both commands and
@@ -343,7 +350,7 @@ modes, subject to normal approval. It adds a stderr notice and JSON
 
 ### Prompt or command
 
-Bare `hollis` on a terminal prints a concise description and four examples
+Bare `hollis` on a terminal prints a concise description and examples
 without reading stdin. `hollis --help` keeps the complete command list, flags,
 environment and exit codes; its parsing pointer leads here. Non-terminal
 bare-command and piped `respond` behavior is unchanged.
