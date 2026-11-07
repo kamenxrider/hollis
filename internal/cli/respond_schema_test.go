@@ -657,33 +657,21 @@ func TestSchemaCapabilityComesFromTheRouteTable(t *testing.T) {
 // the derivation observable.
 func TestLocalCapabilitiesMirrorsTheRouteSpec(t *testing.T) {
 	empty := routeCapabilities(runner.RouteSpec{})
-	for name, value := range empty {
-		if value != false && value != 0 {
-			t.Fatalf("%s reported %v for a route with no capabilities", name, value)
-		}
-	}
-	if len(empty) != 7 {
-		t.Fatalf("capability map = %#v; want the seven published names", empty)
+	if empty != (runner.Capabilities{}) {
+		t.Fatalf("capabilities = %#v; want no capabilities", empty)
 	}
 	full := routeCapabilities(runner.RouteSpec{Capabilities: runner.CapabilitySet{
 		Images: true, MaxImages: 1, Streaming: true, StreamingUsage: true, Usage: true, Schema: true,
 	}})
-	for _, name := range []string{"streaming", "complete_usage", "stream_usage", "images", "guided_output"} {
-		if full[name] != true {
-			t.Fatalf("%s reported false for a route that declares it", name)
-		}
-	}
-	if full["max_images"] != 1 {
-		t.Fatalf("max_images = %v; want the route's limit", full["max_images"])
-	}
-	if full["tools"] != false {
-		t.Fatal("route table capabilities must not claim tools")
+	want := runner.Capabilities{Images: true, MaxImages: 1, Streaming: true, CompleteUsage: true, StreamUsage: true, GuidedOutput: true}
+	if full != want {
+		t.Fatalf("capabilities = %+v; want %+v", full, want)
 	}
 }
 
 func TestLocalRowToolsFollowHelperAdvertisement(t *testing.T) {
-	executable := &runner.Capabilities{Tools: &runner.ToolCapability{Supported: true, Executable: true, TurnHandoff: true}}
-	metadataOnly := &runner.Capabilities{Tools: &runner.ToolCapability{Supported: true}}
+	executable := &runner.HelperCapabilities{Tools: &runner.ToolCapability{Supported: true, Executable: true, TurnHandoff: true}}
+	metadataOnly := &runner.HelperCapabilities{Tools: &runner.ToolCapability{Supported: true}}
 	for _, c := range []struct {
 		name   string
 		status runner.LocalStatus
@@ -697,9 +685,9 @@ func TestLocalRowToolsFollowHelperAdvertisement(t *testing.T) {
 		{"failed status read", runner.LocalStatus{Available: true, Capabilities: executable}, errors.New("probe failed"), false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			caps := localModelRow(c.status, c.err)["capabilities"].(map[string]any)
-			if caps["tools"] != c.want {
-				t.Fatalf("tools = %v; want %v", caps["tools"], c.want)
+			caps := localModelRow(c.status, c.err)["capabilities"].(runner.Capabilities)
+			if caps.Tools != c.want {
+				t.Fatalf("tools = %v; want %v", caps.Tools, c.want)
 			}
 		})
 	}

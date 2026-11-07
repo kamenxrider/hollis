@@ -434,10 +434,6 @@ func executionErr(code, message string) error {
 	return &cliError{code: 5, machineCode: code, err: errors.New(message)}
 }
 
-func shortcutCLIError(re *runner.Error) error {
-	return &cliError{code: 5, machineCode: string(re.Kind), err: errors.New(re.PublicShortcutMessage()), details: re.ShortcutDetails()}
-}
-
 // ExitCode maps an error returned from Execute to a process exit code.
 // Exit codes are stable and agent-parseable (plan §23):
 // 0 success; 1 unclassified; 2 usage; 3 missing resource; 5 transport;
@@ -464,73 +460,47 @@ func toCLIError(err error) error {
 		}
 		return transportErr(err)
 	}
+	contract := runner.ErrorContractFor(re.Kind)
+	result := &cliError{code: contract.ExitCode, machineCode: contract.MachineCode, err: err}
 	switch re.Kind {
-	case runner.KindRequestDeclined:
-		return shortcutCLIError(re)
-	case runner.KindShortcutFailed:
-		return shortcutCLIError(re)
-	case runner.KindContentRefused, runner.KindAccessRequired:
-		return shortcutCLIError(re)
+	case runner.KindRequestDeclined, runner.KindShortcutFailed, runner.KindContentRefused, runner.KindAccessRequired, runner.KindRateLimited:
+		result.err = errors.New(re.PublicShortcutMessage())
+		result.details = re.ShortcutDetails()
 	case runner.KindEmptyPrompt:
-		return usageErr(fmt.Errorf("%s\nhint: give a prompt as an argument or pipe it via stdin", err))
+		result.err = fmt.Errorf("%s\nhint: give a prompt as an argument or pipe it via stdin", err)
 	case runner.KindContextCapacity:
-		if re.Limit > 0 || re.PromptBytes > 0 {
-			// Extraction and tool-budget failures carry measured numbers.
-			return executionErr("context_capacity", err.Error())
+		if re.Limit <= 0 && re.PromptBytes <= 0 {
+			result.err = errors.New("local model context capacity exceeded; conversation was not shortened. Start a new chat or explicitly supply a smaller request")
 		}
-		return executionErr("context_capacity", "local model context capacity exceeded; conversation was not shortened. Start a new chat or explicitly supply a smaller request")
-	case runner.KindInvalidDocument, runner.KindExtractNoText:
-		// The helper read the document and could not produce text from it.
-		return executionErr(string(re.Kind), err.Error())
-	case runner.KindUnsupportedMedia, runner.KindExtractMediaMismatch, runner.KindPageOutOfRange, runner.KindUnsupportedParameter:
-		return codedUsageErr(string(re.Kind), err)
-	case runner.KindToolRoundCap, runner.KindToolCallInvalid:
-		// Loop faults: neither the helper nor the request was wrong, but the
-		// same request should not be retried unchanged.
-		return executionErr(string(re.Kind), err.Error())
-	case runner.KindLocalUnavailable:
-		return executionErr("local_unavailable", err.Error())
 	case runner.KindNativeFailed:
 		if message := re.NativeClientFailureMessage(); message != "" {
-			return executionErr(string(re.Kind), message)
+			result.err = errors.New(message)
 		}
-		return executionErr(string(re.Kind), err.Error())
-	case runner.KindNativeProtocol, runner.KindModelBusy, runner.KindInvalidImage, runner.KindUnsupportedOS:
-		return executionErr(string(re.Kind), err.Error())
 	case runner.KindUnsupportedCapability:
-		// A capability refusal is a component mismatch like native_protocol:
-		// the pairing is correct but the helper does not offer what the
-		// request needs, so the remedy is the matching bundle at exit 5.
-		return executionErr(string(re.Kind), re.CapabilityRefusalMessage())
-	case runner.KindUsage:
-		return usageErr(err)
+		result.err = errors.New(re.CapabilityRefusalMessage())
 	case runner.KindShortcutMissing:
-		return notFoundErr(fmt.Errorf("%s\nhint: install the AFM bridge shortcuts (bridges/*.shortcut) or run 'hollis doctor'", err))
-	case runner.KindRateLimited:
-		return shortcutCLIError(re)
+		result.err = fmt.Errorf("%s\nhint: install the AFM bridge shortcuts (bridges/*.shortcut) or run 'hollis doctor'", err)
 	case runner.KindTimeout:
 		if re.ListTimeout {
 			// The list deadline already carries its own approved fixed
 			// sentence; the model-centric hint below would tell a user to
 			// raise a model timeout for a listing.
-			return timeoutErr(err)
+			break
 		}
 		if re.ProbeTimeout {
 			// The helper never got as far as a model request: the fixed
 			// capability probe expired first. A larger --timeout cannot lift
 			// that deadline, so the model hint below would be false advice.
-			return timeoutErr(fmt.Errorf("%s\nhint: the probe deadline is 5s, or the remaining --timeout when that is shorter; no model request was made. Do not automatically retry; check that the helper starts, and install or update the matched bundle", err))
+			result.err = fmt.Errorf("%s\nhint: the probe deadline is 5s, or the remaining --timeout when that is shorter; no model request was made. Do not automatically retry; check that the helper starts, and install or update the matched bundle", err)
+			break
 		}
-		return timeoutErr(fmt.Errorf("%s\nhint: the model request exceeded its deadline; this alone does not identify the cause or confirm whether it completed. Do not automatically retry; choose a larger --timeout (up to the 120s ceiling) for a future request if needed", err))
+		result.err = fmt.Errorf("%s\nhint: the model request exceeded its deadline; this alone does not identify the cause or confirm whether it completed. Do not automatically retry; choose a larger --timeout (up to the 120s ceiling) for a future request if needed", err)
 	case runner.KindNoOutput:
-		return transportErr(fmt.Errorf("%s\nhint: run 'hollis doctor'; exit 0 with empty output is always treated as failure", err))
+		result.err = fmt.Errorf("%s\nhint: run 'hollis doctor'; exit 0 with empty output is always treated as failure", err)
 	case runner.KindSIGABRT:
-		return transportErr(fmt.Errorf("%s\nhint: SIGABRT (exit 134) — /usr/bin/shortcuts crashed; -o /dev/stdout is never used by hollis", err))
-	case runner.KindContextCanceled, runner.KindSignal, runner.KindListFailure:
-		return transportErr(err)
-	default:
-		return transportErr(err)
+		result.err = fmt.Errorf("%s\nhint: SIGABRT (exit 134) — /usr/bin/shortcuts crashed; -o /dev/stdout is never used by hollis", err)
 	}
+	return result
 }
 
 func agentMeta() map[string]any {

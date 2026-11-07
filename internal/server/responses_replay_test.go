@@ -89,3 +89,33 @@ func TestResponsesReplayRefusesNonEmptyAnnotations(t *testing.T) {
 		t.Fatalf("%d calls=%d %s", res.Code, fake.calls.Load(), res.Body.String())
 	}
 }
+
+func TestChatTextPartReplayMembers(t *testing.T) {
+	for _, members := range []string{
+		``, `,"annotations":[],"logprobs":[]`, `,"annotations":null,"logprobs":null`,
+		`,"annotations":[{}]`, `,"logprobs":[0]`, `,"unknown":[]`,
+	} {
+		t.Run(members, func(t *testing.T) {
+			fake := &nativeFake{}
+			body := `{"model":"local","messages":[{"role":"user","content":[{"type":"text","text":"hi"` + members + `}]}]}`
+			res := post(t, NewUnauthenticated(fake).Handler(), "/v1/chat/completions", body)
+			want := http.StatusOK
+			if members == `,"annotations":[{}]` || members == `,"logprobs":[0]` || members == `,"unknown":[]` {
+				want = http.StatusBadRequest
+			}
+			if res.Code != want || (want == http.StatusBadRequest && fake.calls.Load() != 0) {
+				t.Fatalf("status=%d calls=%d body=%s", res.Code, fake.calls.Load(), res.Body.String())
+			}
+			if want == http.StatusBadRequest {
+				var decoded struct {
+					Error struct {
+						Code string `json:"code"`
+					} `json:"error"`
+				}
+				if err := json.Unmarshal(res.Body.Bytes(), &decoded); err != nil || decoded.Error.Code != "unsupported_parameter" {
+					t.Fatalf("expected unsupported_parameter: %s", res.Body.String())
+				}
+			}
+		})
+	}
+}

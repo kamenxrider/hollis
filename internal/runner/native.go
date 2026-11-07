@@ -61,14 +61,14 @@ type LocalStatus struct {
 	// Capabilities is the protocol-3 advertisement. Nil means the helper
 	// reported none, which is not the same as a helper that reported nothing
 	// supported: both refuse, but only the second can name a reason.
-	Capabilities *Capabilities `json:"capabilities,omitempty"`
+	Capabilities *HelperCapabilities `json:"capabilities,omitempty"`
 }
 
-// Capabilities is the protocol-3 capability advertisement. Each block stands on
+// HelperCapabilities is the protocol-3 capability advertisement. Each block stands on
 // its own: an absent block means the helper does not offer that capability, and
 // a present block may still say supported:false with a fixed reason. Nothing
 // here is guessed — a zero value is never read as a capability.
-type Capabilities struct {
+type HelperCapabilities struct {
 	Extract    *ExtractCapability `json:"extract,omitempty"`
 	Images     *ImageCapability   `json:"images,omitempty"`
 	Tools      *ToolCapability    `json:"tools,omitempty"`
@@ -144,8 +144,8 @@ func (e *Error) CapabilityRefusalMessage() string {
 // decodeCapabilities reads the advertisement leniently. Unknown members are
 // ignored so a later capability flag needs no protocol bump, while the values
 // this client does read are still range-checked.
-func decodeCapabilities(raw json.RawMessage) (*Capabilities, error) {
-	var caps Capabilities
+func decodeCapabilities(raw json.RawMessage) (*HelperCapabilities, error) {
+	var caps HelperCapabilities
 	if err := json.Unmarshal(raw, &caps); err != nil {
 		return nil, nativeError(KindNativeProtocol, "invalid native capabilities")
 	}
@@ -196,7 +196,7 @@ func requireAdvertised(status LocalStatus, opts nativeOptions) *Error {
 	return capabilityRefusal("tools", status.Capabilities.toolsReason())
 }
 
-func (c *Capabilities) tools() *ToolCapability {
+func (c *HelperCapabilities) tools() *ToolCapability {
 	if c == nil {
 		return nil
 	}
@@ -210,7 +210,7 @@ func (s LocalStatus) ExecutableTools() bool {
 	return tools != nil && tools.Supported && tools.Executable && tools.TurnHandoff
 }
 
-func (c *Capabilities) toolsReason() string {
+func (c *HelperCapabilities) toolsReason() string {
 	if tools := c.tools(); tools != nil {
 		return tools.Reason
 	}

@@ -43,6 +43,8 @@ type Server struct {
 	// expose model execution without authentication.
 	AllowUnauthenticated bool
 	Available            map[string]bool
+	// LocalStatus is the non-generative startup probe used by model capabilities.
+	LocalStatus runner.LocalStatus
 	// LocalStatusError is the classified failure of the startup native status
 	// probe, nil when it succeeded or never ran. A protocol/version mismatch is
 	// kept so the local routes can report the mismatch itself instead of the
@@ -140,7 +142,7 @@ func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
 	for _, spec := range append(runner.Specs(), local) {
 		id := string(spec.ID)
 		if s.modelAvailable(id) {
-			data = append(data, map[string]any{"id": id, "object": "model", "owned_by": spec.OwnedBy, "capabilities": modelCapabilities(id)})
+			data = append(data, map[string]any{"id": id, "object": "model", "owned_by": spec.OwnedBy, "capabilities": modelCapabilities(id, s.LocalStatus, s.LocalStatusError)})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})

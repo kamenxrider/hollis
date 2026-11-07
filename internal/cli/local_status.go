@@ -37,9 +37,8 @@ func localModelRow(status runner.LocalStatus, err error) map[string]any {
 		"model": "local", "backend": "native", "apple_model": "Apple Foundation Models system model",
 		"available": available, "status": localStatusLabel(status, err), "inference_verified": false,
 		"helper_protocol": status.Protocol, "helper_version": status.Version,
-		"capabilities": routeCapabilities(spec),
+		"capabilities": runner.RouteCapabilities(spec, status, err),
 	}
-	row["capabilities"].(map[string]any)["tools"] = available && status.ExecutableTools()
 	// The context window is a measured signal: report it where a successful
 	// status read states it and omit it otherwise rather than printing an
 	// invented zero, or a leftover value from an event we refused.
@@ -53,18 +52,8 @@ func localModelRow(status runner.LocalStatus, err error) map[string]any {
 // Every value comes from the route table: a literal here would let the
 // advertised surface drift from what the transport implements, and there is no
 // second place to correct when a capability is measured differently.
-func routeCapabilities(spec runner.RouteSpec) map[string]any {
-	return map[string]any{
-		"streaming":      spec.Capabilities.Streaming,
-		"complete_usage": spec.Capabilities.Usage,
-		"stream_usage":   spec.Capabilities.StreamingUsage,
-		"images":         spec.Capabilities.Images,
-		"max_images":     spec.Capabilities.MaxImages,
-		"guided_output":  spec.Capabilities.Schema,
-		// Shortcuts routes have no tools; Local depends on its helper's
-		// advertisement and is set by localModelRow.
-		"tools": false,
-	}
+func routeCapabilities(spec runner.RouteSpec) runner.Capabilities {
+	return runner.RouteCapabilities(spec, runner.LocalStatus{}, nil)
 }
 
 // localStatusDetail appends measured signals to a human availability label.

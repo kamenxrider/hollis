@@ -97,7 +97,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 	}
 	local := resultFields("model", "backend", "apple_model", "available", "status",
 		"inference_verified", "helper_protocol", "helper_version", "context_size")
-	local.fields["capabilities"] = resultFields("streaming", "complete_usage", "stream_usage", "images", "max_images", "tools", "guided_output")
+	local.fields["capabilities"] = resultType(reflect.TypeFor[runner.Capabilities]())
 	models := resultFields("wfllm_model", "resolved_ref", "source", "verified", "default", "readiness", "reason_code", "reason")
 	for name, field := range local.fields {
 		models.fields[name] = field
@@ -130,14 +130,11 @@ func buildResultSchemas() map[string]*fieldSchema {
 	invocation := resultFields("job_path", "attempted", "total_attempts", "pending", "succeeded",
 		"failed", "uncertain", "complete", "budget_exhausted")
 	context := resultType(reflect.TypeFor[agentContext]())
-	context.fields["contracts"].fields["exit_codes"] = resultFields("success", "unexpected", "usage",
-		"missing", "transport", "timeout", "config", "request_declined", "shortcut_failed", "rate_limited", "content_refused", "access_required",
-		"native_protocol", "unsupported_capability", "local_unavailable", "model_busy", "native_failed",
-		"tool_call_invalid", "tool_round_cap", "context_capacity", "invalid_document", "extract_no_text",
-		"unsupported_parameter", "unsupported_media", "extract_media_mismatch", "page_out_of_range",
-		"mcp_config", "mcp_unavailable", "mcp_protocol", "mcp_auth", "mcp_schema_unvalidated",
-		"approval_required", "approval_args_too_large", "tool_denied", "tool_not_allowlisted",
-		"tool_definition_changed", "tool_result_too_large", "tool_result_too_large_for_local", "tool_name_conflict", "tool_count_limit")
+	codes := resultFields()
+	for name := range exitCodeMap() {
+		codes.fields[name] = &fieldSchema{}
+	}
+	context.fields["contracts"].fields["exit_codes"] = codes
 	context.fields["commands"].element.fields["annotations"] = resultFields("mcp:read-only")
 	mcpServer := resultType(reflect.TypeFor[mcpServerView]())
 	mcpList := resultFields("path")

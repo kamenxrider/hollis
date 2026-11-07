@@ -148,7 +148,7 @@ class MessageShapeTests(unittest.TestCase):
         # each is covered by the corresponding Go decoder's tags.
         self.assertEqual(go_struct_tags(self.go, 'nativeEvent'), GO_EVENT_FIELDS)
         self.assertEqual(go_struct_tags(self.go, 'nativeUsage'), GO_USAGE_FIELDS)
-        self.assertEqual(go_struct_tags(self.go, 'Capabilities'),
+        self.assertEqual(go_struct_tags(self.go, 'HelperCapabilities'),
                          GO_CAPABILITY_FIELDS)
         extract_go = protocol.ROOT.joinpath('internal/runner/extract.go').read_text()
         self.assertEqual(go_struct_tags(extract_go, 'ExtractCapability'),

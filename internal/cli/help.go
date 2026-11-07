@@ -5,6 +5,8 @@ package cli
 import (
 	"fmt"
 	"strings"
+
+	"github.com/kamenxrider/hollis/internal/runner"
 )
 
 // The tables in this file are the single source for the sections root help and
@@ -43,47 +45,7 @@ var documentedExitCodes = []exitCodeDoc{
 	{Code: 10, Name: "config", Description: "config or database error"},
 }
 
-// semanticCodeDoc is a machine code that shares a numeric exit.
-type semanticCodeDoc struct {
-	Name string
-	Code int
-}
-
-var documentedSemanticCodes = []semanticCodeDoc{
-	{Name: "rate_limited", Code: 5},
-	{Name: "content_refused", Code: 5},
-	{Name: "access_required", Code: 5},
-	{Name: "request_declined", Code: 5},
-	{Name: "shortcut_failed", Code: 5},
-	{Name: "native_protocol", Code: 5},
-	{Name: "unsupported_capability", Code: 5},
-	{Name: "local_unavailable", Code: 5},
-	{Name: "model_busy", Code: 5},
-	{Name: "native_failed", Code: 5},
-	{Name: "tool_call_invalid", Code: 5},
-	{Name: "tool_round_cap", Code: 5},
-	{Name: "context_capacity", Code: 5},
-	{Name: "invalid_document", Code: 5},
-	{Name: "extract_no_text", Code: 5},
-	{Name: "unsupported_parameter", Code: 2},
-	{Name: "unsupported_media", Code: 2},
-	{Name: "extract_media_mismatch", Code: 2},
-	{Name: "page_out_of_range", Code: 2},
-	{Name: "mcp_config", Code: 10},
-	{Name: "mcp_unavailable", Code: 5},
-	{Name: "mcp_protocol", Code: 5},
-	{Name: "mcp_auth", Code: 5},
-	{Name: "mcp_schema_unvalidated", Code: 5},
-	{Name: "approval_required", Code: 5},
-	{Name: "approval_args_too_large", Code: 5},
-	{Name: "tool_denied", Code: 5},
-	{Name: "tool_not_allowlisted", Code: 5},
-	{Name: "tool_definition_changed", Code: 5},
-	{Name: "tool_result_too_large", Code: 5},
-	{Name: "tool_result_too_large_for_local", Code: 5},
-	{Name: "tool_name_conflict", Code: 2},
-	{Name: "tool_count_limit", Code: 2},
-}
+var documentedSemanticCodes = runner.DocumentedSemanticCodes()
 
 // agentExampleCommands is rendered in root help and published by agent-context,
 // so an agent reads the same examples a person sees.

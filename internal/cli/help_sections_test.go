@@ -96,16 +96,12 @@ func TestAgentContextSharesHelpData(t *testing.T) {
 	if want := []string{"HOLLIS_STATE_DIR", "HOLLIS_API_TOKEN", "HOLLIS_MODEL", "HOLLIS_TIMEOUT"}; !reflect.DeepEqual(ctx.Auth.EnvVars, want) {
 		t.Fatalf("agent env vars = %v, want %v", ctx.Auth.EnvVars, want)
 	}
-	wantCodes := map[string]int{
-		"success": 0, "unexpected": 1, "usage": 2, "missing": 3, "transport": 5,
-		"timeout": 7, "config": 10, "request_declined": 5, "shortcut_failed": 5,
-		"rate_limited": 5, "content_refused": 5, "access_required": 5,
-		"native_protocol": 5, "unsupported_capability": 5, "local_unavailable": 5, "model_busy": 5, "native_failed": 5,
-		"tool_call_invalid": 5, "tool_round_cap": 5, "context_capacity": 5, "invalid_document": 5, "extract_no_text": 5,
-		"unsupported_parameter": 2, "unsupported_media": 2, "extract_media_mismatch": 2, "page_out_of_range": 2,
-		"mcp_config": 10, "mcp_unavailable": 5, "mcp_protocol": 5, "mcp_auth": 5, "mcp_schema_unvalidated": 5,
-		"approval_required": 5, "approval_args_too_large": 5, "tool_denied": 5, "tool_not_allowlisted": 5,
-		"tool_definition_changed": 5, "tool_result_too_large": 5, "tool_result_too_large_for_local": 5, "tool_name_conflict": 2, "tool_count_limit": 2,
+	wantCodes := map[string]int{}
+	for _, code := range documentedExitCodes {
+		wantCodes[code.Name] = code.Code
+	}
+	for _, code := range runner.DocumentedSemanticCodes() {
+		wantCodes[code.Name] = code.Code
 	}
 	if !reflect.DeepEqual(ctx.Contracts.ExitCodes, wantCodes) {
 		t.Fatalf("agent exit codes = %v, want %v", ctx.Contracts.ExitCodes, wantCodes)

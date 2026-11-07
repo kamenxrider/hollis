@@ -20,6 +20,20 @@ curl -s localhost:1978/v1/responses \
 
 The Responses reply text is at `output[0].content[0].text`. Its `input` may be a string or a message array, with optional `instructions`. `/v1/models` advertises available routes, including `local` when its native helper and Apple model are available. Shortcut tiers depend on their bridges; native local does not. Each route's `capabilities` object includes `max_images`, the most images one request may attach (0 when the route refuses images).
 
+## Model capability names
+
+`/v1/models`, `hollis models --json` and `hollis doctor --json` share the
+capability names `backend`, `streaming`, `complete_usage`, `stream_usage`,
+`images`, `max_images`, `guided_output` and `tools`. Local reports `tools:true`
+only when a successful availability probe advertises executable tools with
+turn handoff. For 0.7.0 the API also keeps `usage`, `streaming_usage` and
+`image_input` as exact copies of `complete_usage`, `stream_usage` and `images`.
+
+Both Chat Completions and Responses text content parts accept and ignore
+`annotations` and `logprobs` only when absent, null or empty arrays. Non-empty
+values are refused with 400 `unsupported_parameter`; unknown fields remain
+unsupported.
+
 ## Guided JSON output
 
 Both endpoints can ask native `local` for an object that follows a JSON Schema

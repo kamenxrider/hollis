@@ -131,6 +131,7 @@ such as Tailscale, WireGuard, or an SSH tunnel. Native local supports streaming;
 			// protocol is a component mismatch the local routes must report as
 			// native_protocol instead of as an unavailable model.
 			localStatus, localStatusErr := probeNativeStatus(cmd.Context(), r)
+			api.LocalStatus = localStatus
 			api.LocalStatusError = localStatusErr
 			if resolved, resolveErr := resolveForRunner(cmd.Context(), newRunner); resolveErr != nil && !canAttemptAfterDiscoveryFailure(resolved, "auto") && !localStatus.Available {
 				return resolutionCLIError(resolveErr)

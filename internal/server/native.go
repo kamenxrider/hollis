@@ -14,13 +14,22 @@ import (
 	"github.com/kamenxrider/hollis/internal/runner"
 )
 
-func modelCapabilities(id string) map[string]any {
+// apiCapabilities retains the old HTTP aliases for one release. The embedded
+// shared type is the canonical surface; aliases are always copied from it.
+type apiCapabilities struct {
+	runner.Capabilities
+	Usage          bool `json:"usage"`
+	StreamingUsage bool `json:"streaming_usage"`
+	ImageInput     bool `json:"image_input"`
+}
+
+func modelCapabilities(id string, status runner.LocalStatus, statusErr error) apiCapabilities {
 	spec, ok := runner.Spec(runner.Model(id))
 	if !ok {
 		spec.Transport = runner.TransportShortcuts
 	}
-	capabilities := spec.Capabilities
-	return map[string]any{"backend": string(spec.Transport), "streaming": capabilities.Streaming, "usage": capabilities.Usage, "streaming_usage": capabilities.StreamingUsage, "image_input": runner.Model(id).SupportsImages(), "max_images": capabilities.MaxImages}
+	c := runner.RouteCapabilities(spec, status, statusErr)
+	return apiCapabilities{Capabilities: c, Usage: c.CompleteUsage, StreamingUsage: c.StreamUsage, ImageInput: c.Images}
 }
 
 func chatUsage(usage *runner.Usage) any {
@@ -101,54 +110,39 @@ func (s *Server) completePrepared(ctx context.Context, w http.ResponseWriter, mo
 
 // Keep backend failures classified without exposing helper stderr or prompts.
 func nativeError(err error) (int, map[string]any) {
-	status, kind, code, message := http.StatusBadGateway, "server_error", "native_failed", "the native local model request failed"
+	contract := runner.ErrorContractFor("")
 	var classified *runner.Error
 	if errors.As(err, &classified) {
+		contract = runner.ErrorContractFor(classified.Kind)
+	}
+	status, kind, code, message := contract.HTTPStatus, contract.HTTPType, contract.HTTPCode, contract.HTTPMessage
+	if classified != nil {
 		switch classified.Kind {
 		case runner.KindNativeFailed:
 			if fixed := classified.NativeClientFailureMessage(); fixed != "" {
 				message = fixed
 			}
 		case runner.KindContextCapacity:
-			status, kind, code, message = http.StatusRequestEntityTooLarge, "invalid_request_error", "context_too_large", "the full conversation exceeds the local model's capacity; no messages were shortened or dropped"
 			if classified.PromptBytes > 0 {
 				message = fmt.Sprintf("a tool round renders to %d bytes; the limit is %d bytes; no messages were shortened or dropped", classified.PromptBytes, runner.NativeMaxPromptBytes)
 			}
 		case runner.KindUsage:
-			status, kind, code, message = http.StatusBadRequest, "invalid_request_error", "invalid_input", classified.Err.Error()
+			message = classified.Err.Error()
 		case runner.KindToolRoundCap, runner.KindToolCallInvalid:
 			// The loop's own message carries only numbers, an offered tool
 			// name and a schema pointer, never an argument value.
-			code, message = string(classified.Kind), classified.Err.Error()
-		case runner.KindLocalUnavailable:
-			status, code, message = http.StatusServiceUnavailable, "model_unavailable", "the native local model or its matching helper is unavailable"
-		case runner.KindModelBusy:
-			status, code, message = http.StatusServiceUnavailable, "model_busy", "the native local model is temporarily busy"
-		case runner.KindRequestDeclined:
-			code, message = "request_declined", "the native local model declined the request"
-		case runner.KindRateLimited:
-			status, kind, code, message = http.StatusTooManyRequests, "rate_limit_error", "rate_limited", "the native local model is rate limited"
-		case runner.KindTimeout, runner.KindContextCanceled:
-			status, code, message = http.StatusGatewayTimeout, "native_timeout", "the native local model request was canceled or exceeded its deadline"
+			message = classified.Err.Error()
 		case runner.KindNativeProtocol:
-			code, message = "native_protocol", "the native local helper returned an invalid or incomplete response"
 			if classified.NativeReason == "helper_mismatch" {
 				message = localMismatchMessage
 			}
 		case runner.KindUnsupportedCapability:
-			code, message = "unsupported_capability", classified.CapabilityRefusalMessage()
-		case runner.KindTransport:
-			code, message = "transport", "the native local transport could not complete the request"
-		case runner.KindInvalidImage:
-			code, message = "invalid_image", "the native helper could not decode the image"
-		case runner.KindUnsupportedOS:
-			code, message = "unsupported_os", "native image input requires macOS 27 or later"
-		case runner.KindUnsupportedMedia:
-			status, kind, code, message = http.StatusBadRequest, "invalid_request_error", "unsupported_media", "native image input supports PNG and JPEG only"
+			message = classified.CapabilityRefusalMessage()
 		}
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		status, code, message = http.StatusGatewayTimeout, "native_timeout", "the native local model request was canceled or exceeded its deadline"
+		timeout := runner.ErrorContractFor(runner.KindTimeout)
+		status, code, message = timeout.HTTPStatus, timeout.HTTPCode, timeout.HTTPMessage
 	}
 	return status, map[string]any{"type": kind, "code": code, "message": message}
 }
