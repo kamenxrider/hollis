@@ -235,6 +235,8 @@ func commandSideEffects(command *cobra.Command) []string {
 		return []string{"starts the configured MCP server process once to read the tool's definition, then stops it", "writes mcp.json atomically under its lock", "never runs a tool or calls a model"}
 	case "hollis serve":
 		return []string{"opens an HTTP listener", "invokes Shortcut model runs for valid model requests"}
+	case "hollis update":
+		return []string{"checks GitHub for the latest stable release only when explicitly invoked, with a 10s timeout and no automatic checks or retries", "with --apply, runs brew upgrade kamenxrider/tap/hollis only for a detected Homebrew install after confirmation; non-interactive modes require --yes; never runs the installer"}
 	default:
 		return []string{}
 	}

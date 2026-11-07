@@ -267,6 +267,7 @@ Report issues: https://github.com/kamenxrider/hollis/issues`,
 	rootCmd.AddCommand(newMCPCmd(&flags))
 	rootCmd.AddCommand(newAgentContextCmd(rootCmd, &flags))
 	rootCmd.AddCommand(newVersionCmd(&flags))
+	rootCmd.AddCommand(newUpdateCmd(&flags))
 	rootCmd.SetHelpCommand(newStrictHelpCommand(rootCmd))
 	rootCmd.InitDefaultHelpCmd()
 	rootCmd.InitDefaultCompletionCmd()
