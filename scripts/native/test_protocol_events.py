@@ -11,6 +11,7 @@ an unsupported host or missing helper a failure, not a skip. Other hosts may
 skip the event cases. Generation behavior lives in test_protocol_live.py,
 which is opt-in and never makes model calls in CI.
 """
+import datetime
 import json
 import shutil
 import tempfile
@@ -117,8 +118,19 @@ class HelperEventTests(unittest.TestCase):
                         self.assertGreater(status['context_size'], 0)
                 if number >= 3:
                     capabilities = status['capabilities']
-                    self.assertEqual(set(capabilities),
-                                     {'vision', 'macos_major', 'extract', 'images', 'tools'})
+                    expected_capabilities = {'vision', 'macos_major', 'extract', 'images', 'tools'}
+                    if number >= 4:
+                        expected_capabilities |= {'stream_token_usage', 'pcc_quota'}
+                        self.assertIs(capabilities['stream_token_usage'], True)
+                        quota = capabilities['pcc_quota']
+                        self.assertLessEqual(set(quota), {'status', 'reset_date'})
+                        self.assertIn(quota['status'], {'available', 'approaching', 'limit_reached', 'unknown'})
+                        if 'reset_date' in quota:
+                            self.assertIsInstance(quota['reset_date'], str)
+                            parsed = datetime.datetime.fromisoformat(
+                                quota['reset_date'].replace('Z', '+00:00'))
+                            self.assertIsNotNone(parsed.tzinfo)
+                    self.assertEqual(set(capabilities), expected_capabilities)
                     self.assertEqual(capabilities['extract'], {
                         'pdf': True, 'ocr': True, 'pages': True,
                         'max_pages': 2000, 'max_text_bytes': 131072})

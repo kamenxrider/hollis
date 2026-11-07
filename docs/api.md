@@ -331,7 +331,7 @@ above an explicit limit, Hollis reports Chat Completions `finish_reason:"length"
 or Responses `status:"incomplete"` with
 `incomplete_details:{"reason":"max_output_tokens"}`, including the final stream
 chunk or `response.incomplete` event. This is a best-effort signal: Apple's
-approximate limit can overshoot by about one token, so a naturally finished
+approximate limit can overshoot the requested value, so a naturally finished
 answer at the boundary can also be marked incomplete. Short answers well below
 the limit remain `stop` / `completed`. Public streaming usage stays absent.
 
