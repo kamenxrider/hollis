@@ -82,11 +82,17 @@ The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work
 
 `respond` and `chat` accept `--retry` for three extra attempts after the first,
 or `--retry=N` for 0–5 extra attempts. Use `=` for the count: `--retry 7`
-keeps `7` as the prompt, not a retry count. Without this flag, behavior is unchanged.
+keeps `7` as the prompt, not a retry count. Retry is off unless this flag is supplied.
 The effective model must be `local`, selected explicitly, through `HOLLIS_MODEL`
 or a saved default, or retained by a continued Local chat. Other routes,
 including `auto`, fail with exit 2 before discovery or inference. Image
 generation and token counting refuse this flag; batch and HTTP are unchanged.
+
+The refusal names every concrete non-Local text route:
+
+```text
+--retry works only with --model local; Cloud, Cloud Pro, on-device and ChatGPT requests are never retried
+```
 
 Only classified transient `model_busy` failures retry. Rate limits, refusals,
 guardrails, context capacity, invalid schema/output, usage errors and timeouts
@@ -158,7 +164,7 @@ hollis benchmark --runs 3
 hollis benchmark --runs 3 --json
 ```
 
-`benchmark` always uses native Local. `--model` accepts only `local`; any other
+`benchmark` always uses native Local. `--model`/`-m` accepts only `local`; any other
 value exits 2 before a helper starts. Saved model/timeout defaults and environment
 overrides are ignored. No user input, chat history, tools, Shortcuts, Cloud,
 Cloud Pro, ChatGPT or network requests are used, and no answer text is stored.

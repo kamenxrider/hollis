@@ -43,7 +43,7 @@
         "name": "retry",
         "type": "int",
         "usage": "Retry transient Local failures only; bare --retry means 3 extra attempts, --retry=N sets 0-5 (not --retry N); waits share --timeout",
-        "default": "3"
+        "default": "0"
       }
     ],
     "respond": [
@@ -69,7 +69,7 @@
         "name": "retry",
         "type": "int",
         "usage": "Retry transient Local failures only; bare --retry means 3 extra attempts, --retry=N sets 0-5 (not --retry N); waits share --timeout",
-        "default": "3"
+        "default": "0"
       }
     ]
   },

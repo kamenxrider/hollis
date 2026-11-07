@@ -21,14 +21,14 @@ type localRetry struct {
 	wait     func(context.Context, time.Duration) error
 }
 
-const retryLocalOnly = "--retry works only with --model local; Cloud and ChatGPT requests are never retried"
+const retryLocalOnly = "--retry works only with --model local; Cloud, Cloud Pro, on-device and ChatGPT requests are never retried"
 const retryHelp = "Retry transient Local failures only; bare --retry means 3 extra attempts, --retry=N sets 0-5 (not --retry N); waits share --timeout"
 
 // addLocalRetry keeps route validation ahead of discovery, runner construction,
 // prompt reads and image generation. Continued chats retain their stored route.
 func addLocalRetry(cmd *cobra.Command, flags *rootFlags) {
 	var extra int
-	cmd.Flags().IntVar(&extra, "retry", 3, retryHelp)
+	cmd.Flags().IntVar(&extra, "retry", 0, retryHelp)
 	cmd.Flags().Lookup("retry").NoOptDefVal = "3"
 	validate := cmd.Args
 	cmd.Args = func(cmd *cobra.Command, args []string) error {

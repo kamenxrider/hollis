@@ -23,6 +23,7 @@
       "default": "false"
     },
     {
+      "shorthand": "m",
       "name": "model",
       "type": "string",
       "usage": "Must be local; no other route is used",

@@ -280,6 +280,7 @@ func runRetryCLI(t *testing.T, r runner.Runner, args ...string) (string, string,
 func TestRetryRefusesNonLocalBeforeRunnerConstruction(t *testing.T) {
 	stubConfigPath(t)
 	clearDefaultEnvironment(t)
+	const wantMessage = "--retry works only with --model local; Cloud, Cloud Pro, on-device and ChatGPT requests are never retried"
 	for _, command := range []string{"respond", "chat"} {
 		for _, model := range []string{"cloud", "cloud-pro", "on-device", "chatgpt", "auto"} {
 			for _, source := range []string{"explicit", "environment", "saved"} {
@@ -305,11 +306,44 @@ func TestRetryRefusesNonLocalBeforeRunnerConstruction(t *testing.T) {
 					cmd.SetIn(strings.NewReader(""))
 					cmd.SetArgs(args)
 					err := cmd.Execute()
-					if ExitCode(err) != 2 || !strings.Contains(err.Error(), retryLocalOnly) || constructed != 0 {
+					if ExitCode(err) != 2 || err.Error() != wantMessage || constructed != 0 {
 						t.Fatalf("err=%v constructed=%d", err, constructed)
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestRetryFlagDefaultsAreOptIn(t *testing.T) {
+	for _, command := range []string{"respond", "chat"} {
+		for _, value := range []string{"absent", "bare", "0", "1", "2", "3", "4", "5"} {
+			t.Run(command+"/"+value, func(t *testing.T) {
+				root := NewRootCmd(func() runner.Runner { t.Fatal("parsing constructed a runner"); return nil })
+				cmd, _, err := root.Find([]string{command})
+				if err != nil {
+					t.Fatal(err)
+				}
+				flag := cmd.Flags().Lookup("retry")
+				if flag.DefValue != "0" || flag.NoOptDefVal != "3" || flag.Changed {
+					t.Fatalf("retry registration=%+v", flag)
+				}
+				var args []string
+				want := "0"
+				switch value {
+				case "absent":
+				case "bare":
+					args, want = []string{"--retry"}, "3"
+				default:
+					args, want = []string{"--retry=" + value}, value
+				}
+				if err := cmd.ParseFlags(args); err != nil {
+					t.Fatal(err)
+				}
+				if flag.Value.String() != want || flag.Changed != (value != "absent") {
+					t.Fatalf("retry value=%s changed=%v", flag.Value.String(), flag.Changed)
+				}
+			})
 		}
 	}
 }
@@ -342,7 +376,8 @@ func TestRetryCLICountsNumericPromptDefaultsAndHelp(t *testing.T) {
 	}
 	for _, command := range []string{"respond", "chat"} {
 		out, _, err := runRetryCLI(t, &retryFixtureRunner{}, command, "--help")
-		if err != nil || !strings.Contains(out, retryHelp) || !strings.Contains(out, "--retry int[=3]") {
+		if err != nil || !strings.Contains(out, retryHelp) || !strings.Contains(out, "--retry int[=3]") ||
+			strings.Contains(out, "(default 3)") {
 			t.Fatalf("help=%q err=%v", out, err)
 		}
 		for _, count := range []string{"-1", "6", "99"} {

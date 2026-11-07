@@ -345,6 +345,21 @@ func TestBenchmarkJSONAndAgentShape(t *testing.T) {
 	}
 }
 
+func TestBenchmarkModelShorthand(t *testing.T) {
+	f := newBenchmarkFake(t)
+	out, _, err := executeBenchmarkFake(t, t.Context(), f, "-m", "local", "--runs", "1", "--json")
+	var report benchmarkReport
+	if err != nil || json.Unmarshal([]byte(out), &report) != nil || report.Model != "local" ||
+		report.AttemptedRequests != 5 || f.calls != 5 {
+		t.Fatalf("err=%v calls=%d out=%s", err, f.calls, out)
+	}
+	f = newBenchmarkFake(t)
+	_, _, err = executeBenchmarkFake(t, t.Context(), f, "-m", "cloud")
+	if ExitCode(err) != 2 || f.calls != 0 {
+		t.Fatalf("non-Local shorthand err=%v calls=%d", err, f.calls)
+	}
+}
+
 func TestBenchmarkHelpAndAgentGoldens(t *testing.T) {
 	out, err := runGoldenCommand(t, "benchmark", "--help")
 	if err != nil {
@@ -390,7 +405,7 @@ func TestBenchmarkOutputGoldens(t *testing.T) {
 }
 
 func TestBenchmarkInvalidHelpIsUsage(t *testing.T) {
-	for _, args := range [][]string{{"benchmark", "--model", "cloud", "--help"}, {"benchmark", "--runs", "21", "--help"}} {
+	for _, args := range [][]string{{"benchmark", "--model", "cloud", "--help"}, {"benchmark", "-m", "cloud", "--help"}, {"benchmark", "--runs", "21", "--help"}} {
 		out, err := runGoldenCommand(t, args...)
 		if ExitCode(err) != 2 || len(out) != 0 {
 			t.Fatalf("args=%v err=%v out=%s", args, err, out)

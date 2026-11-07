@@ -18,7 +18,7 @@ Usage:
 
 Flags:
   -h, --help           help for benchmark
-      --model string   Must be local; no other route is used (default "local")
+  -m, --model string   Must be local; no other route is used (default "local")
       --runs int       Warm runs per case (1-20) (default 5)
 
 Global Flags:

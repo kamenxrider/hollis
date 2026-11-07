@@ -175,7 +175,7 @@ func newBenchmarkCmd(flags *rootFlags, deps benchmarkDeps) *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&runs, "runs", 5, "Warm runs per case (1-20)")
-	cmd.Flags().StringVar(&model, "model", "local", "Must be local; no other route is used")
+	cmd.Flags().StringVarP(&model, "model", "m", "local", "Must be local; no other route is used")
 	flags.checkFlagsBeforeHelp(cmd, validate)
 	return cmd
 }
