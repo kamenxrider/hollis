@@ -4,6 +4,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -110,6 +111,41 @@ func TestConfigServerCap(t *testing.T) {
 	e := wantCode(t, err, CodeConfig)
 	if !strings.Contains(e.Message, "33 servers") {
 		t.Errorf("message %q", e.Message)
+	}
+}
+
+func TestURLQueryCredentialWords(t *testing.T) {
+	refused := []string{
+		"api_key", "apiKey", "APIKey", "apikey", "access_token", "X-Amz-Signature",
+		"client_secret", "token", "auth", "sessionId", "TOKEN", "key", "secret",
+		"password", "passwd", "pass", "pwd", "credential", "credentials",
+		"authorization", "bearer", "sig", "signature", "jwt", "session", "sessionid",
+		"cookie", "hollis", "HOLLIS_setting", "hollisAnything", "api%5Fkey",
+	}
+	for _, name := range refused {
+		t.Run("refuse/"+name, func(t *testing.T) {
+			err := ValidateURL("url", "https://example.com/mcp?"+name+"=ZZ-SECRET-MARKER-ZZ")
+			if err == nil {
+				t.Fatal("credential query name was accepted")
+			}
+			want := `mcp_config: url: credential-like query parameters are refused; use "auth" with an environment variable`
+			if err.Error() != want {
+				t.Fatalf("error = %q; want %q", err, want)
+			}
+		})
+	}
+	for _, name := range []string{"author", "keyword", "monkey", "authority", "q", "page", "tokens_count", "tokensCount"} {
+		t.Run("accept/"+name, func(t *testing.T) {
+			if err := ValidateURL("url", "https://example.com/mcp?"+url.QueryEscape(name)+"=x"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	// The less permissive substring rule still applies to environment names.
+	for _, name := range []string{"AUTHOR", "KEYWORD", "MONKEY", "AUTHORITY", "TOKENS_COUNT"} {
+		if !secretLikeName(name) {
+			t.Errorf("environment substring rule changed for %q", name)
+		}
 	}
 }
 

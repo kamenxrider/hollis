@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -129,10 +130,6 @@ func (c Config) Names() []string {
 
 // secretLikeName is the deny rule for environment names. It is deliberately a
 // predictable substring rule on the name, never on the value.
-// secretQueryNames are common URL credential parameters that secretLikeName
-// does not already match.
-var secretQueryNames = map[string]bool{"sig": true, "signature": true, "pass": true, "pwd": true, "jwt": true, "session": true, "sessionid": true}
-
 func secretLikeName(name string) bool {
 	upper := strings.ToUpper(name)
 	if strings.HasPrefix(upper, "HOLLIS") {
@@ -140,6 +137,36 @@ func secretLikeName(name string) bool {
 	}
 	for _, marker := range []string{"TOKEN", "KEY", "SECRET", "PASSWORD", "CREDENTIAL", "AUTH"} {
 		if strings.Contains(upper, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// credentialQueryName matches whole words, not substrings such as "auth" in
+// "author" or "token" in "tokens_count". Split punctuation and camelCase,
+// including the acronym boundary in names such as "APIKey".
+func credentialQueryName(name string) bool {
+	if strings.HasPrefix(strings.ToLower(name), "hollis") {
+		return true
+	}
+	runes := []rune(name)
+	var separated strings.Builder
+	for i, r := range runes {
+		if i > 0 && unicode.IsUpper(r) &&
+			(unicode.IsLower(runes[i-1]) || unicode.IsDigit(runes[i-1]) ||
+				(unicode.IsUpper(runes[i-1]) && i+1 < len(runes) && unicode.IsLower(runes[i+1]))) {
+			separated.WriteByte(' ')
+		}
+		separated.WriteRune(r)
+	}
+	for _, word := range strings.FieldsFunc(separated.String(), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		switch strings.ToLower(word) {
+		case "token", "key", "apikey", "secret", "password", "passwd", "pass", "pwd",
+			"credential", "credentials", "auth", "authorization", "bearer", "sig",
+			"signature", "jwt", "session", "sessionid", "cookie":
 			return true
 		}
 	}
@@ -402,7 +429,7 @@ func ValidateURL(field, raw string) error {
 		return configError("%s has a malformed query string", field)
 	}
 	for name := range query {
-		if secretLikeName(name) || secretQueryNames[strings.ToLower(name)] {
+		if credentialQueryName(name) {
 			return configError("%s: credential-like query parameters are refused; use \"auth\" with an environment variable", field)
 		}
 	}

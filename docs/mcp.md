@@ -191,6 +191,16 @@ full result before relying on an answer that needs complete evidence.
   variable such as `GITHUB_PERSONAL_ACCESS_TOKEN` cannot receive it this way.
 - `--auth bearer:VAR` or `--auth header:NAME:VAR` sends one header whose value
   is read from `VAR` when the server is contacted.
+- URL query names are split on non-alphanumeric characters and camelCase
+  boundaries, then compared case-insensitively with `token`, `key`, `apikey`,
+  `secret`, `password`, `passwd`, `pass`, `pwd`, `credential`, `credentials`,
+  `auth`, `authorization`, `bearer`, `sig`, `signature`, `jwt`, `session`,
+  `sessionid`, and `cookie`. Any matching word, or a name starting with
+  `hollis`, is refused; use `--auth` instead. Thus `api_key`, `apiKey`,
+  `X-Amz-Signature`, and `sessionId` are refused, while `author`, `keyword`,
+  `monkey`, `authority`, `q`, and `page` are accepted. `tokens_count` is
+  accepted deliberately: the plural word `tokens` is not `token`.
+  The environment-name substring rule above is unchanged.
 - `hollis mcp list` shows which referenced variables are set. It never prints
   their values or the command's arguments.
 
