@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/kamenxrider/hollis/internal/store"
 	"github.com/kamenxrider/hollis/internal/subproc"
 )
 
@@ -443,6 +444,9 @@ func helperMismatch() *Error {
 func GuidedOutputRefusal() *Error { return helperMismatch() }
 
 type nativeRequest struct {
+	Instructions       string              `json:"instructions,omitempty"`
+	History            []nativeMessage     `json:"history,omitempty"`
+	Permissive         bool                `json:"permissive,omitempty"`
 	GenerationOptions  *GenerationOptions  `json:"generation_options,omitempty"`
 	Protocol           int                 `json:"protocol"`
 	Operation          string              `json:"operation"`
@@ -464,6 +468,9 @@ type nativeRequest struct {
 // value is a plain generation request: every member is omitted unless a caller
 // asked for it.
 type nativeOptions struct {
+	Instructions      string
+	History           []store.Message
+	Permissive        bool
 	ToolStep          *NativeToolStep
 	GenerationOptions *GenerationOptions
 	// ToolCalling is "allowed", "disallowed", or empty. It is refused outright
@@ -482,7 +489,20 @@ type nativeOptions struct {
 	Images []nativeSource
 }
 
+type nativeMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 func (o nativeOptions) validate() error {
+	if !utf8.ValidString(o.Instructions) {
+		return nativeError(KindUsage, "native instructions must be valid UTF-8")
+	}
+	for _, message := range o.History {
+		if (message.Role != "user" && message.Role != "assistant") || strings.TrimSpace(message.Content) == "" || !utf8.ValidString(message.Content) {
+			return nativeError(KindUsage, "native history must contain nonempty user or assistant text")
+		}
+	}
 	if o.ToolStep != nil {
 		if o.ToolCalling != "" || o.hasToolMetadata() || o.Source != "" || len(o.Images) > 0 || o.GenerationOptions != nil {
 			return nativeError(KindUsage, "native tool steps cannot mix legacy generation fields")
@@ -668,7 +688,10 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		if !utf8.ValidString(prompt) {
 			return fail(nativeError(KindUsage, "native prompt must be valid UTF-8"))
 		}
-		size := (ToolRoundRequest{Prompt: prompt, Instructions: opts.ToolInstructions, Definitions: opts.ToolDefinitions, RawDefinitions: opts.RawToolDefinitions}).inputBytes()
+		size := (ToolRoundRequest{Prompt: prompt, Instructions: opts.ToolInstructions, Definitions: opts.ToolDefinitions, RawDefinitions: opts.RawToolDefinitions}).inputBytes() + len(opts.Instructions)
+		for _, message := range opts.History {
+			size += len(message.Content)
+		}
 		if size > NativeMaxPromptBytes {
 			if !opts.hasToolMetadata() {
 				return fail(nativeError(KindContextCapacity, "rendered conversation exceeds Hollis's 128 KiB input limit; no messages were removed"))
@@ -683,6 +706,10 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 		requestSchema = schema.Bytes()
 	}
 	wire := nativeRequest{Protocol: NativeProtocol, Operation: operation, Prompt: prompt, Schema: requestSchema, ToolCalling: opts.ToolCalling, ToolInstructions: opts.ToolInstructions, ToolDefinitions: opts.ToolDefinitions, RawToolDefinitions: opts.RawToolDefinitions, HybridTools: opts.HybridTools, Images: opts.Images}
+	wire.Instructions, wire.Permissive = opts.Instructions, opts.Permissive
+	for _, message := range opts.History {
+		wire.History = append(wire.History, nativeMessage{Role: message.Role, Content: message.Content})
+	}
 	if opts.Source != "" {
 		wire.Source, wire.Pages, wire.Media = &nativeSource{Path: opts.Source}, opts.Pages, opts.Media
 	}
@@ -836,10 +863,11 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 			budgetSeen = true
 			slog.Info("native_budget", "counts", event.Budget)
 		case "checked":
-			if !ready || operation != "tool_check" || event.CheckedTokens == nil || *event.CheckedTokens < 0 ||
+			if !ready || (operation != "tool_check" && operation != "count_tokens") || event.CheckedTokens == nil || *event.CheckedTokens < 0 ||
 				event.Text != nil || event.Usage != nil || event.Kind != "" {
 				return nativeError(KindNativeProtocol, "invalid native history preflight")
 			}
+			result.countedTokens = event.CheckedTokens
 			terminal = true
 		case "tool_calls":
 			if !ready || operation != "tool_step" || opts.ToolStep == nil || event.Step == nil || *event.Step != opts.ToolStep.Step ||
@@ -928,8 +956,7 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 				return nativeError(KindNativeProtocol, "invalid native completion")
 			}
 			if operation == "stream" {
-				qualified := opts.GenerationOptions != nil && opts.GenerationOptions.MaxTokens != nil &&
-					status.Capabilities != nil && status.Capabilities.StreamTokenUsage
+				qualified := status.Capabilities != nil && status.Capabilities.StreamTokenUsage
 				if *event.Text != previous || (event.Usage != nil && (!qualified || !event.Usage.valid())) {
 					return nativeError(KindNativeProtocol, "stream completion does not match snapshots or includes unqualified usage")
 				}

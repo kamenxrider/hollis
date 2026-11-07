@@ -21,6 +21,45 @@ hollis respond --timeout 90s "A question worth waiting for"
 
 The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple. For Shortcuts routes, all rendered text reaches Shortcuts through a private temporary `.txt` file; see [transport and cleanup details](shortcuts.md#how-it-works).
 
+### Instructions, one-shot conversations and Local checks
+
+`respond --system 'Be concise'` (`-s`) or `--system-file instructions.txt`
+sets instructions; the two options are mutually exclusive. Local uses real
+native session instructions. Cloud, Cloud Pro, on-device and ChatGPT Shortcuts
+accept only one text, so Hollis puts instructions at the top in an
+`Instructions:` block followed by `Prompt:`. Those routes do not have a
+separate instruction channel.
+
+`respond --messages conversation.json` or `--messages -` reads a one-shot
+OpenAI messages array. Roles are system, developer, user and assistant; developer
+becomes system, content follows the HTTP text rules, and the last message must
+be user. Local uses real transcript entries and native instructions. Other
+routes replay the labelled conversation as persistent chat does. This option
+cannot accompany positional text, `--prompt-file`, a stdin prompt, or attachments.
+Instruction/conversation options currently cannot accompany caller tools or MCP.
+
+`respond --count-tokens 'Hello' --system 'Be brief' --json` counts with Apple's
+Local tokenizer without generating an answer. Text/PDF `--file` input is
+supported. Output fields are `tokens`, `context_size`, `answer_reserve` (default
+1024; override with `--answer-reserve`) and `fits`. The count includes the native
+transcript framing and instructions. Fit means input plus reserve is at most
+the Local context size; it does not guarantee the model will use that many
+answer tokens. An explicit non-local model is a usage error (exit 2), even if a
+non-local model is the saved default. Counting cannot accompany images,
+sampling, tools, schema, streaming, code extraction or permissive mode.
+
+`respond --model local --permissive` uses
+`SystemLanguageModel(guardrails: .permissiveContentTransformations)` for
+transforming supplied text, such as summarizing, translating or rewriting.
+For String output, Apple's guardrail-violation error is suppressed, but the model
+can still return a refusal. This is not unrestricted generation or a guarantee
+of compliance; structured output keeps normal guardrails. Other routes refuse
+this flag with exit 2. A short stderr note appears once per run unless quiet.
+See [Apple's API documentation](https://developer.apple.com/documentation/foundationmodels/systemlanguagemodel/guardrails/permissivecontenttransformations).
+
+`--quiet` (`-q`) hides notes, hints and progress on stderr, not errors or the
+answer. It also works with saved chat; interactive approval is never bypassed.
+
 ### One attached image
 
 With exactly one input `--image`, `respond` and one-shot saved `chat` detect

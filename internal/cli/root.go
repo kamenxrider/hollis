@@ -21,6 +21,7 @@ import (
 )
 
 type rootFlags struct {
+	quiet        bool
 	asJSON       bool
 	agent        bool
 	noInput      bool
@@ -213,6 +214,7 @@ See README.md for recipes.`,
 	rootCmd.PersistentFlags().BoolVar(&flags.noInput, "no-input", false, "Disable all interactive prompts (for CI/agents)")
 	rootCmd.PersistentFlags().StringVar(&flags.selectFields, "select", "", "Comma-separated fields to include in JSON output (e.g. --select response)")
 	rootCmd.PersistentFlags().BoolVar(&flags.agent, "agent", false, "Set all agent-friendly defaults (--json --no-input)")
+	rootCmd.PersistentFlags().BoolVarP(&flags.quiet, "quiet", "q", false, "Hide notes, hints and progress on stderr; never hide errors or the answer")
 	rootCmd.Flags().BoolVar(&showVersion, "version", false, "Print the Hollis version")
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
@@ -234,6 +236,9 @@ See README.md for recipes.`,
 			return usageErr(fmt.Errorf("%s supports human output only; remove --json/--agent", path))
 		}
 		flags.resultSchema = commandResultSchemas[path]
+		if count, _ := cmd.Flags().GetBool("count-tokens"); path == "hollis respond" && count {
+			flags.resultSchema = resultFields("tokens", "context_size", "answer_reserve", "fits")
+		}
 		if helpRequested || path == "hollis help" {
 			flags.resultSchema = helpResultSchema
 		} else if cmd == rootCmd && showVersion {

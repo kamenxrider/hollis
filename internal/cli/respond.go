@@ -40,6 +40,7 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		toolChoice string
 		mcpOptions mcpFlags
 		sampling   generationFlags
+		extras     respondExtras
 	)
 	validateRespondFlags := func(cmd *cobra.Command, args []string) error {
 		if err := validateTimeout(cmd, timeout); err != nil {
@@ -49,6 +50,9 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 			return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", model))
 		}
 		_, promptArgs, _ := splitRespondModelArgs(cmd, args)
+		if err := extras.validate(cmd, promptArgs, mcpOptions.enabled()); err != nil {
+			return err
+		}
 		hasPromptFile := cmd.Flags().Changed("prompt-file")
 		if hasPromptFile && len(promptArgs) > 0 {
 			return usageErr(errors.New("choose exactly one instruction source: positional text or --prompt-file"))
@@ -124,6 +128,14 @@ Apple Intelligence & Siri). Image requests with no selected or configured
 model default directly to cloud because auto cannot safely fall back. See
 hollis models. Select local for Apple's native system model with genuine
 streaming text on Apple Silicon/macOS 27. JSON and agent output stay complete.
+Use --system/-s or --system-file for native Local instructions (mutually
+exclusive). Shortcut routes receive a labelled Instructions block instead.
+--messages <path|-> reads a one-shot OpenAI messages array ending in user:
+Local uses a real transcript, other routes replay labelled text.
+--count-tokens counts Local input without generating, including instructions
+and --file content; --answer-reserve defaults to 1024, with --json supported.
+--permissive uses Apple's permissive Local text-transformation guardrails;
+the model may still refuse. --quiet/-q hides notes, never errors or answers.
 Guide the native response with --schema <file>: the supported JSON Schema
 subset is validated before anything runs, and the returned object is checked
 again before it is reported as success.
@@ -184,7 +196,14 @@ without another model round or a new resume protocol.`,
 			hasPromptFile := cmd.Flags().Changed("prompt-file")
 			hasFileInput := len(documents) > 0 || len(images) > 0
 			var prompt string
+			var messages []store.Message
 			switch {
+			case cmd.Flags().Changed("messages"):
+				messages, err = extras.readMessages(cmd, flags)
+				if err != nil {
+					return err
+				}
+				prompt = messages[len(messages)-1].Content
 			case len(promptArgs) > 0:
 				prompt = strings.Join(promptArgs, " ")
 				if hasFileInput {
@@ -262,6 +281,10 @@ without another model round or a new resume protocol.`,
 				return usageErr(err)
 			}
 			instruction := prompt
+			instructions, err := extras.readInstructions(cmd)
+			if err != nil {
+				return err
+			}
 			var inputs []documentInput
 			hasPDF := false
 			var pages []int
@@ -322,6 +345,15 @@ without another model round or a new resume protocol.`,
 			if !m.Valid() {
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", m))
 			}
+			if extras.count {
+				if (cmd.Flags().Changed("model") && runner.Model(model) != runner.ModelLocal) || (hasPosModel && runner.Model(posModel) != runner.ModelLocal) {
+					return usageErr(errors.New("--count-tokens requires Local; remove the explicit non-local model"))
+				}
+				m = runner.ModelLocal
+			}
+			if extras.permissive && m != runner.ModelLocal {
+				return usageErr(errors.New("--permissive requires --model local"))
+			}
 			generationOptions, err := sampling.options(cmd, m)
 			if err != nil {
 				return err
@@ -378,6 +410,13 @@ without another model round or a new resume protocol.`,
 			// retains normal signal behavior while in-flight staging can unwind.
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 			defer stop()
+			if extras.count && !hasPDF {
+				prompt, instructions, history := conversationInput(prompt, instructions, messages)
+				if err := extrasSize(prompt, instructions, history); err != nil {
+					return err
+				}
+				return printTokenCount(ctx, cmd, flags, r, runner.GenerationRequest{Prompt: prompt, Instructions: instructions, History: history}, extras.reserve)
+			}
 			// Runtime bridge resolution:
 			// explicit tiers refuse to run when their bridge did not resolve,
 			// and the real transport is retargeted at the resolved refs.
@@ -407,6 +446,28 @@ without another model round or a new resume protocol.`,
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
 			}
+			explicitInstructions := instructions
+			prompt, instructions, history := conversationInput(prompt, instructions, messages)
+			if err := extrasSize(prompt, instructions, history); err != nil {
+				return err
+			}
+			if extras.count {
+				return printTokenCount(ctx, cmd, flags, r, runner.GenerationRequest{Prompt: prompt, Instructions: instructions, History: history}, extras.reserve)
+			}
+			if extras.permissive && !flags.quiet {
+				fmt.Fprintln(cmd.ErrOrStderr(), "hollis: permissive Local text transformations enabled; the model can still refuse")
+			}
+			if m != runner.ModelLocal {
+				if len(messages) > 0 {
+					prompt = chat.RenderTranscript(messages[:len(messages)-1], messages[len(messages)-1].Content)
+					prompt = shortcutInstructions(prompt, explicitInstructions)
+				} else {
+					prompt = shortcutInstructions(prompt, instructions)
+				}
+				if err := chat.ValidatePrompt(prompt); err != nil {
+					return usageErr(err)
+				}
+			}
 			if mcpOptions.enabled() {
 				return withPDFRefusalContext(runRespondMCP(ctx, cmd, flags, r, prompt, toolSet, runner.ToolChoice(toolChoice), &mcpOptions, generationOptions), hasPDF)
 			}
@@ -418,9 +479,10 @@ without another model round or a new resume protocol.`,
 			var used runner.Model
 			var usage *runner.Usage
 			var structured json.RawMessage
-			if generationOptions != nil {
+			if m == runner.ModelLocal && (generationOptions != nil || instructions != "" || len(messages) > 0 || extras.permissive) {
 				completion, runErr := runLocalGeneration(ctx, r, runner.GenerationRequest{
 					Prompt: prompt, Options: generationOptions, Schema: schema, Images: images,
+					Instructions: instructions, History: history, Permissive: extras.permissive,
 				}, streaming, cmd.OutOrStdout())
 				text, used, usage, structured, err = completion.Text, completion.Model, completion.Usage, completion.Structured, runErr
 			} else if len(images) > 0 && m == runner.ModelLocal {
@@ -481,7 +543,7 @@ without another model round or a new resume protocol.`,
 			}
 			// Human output stays clean on stdout; the fallback notice goes to
 			// stderr so pipelines are unaffected.
-			if m == runner.ModelAuto && used != runner.ModelCloud {
+			if !flags.quiet && m == runner.ModelAuto && used != runner.ModelCloud {
 				reason := string(fallback.Reason)
 				if reason == "" {
 					reason = "cloud unavailable"
@@ -547,6 +609,7 @@ without another model round or a new resume protocol.`,
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
 	mcpOptions.addTo(cmd)
 	sampling.addTo(cmd)
+	extras.addTo(cmd)
 	flags.checkFlagsBeforeHelp(cmd, validateRespondFlags)
 	return cmd
 }

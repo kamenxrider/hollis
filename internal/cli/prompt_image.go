@@ -12,6 +12,9 @@ import (
 )
 
 func adjustImagePrompt(cmd *cobra.Command, flags *rootFlags, prompt string, images int, keep bool) (string, bool) {
+	if flags.quiet {
+		return promptimage.Adjust(prompt, images, keep)
+	}
 	tty := interactiveStdin() && terminalOutput(cmd.OutOrStdout()) && !flags.noInput && !flags.asJSON && !flags.agent
 	return offerImagePrompt(prompt, images, keep, tty, cmd.InOrStdin(), cmd.ErrOrStderr())
 }

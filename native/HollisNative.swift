@@ -20,6 +20,9 @@ struct HollisNative {
         let media: String?
         let images: [Source]?
         let generationOptions: NativeTools.Options?
+        let instructions: String?
+        let history: [Message]?
+        let permissive: Bool?
 
         // Member names are the wire contract; the Swift property names are not.
         enum CodingKeys: String, CodingKey {
@@ -27,7 +30,13 @@ struct HollisNative {
             case toolCalling = "tool_calling"
             case source, pages, media, images
             case generationOptions = "generation_options"
+            case instructions, history, permissive
         }
+    }
+
+    struct Message: Decodable {
+        let role: String
+        let content: String
     }
 
     struct Source: Decodable {
@@ -227,7 +236,7 @@ struct HollisNative {
             } catch NativeToolMetadata.Failure.capacity {
                 fail("context_capacity", protocol: effective); return
             } catch { fail("native_failed", protocol: effective); return }
-            var operations = ["status", "complete", "stream"]
+            var operations = ["status", "complete", "stream", "count_tokens"]
             if effective >= 2 { operations.append("schema") }
             if effective >= 3 { operations.append("extract") }
             guard operations.contains(request.operation) else {
@@ -315,7 +324,9 @@ struct HollisNative {
                 do { requested = try SchemaSubset.parse(raw) }
                 catch { fail("native_failed", protocol: effective); return }
             }
-            let model = SystemLanguageModel.default
+            let model = request.permissive == true
+                ? SystemLanguageModel(guardrails: .permissiveContentTransformations)
+                : SystemLanguageModel.default
             let supportsTools = model.isAvailable && model.capabilities.contains(.toolCalling)
             var status = statusFields(
                 available: model.isAvailable, reason: String(describing: model.availability),
@@ -335,7 +346,8 @@ struct HollisNative {
                   !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 fail("native_failed", protocol: effective); return
             }
-            guard metadata.inputBytes <= 131_072 else {
+            let historyBytes = (request.history ?? []).reduce(0) { $0 + $1.content.utf8.count }
+            guard metadata.inputBytes + (request.instructions?.utf8.count ?? 0) + historyBytes <= 131_072 else {
                 fail("context_capacity", protocol: effective); return
             }
             var image: CGImage?
@@ -356,18 +368,43 @@ struct HollisNative {
                           "capability": "tools", "reason": "no_tool_calling"], protocol: effective)
                 return
             }
+            var entries = metadata.entries
+            if let instructions = request.instructions {
+                entries.append(.instructions(Transcript.Instructions(
+                    segments: [NativeTools.segment(instructions)], toolDefinitions: [])))
+            }
+            for message in request.history ?? [] {
+                guard !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    fail("native_failed", protocol: effective); return
+                }
+                switch message.role {
+                case "user": entries.append(.prompt(Transcript.Prompt(segments: [NativeTools.segment(message.content)])))
+                case "assistant": entries.append(.response(Transcript.Response(segments: [NativeTools.segment(message.content)])))
+                default: fail("native_failed", protocol: effective); return
+                }
+            }
             let count: Int
             if metadataMode {
                 count = try await model.tokenCount(for: NativeToolMetadata.preflightEntries(
                     metadata.entries, prompt: prompt, options: options))
+            } else if !entries.isEmpty || request.operation == "count_tokens" {
+                let seeded = entries.isEmpty ? Array(LanguageModelSession(model: model).transcript) : entries
+                count = try await model.tokenCount(for: NativeToolMetadata.preflightEntries(seeded, prompt: prompt, options: options))
             } else {
                 count = try await model.tokenCount(for: prompt)
+            }
+            if request.operation == "count_tokens" {
+                guard request.images == nil, request.schema == nil, request.toolCalling == nil else {
+                    fail("native_failed", protocol: effective); return
+                }
+                try emit(["event": "checked", "input_tokens": count], protocol: effective)
+                return
             }
             guard count < model.contextSize else {
                 fail("context_capacity", protocol: effective); return
             }
-            let session = metadataMode
-                ? LanguageModelSession(model: model, tools: [], transcript: Transcript(entries: metadata.entries))
+            let session = !entries.isEmpty
+                ? LanguageModelSession(model: model, tools: [], transcript: Transcript(entries: entries))
                 : LanguageModelSession(model: model)
             let generationPrompt = Prompt {
                 prompt
@@ -410,7 +447,7 @@ struct HollisNative {
                 // Counts are used only for the best-effort token-limit signal.
                 // Public streaming usage remains unqualified and omitted.
                 var terminal: [String: Any] = ["event": "complete", "text": last]
-                if effective >= 4, request.generationOptions?.maximumTokens != nil {
+                if effective >= 4 {
                     terminal["usage"] = ["input_tokens": session.usage.input.totalTokenCount,
                                          "output_tokens": session.usage.output.totalTokenCount,
                                          "reasoning_tokens": session.usage.output.reasoningTokenCount]

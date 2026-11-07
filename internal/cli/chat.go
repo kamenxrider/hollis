@@ -524,7 +524,11 @@ they do not control Image Playground's native generation canvas.`,
 			}
 
 			if interactive {
-				return runInteractiveChatWithImages(turnContext, st, string(selectedModel), continueID, useRunner, timeout, imageOptions, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+				notes := cmd.ErrOrStderr()
+				if flags.quiet {
+					notes = io.Discard
+				}
+				return runInteractiveChatWithImages(turnContext, st, string(selectedModel), continueID, useRunner, timeout, imageOptions, cmd.InOrStdin(), cmd.OutOrStdout(), notes)
 			}
 			if continueID != "" {
 				result, err := runTurnResult(turnContext, st, conv, prompt, useRunner, timeout)
@@ -808,10 +812,13 @@ func printChatJSON(cmd *cobra.Command, result turnResult, conv store.Conversatio
 }
 
 func writeChatHuman(cmd *cobra.Command, result turnResult, conv store.Conversation) {
-	if result.FallbackReason != "" {
+	quiet, _ := cmd.Flags().GetBool("quiet")
+	if !quiet && result.FallbackReason != "" {
 		fmt.Fprintf(cmd.ErrOrStderr(), "hollis: fallback %s: answered with %s\n", result.FallbackReason, result.ModelUsed)
 	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "conversation_id: %s\n", conv.ID)
+	if !quiet {
+		fmt.Fprintf(cmd.ErrOrStderr(), "conversation_id: %s\n", conv.ID)
+	}
 	text := humanTerminalText(cmd.OutOrStdout(), result.Text)
 	if !result.Streamed {
 		fmt.Fprint(cmd.OutOrStdout(), text)
@@ -904,7 +911,7 @@ Exit codes: 0 hits, 2 empty query, 3 no matches.`,
 				return configErr(err)
 			}
 			if len(matches) == 0 {
-				if flags.asJSON {
+				if flags.asJSON || flags.quiet {
 					return notFoundErr(fmt.Errorf("no chats match %q", query))
 				}
 				return notFoundErr(fmt.Errorf("no chats match %q\nhint: run 'hollis chats list' to see stored chats", query))

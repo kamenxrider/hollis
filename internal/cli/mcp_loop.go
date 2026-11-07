@@ -208,6 +208,9 @@ func (f *mcpFlags) attach(ctx context.Context, cmd *cobra.Command, flags *rootFl
 	session := &mcpSession{manager: manager, tools: map[string]mcp.Tool{}, calls: []mcpCallAudit{}, dispositions: []mcpDisposition{}}
 	session.partialResults = partial
 	session.diagnostic = cmd.ErrOrStderr()
+	if flags.quiet {
+		session.diagnostic = io.Discard
+	}
 	ok := false
 	defer func() {
 		if !ok {
@@ -243,11 +246,11 @@ func (f *mcpFlags) attach(ctx context.Context, cmd *cobra.Command, flags *rootFl
 		session.tools[tool.Rendered] = tool
 	}
 	for _, status := range manager.Servers() {
-		fmt.Fprintf(cmd.ErrOrStderr(), "MCP %s: %d offered, %d unsupported, %d excluded by SDK, %d filtered out (approval %s)\n",
+		fmt.Fprintf(session.diagnostic, "MCP %s: %d offered, %d unsupported, %d excluded by SDK, %d filtered out (approval %s)\n",
 			status.Name, status.ToolsOffered, status.ToolsUnsupported, status.ToolsExcluded, status.ToolsFiltered, status.Approval)
 		for _, tool := range manager.ServerTools(status.Name) {
 			if tool.Tier == mcp.TierUnsupported && !tool.Filtered {
-				fmt.Fprintf(cmd.ErrOrStderr(), "MCP unsupported %s/%s: %s\n", status.Name, mcp.EscapeTerminal(tool.Name), mcp.EscapeTerminal(tool.Reason))
+				fmt.Fprintf(session.diagnostic, "MCP unsupported %s/%s: %s\n", status.Name, mcp.EscapeTerminal(tool.Name), mcp.EscapeTerminal(tool.Reason))
 			}
 		}
 	}

@@ -1,13 +1,19 @@
 package runner
 
-import "context"
+import (
+	"context"
+	"github.com/kamenxrider/hollis/internal/store"
+)
 
 // GenerationRequest carries optional Local sampling without changing other routes.
 type GenerationRequest struct {
-	Prompt  string
-	Options *GenerationOptions
-	Schema  *Schema
-	Images  []string
+	Instructions string
+	History      []store.Message
+	Permissive   bool
+	Prompt       string
+	Options      *GenerationOptions
+	Schema       *Schema
+	Images       []string
 }
 
 type GenerationRunner interface {
@@ -22,7 +28,23 @@ func (r *NativeRunner) RunGeneration(ctx context.Context, model Model, request G
 		return Completion{}, nativeError(KindUsage, "guided output is complete-only and text-only")
 	}
 	if len(request.Images) > 0 {
-		return r.invokeImages(ctx, model, request.Prompt, request.Images, emit, request.Options)
+		staged, cleanup, err := stageImageInputs(request.Images)
+		if err != nil {
+			return Completion{}, nativeImageStagingError(err)
+		}
+		defer cleanup()
+		if len(staged) != NativeMaxImages {
+			return Completion{}, nativeError(KindUsage, "local accepts exactly 1 image; the maximum is 1")
+		}
+		operation := "complete"
+		if emit != nil {
+			operation = "stream"
+		}
+		result, _, err := r.invoke(ctx, model, operation, request.Prompt, emit, nil, nativeOptions{
+			GenerationOptions: request.Options, Instructions: request.Instructions, History: request.History,
+			Permissive: request.Permissive, Images: []nativeSource{{Path: staged[0]}},
+		})
+		return result, err
 	}
 	operation := "complete"
 	if request.Schema != nil {
@@ -30,8 +52,36 @@ func (r *NativeRunner) RunGeneration(ctx context.Context, model Model, request G
 	} else if emit != nil {
 		operation = "stream"
 	}
-	result, _, err := r.invoke(ctx, model, operation, request.Prompt, emit, request.Schema, nativeOptions{GenerationOptions: request.Options})
+	result, _, err := r.invoke(ctx, model, operation, request.Prompt, emit, request.Schema, nativeOptions{
+		GenerationOptions: request.Options, Instructions: request.Instructions, History: request.History, Permissive: request.Permissive,
+	})
 	return result, err
+}
+
+type TokenCount struct {
+	Tokens        int  `json:"tokens"`
+	ContextSize   int  `json:"context_size"`
+	AnswerReserve int  `json:"answer_reserve"`
+	Fits          bool `json:"fits"`
+}
+
+type TokenCountRunner interface {
+	CountTokens(context.Context, GenerationRequest, int) (TokenCount, error)
+}
+
+func (r *NativeRunner) CountTokens(ctx context.Context, request GenerationRequest, reserve int) (TokenCount, error) {
+	result, status, err := r.invoke(ctx, ModelLocal, "count_tokens", request.Prompt, nil, nil, nativeOptions{Instructions: request.Instructions, History: request.History})
+	if err != nil {
+		return TokenCount{}, err
+	}
+	if result.countedTokens == nil || status.ContextSize <= 0 {
+		return TokenCount{}, nativeError(KindNativeProtocol, "native token count lacks measured counts")
+	}
+	return TokenCount{Tokens: *result.countedTokens, ContextSize: status.ContextSize, AnswerReserve: reserve, Fits: *result.countedTokens+reserve <= status.ContextSize}, nil
+}
+
+func (r *RoutedRunner) CountTokens(ctx context.Context, request GenerationRequest, reserve int) (TokenCount, error) {
+	return r.Native.CountTokens(ctx, request, reserve)
 }
 
 func (r *RoutedRunner) RunGeneration(ctx context.Context, model Model, request GenerationRequest, emit func(string) error) (Completion, error) {
