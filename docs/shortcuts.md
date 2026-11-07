@@ -16,8 +16,8 @@ it keeps domain/code/known keys, never log messages. Ambiguous overlapping runs
 remain unknown. Slow or unavailable logs fall back to text classification.
 Provider limits never trigger automatic retries, batch continuation or a
 model swap, including with `auto`. A limit may last hours; wait rather than
-probing repeatedly. Doctor checks availability, not remaining quota or whether
-the Shortcuts cloud path can generate. See [failures](errors.md).
+probing repeatedly. Doctor checks availability and advisory PCC quota status,
+not remaining request counts or whether the Shortcuts cloud path can generate. See [failures](errors.md).
 
 ## How it works
 
@@ -98,3 +98,23 @@ The Shortcuts choices correspond, at family level, to Apple's [third-generation 
 Apple exposes no stable backend IDs through this interface, so these mappings stay at the family level deliberately. A separate ADM 3 Cloud family powers image features such as Genmoji and is not reachable through the **Use Model** text action. [Private Cloud Compute](https://developer.apple.com/private-cloud-compute/) is documented with a 32K context window; on-device models have a smaller working context and are more sensitive to prompt length.
 
 [Back to Hollis](../README.md)
+
+
+## Advisory PCC quota preflight
+
+Before each Cloud or Cloud Pro Shortcuts request, including CLI, HTTP and
+batch, Hollis asks the native helper for Apple's PCC `quotaUsage`. This is a
+non-generative status read: no prompt, model call, entitlement or Cloud request
+is used. The check is bounded to about two seconds. Only an explicit
+`limit_reached` reading stops the request (`rate_limited`, exit 5 / HTTP 429),
+with the reset date if Apple supplies one. Available, approaching, unknown,
+errors and timeouts all proceed normally.
+
+`doctor --model cloud` and `doctor --model cloud-pro` report available /
+approaching / limit reached / unknown and an optional reset date as information
+only; they do not change readiness or test inference. The reading is advisory:
+on the tested Mac it said “not near the limit” even while Shortcuts Cloud was
+rate-limited with code 1508. It cannot promise a request will work. The existing
+post-failure 1508 classification remains in place. Never automatically retry a
+limit. Code 600 with `AppleIntelligenceRetryAfterDate` instead says Apple asked
+to retry later, without asserting a quota limit.

@@ -1,6 +1,6 @@
 # Run the local API in the background
 
-`hollis serve` runs in the foreground until it receives Ctrl-C or SIGTERM. To
+`hollis serve` runs in the foreground until it receives Ctrl-C, SIGTERM or SIGHUP. To
 keep the API available after login, run it as a per-user LaunchAgent. Hollis
 ships a template at
 [`packaging/launchd/io.github.kamenxrider.hollis.serve.plist`](../packaging/launchd/io.github.kamenxrider.hollis.serve.plist);
@@ -121,3 +121,5 @@ with `launchctl setenv`, which exposes it to every process in your session. The
 token file keeps the secret out of both, so the template uses it.
 
 [Back to the API guide](api.md) · [Back to Hollis](../README.md)
+
+With `--no-auth`, only Host `localhost`, `127.0.0.1` or `[::1]` (with an optional port) is accepted, and any Origin must also be loopback. Foreign values get 403 to resist DNS rebinding. This does not authenticate local processes; prefer the default token mode.

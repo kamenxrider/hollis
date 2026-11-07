@@ -160,7 +160,7 @@ type mcpServerView struct {
 
 func viewServer(name string, s mcp.Server, lookup func(string) bool) mcpServerView {
 	view := mcpServerView{
-		Name: name, Transport: s.Transport(), Command: s.Command, ArgCount: len(s.Args), URL: s.URL,
+		Name: name, Transport: s.Transport(), Command: s.Command, ArgCount: len(s.Args), URL: mcp.DisplayURL(s.URL),
 		Approval: s.Mode(), Allow: append([]string{}, s.Allow...), Pinned: []string{}, Env: []string{}, EnvFrom: []mcpVariable{},
 		Tools: append([]string{}, s.Tools...),
 	}
@@ -285,7 +285,7 @@ type mcpToolView struct {
 // The server is attached in ask mode so a misconfigured allow list does not
 // hide the listing that would explain it.
 func inspectServer(ctx context.Context, name string, s mcp.Server) (mcp.ServerStatus, []mcp.Tool, error) {
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	inspect := s
 	inspect.Approval, inspect.Allow, inspect.Pins = mcp.ApprovalAsk, nil, nil
@@ -369,7 +369,7 @@ whether its allow-list pin still matches the live definition.`,
 				} else if !v.Supported {
 					offer = "unsupported"
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%dB\t%s\t%s\t%s\n", mcp.EscapeTerminal(v.Name), v.Rendered, v.Validation, v.SchemaBytes, v.Pin, offer, oneLine(mcp.EscapeTerminal(v.Description), 60))
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%dB\t%s\t%s\t%s\n", tableCell(v.Name), tableCell(v.Rendered), v.Validation, v.SchemaBytes, v.Pin, offer, oneLine(mcp.EscapeTerminal(v.Description), 60))
 			}
 			if err := tw.Flush(); err != nil {
 				return err
@@ -383,6 +383,10 @@ whether its allow-list pin still matches the live definition.`,
 			return nil
 		},
 	}
+}
+
+func tableCell(value string) string {
+	return strings.NewReplacer("\n", `\n`, "\r", `\r`, "\t", `\t`).Replace(mcp.EscapeTerminal(value))
 }
 
 func validationWord(tier mcp.Tier) string {

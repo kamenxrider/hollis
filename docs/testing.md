@@ -159,7 +159,7 @@ cross-version test skips. With dependencies cached, build and run it offline:
 
 ```sh
 old_source=$(mktemp -d)
-git archive --format=tar --output="$old_source/source.tar" 8c48203359258ee0537b8db72bbbed2f361785e8
+git archive --format=tar --output="$old_source/source.tar" 3c1caeb470b1017e63cbb263150a0aad33a1d49f
 tar -xf "$old_source/source.tar" -C "$old_source"
 (cd "$old_source" && GOPROXY=off go build -o "$old_source/hollis-v2" ./cmd/hollis)
 HOLLIS_SCHEMA_V2_RUNTIME="$old_source/hollis-v2" GOPROXY=off \

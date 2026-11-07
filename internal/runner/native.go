@@ -69,11 +69,13 @@ type LocalStatus struct {
 // a present block may still say supported:false with a fixed reason. Nothing
 // here is guessed — a zero value is never read as a capability.
 type HelperCapabilities struct {
-	Extract    *ExtractCapability `json:"extract,omitempty"`
-	Images     *ImageCapability   `json:"images,omitempty"`
-	Tools      *ToolCapability    `json:"tools,omitempty"`
-	Vision     *bool              `json:"vision,omitempty"`
-	MacOSMajor *int               `json:"macos_major,omitempty"`
+	PCCQuota         *PCCQuota          `json:"pcc_quota,omitempty"`
+	StreamTokenUsage bool               `json:"stream_token_usage,omitempty"`
+	Extract          *ExtractCapability `json:"extract,omitempty"`
+	Images           *ImageCapability   `json:"images,omitempty"`
+	Tools            *ToolCapability    `json:"tools,omitempty"`
+	Vision           *bool              `json:"vision,omitempty"`
+	MacOSMajor       *int               `json:"macos_major,omitempty"`
 }
 
 // ImageCapability reports native attachment support and its limits. MaxSidePX
@@ -926,7 +928,9 @@ func (r *NativeRunner) invoke(parent context.Context, model Model, operation, pr
 				return nativeError(KindNativeProtocol, "invalid native completion")
 			}
 			if operation == "stream" {
-				if *event.Text != previous || event.Usage != nil {
+				qualified := opts.GenerationOptions != nil && opts.GenerationOptions.MaxTokens != nil &&
+					status.Capabilities != nil && status.Capabilities.StreamTokenUsage
+				if *event.Text != previous || (event.Usage != nil && (!qualified || !event.Usage.valid())) {
 					return nativeError(KindNativeProtocol, "stream completion does not match snapshots or includes unqualified usage")
 				}
 			} else if !event.Usage.valid() {

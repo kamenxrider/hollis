@@ -141,7 +141,7 @@ such as Tailscale, WireGuard, or an SSH tunnel. Native local supports streaming;
 				api.Available[string(runner.ModelLocal)] = localStatus.Available
 			}
 
-			stopCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			stopCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 			defer stop()
 			httpServer := &http.Server{
 				// Shutdown alone does not cancel active handlers. Propagate the

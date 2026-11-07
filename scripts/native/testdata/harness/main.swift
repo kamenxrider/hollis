@@ -171,6 +171,14 @@ case "make-long-pdf":
     makeLongPDF(path: arguments[2], pages: Int(arguments[3]) ?? 1,
                 lines: Int(arguments[4]) ?? 1, text: arguments[5])
     emit(["ok": true])
+case "make-locked-pdf":
+    makePDF(path: arguments[2], pages: 1, text: "Synthetic locked document", scan: { _ in false })
+    guard let document = PDFDocument(url: URL(fileURLWithPath: arguments[2])) else { fail("could not reopen PDF") }
+    let options: [PDFDocumentWriteOption: Any] = [.userPasswordOption: "synthetic-user-password",
+                                                  .ownerPasswordOption: "synthetic-owner-password"]
+    guard document.write(to: URL(fileURLWithPath: arguments[2]), withOptions: options),
+          PDFDocument(url: URL(fileURLWithPath: arguments[2]))?.isLocked == true else { fail("PDF was not locked") }
+    emit(["ok": true])
 case "make-scan-pdf":
     makePDF(path: arguments[2], pages: Int(arguments[3]) ?? 1, text: arguments[4], scan: { _ in true })
     emit(["ok": true])

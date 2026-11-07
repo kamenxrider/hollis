@@ -181,6 +181,7 @@ func Open(path string) (*Store, error) {
 	query.Add("_pragma", "busy_timeout(5000)")
 	query.Add("_pragma", "journal_mode(WAL)")
 	query.Add("_pragma", "foreign_keys(ON)")
+	query.Add("_pragma", "secure_delete(ON)")
 	databaseURL.RawQuery = query.Encode()
 	dsn := databaseURL.String()
 	db, err := sql.Open("sqlite", dsn)

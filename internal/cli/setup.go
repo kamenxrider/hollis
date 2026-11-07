@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/kamenxrider/hollis/internal/setup"
@@ -150,10 +151,25 @@ func runSelectedDoctor(cmd *cobra.Command, flags *rootFlags, route string, newRu
 		return err
 	}
 	o, report, err := observeSetupRoute(cmd.Context(), route, newRunner)
+	var quota *runner.PCCQuota
+	if route == string(runner.ModelCloud) || route == string(runner.ModelCloudPro) {
+		reading := runner.PCCQuota{Status: "unknown"}
+		if probe, ok := newRunner().(runner.NativeStatusRunner); ok {
+			reading = runner.ReadPCCQuota(cmd.Context(), probe)
+		}
+		quota = &reading
+		report["pcc_quota"] = reading
+	}
 	if flags.asJSON {
 		return printRouteDiagnostic(cmd, flags, report, err)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "%s: %s (%s)\n", route, report["status"], report["reason_code"])
+	if quota != nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "PCC quota: %s (information only; requests may still fail)\n", strings.ReplaceAll(quota.Status, "_", " "))
+		if quota.ResetDate != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "PCC reset: %s\n", quota.ResetDate)
+		}
+	}
 	if message, _ := report["message"].(string); message != "" {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s\n", message)
 	}

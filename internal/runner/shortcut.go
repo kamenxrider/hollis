@@ -38,7 +38,8 @@ const (
 // policy) lives with callers. Run is safe for concurrent use — `shortcuts run`
 // is stateless and 4 parallel invocations were proven clean.
 type ShortcutRunner struct {
-	failureLog func(context.Context, time.Time, time.Time) ShortcutFailureInfo
+	quotaReader func(context.Context) PCCQuota
+	failureLog  func(context.Context, time.Time, time.Time) ShortcutFailureInfo
 	// ShortcutsPath is the transport binary. Tests point this at a fake.
 	ShortcutsPath string
 	// BridgeRefs maps models to the identifier passed to `shortcuts run`.
@@ -451,6 +452,9 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 	parentCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, effective)
 	defer cancel()
+	if err := r.quotaPreflight(ctx, model); err != nil {
+		return "", err
+	}
 
 	// Rule 1: plain text, never the RTF default. Rule 7: reference by UUID.
 	args := []string{"run", ref, "--output-type", "public.plain-text"}
@@ -1044,7 +1048,7 @@ func isAppleRateLimitOutput(out string) bool {
 	}
 	body = strings.TrimSpace(body)
 	for _, sentence := range appleRateLimitSentences {
-		if strings.HasPrefix(body, sentence) {
+		if body == sentence || (strings.HasSuffix(sentence, ".") && strings.HasPrefix(body, sentence)) {
 			return true
 		}
 	}

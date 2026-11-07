@@ -82,6 +82,11 @@ class ExtractionTests(unittest.TestCase):
         answer = protocol.harness(self.harness, 'extract', str(path))
         self.assertEqual(answer, {'ok': False, 'failure': 'extract_no_text'})
 
+    def test_locked_pdf_is_invalid_without_ocr(self):
+        path = self.fixture('make-locked-pdf', 'locked.pdf')
+        answer = protocol.harness(self.harness, 'extract', str(path))
+        self.assertEqual(answer, {'ok': False, 'failure': 'invalid_document'})
+
     def test_failed_render_fails_the_document_instead_of_an_empty_page(self):
         path = self.fixture('make-scan-pdf', 'render.pdf', '1', PHRASE)
         answer = protocol.harness(self.harness, 'extract', str(path), '',

@@ -142,7 +142,7 @@ absolute **Open image** link and a preview where the host supports it.
 
 - Writing, planning, research synthesis and text-document comparison on all five
   text routes. Hollis does not add a web search engine; provide the relevant sources.
-- Image understanding with Cloud, Cloud Pro or ChatGPT.
+- Image understanding with Cloud, Cloud Pro or ChatGPT; Native Local accepts one PNG/JPEG when its image capability is reported.
 - Image generation in **Animation, Illustration, Sketch, Genmoji and Any Style**.
   Attach a previous image when requesting a variation; choose local crop, pad or
   resize processing when you need a particular output shape.

@@ -12,7 +12,7 @@
 | Local diagnostics | Measured `usage` on complete responses; measured `context_size` from availability checks on newer runtimes; no streaming usage, allowance or reset time |
 | External runtime | A newer Hollis on PATH, including Homebrew, is kept and used; the plugin reports it as unverified rather than downgrading it |
 | Local HTTP endpoint | `hollis serve` on loopback with a token; Chat Completions and Responses; sampling and caller-executed function tools on `local` only |
-| Image understanding | Cloud, Cloud Pro, ChatGPT; not On-Device |
+| Image understanding | Cloud, Cloud Pro, ChatGPT; Native Local accepts one PNG/JPEG when its image capability is reported; not On-Device |
 | Generation | Animation, Illustration, Sketch, Genmoji, Any Style; unlocked session required |
 | Host integration | Claude Code first; Codex shares the same source skills and scripts |
 | Documents | UTF-8 text; PDFs through `respond --file`, extracted on the Mac by the native helper (CLI only); no Office parser |

@@ -42,7 +42,7 @@ func TestNativeImagesPublicEndpoints(t *testing.T) {
 						body = fmt.Sprintf(`{"model":"local","stream":%v,"input":[{"role":"user","content":[{"type":"input_text","text":"Describe"},%s]}]}`, streaming, strings.TrimSuffix(strings.Repeat(image+",", count), ","))
 					}
 					w := httptest.NewRecorder()
-					req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(body))
+					req := loopbackRequest(http.MethodPost, endpoint, strings.NewReader(body))
 					req.Header.Set("Content-Type", "application/json")
 					s.Handler().ServeHTTP(w, req)
 					if count == 2 {
@@ -113,7 +113,7 @@ func TestNativePreparedImagesNeverFallBackToText(t *testing.T) {
 						t.Fatalf("result=%+v ok=%v", result, ok)
 					}
 				} else {
-					s.streamPrepared(w, httptest.NewRequest("POST", "/", nil), runner.ModelLocal, request, mode == "responses-stream")
+					s.streamPrepared(w, loopbackRequest("POST", "/", nil), runner.ModelLocal, request, mode == "responses-stream")
 					if !fail && !strings.Contains(w.Body.String(), "red circle") {
 						t.Fatal("stream lost image answer")
 					}

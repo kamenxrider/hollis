@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,7 +32,7 @@ func (f *echoRunner) Run(_ context.Context, m runner.Model, prompt string) (stri
 
 func post(t *testing.T, h http.Handler, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req := loopbackRequest(http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
 	h.ServeHTTP(res, req)
@@ -40,7 +41,7 @@ func post(t *testing.T, h http.Handler, path, body string) *httptest.ResponseRec
 
 func do(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req := loopbackRequest(method, path, strings.NewReader(body))
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -403,7 +404,7 @@ func TestBearerAuthOnV1Endpoints(t *testing.T) {
 		}
 	}
 	// With the header → through.
-	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req := loopbackRequest(http.MethodGet, "/v1/models", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 	h.ServeHTTP(res, req)
@@ -467,7 +468,7 @@ func TestStrictJSONAndContentType(t *testing.T) {
 			assertAPIError(t, res, "invalid_request_error", tc.code)
 		})
 	}
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"hi"}`))
+	req := loopbackRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"hi"}`))
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusUnsupportedMediaType {
@@ -614,4 +615,12 @@ func assertAPIError(t *testing.T, res *httptest.ResponseRecorder, errorType, cod
 	if body.Error.Type != errorType || body.Error.Code != code {
 		t.Fatalf("error=%+v want type=%s code=%s", body.Error, errorType, code)
 	}
+}
+
+func loopbackRequest(method, target string, body io.Reader) *http.Request {
+	request := httptest.NewRequest(method, target, body)
+	if request.Host == "example.com" {
+		request.Host = "localhost"
+	}
+	return request
 }

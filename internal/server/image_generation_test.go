@@ -357,7 +357,7 @@ func TestImageGenerationAuthAndUnconfiguredStyleRefuseBeforeGenerator(t *testing
 	if unauthorized.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthorized status=%d body=%s", unauthorized.Code, unauthorized.Body.String())
 	}
-	request := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"prompt":"x","style":"sketch"}`))
+	request := loopbackRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"prompt":"x","style":"sketch"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()

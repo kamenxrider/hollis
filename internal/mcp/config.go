@@ -143,10 +143,13 @@ func secretLikeName(name string) bool {
 	return false
 }
 
-// credentialQueryName matches whole words, not substrings such as "auth" in
-// "author" or "token" in "tokens_count". Split punctuation and camelCase,
-// including the acronym boundary in names such as "APIKey".
+// credentialQueryName refuses credential stems within words. Only explicitly
+// harmless spellings bypass this rule; values are never inspected.
 func credentialQueryName(name string) bool {
+	switch strings.ToLower(name) {
+	case "author", "authority", "keyword", "keywords", "monkey", "tokens_count", "tokenscount":
+		return false
+	}
 	if strings.HasPrefix(strings.ToLower(name), "hollis") {
 		return true
 	}
@@ -163,14 +166,23 @@ func credentialQueryName(name string) bool {
 	for _, word := range strings.FieldsFunc(separated.String(), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	}) {
-		switch strings.ToLower(word) {
-		case "token", "key", "apikey", "secret", "password", "passwd", "pass", "pwd",
-			"credential", "credentials", "auth", "authorization", "bearer", "sig",
-			"signature", "jwt", "session", "sessionid", "cookie":
-			return true
+		for _, stem := range []string{"token", "key", "apikey", "secret", "password", "passwd", "pass", "pwd",
+			"credential", "auth", "bearer", "sig", "signature", "jwt", "session", "cookie"} {
+			if strings.Contains(strings.ToLower(word), stem) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// DisplayURL never returns userinfo, a path, a query or a fragment.
+func DisplayURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
 }
 
 // Load reads path. A missing file is an empty configuration.

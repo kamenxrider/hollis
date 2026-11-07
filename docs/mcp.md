@@ -180,7 +180,7 @@ are unchanged. Results that fit remain complete and are not saved separately.
 A partial result may omit the answer or an important qualification. Check the
 full result before relying on an answer that needs complete evidence.
 
-## Secrets never live in `mcp.json`
+## Keep credentials out of `mcp.json`
 
 - `--env KEY=VALUE` is for non-secret settings. A name that looks like a
   credential (containing `TOKEN`, `KEY`, `SECRET`, `PASSWORD`, `CREDENTIAL`,
@@ -191,18 +191,22 @@ full result before relying on an answer that needs complete evidence.
   variable such as `GITHUB_PERSONAL_ACCESS_TOKEN` cannot receive it this way.
 - `--auth bearer:VAR` or `--auth header:NAME:VAR` sends one header whose value
   is read from `VAR` when the server is contacted.
-- URL query names are split on non-alphanumeric characters and camelCase
-  boundaries, then compared case-insensitively with `token`, `key`, `apikey`,
-  `secret`, `password`, `passwd`, `pass`, `pwd`, `credential`, `credentials`,
-  `auth`, `authorization`, `bearer`, `sig`, `signature`, `jwt`, `session`,
-  `sessionid`, and `cookie`. Any matching word, or a name starting with
-  `hollis`, is refused; use `--auth` instead. Thus `api_key`, `apiKey`,
-  `X-Amz-Signature`, and `sessionId` are refused, while `author`, `keyword`,
-  `monkey`, `authority`, `q`, and `page` are accepted. `tokens_count` is
-  accepted deliberately: the plural word `tokens` is not `token`.
-  The environment-name substring rule above is unchanged.
-- `hollis mcp list` shows which referenced variables are set. It never prints
-  their values or the command's arguments.
+- URL query names are split on punctuation and camelCase, then checked
+  case-insensitively for words containing `token`, `key`, `secret`,
+  `password`, `passwd`, `pass`, `pwd`, `credential`, `auth`, `bearer`,
+  `sig`, `signature`, `jwt`, `session`, `cookie`, or `apikey`.
+  A name starting with `hollis` is also refused. This includes glued,
+  plural and numbered names such as `accesstoken`, `clientsecret`, `appkey`,
+  `tokens`, `api_keys`, and `token2`.
+  Explicit harmless exceptions are `author`, `authority`, `keyword`,
+  `keywords`, `monkey`, `tokens_count` and `tokensCount`. `q` and `page`
+  contain no credential stem and are accepted.
+- Secrets in a URL path cannot be detected. Never put credentials in the path
+  or query: the endpoint is stored literally for transport. Use `--auth`
+  with an environment variable instead.
+- All MCP command views (human, JSON and agent) show only URL scheme, host
+  and port, never path or query. `hollis mcp list` shows which referenced
+  variables are set, never their values or command arguments.
 
 A stdio server's environment is built from scratch: `PATH`, `HOME`, `TMPDIR`,
 `LANG`, `LC_*`, `PYTHON*`, `VIRTUAL_ENV`, the `--env` settings and the

@@ -17,7 +17,9 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -104,6 +106,19 @@ func (s *Server) guard(next http.HandlerFunc) http.HandlerFunc {
 			writeAPIError(w, http.StatusUnauthorized, "authentication_error", "authentication_required", "bearer token authentication is required")
 			return
 		}
+		if s.Token == "" {
+			if !loopbackAuthority(r.Host) {
+				writeAPIError(w, http.StatusForbidden, "permission_error", "invalid_host", "unauthenticated requests require a loopback Host")
+				return
+			}
+			if origin := r.Header.Get("Origin"); origin != "" {
+				parsed, err := url.Parse(origin)
+				if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || !loopbackAuthority(parsed.Host) {
+					writeAPIError(w, http.StatusForbidden, "permission_error", "invalid_origin", "unauthenticated requests require a loopback Origin")
+					return
+				}
+			}
+		}
 		if s.Token != "" {
 			got := r.Header.Get("Authorization")
 			want := "Bearer " + s.Token
@@ -124,6 +139,19 @@ func (s *Server) guard(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+func loopbackAuthority(authority string) bool {
+	host := authority
+	if parsed, port, err := net.SplitHostPort(authority); err == nil {
+		if port == "" {
+			return false
+		}
+		host = parsed
+	} else if authority == "[::1]" {
+		host = "::1"
+	}
+	return strings.EqualFold(host, "localhost") || host == "127.0.0.1" || host == "::1"
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -454,7 +482,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	result := map[string]any{
 		"id": "chatcmpl-" + randomID(), "object": "chat.completion", "created": time.Now().Unix(), "model": string(completion.Model),
 		"choices": []map[string]any{{
-			"index": 0, "message": map[string]any{"role": "assistant", "content": completion.Text}, "finish_reason": "stop",
+			"index": 0, "message": map[string]any{"role": "assistant", "content": completion.Text}, "finish_reason": finishReason(completion.Usage, request.Options),
 		}},
 	}
 	if completion.Usage != nil {
@@ -530,6 +558,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if completion.Usage != nil {
 		result["usage"] = responsesUsage(completion.Usage)
 	}
+	responseTermination(result, finishReason(completion.Usage, request.Options))
 	if prepared.PromptAdjusted {
 		result["prompt_adjusted"] = true
 	}

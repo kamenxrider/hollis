@@ -308,7 +308,7 @@ func (s *Server) handleChatGuided(w http.ResponseWriter, r *http.Request, reques
 	result := map[string]any{
 		"id": "chatcmpl-" + randomID(), "object": "chat.completion", "created": time.Now().Unix(), "model": string(completion.Model),
 		"choices": []map[string]any{{
-			"index": 0, "message": map[string]any{"role": "assistant", "content": string(completion.Structured)}, "finish_reason": "stop",
+			"index": 0, "message": map[string]any{"role": "assistant", "content": string(completion.Structured)}, "finish_reason": finishReason(completion.Usage, request.Options),
 		}},
 	}
 	if completion.Usage != nil {
@@ -355,5 +355,6 @@ func (s *Server) handleResponsesGuided(w http.ResponseWriter, r *http.Request, r
 	if completion.Usage != nil {
 		result["usage"] = responsesUsage(completion.Usage)
 	}
+	responseTermination(result, finishReason(completion.Usage, request.Options))
 	writeJSON(w, http.StatusOK, result)
 }

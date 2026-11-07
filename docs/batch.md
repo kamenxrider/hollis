@@ -28,3 +28,5 @@ entries remain supported. An unreadable or unrecognized ACL fails closed.
 
 
 [Back to Hollis](../README.md)
+
+Native `local` also supports text-only batch jobs, with no inter-call pacing.

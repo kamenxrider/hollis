@@ -38,10 +38,45 @@ func ResolveCommandLine(root *cobra.Command, args []string) ([]string, error) {
 	if (strings.HasPrefix(first.text, "__") && !first.literal) || rootControl {
 		return args, nil
 	}
+	if !first.literal && len(positionals) == 1 {
+		words := strings.Fields(first.text)
+		hasFlag := false
+		for _, word := range words {
+			hasFlag = hasFlag || strings.HasPrefix(word, "-")
+		}
+		if len(words) > 1 && hasFlag {
+			for _, name := range names {
+				if words[0] == name {
+					return nil, usageErr(fmt.Errorf("command and flags were passed as one argument: did you mean: hollis %s? To send literal text, use hollis respond %s or hollis -- %s", first.text, shellArgument(first.text), shellArgument(first.text)))
+				}
+			}
+		}
+		if len(words) == 1 && kebabCommand(first.text) && nearestCommand(first.text, names) == "" {
+			return nil, usageErr(fmt.Errorf("unknown command %q: run 'hollis --help' for the command list; to send literal text, use hollis respond %s or hollis -- %s", first.text, shellArgument(first.text), shellArgument(first.text)))
+		}
+	}
 	if !first.literal && len(positionals) == 1 && nearestCommand(first.text, names) != "" {
 		return nil, nearMissCommandError(root, args, first)
 	}
 	return append([]string{"respond"}, args...), nil
+}
+
+func kebabCommand(text string) bool {
+	parts := strings.Split(text, "-")
+	if len(parts) < 2 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for _, c := range part {
+			if c < 'a' || c > 'z' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 type commandToken struct {

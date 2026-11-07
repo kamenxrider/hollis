@@ -72,7 +72,17 @@ func sanitizeAppleText(value, prompt string) string {
 // PublicShortcutMessage includes only the already-sanitized child excerpts.
 // Err is deliberately not used: arbitrary nested transport errors may hold paths.
 func (e *Error) PublicShortcutMessage() string {
+	if e.Kind == KindRateLimited && e.PCCQuota != nil {
+		return e.PCCQuota.LimitMessage()
+	}
 	base := shortcutdiagnostic.FailedMessage
+	if e.ShortcutFailure != nil && e.ShortcutFailure.Code == 600 {
+		for _, key := range e.ShortcutFailure.Keys {
+			if key == "AppleIntelligenceRetryAfterDate" {
+				base = "Apple asked to retry this request later."
+			}
+		}
+	}
 	switch e.Kind {
 	case KindRateLimited:
 		base = RateLimitedMessage

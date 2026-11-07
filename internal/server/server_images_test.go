@@ -292,7 +292,7 @@ func TestImageCancellationMapsToTimeoutAndCleansUp(t *testing.T) {
 	srv := NewUnauthenticated(stagingCanceled)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)).WithContext(ctx)
+	req := loopbackRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(res, req)
@@ -306,7 +306,7 @@ func TestImageCancellationMapsToTimeoutAndCleansUp(t *testing.T) {
 	waiting := &recordingImageRunner{entered: make(chan struct{}, 1), waitForCtx: true}
 	srv = NewUnauthenticated(waiting)
 	ctx, cancel = context.WithCancel(t.Context())
-	req = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)).WithContext(ctx)
+	req = loopbackRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	res = httptest.NewRecorder()
 	done := make(chan struct{})

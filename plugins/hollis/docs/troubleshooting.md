@@ -63,7 +63,7 @@ documentation alone does not upgrade their bundled binary.
 | Refused as a near-miss command (exit 2) | A one-word prompt close to a command name, such as `chta`, is refused and the message names the command. Send prompt text with `respond` or after `--` |
 | `--code` exit 3 | The answer contained no code, or only empty code blocks. Remove the empty output file and ask again deliberately; it is not a timeout |
 | `runtime_unverified` with a Homebrew Hollis | Setup has no plugin verification record for that executable; it does not mean tampering. Use `doctor --model <route> --json` for availability when `agent-context` lists `--model` on `doctor`, otherwise plain `doctor --json` |
-| API client sees models but calls fail with 400 `unsupported_parameter` | The client sends fields Hollis refuses, such as `temperature`, `max_tokens` or `tools`, or `stream: true` on a Shortcuts route. Configure it to omit them |
+| API client sees models but calls fail with 400 `unsupported_parameter` | Shortcuts routes refuse `temperature`, `max_tokens`, `tools` and streaming. On runtime 0.7.0 Native Local accepts sampling and caller-executed tools when its capabilities report support. Unknown fields are refused on every route. Configure the client for its selected route |
 | Wrong/unavailable style | Use one of the five tested styles; do not route ChatGPT generation to another model silently |
 
 Ask the agent for the relevant receipt or `doctor --json` output when needed.

@@ -121,6 +121,7 @@ func TestHTTPTextRequestsKeepUsingRunnerRun(t *testing.T) {
 
 func integrationPost(handler http.Handler, path, body, token string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Host = "localhost"
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)

@@ -137,6 +137,7 @@ const (
 
 // Error is a classified runner failure. Kind maps to a stable CLI exit code.
 type Error struct {
+	PCCQuota      *PCCQuota
 	Kind          Kind
 	NativeFailure *NativeFailureInfo
 	// NativeReason distinguishes platform and identity failures without parsing

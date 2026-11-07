@@ -155,6 +155,7 @@ enum Extraction {
         guard let document = PDFDocument(data: data) else {
             throw Failure.invalidDocument(limit: nil, actual: nil)
         }
+        guard !document.isLocked else { throw Failure.invalidDocument(limit: nil, actual: nil) }
         let pageCount = document.pageCount
         guard pageCount > 0 else { throw Failure.invalidDocument(limit: nil, actual: nil) }
         guard pageCount <= maxPages else {

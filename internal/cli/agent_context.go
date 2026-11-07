@@ -223,7 +223,7 @@ func commandSideEffects(command *cobra.Command) []string {
 		return []string{"runs read-only native availability and Shortcuts discovery without inference; --model local skips Shortcuts discovery"}
 	case "hollis doctor":
 		return []string{"runs read-only native availability and Shortcuts discovery without inference; --model limits discovery to the selected route", "human output ends with a suggested next action, without executing it"}
-	case "hollis mcp add", "hollis mcp remove", "hollis mcp deny", "hollis mcp mode":
+	case "hollis mcp add", "hollis mcp set", "hollis mcp remove", "hollis mcp deny", "hollis mcp mode":
 		return []string{"writes mcp.json atomically under its lock", "never starts a server or calls a model"}
 	case "hollis mcp list":
 		return []string{"reads mcp.json", "never starts a server or calls a model"}

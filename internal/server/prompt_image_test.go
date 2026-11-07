@@ -47,7 +47,7 @@ func TestHTTPImagePromptAdjustment(t *testing.T) {
 				if streaming {
 					body = strings.Replace(body, `"model":"local"`, `"model":"local","stream":true`, 1)
 				}
-				req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(body))
+				req := loopbackRequest(http.MethodPost, endpoint, strings.NewReader(body))
 				req.Header.Set("Content-Type", "application/json")
 				if keep {
 					req.Header.Set("X-Hollis-Keep-Prompt", "1")

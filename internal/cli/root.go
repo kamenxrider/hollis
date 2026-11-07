@@ -135,7 +135,10 @@ Prompt or command: the first positional argument names the command, if exact.
 Flag values are skipped using the flag definitions (including --flag=value).
 Only a sole positional argument can be refused as a near-miss: case-insensitive
 edit distance one, or two for command names of seven or more characters.
-An adjacent letter swap counts as one edit. Other non-command text is a prompt:
+An adjacent letter swap counts as one edit. A lone quoted command followed by
+flags, such as "doctor --json", and unknown single kebab-case words such as
+help-agent are also refused with exit 2. Use respond or -- for literal text.
+Other non-command text is a prompt:
 'hollis "Explain closures"' means 'hollis respond "Explain closures"' and
 accepts respond's flags. After --, text is literal, including model prefixes.
 Root --help/--version keep strict argument checks; use 'hollis respond --help'
@@ -240,7 +243,7 @@ See README.md for recipes.`,
 			return err
 		}
 		if helpRequested {
-			if check := flags.helpFlagChecks[cmd]; check != nil && len(args) == 0 {
+			if check := flags.helpFlagChecks[cmd]; check != nil {
 				if err := check(cmd, args); err != nil {
 					return err
 				}
@@ -272,6 +275,7 @@ See README.md for recipes.`,
 	makeGroupParentsStrict(rootCmd, &flags)
 	installDeferredHelpFlags(rootCmd, &helpRequested)
 	wrapArgErrors(rootCmd, &helpRequested)
+	installSemanticHelpChecks(rootCmd, &flags)
 	return rootCmd, &flags
 }
 

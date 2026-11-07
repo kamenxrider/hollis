@@ -172,7 +172,7 @@ func TestSelectedDoctorCloudIgnoresUnrelatedRoutes(t *testing.T) {
 	stubResolution(t, []string{"AFM Bridge - Cloud Pro"}, true, 27)
 	r := &setupStatusRunner{err: errors.New("unrelated helper missing")}
 	got, err := runSetupFixture(t, r, "doctor", "--model", "cloud-pro", "--json")
-	if err != nil || got["status"] != "ready" || r.probes != 0 {
+	if err != nil || got["status"] != "ready" || r.probes != 1 || got["pcc_quota"].(map[string]any)["status"] != "unknown" {
 		t.Fatalf("got=%v err=%v native probes=%d", got, err, r.probes)
 	}
 	bridge := got["bridge"].(map[string]any)

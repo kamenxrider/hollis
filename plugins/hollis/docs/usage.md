@@ -23,8 +23,9 @@ their accessible local paths; example filenames are not attachments by themselve
 
 Hollis does not perform web search. For research, supply sources or ask the host
 to gather relevant material before sending selected context to Apple. Text-file
-input accepts UTF-8 `.txt` and `.md`; PDF and Office files are not directly
-supported. Instructions and documents must fit the runtime's 128 KiB rendered
+input accepts regular UTF-8 documents of any extension. When `agent-context`
+describes PDF support on `--file`, PDFs are extracted on the Mac; `--pages`
+selects pages from one PDF. Office files need conversion first. Instructions and documents must fit the runtime's 128 KiB rendered
 prompt limit. Oversized requests need a smaller agreed scope, not silent truncation.
 
 ## Choose the route
@@ -35,8 +36,9 @@ prompt limit. Oversized requests need a smaller agreed scope, not silent truncat
 | Cloud Pro | Yes | PNG/JPEG |
 | On-Device | Yes | Unavailable |
 | ChatGPT | Yes | One PNG/JPEG per request |
+| Native Local | Yes, when reported available by `models --model local --json` | One PNG/JPEG when its image capability is reported |
 
-These are Hollis's **Shortcuts routes**. Cloud and Cloud Pro use PCC; they are
+Cloud, Cloud Pro, On-Device and ChatGPT are Hollis's **Shortcuts routes**. Cloud and Cloud Pro use PCC; they are
 separate from Apple's native Foundation Models developer API. On-Device selects
 local model execution, but your surrounding agent may still be a cloud service.
 See [privacy](privacy.md).
@@ -61,9 +63,9 @@ Cloud from my shell script and read only the answer,” or “Help me point my
 editor's OpenAI-compatible setting at Hollis.” Scripts call `hollis respond`
 with JSON output and read structured errors. Tools connect to `hollis serve`,
 a local endpoint at `http://127.0.0.1:1978/v1` protected by a token. You start
-the server yourself because it keeps running. Tools that send sampling or tool
-fields such as `temperature` or `tools` are refused until configured to omit
-them; listing the models does not prove calls will work. The
+the server yourself because it keeps running. On runtime 0.7.0, Native Local accepts sampling fields and caller-executed
+function tools when its capabilities report support; Shortcuts routes refuse
+`temperature`, `max_tokens` and `tools`, so configure those clients to omit them; listing the models does not prove calls will work. The
 [skill workflows](../skills/hollis/references/workflows.md#hollis-as-the-model-behind-a-script-or-tool)
 list exactly what a client must send.
 

@@ -172,7 +172,7 @@ persistence, timeout, or cancellation error.`,
 			executor := &hollisBatchExecutor{newRunner: newRunner}
 			// Batch execution has no interactive reads; cancellation also covers
 			// pacing and journal updates between individual runner calls.
-			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 			defer stop()
 			result, err := batch.Run(runCtx, jobPath, options, executor, store, realBatchClock{})
 			if err != nil {

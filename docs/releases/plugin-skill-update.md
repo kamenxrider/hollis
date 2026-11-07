@@ -5,8 +5,8 @@ is not skill text.
 
 The shared skills in `plugins/hollis/skills` describe the next runtime. The
 plugin still pins runtime 0.4.0 (native protocol 1) in
-`plugins/hollis/runtime.lock.json`, and its version stays 0.2.0, until the
-runtime is released. Re-pin both together, refresh
+`plugins/hollis/runtime.lock.json`, while plugin source version 0.3.0 awaits the matching 0.7.0
+runtime release. Re-pin both together, refresh
 `scripts/plugin/testdata/agent-context-<version>.json` from the newly pinned
 runtime's `agent-context`, and empty `NEEDS_NEW_RUNTIME` in
 `scripts/plugin/test_skill_commands.py`; that test fails until the fixture
@@ -53,19 +53,14 @@ The adapter now treats that exact refusal as a runtime without a `setup` command
 and uses the labelled legacy view, as it already did for an `unknown command`
 error.
 
-## Pending skill slots
+## Runtime 0.7.0 skill capabilities
 
-Add each when the feature is merged, checked against the `agent-context` of the
-runtime that ships it. Until then the skills must not mention them.
-
-- TODO(pdf): PDF documents and OCR for `respond --file`, `--pages` limits and
-  what leaves the Mac on Cloud routes with extracted text.
-- TODO(local-images): image input on `local`; the skills currently say On-Device
-  and `local` do not accept images.
-- TODO(tool-calling): native tool calling on `local` and the HTTP `tools` field;
-  the endpoint recipe currently says `tools` is refused.
-- TODO(mcp): MCP servers, the approval contract and what tools receive; the
-  plugin must never attach MCP servers to `hollis serve`.
+The merged runtime supports PDF extraction and OCR with `respond --file` and
+`--pages`, one native Local image, native Local tools and sampling, and MCP
+approval-controlled tool servers. The skill describes support conditionally:
+inspect `agent-context` and route capabilities before using a newer feature.
+Cloud routes receive extracted document text. HTTP returns caller-executed
+function calls and never attaches MCP servers or executes tools.
 
 Release check: install the plugin from the source checkout and from the plugin
 archive, and confirm both resolve the same runtime version and native protocol

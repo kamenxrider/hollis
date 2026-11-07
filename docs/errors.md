@@ -8,12 +8,18 @@ agent schema version remain unchanged.
 
 | Machine code | Meaning | CLI exit | HTTP status | Next action |
 | --- | --- | --- | --- | --- |
-| `rate_limited` | Shortcuts code 1508, explicit usage-limit text, or likely-limit “can't be completed right now” diagnostic | 5 | 429, no Retry-After | Apple is rate-limiting cloud requests from this Mac. Wait before trying again (this can last hours). No automatic retry or model fallback |
+| `rate_limited` | An advisory PCC reading of limit reached, Shortcuts code 1508, explicit usage-limit text, or likely-limit “can't be completed right now” diagnostic | 5 | 429, no Retry-After | Apple is rate-limiting cloud requests from this Mac. Wait before trying again (this can last hours). No automatic retry or model fallback |
 | `content_refused` | Shortcuts model rejection, code 900 | 5 | 422 | Apple declined this request. Rephrasing may help; retrying will not. |
 | `access_required` | Shortcuts account access failure, code 1511 | 5 | 403 | Cloud Pro is not available for this account. |
 | `request_declined` | The failed process returned Apple's recorded “Try describing something different to create an image” diagnostic | 5 | 502 | Review the description; a different request is a new experiment, not a silent retry |
 | `shortcut_failed` | The Shortcut executed unsuccessfully without a recognized diagnostic | 5 | 502 | Inspect the failure context before making another call |
 | `transport` | Launch, staging or other transport failure, including Shortcut stdout that exceeded the 1 MiB capture cap | 5 | 502 for typed launch/transport errors | Check host access and process setup; for an oversized response, narrow the request instead of expecting a partial answer |
+| `invalid_image` | The native helper could not decode an image | 5 | 400 at admission; 502 from the helper | Supply a valid PNG/JPEG |
+| `unsupported_os` | Native image input requires macOS 27 or later | 5 | 502 | Use a supported system |
+| `native_failed` | The native Local request failed | 5 | 502 | Inspect the fixed diagnostic; do not retry blindly |
+| `unsupported_parameter` | A parameter or combination is unsupported | 2 | 400 at admission; 502 for an unexpected helper-side refusal | Use parameters supported by the selected route |
+| `context_capacity` | Local context or extracted-text capacity exceeded; nothing is dropped | 5 | 413 `context_too_large` for Local inference | Agree a smaller scope |
+| `unsupported_media` | Input is not a supported text/PDF document or PNG/JPEG image | 2 | 400 for image requests | Convert to a supported format |
 | `native_protocol` | The paired native helper and this CLI disagree about their contract: an older or newer helper, an event that breaks the sequence, or a guided object that does not match the requested schema | 5 | 502 | Install the matching bundle from the same release; do not retry against the same helper |
 | `unsupported_capability` | The paired helper speaks this protocol era but did not advertise, or refused, a capability the request needs (for example native tool calling) | 5 | 502 | Install the matching bundle from the same release; the helper is newer than the request needs or was built without that capability |
 | `tool_call_invalid` | A native callback batch failed independent validation, exceeded 16 calls, or did not satisfy tool choice. No argument repair or text-call extraction occurs, and no invalid batch is dispatched | 5 | 502 | Simplify the tools or the request; do not retry unchanged |
@@ -92,8 +98,9 @@ the previously failing Chinese/Japanese cases succeeded without 1042; those
 observations do not prove a Unicode cause or justify automatic retry.
 Invalid or incomplete callbacks fail before approval or dispatch.
 A missing named function is a usage error (CLI exit 2, HTTP 400
-`unsupported_parameter`), naming the function that was not offered and the
-offered names when the list is short. It costs no inference.
+`unsupported_parameter`). HTTP uses the fixed message `tool_choice function
+was not offered`, omitting names. Only the CLI names the missing function and
+the offered names when the list is short. It costs no inference.
 
 `local_unavailable` is the companion code with a different cause: no paired
 helper is installed or executable, or the helper cannot answer at all. It shares
@@ -102,18 +109,17 @@ from the same release, but it is not a protocol disagreement. Do not retry
 either one against the same installation.
 
 PDF extraction is CLI-only through `respond --file`; HTTP endpoints do not
-accept PDFs or produce these extraction errors. Their messages carry the
+accept PDFs or produce the PDF-only errors below. `context_capacity` and
+`unsupported_media` also apply to Local inference and images as listed above. Their messages carry the
 document's position and basename and integers only, never page text, paths or
 framework diagnostics.
 
 | Machine code | Meaning | CLI exit |
 | --- | --- | --- |
 | `page_out_of_range` | `--pages` asks for a page past the end; the message names the page and the document's real `page_count` | 2 |
-| `unsupported_media` | The `--file` content is an image (use `--image`) or neither UTF-8 text nor a PDF | 2 |
 | `extract_media_mismatch` | Hollis and its paired helper disagree about the detected media type; this is not a user-selected hint | 2 |
-| `invalid_document` | The PDF is damaged, unreadable, a page cannot be rendered or recognized, or it exceeds 2000 pages (with `limit` and `actual`) | 5 |
+| `invalid_document` | The PDF is locked, encrypted, damaged, unreadable, a page cannot be rendered or recognized, or it exceeds 2000 pages (with `limit` and `actual`) | 5 |
 | `extract_no_text` | The selected pages hold no text, even after OCR | 5 |
-| `context_capacity` | Extracted text exceeds 128 KiB; the message gives the limit and the measured size, and nothing is truncated | 5 |
 
 Shortcut output is bounded at 1 MiB per run and for `shortcuts list`. A run
 whose stdout exceeds that cap is refused with `transport` and exit 5 rather than
@@ -196,3 +202,23 @@ Batch stops on the first provider failure; chat and server do not retry limits.
 Generation failures, photographic appearance, reference similarity and
 instruction-following are separate observations. A valid PNG proves image
 generation completed; it does not prove photography or an exact edit.
+
+
+## Advisory PCC quota preflight
+
+Before each Cloud or Cloud Pro Shortcuts request, including CLI, HTTP and
+batch, Hollis asks the native helper for Apple's PCC `quotaUsage`. This is a
+non-generative status read: no prompt, model call, entitlement or Cloud request
+is used. The check is bounded to about two seconds. Only an explicit
+`limit_reached` reading stops the request (`rate_limited`, exit 5 / HTTP 429),
+with the reset date if Apple supplies one. Available, approaching, unknown,
+errors and timeouts all proceed normally.
+
+`doctor --model cloud` and `doctor --model cloud-pro` report available /
+approaching / limit reached / unknown and an optional reset date as information
+only; they do not change readiness or test inference. The reading is advisory:
+on the tested Mac it said “not near the limit” even while Shortcuts Cloud was
+rate-limited with code 1508. It cannot promise a request will work. The existing
+post-failure 1508 classification remains in place. Never automatically retry a
+limit. Code 600 with `AppleIntelligenceRetryAfterDate` instead says Apple asked
+to retry later, without asserting a quota limit.

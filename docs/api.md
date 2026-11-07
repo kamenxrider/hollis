@@ -264,7 +264,8 @@ allows dependencies. Named permits only the selected tool initially and disables
 callbacks after its result. Structured history satisfies the obligation for that
 user transaction; a new user turn resets it. No synthetic exit function is added.
 An unoffered named function returns **400** `unsupported_parameter` before
-inference, naming that function and listing the offered names when short.
+inference with the fixed message `tool_choice function was not offered`;
+HTTP does not echo function names.
 
 The helper uses executable Swift tools, not text extraction. Callbacks capture
 one complete native batch and return it to Go for independent validation.
@@ -325,6 +326,14 @@ Hollis passes `max_tokens` and `max_output_tokens` unchanged to Apple's
 `GenerationOptions.maximumResponseTokens`. The limit is approximate.
 Reported completion usage can exceed the requested value slightly.
 Hollis does not truncate output or rewrite measured usage to enforce an exact cap.
+The SDK exposes no stop/finish reason. When measured output tokens are at or
+above an explicit limit, Hollis reports Chat Completions `finish_reason:"length"`
+or Responses `status:"incomplete"` with
+`incomplete_details:{"reason":"max_output_tokens"}`, including the final stream
+chunk or `response.incomplete` event. This is a best-effort signal: Apple's
+approximate limit can overshoot by about one token, so a naturally finished
+answer at the boundary can also be marked incomplete. Short answers well below
+the limit remain `stop` / `completed`. Public streaming usage stays absent.
 
 Sampling applies to Local text, streaming, guided output and tool generation.
 Other routes and image generation reject sampling before model access.
@@ -350,7 +359,7 @@ Shortcuts routes return a complete response, so `stream: true` on those routes r
 
 - Hollis deliberately has no command-line `--token`, because process arguments can be visible through `ps`.
 
-- `--no-auth` is an explicit opt-out for a resolved loopback listener only; it lets every local process invoke the configured models and cannot be combined with `--allow-remote`.
+- `--no-auth` is an explicit opt-out for a resolved loopback listener only; it lets every local process invoke the configured models and cannot be combined with `--allow-remote`. Unauthenticated requests require Host `localhost`, `127.0.0.1` or `[::1]` (optionally with a port), and any Origin must also be loopback. Foreign hosts/origins get 403 to resist DNS rebinding. Prefer token authentication.
 
 Binding outside loopback requires **both** `--allow-remote` and authentication. Hollis does not provide TLS: expose it only through an encrypted trusted path such as Tailscale, WireGuard, or an SSH tunnel.
 

@@ -71,6 +71,27 @@ struct HollisNative {
                                       "tools": ["supported": tools, "tool_calling_mode": true,
                                                 "native_definitions": tools, "hybrid_tools": tools,
                                                 "executable": tools, "turn_handoff": tools]]
+            if effective >= 4 {
+                var capabilities = fields["capabilities"] as! [String: Any]
+                capabilities["stream_token_usage"] = true
+                fields["capabilities"] = capabilities
+            }
+        }
+        return fields
+    }
+
+    // Availability metadata only: no session, prompt, entitlement or PCC request.
+    static func quotaFields() -> [String: Any] {
+        let quota = PrivateCloudComputeLanguageModel().quotaUsage
+        let status: String
+        switch quota.status {
+        case .belowLimit(let below): status = below.isApproachingLimit ? "approaching" : "available"
+        case .limitReached: status = "limit_reached"
+        @unknown default: status = "unknown"
+        }
+        var fields: [String: Any] = ["status": status]
+        if let reset = quota.resetDate {
+            fields["reset_date"] = ISO8601DateFormatter().string(from: reset)
         }
         return fields
     }
@@ -296,13 +317,18 @@ struct HollisNative {
             }
             let model = SystemLanguageModel.default
             let supportsTools = model.isAvailable && model.capabilities.contains(.toolCalling)
-            let status = statusFields(
+            var status = statusFields(
                 available: model.isAvailable, reason: String(describing: model.availability),
                 contextSize: effective >= 2 ? model.contextSize : 0,
                 vision: effective >= 3 && model.capabilities.contains(.vision),
                 tools: supportsTools,
                 macOSMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
                 protocol: effective)
+            if request.operation == "status", effective >= 4 {
+                var capabilities = status["capabilities"] as! [String: Any]
+                capabilities["pcc_quota"] = quotaFields()
+                status["capabilities"] = capabilities
+            }
             try emit(status, protocol: effective)
             if request.operation == "status" { return }
             guard let prompt = request.prompt,
@@ -381,8 +407,15 @@ struct HollisNative {
                     last = snapshot.content
                     try emit(["event": "snapshot", "text": last], protocol: effective)
                 }
-                // Streaming usage has not been qualified; omit it.
-                try emit(["event": "complete", "text": last], protocol: effective)
+                // Counts are used only for the best-effort token-limit signal.
+                // Public streaming usage remains unqualified and omitted.
+                var terminal: [String: Any] = ["event": "complete", "text": last]
+                if effective >= 4, request.generationOptions?.maximumTokens != nil {
+                    terminal["usage"] = ["input_tokens": session.usage.input.totalTokenCount,
+                                         "output_tokens": session.usage.output.totalTokenCount,
+                                         "reasoning_tokens": session.usage.output.reasoningTokenCount]
+                }
+                try emit(terminal, protocol: effective)
             }
         } catch ImageInput.Failure.unsupportedMedia {
             fail("unsupported_media", protocol: effective)

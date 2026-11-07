@@ -44,7 +44,7 @@ func (goldenImageGenerator) Generate(context.Context, imagegen.Request) (imagege
 
 func goldenModelsBody(t *testing.T, srv *Server) []byte {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req := loopbackRequest(http.MethodGet, "/v1/models", nil)
 	res := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(res, req)
 	if res.Code != http.StatusOK {

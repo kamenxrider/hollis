@@ -506,14 +506,28 @@ func TestRunDiscardsLateOutputAfterDeadline(t *testing.T) {
 func TestRunCancellationReapsDescendants(t *testing.T) {
 	pidPath := filepath.Join(t.TempDir(), "holder.pid")
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready := make(chan bool, 1)
 	go func() {
-		time.Sleep(150 * time.Millisecond)
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if data, err := os.ReadFile(pidPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+				ready <- true
+				cancel()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		ready <- false
 		cancel()
 	}()
 	_, err := Run(ctx, Spec{
 		Name: "/bin/sh",
 		Args: []string{"-c", "sleep 30 & echo $! > " + pidPath + "; wait"},
 	})
+	if !<-ready {
+		t.Fatal("descendant did not become ready before cancellation")
+	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want canceled", err)
 	}

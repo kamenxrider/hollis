@@ -102,7 +102,7 @@ func TestMCPAddListRemoveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{path, "files", "stdio", "npx (+2 args)", "GH<-GITHUB_TOKEN:set", "OTHER<-UNSET_VAR:unset", "wiki", "https://mcp.example.dev/mcp", "auth WIKI_KEY:set"} {
+	for _, want := range []string{path, "files", "stdio", "npx (+2 args)", "GH<-GITHUB_TOKEN:set", "OTHER<-UNSET_VAR:unset", "wiki", "https://mcp.example.dev", "auth WIKI_KEY:set"} {
 		if !strings.Contains(human, want) {
 			t.Errorf("list missing %q:\n%s", want, human)
 		}

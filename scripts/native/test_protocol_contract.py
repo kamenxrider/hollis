@@ -29,7 +29,9 @@ GO_EVENT_FIELDS = {'protocol', 'version', 'model', 'event', 'available',
                    'structured', 'capability', 'capabilities', 'media',
                    'page_count', 'pages', 'text_bytes', 'page', 'limit',
                    'actual', 'request_id', 'step', 'calls', 'input_tokens', 'error_info', 'budget'}
-GO_CAPABILITY_FIELDS = {'extract', 'images', 'tools', 'vision', 'macos_major'}
+GO_CAPABILITY_FIELDS = {'extract', 'images', 'tools', 'vision', 'macos_major',
+                        'pcc_quota', 'stream_token_usage'}
+GO_QUOTA_FIELDS = {'status', 'reset_date'}
 GO_EXTRACT_CAPABILITY_FIELDS = {'pdf', 'ocr', 'pages', 'max_pages', 'max_text_bytes'}
 GO_PAGE_FIELDS = {'page', 'text', 'method'}
 GO_SOURCE_FIELDS = {'path'}
@@ -159,7 +161,10 @@ class MessageShapeTests(unittest.TestCase):
         self.assertEqual(go_struct_tags(self.go, 'ToolCapability'), GO_TOOL_CAPABILITY_FIELDS)
         self.assertLessEqual(emitted, GO_EVENT_FIELDS | GO_USAGE_FIELDS |
                              GO_CAPABILITY_FIELDS | GO_EXTRACT_CAPABILITY_FIELDS |
-                             GO_PAGE_FIELDS | GO_IMAGE_CAPABILITY_FIELDS | GO_TOOL_CAPABILITY_FIELDS)
+                             GO_PAGE_FIELDS | GO_IMAGE_CAPABILITY_FIELDS | GO_TOOL_CAPABILITY_FIELDS |
+                             GO_QUOTA_FIELDS)
+        quota_go = protocol.ROOT.joinpath('internal/runner/quota.go').read_text()
+        self.assertEqual(go_struct_tags(quota_go, 'PCCQuota'), GO_QUOTA_FIELDS)
 
     def test_helper_emits_only_events_the_runner_handles(self):
         self.assertEqual(set(protocol.SWIFT_EVENT.findall(self.swift)),

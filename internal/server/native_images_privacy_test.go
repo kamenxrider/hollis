@@ -42,7 +42,7 @@ func TestNativeImagePreHelperErrorHTTPPrivacy(t *testing.T) {
 						t.Fatal("invalid image unexpectedly succeeded")
 					}
 				} else {
-					s.streamPrepared(w, httptest.NewRequest("POST", "/", nil), runner.ModelLocal, request, mode == "responses-stream")
+					s.streamPrepared(w, loopbackRequest("POST", "/", nil), runner.ModelLocal, request, mode == "responses-stream")
 				}
 				if w.Code < 400 || !cleaned {
 					t.Fatalf("status=%d cleanup=%v", w.Code, cleaned)

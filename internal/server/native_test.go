@@ -330,7 +330,7 @@ func TestNativeStreamCancellationReleasesCapacity(t *testing.T) {
 				ctx, cancel = context.WithTimeout(context.Background(), 50*time.Millisecond)
 			}
 			defer cancel()
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"local","input":"hi","stream":true}`)).WithContext(ctx)
+			req := loopbackRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"local","input":"hi","stream":true}`)).WithContext(ctx)
 			req.Header.Set("Content-Type", "application/json")
 			res := httptest.NewRecorder()
 			done := make(chan struct{})
@@ -377,7 +377,7 @@ func TestNativeDisconnectStopsEmitter(t *testing.T) {
 		return runner.Completion{}, err
 	}}
 	srv := NewUnauthenticated(fake)
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"local","input":"hi","stream":true}`))
+	req := loopbackRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"local","input":"hi","stream":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	srv.Handler().ServeHTTP(&failedStreamWriter{header: http.Header{}}, req)
 	if len(srv.slots()) != 0 {

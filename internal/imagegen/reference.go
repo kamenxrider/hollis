@@ -14,8 +14,11 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -106,7 +109,7 @@ func NewReferenceImageFromPath(path, expectedSHA256 string) (*ReferenceImage, er
 	if lstat.Mode()&os.ModeSymlink != 0 || !lstat.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: reference path is not a regular file", ErrInvalidReference)
 	}
-	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	file, err := openReferenceFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: open reference file: %w", ErrInvalidReference, classifyReferenceFileError(err))
 	}
@@ -138,6 +141,30 @@ func NewReferenceImageFromPath(path, expectedSHA256 string) (*ReferenceImage, er
 		return nil, ErrReferenceChecksumMismatch
 	}
 	return reference, nil
+}
+
+func openReferenceFile(path string) (*os.File, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	// Resolve only root-owned macOS compatibility links, not caller aliases.
+	for _, alias := range []string{"/var", "/tmp", "/etc"} {
+		if !strings.HasPrefix(abs, alias+"/") {
+			continue
+		}
+		info, err := os.Lstat(alias)
+		if err != nil {
+			return nil, err
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		target, linkErr := os.Readlink(alias)
+		if ok && stat.Uid == 0 && linkErr == nil && filepath.Clean(filepath.Join("/", target)) == "/private"+alias {
+			abs = "/private" + abs
+		}
+		break
+	}
+	return os.OpenFile(abs, os.O_RDONLY|unix.O_NOFOLLOW_ANY|syscall.O_NONBLOCK, 0)
 }
 
 // Avoid propagating os.PathError, whose Error method includes the caller's

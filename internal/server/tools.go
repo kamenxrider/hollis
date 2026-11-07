@@ -421,7 +421,7 @@ func (s *Server) handleChatTools(w http.ResponseWriter, r *http.Request, request
 		return
 	}
 	message := map[string]any{"role": "assistant", "content": outcome.Text}
-	finish := "stop"
+	finish := finishReason(outcome.Usage, request.Options)
 	if len(outcome.Calls) != 0 {
 		calls := make([]map[string]any, len(outcome.Calls))
 		for index, call := range outcome.Calls {
@@ -652,6 +652,9 @@ func (s *Server) handleResponsesTools(w http.ResponseWriter, r *http.Request, re
 	}
 	if outcome.Usage != nil {
 		result["usage"] = responsesUsage(outcome.Usage)
+	}
+	if len(outcome.Calls) == 0 {
+		responseTermination(result, finishReason(outcome.Usage, request.Options))
 	}
 	writeJSON(w, http.StatusOK, result)
 }

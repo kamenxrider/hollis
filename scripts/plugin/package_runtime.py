@@ -6,11 +6,23 @@ import json
 from pathlib import Path
 import re
 import stat
+import subprocess
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 # The inner manifest describes the helper packed beside the CLI.
 NATIVE_PROTOCOL = 4
+
+
+def verify_versions(dist, version):
+    for name, argument, expected in (
+            ('hollis-darwin-arm64', '--version', f'hollis {version}'),
+            ('hollis-native-darwin-arm64', '--version', f'hollis-native {version}'),
+            ('hollis-native-darwin-arm64', '--protocol-version', str(NATIVE_PROTOCOL))):
+        result = subprocess.run([str((dist / name).resolve()), argument],
+                                capture_output=True, text=True, timeout=5, check=False)
+        if result.returncode != 0 or result.stdout.strip() != expected:
+            raise ValueError('CLI/helper version or protocol mismatch')
 
 
 def package(dist, version):
@@ -52,4 +64,5 @@ if __name__ == '__main__':
     parser.add_argument('dist', type=Path)
     parser.add_argument('--version', required=True)
     args = parser.parse_args()
+    verify_versions(args.dist, args.version)
     print(package(args.dist, args.version))

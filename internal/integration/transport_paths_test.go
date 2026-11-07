@@ -138,6 +138,7 @@ func TestSharedTextTransportPublicSurfaces(t *testing.T) {
 					t.Fatal(err)
 				}
 				req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
+				req.Host = "localhost"
 				req.Header.Set("Content-Type", "application/json")
 				recorder := httptest.NewRecorder()
 				server.NewUnauthenticated(r).Handler().ServeHTTP(recorder, req)

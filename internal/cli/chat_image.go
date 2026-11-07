@@ -239,7 +239,7 @@ func toChatImageCLIError(err error) error {
 }
 
 func runChatImageTurn(ctx context.Context, st *store.Store, conv store.Conversation, prompt string, options chatImageOptions) (chatImageResult, error) {
-	turnCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	turnCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stopSignals()
 	if options.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -276,7 +276,7 @@ func runChatImageTurn(ctx context.Context, st *store.Store, conv store.Conversat
 }
 
 func runFirstChatImageTurn(ctx context.Context, st *store.Store, model runner.Model, prompt string, options chatImageOptions) (chatImageResult, store.Conversation, error) {
-	turnCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	turnCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stopSignals()
 	if options.Timeout > 0 {
 		var cancel context.CancelFunc

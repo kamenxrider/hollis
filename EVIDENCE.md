@@ -28,7 +28,7 @@ ChatGPT picker. It contains no prompt, response or personal account information.
 ## Dated qualification summary
 
 - **2026-11-01, native local:** Apple Silicon, macOS 27.2 build `26B123`,
-  SDK 27.0, source commit `8a2e4bd`, helper `hollis-native` 0.5.0, protocol 2.
+  SDK 27.0, source commit `f3cb139`, helper `hollis-native` 0.5.0, protocol 2.
   One plain complete response and one `--schema` response succeeded. The guided
   response was a conforming JSON object and passed independent validation; both
   responses included SDK-measured usage. `doctor` and `models` reported an
@@ -41,7 +41,7 @@ ChatGPT picker. It contains no prompt, response or personal account information.
 
 These checks qualify only the stated setup and calls, not fresh-account consent,
 all schema shapes, streaming usage, other OS builds or future availability.
-That native run used helper 0.5.0, before the 0.7.0 protocol 3 helper.
+That native run used helper 0.5.0, before the 0.7.0 protocol 4 helper.
 
 ## Why not `fm`?
 

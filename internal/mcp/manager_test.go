@@ -465,11 +465,13 @@ func TestCrashMidCall(t *testing.T) {
 			start := time.Now()
 			_, err := m.Call(callCtx(t), "fixture", tc.tool, args)
 			code := CodeOf(err)
-			if code != CodeUnavailable && code != CodeTimeout {
+			if tc.mode == "crash" {
+				// This fixture emits a truncated JSON-RPC object before exiting.
+				if code != CodeProtocol {
+					t.Fatalf("malformed frame classified as %s: %v", code, err)
+				}
+			} else if code != CodeUnavailable && code != CodeTimeout {
 				t.Fatalf("code %s (%v); want mcp_unavailable", code, err)
-			}
-			if tc.mode == "crash" && code != CodeUnavailable {
-				t.Errorf("crash classified as %s", code)
 			}
 			if time.Since(start) > 6*time.Second {
 				t.Errorf("crash took %s", time.Since(start))

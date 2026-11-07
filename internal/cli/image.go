@@ -116,7 +116,7 @@ permission dialog; --no-input does not suppress those dialogs.`,
 					return usageErr(err)
 				}
 			}
-			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 			defer stop()
 			result, err := generator.Generate(runCtx, imagegen.Request{
 				Prompt:    args[0],

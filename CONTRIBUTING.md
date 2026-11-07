@@ -32,6 +32,8 @@ test -z "$(gofmt -l .)"
 go vet ./...
 go test ./...
 go test -race ./...
+python3 scripts/release/verify_sdk.py
+(cd third_party/go-sdk && go test ./... && go test -race ./mcp ./internal/json)
 python3 -m unittest discover -s scripts/native -p 'test_*.py'
 python3 -m unittest discover -s scripts/ai-review -p 'test_*.py'
 python3 -m unittest discover -s scripts/image-install-check -p 'test_*.py'
@@ -61,11 +63,11 @@ helper it built:
 
 ```sh
 mkdir -p dist
-CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags '-s -w -X github.com/kamenxrider/hollis/internal/cli.version=0.4.0' -o dist/hollis-darwin-arm64 ./cmd/hollis
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags '-s -w -X github.com/kamenxrider/hollis/internal/cli.version=0.7.0' -o dist/hollis-darwin-arm64 ./cmd/hollis
 bash scripts/build-native.sh dist/hollis-native-darwin-arm64
 python3 scripts/package-bridges.py dist
-python3 scripts/plugin/package_runtime.py dist --version 0.4.0
-python3 scripts/release/privacy.py --archive dist/hollis-0.4.0-darwin-arm64.zip --kind bundle
+python3 scripts/plugin/package_runtime.py dist --version 0.7.0
+python3 scripts/release/privacy.py --archive dist/hollis-0.7.0-darwin-arm64.zip --kind bundle
 python3 scripts/release/privacy.py --archive dist/hollis-bridges.zip --kind bridges
 HOLLIS_NATIVE_HELPER="$PWD/dist/hollis-native-darwin-arm64" \
   python3 -m unittest discover -s scripts/native -p 'test_*.py'

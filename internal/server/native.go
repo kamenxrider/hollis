@@ -188,8 +188,8 @@ func (e *streamEvents) send(name string, value map[string]any) error {
 
 func (e *streamEvents) response(status, text string) map[string]any {
 	output := []any{}
-	if status == "completed" {
-		output = append(output, e.item("completed", text))
+	if status == "completed" || status == "incomplete" {
+		output = append(output, e.item(status, text))
 	}
 	return map[string]any{"id": e.id, "object": "response", "created_at": e.created, "model": string(runner.ModelLocal), "status": status, "output": output, "error": nil, "incomplete_details": nil, "usage": nil}
 }
@@ -198,7 +198,7 @@ func (e *streamEvents) part(text string) map[string]any {
 }
 func (e *streamEvents) item(status, text string) map[string]any {
 	content := []any{}
-	if status == "completed" {
+	if status == "completed" || status == "incomplete" {
 		content = append(content, e.part(text))
 	}
 	return map[string]any{"id": e.itemID, "type": "message", "role": "assistant", "status": status, "content": content}
@@ -231,9 +231,13 @@ func (e *streamEvents) delta(text string) error {
 	}
 	return e.send("response.output_text.delta", map[string]any{"item_id": e.itemID, "output_index": 0, "content_index": 0, "delta": text, "logprobs": []any{}})
 }
-func (e *streamEvents) done(text string) error {
+func (e *streamEvents) done(text string, reasons ...string) error {
+	reason, status := "stop", "completed"
+	if len(reasons) > 0 && reasons[0] == "length" {
+		reason, status = "length", "incomplete"
+	}
 	if !e.responses {
-		if err := e.send("", e.chunk(map[string]any{}, "stop")); err != nil {
+		if err := e.send("", e.chunk(map[string]any{}, reason)); err != nil {
 			return err
 		}
 		if _, err := fmt.Fprint(e.w, "data: [DONE]\n\n"); err != nil {
@@ -247,10 +251,12 @@ func (e *streamEvents) done(text string) error {
 	if err := e.send("response.content_part.done", map[string]any{"item_id": e.itemID, "output_index": 0, "content_index": 0, "part": e.part(text)}); err != nil {
 		return err
 	}
-	if err := e.send("response.output_item.done", map[string]any{"output_index": 0, "item": e.item("completed", text)}); err != nil {
+	if err := e.send("response.output_item.done", map[string]any{"output_index": 0, "item": e.item(status, text)}); err != nil {
 		return err
 	}
-	return e.send("response.completed", map[string]any{"response": e.response("completed", text)})
+	response := e.response(status, text)
+	responseTermination(response, reason)
+	return e.send("response."+status, map[string]any{"response": response})
 }
 func (e *streamEvents) failed(err error) {
 	if !e.started {
@@ -341,7 +347,7 @@ func (s *Server) streamPrepared(w http.ResponseWriter, r *http.Request, model ru
 		events.failed(err)
 		return
 	}
-	// Streaming token usage is deliberately absent: only complete-call usage has
-	// been qualified. Never fabricate counts or turn partial output into success.
-	_ = events.done(result.Text)
+	// Public streaming usage remains absent; negotiated helper counts are used
+	// only for the best-effort token-ceiling termination signal.
+	_ = events.done(result.Text, finishReason(result.Usage, request.Options))
 }

@@ -59,7 +59,7 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 
 	// Scope signal cancellation to this inference, not the interactive
 	// reader waiting for the next prompt. This lets runner cleanup complete.
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
 	if timeout > 0 {
@@ -352,7 +352,7 @@ they do not control Image Playground's native generation canvas.`,
 			var cancelRequest context.CancelFunc
 			if mcpOptions.enabled() {
 				var stop context.CancelFunc
-				invocationContext, stop = signal.NotifyContext(invocationContext, os.Interrupt, syscall.SIGTERM)
+				invocationContext, stop = signal.NotifyContext(invocationContext, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 				defer stop()
 				requestContext, cancelRequest = context.WithTimeout(invocationContext, timeout)
 				defer cancelRequest()

@@ -697,6 +697,9 @@ func (s *session) classify(err error, op string) *Error {
 		return wrap(CodeUnavailable, "%s: the TLS connection failed certificate verification", op)
 	case facts.sendFailed:
 		return wrap(CodeUnavailable, "%s: the server could not be reached", op)
+	case strings.Contains(err.Error(), "unexpected EOF") || strings.Contains(err.Error(), "invalid character") ||
+		strings.Contains(err.Error(), "invalid trailing data") || strings.Contains(err.Error(), "invalid JSON-RPC"):
+		return wrap(CodeProtocol, "%s: the server sent malformed JSON-RPC", op)
 	case strings.Contains(err.Error(), "exceeded the configured maximum line length"):
 		return wrap(CodeProtocol, "%s: a message from the server exceeded %d bytes", op, MaxFrameBytes)
 	case strings.Contains(err.Error(), "event") && strings.Contains(err.Error(), "exceed"):

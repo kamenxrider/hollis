@@ -197,7 +197,7 @@ Run `hollis chat` with no argument in a terminal for an interactive session — 
 
 ```
 $ hollis chat
-New chat · auto · 6f2c…
+New chat · auto
 Type help or /help for commands; Ctrl-D leaves.
 > What is a closure?
 < A closure is a function that captures variables from its surrounding scope.
@@ -508,3 +508,13 @@ Statuses, actions and exit codes are in
 [selected-route setup and diagnostics](selected-route-setup.md).
 
 [Back to Hollis](../README.md)
+
+A lone positional containing a command name followed by flag tokens, such as
+`hollis --model local "doctor --json"`, exits 2 with a split-command suggestion.
+An unknown lone kebab-case word such as `help-agent` also exits 2 before any
+Shortcut starts. Use `respond` or `--` as literal-prompt escapes.
+`hollis --model local "Explain closures"` remains a prompt.
+
+Chat deletion enables SQLite `secure_delete` to clear deleted table records.
+This is not secure erasure: SQLite full-text index terms, WAL files, filesystem
+snapshots, backups and previously exported copies can retain data.

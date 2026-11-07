@@ -376,7 +376,7 @@ without another model round or a new resume protocol.`,
 			r := newRunner()
 			// Handle interruption only after reading the prompt, so idle stdin
 			// retains normal signal behavior while in-flight staging can unwind.
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 			defer stop()
 			// Runtime bridge resolution:
 			// explicit tiers refuse to run when their bridge did not resolve,
@@ -538,7 +538,7 @@ without another model round or a new resume protocol.`,
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "UTF-8 file containing the instruction (instead of positional text or stdin); '-' reads the instruction from stdin")
 	cmd.Flags().StringArrayVar(&documents, "file", nil, "UTF-8 text document (any extension), or a PDF read on-device, to include; repeat to preserve source order")
 	cmd.Flags().StringArrayVar(&pageSpecs, "pages", nil, "PDF pages to read from a single --file PDF: 3, 3-7, or 1,4-6; repeatable, 1-based, at most 2000 pages")
-	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (ChatGPT accepts one; unavailable with auto/on-device)")
+	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (Local and ChatGPT accept one; unavailable with auto/on-device)")
 	cmd.Flags().BoolVar(&keepPrompt, "keep-prompt", false, "Send original one-image wording without a singular rewrite")
 	cmd.Flags().StringVar(&schemaFile, "schema", "", "JSON Schema file for guided native-local output; requires --model local and completes without streaming")
 	cmd.Flags().BoolVar(&code, "code", false, "Print the first complete non-empty fenced code block (or the whole answer when there is no complete fence); exit 3 when there is nothing to print")
