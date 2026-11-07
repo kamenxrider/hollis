@@ -428,7 +428,7 @@
     "scripts/native/test_extraction.py": "bf17ca8d53b55fc2b665a98ea06f6234590bcb25d8fac7762966f794f8212123",
     "scripts/native/test_image_input.py": "01525d6efd75bacb988329249d0ac6c042991411af01e483efae51bb5b028a2f",
     "scripts/native/test_native_tools.py": "7e336e53e6da444190c4077972850a8dc767dfbd5229d6a9e58f93acabbea7c3",
-    "scripts/native/test_protocol_contract.py": "406f0b7783722216f325b8b27c348068560f11c5156751023d8bd9e61d00f816",
+    "scripts/native/test_protocol_contract.py": "d53d86befafcc3ccca1c421ebf60e6f584dce56393069729df82ec368cf81bad",
     "scripts/native/test_protocol_events.py": "e47b976ba1064529ba6892f601f84787da04426cfe85e8367572691221b22816",
     "scripts/native/test_protocol_live.py": "1f13c60cf843d65aefca40f2ef0a5c26835584d2500b1475888c6384831435ab",
     "scripts/native/test_tool_metadata.py": "897521866c8d4584be9049e9ae9e175c4a7ff63584ce16fd8640b15ce7032034",

@@ -23,7 +23,8 @@ import helper_protocol as protocol
 METADATA_REQUEST_FIELDS = {'tool_instructions', 'tool_definitions',
                            'raw_tool_definitions', 'hybrid_tools'}
 GO_REQUEST_FIELDS = {'protocol', 'operation', 'prompt', 'schema', 'tool_calling', 'generation_options',
-                     'source', 'pages', 'media', 'images'} | METADATA_REQUEST_FIELDS
+                     'source', 'pages', 'media', 'images',
+                     'instructions', 'history', 'permissive'} | METADATA_REQUEST_FIELDS
 GO_EVENT_FIELDS = {'protocol', 'version', 'model', 'event', 'available',
                    'reason', 'text', 'usage', 'kind', 'context_size',
                    'structured', 'capability', 'capabilities', 'media',
@@ -39,8 +40,8 @@ GO_IMAGE_CAPABILITY_FIELDS = {'supported', 'max_images', 'formats', 'max_side_px
 GO_TOOL_CAPABILITY_FIELDS = {'supported', 'reason', 'tool_calling_mode', 'executable', 'turn_handoff',
                              'native_definitions', 'hybrid_tools'}
 GO_USAGE_FIELDS = {'input_tokens', 'output_tokens', 'reasoning_tokens'}
-PROTOCOL_THREE_OPERATIONS = {'status', 'complete', 'stream', 'schema', 'extract'}
-PROTOCOL_EVENTS = {'status', 'snapshot', 'complete', 'error', 'budget'}
+PROTOCOL_OPERATIONS = {'status', 'complete', 'stream', 'schema', 'extract', 'count_tokens'}
+PROTOCOL_EVENTS = {'status', 'snapshot', 'complete', 'error', 'budget', 'checked'}
 
 
 def go_struct_tags(source, name):
@@ -140,6 +141,13 @@ class MessageShapeTests(unittest.TestCase):
             self.assertIn(f'request["{field}"]', metadata)
         self.assertIn('NativeToolMetadata.prepare(', self.swift)
 
+    def test_conversation_messages_match_both_decoders(self):
+        self.assertEqual(go_struct_tags(self.go, 'nativeMessage'), {'role', 'content'})
+        match = re.search(r'struct Message: Decodable \{(.*?)\n    \}', self.swift, re.S)
+        self.assertIsNotNone(match, 'helper conversation Message struct is missing')
+        self.assertEqual(set(re.findall(r'let ([A-Za-z_]+): String', match.group(1))),
+                         {'role', 'content'})
+
     def test_helper_emits_only_fields_the_runner_decodes(self):
         # A switch over request values ("allowed", "disallowed") is not an
         # emitted field.
@@ -195,10 +203,11 @@ class MessageShapeTests(unittest.TestCase):
         swift_operations.update(re.findall(r'operations.append\("([a-z_]+)"\)',
                                            match.group(2)))
         go_source = self.go + protocol.ROOT.joinpath('internal/runner/extract.go').read_text()
+        go_source += protocol.ROOT.joinpath('internal/runner/generation.go').read_text()
         go_operations = set(re.findall(
             r'r\.invoke\(ctx,\s*(?:model|ModelLocal),\s*"([a-z_]+)"', go_source))
-        self.assertEqual(swift_operations, PROTOCOL_THREE_OPERATIONS)
-        self.assertEqual(go_operations, PROTOCOL_THREE_OPERATIONS)
+        self.assertEqual(swift_operations, PROTOCOL_OPERATIONS)
+        self.assertEqual(go_operations, PROTOCOL_OPERATIONS)
         self.assertEqual(swift_operations, go_operations)
 
     def test_runner_rejects_unknown_event_fields(self):
