@@ -79,7 +79,7 @@ var (
 func buildResultSchemas() map[string]*fieldSchema {
 	usage := resultType(reflect.TypeFor[runner.Usage]())
 	processing := resultType(reflect.TypeFor[imagegen.OutputOptions]())
-	text := resultFields("model_requested", "model_used", "response", "fallback_reason", "prompt_adjusted")
+	text := resultFields("model_requested", "model_used", "response", "fallback_reason", "prompt_adjusted", "attempts")
 	text.fields["usage"] = usage
 	text.fields["mcp_servers"] = resultType(reflect.TypeFor[[]mcpServerStatus]())
 	text.fields["tool_calls"] = resultType(reflect.TypeFor[[]mcpCallAudit]())

@@ -468,6 +468,7 @@ without another model round or a new resume protocol.`,
 					return usageErr(err)
 				}
 			}
+			r = retryRunnerForContext(ctx, r)
 			if mcpOptions.enabled() {
 				return withPDFRefusalContext(runRespondMCP(ctx, cmd, flags, r, prompt, toolSet, runner.ToolChoice(toolChoice), &mcpOptions, generationOptions), hasPDF)
 			}
@@ -527,6 +528,7 @@ without another model round or a new resume protocol.`,
 					"model_used":      string(used),
 					"response":        text,
 				}
+				addRetryAttempts(ctx, data)
 				if promptAdjusted {
 					data["prompt_adjusted"] = true
 				}
@@ -614,6 +616,7 @@ without another model round or a new resume protocol.`,
 	sampling.addTo(cmd)
 	extras.addTo(cmd)
 	flags.checkFlagsBeforeHelp(cmd, validateRespondFlags)
+	addLocalRetry(cmd, flags)
 	return cmd
 }
 
@@ -827,6 +830,7 @@ func runRespondTools(ctx context.Context, cmd *cobra.Command, r runner.Runner, p
 }
 
 func writeToolDocument(cmd *cobra.Command, document map[string]any) error {
+	addRetryAttempts(cmd.Context(), document)
 	encoded, err := json.Marshal(document)
 	if err != nil {
 		return transportErr(errors.New("could not encode the tool result"))

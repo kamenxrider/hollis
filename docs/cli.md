@@ -21,6 +21,40 @@ hollis respond --timeout 90s "A question worth waiting for"
 
 The prompt comes from the argument, `--prompt-file`, or stdin, so pipelines work. Each `respond` call is stateless. Default timeout is 30 seconds, ceiling 120. Hollis rejects a rendered prompt over 128 KiB before invoking Apple. For Shortcuts routes, all rendered text reaches Shortcuts through a private temporary `.txt` file; see [transport and cleanup details](shortcuts.md#how-it-works).
 
+### Opt-in Local retry
+
+`respond` and `chat` accept `--retry` for three extra attempts after the first,
+or `--retry=N` for 0–5 extra attempts. Use `=` for the count: `--retry 7`
+keeps `7` as the prompt, not a retry count. Without this flag, behavior is unchanged.
+The effective model must be `local`, selected explicitly, through `HOLLIS_MODEL`
+or a saved default, or retained by a continued Local chat. Other routes,
+including `auto`, fail with exit 2 before discovery or inference. Image
+generation and token counting refuse this flag; batch and HTTP are unchanged.
+
+Only classified transient `model_busy` failures retry. Rate limits, refusals,
+guardrails, context capacity, invalid schema/output, usage errors and timeouts
+never retry. Any streamed text, partial structured answer or captured tool
+callback closes the retry window. Tool/MCP turns may retry only their first
+decision, with affirmative evidence that no callback was captured; completed
+decisions, dispatched calls and subsequent synthesis are never replayed.
+The native helper's existing single pre-callback busy retry is unchanged.
+
+Backoff is 1, 2, 4, 8, 8 seconds, interruptible immediately with Ctrl-C.
+All extra attempts and waits share the original request/turn `--timeout`
+budget; each retry does not restart the timeout. Respond's discovery and PDF
+extraction retain their existing separate budgets. Chat continuation locking
+uses the same turn budget. Stderr notes name the upcoming attempt:
+`hollis: Local model busy; retrying in 1 s (attempt 2 of 4)`.
+`-q` hides these notes. Successful JSON/agent output adds numeric `attempts`
+only when `--retry` is supplied (1 on first-attempt success); this counts
+CLI attempts, not the helper's internal retry or ordinary tool-loop decisions.
+
+```sh
+hollis respond -m local --retry "Reply OK"
+hollis respond -m local --retry=2 --json "Reply OK"
+hollis chat -m local --retry "Give me two ideas"
+```
+
 ### Instructions, one-shot conversations and Local checks
 
 `respond --system 'Be concise'` (`-s`) or `--system-file instructions.txt`

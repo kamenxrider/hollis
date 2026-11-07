@@ -68,7 +68,7 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 		defer cancel()
 	}
 
-	r := newRunner()
+	r := retryRunnerForContext(ctx, newRunner())
 	start := time.Now()
 	var fallback runner.Fallback
 	var text string
@@ -572,6 +572,7 @@ they do not control Image Playground's native generation canvas.`,
 	cmd.Flags().StringVar(&outputOptions.Fit, "fit", "", "Explicit output processing: crop or pad; requires --aspect-ratio or --size")
 	mcpOptions.addTo(cmd)
 	flags.checkFlagsBeforeHelp(cmd, validateChatFlags)
+	addLocalRetry(cmd, flags)
 	return cmd
 }
 
@@ -800,6 +801,7 @@ func printChatJSON(cmd *cobra.Command, result turnResult, conv store.Conversatio
 		"model_used":      result.ModelUsed,
 		"response":        result.Text,
 	}
+	addRetryAttempts(cmd.Context(), data)
 	if result.PromptAdjusted {
 		data["prompt_adjusted"] = true
 	}
