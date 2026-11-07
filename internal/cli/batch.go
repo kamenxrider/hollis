@@ -27,6 +27,22 @@ const (
 	batchPlanUsage  = "hollis batch plan --input-dir <dir> --prompt-file <file> --model <tier> --output-dir <dir> --job <file>"
 )
 
+func batchPacingHelp() string {
+	specs := runner.Specs()
+	local, _ := runner.Spec(runner.ModelLocal)
+	specs = append(specs, local)
+	var paced, unpaced []string
+	for _, spec := range specs {
+		if spec.BatchSpacing == 0 {
+			unpaced = append(unpaced, spec.BatchName)
+		} else {
+			paced = append(paced, fmt.Sprintf("%s %.0f s", spec.BatchName, spec.BatchSpacing.Seconds()))
+		}
+	}
+	return "Batch waits after call completion: " + strings.Join(paced, "; ") + ".\n" +
+		strings.Join(unpaced, " and ") + " have no pacing.\n" + runner.CloudBatchSpacingReason
+}
+
 // batchJobStore is the durable batch store plus the no-clobber creation
 // operation used by plan. Keeping this small interface here lets CLI tests
 // use a provider-free fake while LocalStore owns production persistence.
@@ -36,6 +52,7 @@ type batchJobStore interface {
 }
 
 var newBatchStore = func() batchJobStore { return batch.NewLocalStore() }
+var newBatchClock = func() batch.Clock { return realBatchClock{} }
 
 // realBatchClock uses a cancellable timer for pacing. A sleep would delay
 // cancellation until the full provider interval had elapsed.
@@ -71,7 +88,9 @@ model is recorded in the plan; batch jobs never use automatic fallback.
 
 Use --retry-failed or --retry-uncertain only when you explicitly intend to
 repeat an item. Use --skip-uncertain to retain the evidence without retrying
-an ambiguous provider attempt.`,
+an ambiguous provider attempt.
+
+` + batchPacingHelp(),
 		Args: noExtraArgs("batch"),
 	}
 	cmd.AddCommand(newBatchPlanCmd(flags), newBatchInvokeCmd(flags, newRunner, false), newBatchInvokeCmd(flags, newRunner, true))
@@ -88,7 +107,9 @@ func newBatchPlanCmd(flags *rootFlags) *cobra.Command {
 
 Only direct regular .txt, .md, .png, .jpg, and .jpeg entries are inventory
 items. Unsupported entries are recorded as skipped. The destination job file
-is created without overwriting an existing file.`,
+is created without overwriting an existing file.
+
+` + batchPacingHelp(),
 		Example: "  " + batchPlanUsage,
 		Args:    noExtraArgs("batch plan"),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -146,18 +167,27 @@ func newBatchInvokeCmd(flags *rootFlags, newRunner newRunnerFunc, resume bool) *
 
 --max-calls is required for every invocation and counts provider attempts,
 including explicit retries. The command stops at the first provider,
-persistence, timeout, or cancellation error.`,
+persistence, timeout, or cancellation error.
+
+` + batchPacingHelp(),
 		Example: fmt.Sprintf("  hollis batch %s --job ./job.json --max-calls 12", name),
 		Args:    noExtraArgs("batch " + name),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !cmd.Flags().Changed("max-calls") {
 				return usageErr(errors.New("--max-calls is required for every batch run or resume invocation"))
 			}
+			notified := false
 			options := batch.InvocationOptions{
 				MaxCalls:       maxCalls,
 				RetryFailed:    retryFailed,
 				RetryUncertain: retryUncertain,
 				SkipUncertain:  skipUncertain,
+				OnWait: func(model runner.Model, _ time.Duration) {
+					if !notified {
+						fmt.Fprintf(cmd.ErrOrStderr(), "hollis: batch pacing: %s\n", batchPacingNote(model))
+						notified = true
+					}
+				},
 			}
 			if err := options.Validate(); err != nil {
 				return usageErr(err)
@@ -174,7 +204,7 @@ persistence, timeout, or cancellation error.`,
 			// pacing and journal updates between individual runner calls.
 			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 			defer stop()
-			result, err := batch.Run(runCtx, jobPath, options, executor, store, realBatchClock{})
+			result, err := batch.Run(runCtx, jobPath, options, executor, store, newBatchClock())
 			if err != nil {
 				return batchRunCLIError(err)
 			}
@@ -190,21 +220,27 @@ persistence, timeout, or cancellation error.`,
 }
 
 func printBatchPlan(cmd *cobra.Command, flags *rootFlags, job *batch.Job) error {
+	spec, _ := runner.Spec(job.Model)
+	intervals := max(0, len(job.Items)-1)
+	minimumPacing := time.Duration(intervals) * spec.BatchSpacing
 	for _, warning := range job.Warnings {
 		fmt.Fprintf(cmd.ErrOrStderr(), "hollis: %s\n", warning)
 	}
 	data := map[string]any{
-		"job_path":           job.JobPath,
-		"schema_version":     job.SchemaVersion,
-		"model":              string(job.Model),
-		"input_dir":          job.InputDir,
-		"output_dir":         job.OutputDir,
-		"instruction_source": job.InstructionSource,
-		"instruction_sha256": job.InstructionSHA256,
-		"items":              job.Items,
-		"item_count":         len(job.Items),
-		"skipped":            job.Skipped,
-		"skipped_count":      len(job.Skipped),
+		"job_path":               job.JobPath,
+		"schema_version":         job.SchemaVersion,
+		"model":                  string(job.Model),
+		"input_dir":              job.InputDir,
+		"output_dir":             job.OutputDir,
+		"instruction_source":     job.InstructionSource,
+		"instruction_sha256":     job.InstructionSHA256,
+		"items":                  job.Items,
+		"item_count":             len(job.Items),
+		"skipped":                job.Skipped,
+		"skipped_count":          len(job.Skipped),
+		"spacing_seconds":        spec.BatchSpacing.Seconds(),
+		"spacing_reason":         spec.BatchSpacingReason,
+		"minimum_pacing_seconds": minimumPacing.Seconds(),
 	}
 	if len(job.Warnings) != 0 {
 		data["warnings"] = job.Warnings
@@ -214,6 +250,8 @@ func printBatchPlan(cmd *cobra.Command, flags *rootFlags, job *batch.Job) error 
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "planned batch job %s\n", job.JobPath)
 	fmt.Fprintf(cmd.OutOrStdout(), "  model: %s\n", job.Model)
+	fmt.Fprintf(cmd.OutOrStdout(), "  pacing: %s\n", batchPacingNote(job.Model))
+	fmt.Fprintf(cmd.OutOrStdout(), "  minimum pacing time: %s (plus model runtime)\n", minimumPacing)
 	fmt.Fprintf(cmd.OutOrStdout(), "  items: %d\n", len(job.Items))
 	for _, item := range job.Items {
 		fmt.Fprintf(cmd.OutOrStdout(), "    %s (%s)\n", item.Name, item.Kind)
@@ -223,6 +261,14 @@ func printBatchPlan(cmd *cobra.Command, flags *rootFlags, job *batch.Job) error 
 		fmt.Fprintf(cmd.OutOrStdout(), "    %s: %s\n", skipped.Name, skipped.Reason)
 	}
 	return nil
+}
+
+func batchPacingNote(model runner.Model) string {
+	spec, _ := runner.Spec(model)
+	if spec.BatchSpacing == 0 {
+		return spec.BatchSpacingReason
+	}
+	return fmt.Sprintf("%s calls wait %.0f s after completion. %s", spec.BatchName, spec.BatchSpacing.Seconds(), spec.BatchSpacingReason)
 }
 
 func printBatchResult(cmd *cobra.Command, flags *rootFlags, jobPath string, result batch.InvocationResult) error {

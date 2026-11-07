@@ -98,7 +98,7 @@ func Run(ctx context.Context, jobPath string, options InvocationOptions, executo
 		if err := ctx.Err(); err != nil {
 			return summarize(job, result.Attempted, false), err
 		}
-		if err := waitForPacing(ctx, clock, job.NextCallNotBefore); err != nil {
+		if err := waitForPacing(ctx, clock, job.NextCallNotBefore, job.Model, options.OnWait); err != nil {
 			return summarize(job, result.Attempted, false), fmt.Errorf("wait for batch pacing: %w", err)
 		}
 		if err := RevalidateItem(job, *item); err != nil {
@@ -265,8 +265,11 @@ func hasFailed(job *Job) bool {
 	return false
 }
 
-func waitForPacing(ctx context.Context, clock Clock, notBefore time.Time) error {
+func waitForPacing(ctx context.Context, clock Clock, notBefore time.Time, model runner.Model, onWait func(runner.Model, time.Duration)) error {
 	if wait := notBefore.Sub(clock.Now()); wait > 0 {
+		if onWait != nil {
+			onWait(model, wait)
+		}
 		return clock.Wait(ctx, wait)
 	}
 	return nil

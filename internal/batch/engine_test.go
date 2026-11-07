@@ -263,9 +263,11 @@ func TestRunPersistsAndHonorsPacing(t *testing.T) {
 		model   runner.Model
 		spacing time.Duration
 	}{
-		{name: "cloud", model: runner.ModelCloud, spacing: 15 * time.Second},
+		{name: "cloud", model: runner.ModelCloud, spacing: 30 * time.Second},
 		{name: "chatgpt", model: runner.ModelChatGPT, spacing: 15 * time.Second},
 		{name: "cloud pro", model: runner.ModelCloudPro, spacing: 45 * time.Second},
+		{name: "local", model: runner.ModelLocal, spacing: 0},
+		{name: "on-device", model: runner.ModelOnDevice, spacing: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			job := engineJob(t, tc.model, "a.txt", "b.txt")
@@ -277,8 +279,12 @@ func TestRunPersistsAndHonorsPacing(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Run: %v", err)
 			}
-			if result.Attempted != 2 || len(clock.waits) != 1 || clock.waits[0] != tc.spacing {
-				t.Fatalf("summary=%+v waits=%v, want one %s wait", result, clock.waits, tc.spacing)
+			wantWaits := 1
+			if tc.spacing == 0 {
+				wantWaits = 0
+			}
+			if result.Attempted != 2 || len(clock.waits) != wantWaits || wantWaits > 0 && clock.waits[0] != tc.spacing {
+				t.Fatalf("summary=%+v waits=%v, want %d waits of %s", result, clock.waits, wantWaits, tc.spacing)
 			}
 			stored := store.snapshot()
 			if want := clock.Now().Add(tc.spacing); !stored.NextCallNotBefore.Equal(want) {

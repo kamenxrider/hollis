@@ -11,7 +11,9 @@ hollis batch resume --job ./job.json --max-calls 12
 
 Choose a concrete model explicitly. On-Device supports text-only jobs; image jobs use Cloud, Cloud Pro or ChatGPT. Every run or resume requires a new `--max-calls` budget from 1 to 100. A budget-limited run pauses cleanly. Output distinguishes attempts in this invocation from lifetime attempts. There is one call per file, no automatic model switching, and no automatic retry.
 
-Cloud and ChatGPT calls wait at least 15 seconds after completion before the next call; Cloud Pro waits 45 seconds. The pacing checkpoint survives a restart. These are conservative Hollis defaults, not an Apple quota guarantee. Cancellation, a provider failure or a persistence failure stops further calls.
+Cloud calls wait at least 30 seconds after completion before the next call; Cloud Pro waits 45 seconds and ChatGPT 15 seconds. On-Device and Local have no pacing. Apple rate-limits cloud requests per Mac without publishing the limit; we observed a block of about 17–24 hours after roughly 115 Cloud requests in 34 minutes. Pacing reduces the risk but cannot guarantee access. The pacing checkpoint survives a restart. Cancellation, a provider failure or a persistence failure stops further calls.
+
+Plans show the spacing and reason in human output and as `spacing_seconds` and `spacing_reason` in JSON/agent output. `minimum_pacing_seconds` is the total inter-call waiting time for the planned items, excluding model runtime, not a completion-time prediction. Run and resume print one stderr notice when they first wait.
 
 Resume verifies completed results and checks source hashes before continuing. If an interrupted call has no verifiable saved result, its status is **uncertain**. Choose `--retry-uncertain` to risk repeating that call, or `--skip-uncertain` to leave it unresolved and process pending items. Failed items require `--retry-failed` before more work proceeds. Exactly-once provider execution across a crash cannot be guaranteed. Changed inputs require a new plan.
 

@@ -231,9 +231,12 @@ hollis batch resume --job ./job.json --max-calls 12
 ```
 
 Planning makes no model calls. Runs have an explicit call budget and verify
-saved results before skipping them. Cloud and ChatGPT calls wait at least 15
-seconds after each completion and Cloud Pro waits 45 seconds; On-Device and
-native local run without a pause. Text supports all five
+saved results before skipping them. After each completion, Cloud waits at least
+30 seconds, Cloud Pro 45 seconds and ChatGPT 15 seconds; On-Device and native
+local run without a pause. Apple rate-limits cloud requests per Mac without
+publishing the limit; we observed a block of about 17–24 hours after roughly
+115 Cloud requests in 34 minutes. Pacing reduces risk but cannot guarantee
+access. Text supports all five
 explicit model choices; images use Cloud, Cloud Pro or ChatGPT. `auto` is not a
 batch choice. A failure stops the run. [Batch guide](docs/batch.md).
 

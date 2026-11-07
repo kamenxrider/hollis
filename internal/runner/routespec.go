@@ -74,12 +74,18 @@ type RouteSpec struct {
 	// routes that cannot accept images must state it; the native route
 	// keeps it empty because the Shortcut image contract does not cover it.
 	ImageRestriction string
-	// BatchSpacing is the minimum wall-clock gap between batch calls on
-	// this route; 0 means no measured spacing requirement.
+	// BatchSpacing is the minimum gap from call completion to the next
+	// batch call on this route; 0 means no pacing.
 	BatchSpacing time.Duration
+	// BatchName and BatchSpacingReason explain pacing to users.
+	BatchName          string
+	BatchSpacingReason string
 	// OwnedBy is the /v1/models owner string.
 	OwnedBy string
 }
+
+// CloudBatchSpacingReason describes the risk reduced by Cloud-family pacing.
+const CloudBatchSpacingReason = "Apple rate-limits cloud requests per Mac without publishing the limit; a temporary block can last hours. Pacing reduces risk but cannot guarantee access."
 
 // routeOrder is the canonical iteration order for the Shortcut-backed
 // tiers. Every ordered consumer output (models rows, doctor bridges,
@@ -100,9 +106,11 @@ var routeSpecs = map[Model]RouteSpec{
 			Legacy:   "Apple Intelligence cloud on Private Cloud Compute (pre-27; not AFM 3)",
 			Unknown:  "Apple Intelligence cloud (macOS version unknown)",
 		},
-		Capabilities: CapabilitySet{Images: true, MaxImages: 3},
-		BatchSpacing: 15 * time.Second,
-		OwnedBy:      "Apple",
+		Capabilities:       CapabilitySet{Images: true, MaxImages: 3},
+		BatchSpacing:       30 * time.Second,
+		BatchName:          "Cloud",
+		BatchSpacingReason: CloudBatchSpacingReason,
+		OwnedBy:            "Apple",
 	},
 	ModelCloudPro: {
 		ID:           ModelCloudPro,
@@ -116,9 +124,11 @@ var routeSpecs = map[Model]RouteSpec{
 			Legacy:   "Cloud Pro is not offered on macOS 26",
 			Unknown:  "Apple Intelligence Cloud Pro (requires macOS 27; macOS version unknown)",
 		},
-		Capabilities: CapabilitySet{Images: true, MaxImages: 3},
-		BatchSpacing: 45 * time.Second,
-		OwnedBy:      "Apple",
+		Capabilities:       CapabilitySet{Images: true, MaxImages: 3},
+		BatchSpacing:       45 * time.Second,
+		BatchName:          "Cloud Pro",
+		BatchSpacingReason: CloudBatchSpacingReason,
+		OwnedBy:            "Apple",
 	},
 	ModelOnDevice: {
 		ID:           ModelOnDevice,
@@ -131,10 +141,12 @@ var routeSpecs = map[Model]RouteSpec{
 			Legacy:   "Apple Intelligence on-device model (pre-27)",
 			Unknown:  "Apple Intelligence on-device model (macOS version unknown)",
 		},
-		Capabilities:     CapabilitySet{},
-		ImageRestriction: "--image is unavailable with on-device: the tested Shortcut ignored the pixels",
-		BatchSpacing:     0,
-		OwnedBy:          "Apple",
+		Capabilities:       CapabilitySet{},
+		ImageRestriction:   "--image is unavailable with on-device: the tested Shortcut ignored the pixels",
+		BatchSpacing:       0,
+		BatchName:          "On-Device",
+		BatchSpacingReason: "This route has no batch pacing.",
+		OwnedBy:            "Apple",
 	},
 	ModelChatGPT: {
 		ID:           ModelChatGPT,
@@ -147,9 +159,11 @@ var routeSpecs = map[Model]RouteSpec{
 			Legacy:   "OpenAI ChatGPT extension for Apple Intelligence",
 			Unknown:  "OpenAI ChatGPT extension for Apple Intelligence",
 		},
-		Capabilities: CapabilitySet{Images: true, MaxImages: 1},
-		BatchSpacing: 15 * time.Second,
-		OwnedBy:      "OpenAI",
+		Capabilities:       CapabilitySet{Images: true, MaxImages: 1},
+		BatchSpacing:       15 * time.Second,
+		BatchName:          "ChatGPT",
+		BatchSpacingReason: "Pacing reduces rate-limit risk but cannot guarantee access.",
+		OwnedBy:            "OpenAI",
 	},
 	ModelLocal: {
 		ID:        ModelLocal,
@@ -159,9 +173,11 @@ var routeSpecs = map[Model]RouteSpec{
 		Names: NameSet{},
 		// Runtime availability is checked by the helper. Image input accepts
 		// one attachment; guided output remains text-only.
-		Capabilities: CapabilitySet{Images: true, MaxImages: 1, Streaming: true, Usage: true, Schema: true},
-		BatchSpacing: 0,
-		OwnedBy:      "Apple",
+		Capabilities:       CapabilitySet{Images: true, MaxImages: 1, Streaming: true, Usage: true, Schema: true},
+		BatchSpacing:       0,
+		BatchName:          "Local",
+		BatchSpacingReason: "This route has no batch pacing.",
+		OwnedBy:            "Apple",
 	},
 }
 
@@ -254,6 +270,9 @@ func validateRouteTable() error {
 		return fmt.Errorf("%s: native capabilities drifted from the measured surface", ModelLocal)
 	}
 	for id, spec := range routeSpecs {
+		if spec.BatchName == "" || spec.BatchSpacingReason == "" {
+			return fmt.Errorf("%s: missing batch pacing explanation", id)
+		}
 		// Guided output is a protocol-2 native operation. A Shortcut bridge
 		// has no schema operation, so claiming it elsewhere is a table bug.
 		if spec.Capabilities.Schema && (spec.Transport != TransportNative || !spec.Capabilities.Usage) {

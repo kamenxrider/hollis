@@ -95,6 +95,8 @@ type InvocationOptions struct {
 	RetryFailed    bool
 	RetryUncertain bool
 	SkipUncertain  bool
+	// OnWait is an optional notification before a positive pacing wait.
+	OnWait func(runner.Model, time.Duration)
 }
 
 // ExecutionRequest fully identifies one provider attempt. Attempt is

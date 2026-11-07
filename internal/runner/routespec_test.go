@@ -89,11 +89,11 @@ func TestRouteSpecParityWithCurrentConstants(t *testing.T) {
 		if spec.OwnedBy != wantOwned {
 			t.Errorf("%s owned_by = %q, want %q", m, spec.OwnedBy, wantOwned)
 		}
-		// Spacing parity with batch spacingFor: 45s cloud-pro, 15s cloud
-		// and chatgpt, 0 otherwise. Enforced cross-package in
+		// Spacing parity with batch spacingFor: 45s cloud-pro, 30s cloud,
+		// 15s chatgpt, 0 otherwise. Enforced cross-package in
 		// internal/batch; asserted here on the table values.
 		wantSpacing := map[Model]time.Duration{
-			ModelCloud:    15 * time.Second,
+			ModelCloud:    30 * time.Second,
 			ModelCloudPro: 45 * time.Second,
 			ModelOnDevice: 0,
 			ModelChatGPT:  15 * time.Second,
