@@ -207,6 +207,24 @@ func (c *rawContent) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// textPart is one text content part. Responses output parts replayed as input
+// may carry empty annotations and logprobs; they hold no text and are ignored.
+type textPart struct {
+	Type        string          `json:"type"`
+	Text        string          `json:"text"`
+	Annotations json.RawMessage `json:"annotations"`
+	Logprobs    json.RawMessage `json:"logprobs"`
+}
+
+func (p textPart) checkReplayMembers() error {
+	for _, raw := range []json.RawMessage{p.Annotations, p.Logprobs} {
+		if !isAbsentOrNull(raw) && !bytes.Equal(bytes.TrimSpace(raw), []byte("[]")) {
+			return unsupportedParameter("content part annotations and logprobs must be empty")
+		}
+	}
+	return nil
+}
+
 func (c rawContent) text() (string, error) {
 	if len(c) == 0 || bytes.Equal(bytes.TrimSpace(c), []byte("null")) {
 		return "", errors.New("content must not be null")
@@ -218,10 +236,7 @@ func (c rawContent) text() (string, error) {
 		}
 		return value, nil
 	}
-	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
+	var parts []textPart
 	if err := strictUnmarshal([]byte(c), &parts); err != nil {
 		if strings.Contains(err.Error(), "unknown field") {
 			return "", unsupportedParameter("content contains an unsupported parameter")
@@ -237,6 +252,9 @@ func (c rawContent) text() (string, error) {
 		case "text", "input_text", "output_text":
 		default:
 			return "", fmt.Errorf("unsupported content part type %q", part.Type)
+		}
+		if err := part.checkReplayMembers(); err != nil {
+			return "", err
 		}
 		if strings.TrimSpace(part.Text) == "" {
 			return "", errors.New("content part text must not be empty")

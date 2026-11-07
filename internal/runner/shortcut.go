@@ -615,7 +615,7 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 	exitCode := exitOf(res.WaitErr)
 	stderrText := stderr.String()
 	if res.WaitErr == nil && strings.HasPrefix(strings.TrimSpace(out), "Error:") &&
-		(isRateLimited(out) || strings.Contains(out, "The model cannot provide a response for this request") ||
+		(isAppleRateLimitOutput(out) || strings.Contains(out, "The model cannot provide a response for this request") ||
 			strings.Contains(out, "The Shortcut execution failed for an unrecognized reason")) {
 		return "", &Error{Kind: KindShortcutFailed, Ref: ref, ExitCode: 0}
 	}
@@ -1025,6 +1025,30 @@ func isRateLimited(text string) bool {
 		strings.Contains(lower, "reached the usage limit") ||
 		strings.Contains(lower, "request can't be completed right now") ||
 		strings.Contains(lower, "request can’t be completed right now")
+}
+
+// appleRateLimitSentences are the limit messages Shortcuts prints to stdout
+// with exit 0. Stdout can be a model answer, so only these exact openings
+// count; generic wording such as "rate limit" stays an answer.
+var appleRateLimitSentences = []string{
+	"You have reached the usage limit for this model.",
+	"Your request can't be completed right now.",
+	"Your request can’t be completed right now.",
+	"Too many incoming requests",
+}
+
+func isAppleRateLimitOutput(out string) bool {
+	body, ok := strings.CutPrefix(strings.TrimSpace(out), "Error:")
+	if !ok {
+		return false
+	}
+	body = strings.TrimSpace(body)
+	for _, sentence := range appleRateLimitSentences {
+		if strings.HasPrefix(body, sentence) {
+			return true
+		}
+	}
+	return false
 }
 
 func isMissingShortcut(text string) bool {

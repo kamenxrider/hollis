@@ -27,9 +27,6 @@ const (
 	// MaxToolCallsPerRound is the most calls one round may carry. More is a
 	// framing failure, not an argument problem, so it is never repaired.
 	MaxToolCallsPerRound = 16
-	// ToolRoundCap bounds visible prior tool turns plus actual new model calls,
-	// including corrections. A call at the cap fails instead of continuing.
-	ToolRoundCap = 3
 )
 
 // ToolChoice is auto, none, required, or function:NAME.

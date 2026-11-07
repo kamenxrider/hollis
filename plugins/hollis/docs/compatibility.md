@@ -6,16 +6,16 @@
 | macOS | Initially macOS 27; other versions receive an explanation rather than an assumed match |
 | Rosetta | Detect physical ARM support even when the shell reports x86_64; runtime remains ARM64 |
 | Apple readiness | Enable Apple Intelligence and complete Apple's downloads/first-use approvals; inference is the final check |
-| Text | Shortcuts Cloud, Cloud Pro, On-Device, ChatGPT; explicit native `local` in 0.2.0 |
+| Text | Shortcuts Cloud, Cloud Pro, On-Device, ChatGPT; explicit native `local` |
 | Native Local | Matching bundled helper; no Shortcut import; human text streaming, complete agent/JSON replies |
-| Guided output (`--schema`) | Native local only; requires the CLI and helper from one bundle, newer than the pinned 0.4.0; check `models --model local --json` for `available: true` with `capabilities.guided_output: true` |
+| Guided output (`--schema`) | Native local only; requires the CLI and helper from one bundle (the pinned 0.7.0 qualifies; 0.4.0 does not); check `models --model local --json` for `available: true` with `capabilities.guided_output: true` |
 | Local diagnostics | Measured `usage` on complete responses; measured `context_size` from availability checks on newer runtimes; no streaming usage, allowance or reset time |
 | External runtime | A newer Hollis on PATH, including Homebrew, is kept and used; the plugin reports it as unverified rather than downgrading it |
-| Local HTTP endpoint | `hollis serve` on loopback with a token; Chat Completions and Responses without sampling or tool fields |
+| Local HTTP endpoint | `hollis serve` on loopback with a token; Chat Completions and Responses; sampling and caller-executed function tools on `local` only |
 | Image understanding | Cloud, Cloud Pro, ChatGPT; not On-Device |
 | Generation | Animation, Illustration, Sketch, Genmoji, Any Style; unlocked session required |
 | Host integration | Claude Code first; Codex shares the same source skills and scripts |
-| Documents | UTF-8 `.txt`/`.md`; no implied PDF/Office parser |
+| Documents | UTF-8 text; PDFs through `respond --file`, extracted on the Mac by the native helper (CLI only); no Office parser |
 | Network | Required for Cloud, Cloud Pro, ChatGPT and source-install downloads |
 | Remote agents | Must execute on the eligible Mac; installing a skill on Linux does not provide Apple access |
 
@@ -34,7 +34,7 @@ listed in the [validation record](validation.md). Temporary test directories est
 installer behavior; they do **not** establish clean-account readiness, Rosetta
 execution or behavior on an untested OS.
 
-Plugin 0.2.0 bundles runtime 0.4.0 and its native helper after verification of their
+Plugin 0.3.0 bundles runtime 0.7.0 and its native helper after verification of their
 GitHub provenance and checksums. Earlier source and archive tests retain their
 original version labels in the validation record. Fresh-account and first-consent
 testing remain deferred.

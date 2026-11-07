@@ -216,18 +216,39 @@ func (h *toolHistory) addResult(callID, output, subject string) error {
 	return nil
 }
 
-// finish applies the final-message rule. It is relaxed only for tool
-// continuations: a tool result, or an assistant turn carrying calls.
+// finish applies the final-message rule and requires every replayed call to be
+// answered by a tool result before the next message and before the end.
 func (h *toolHistory) finish() ([]store.Message, error) {
 	if len(h.messages) == 0 {
 		return nil, errors.New("messages must not be empty")
 	}
+	outstanding := map[string]bool{}
+	for _, message := range h.messages {
+		if message.Role == chat.RoleTool {
+			if callID, _, ok := chat.DecodeToolResult(message.Content); ok {
+				delete(outstanding, callID)
+			}
+			continue
+		}
+		if len(outstanding) > 0 {
+			return nil, errors.New("every tool call must be answered by a tool result before the next message")
+		}
+		if message.Role == "assistant" {
+			if calls, ok := chat.DecodeToolCalls(message.Content); ok {
+				for _, call := range calls {
+					outstanding[call.ID] = true
+				}
+			}
+		}
+	}
+	if len(outstanding) > 0 {
+		return nil, errors.New("every tool call must be answered by a tool result; the history ends with an unanswered call")
+	}
 	last := h.messages[len(h.messages)-1]
-	_, calls := chat.DecodeToolCalls(last.Content)
-	if last.Role == "user" || last.Role == chat.RoleTool || (last.Role == "assistant" && calls) {
+	if last.Role == "user" || last.Role == chat.RoleTool {
 		return h.messages, nil
 	}
-	return nil, errors.New("the final message must have role \"user\", be a tool result, or be an assistant message carrying tool_calls")
+	return nil, errors.New("the final message must have role \"user\" or be a tool result")
 }
 
 // replayedCall validates one prior call a caller replays in its history.
@@ -457,6 +478,8 @@ type responsesItemHeader struct {
 
 type responsesMessageItem struct {
 	Type    string     `json:"type"`
+	ID      string     `json:"id"`
+	Status  string     `json:"status"`
 	Role    string     `json:"role"`
 	Content rawContent `json:"content"`
 }

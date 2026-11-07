@@ -14,7 +14,7 @@ The agent handles these steps:
    and wait for Apple's required downloads. A restricted check means unknown
    access, not incompatible hardware.
 2. Verify and install the runtime under
-   `~/Library/Application Support/hollis/plugin/versions/0.4.0/`.
+   `~/Library/Application Support/hollis/plugin/versions/0.7.0/`.
    A newer existing Hollis is preserved and used. The plugin's bridge kit remains
    available. No PATH modification is needed.
 3. Native `local` requires the matching helper and no bridge; run `setup.sh status local`. Offer all five bridges and import selected ones individually. Approve
@@ -55,8 +55,8 @@ returns a v1 plan with `schema_version`, `route`, `status` (`ready`,
 falls back to the legacy view marked `"source":"legacy"`. Plain
 `setup.sh status` summarizes every route. The matching CLI diagnostic is
 `doctor --model <route> --json` when `agent-context` lists `--model` on `doctor`; it returns the
-same plan plus the observed facts for that route. The pinned 0.4.0 runtime
-rejects that flag, so use plain `doctor --json` or `models --model local --json`
+same plan plus the observed facts for that route. An older runtime such as
+0.4.0 rejects that flag, so use plain `doctor --json` or `models --model local --json`
 there; plain `doctor --json` keeps the full bridge table and the `local` row. Read `status` and `reason_code` together: discovery or installation
 is not inference proof, and no status claims a successful model call.
 
@@ -67,7 +67,7 @@ selected-route plan reports `helper_mismatch`. All three call for the matching
 bundle, not a reinstall of bridges. Native `local` needs that match;
 selected Shortcut routes remain usable with a helper mismatch. Guided output
 (`--schema`) and the measured `context_size` diagnostic additionally require
-the runtime and helper from one bundle, newer than the pinned 0.4.0: check that
+the runtime and helper from one bundle, such as the pinned 0.7.0: check that
 `models --model local --json` reports `available: true` with
 `capabilities.guided_output: true`, rather than a protocol number. A mismatched
 helper is refused before inference. Never

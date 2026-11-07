@@ -48,6 +48,18 @@ def zip_type(info: zipfile.ZipInfo) -> int:
 class PackageArchiveTests(unittest.TestCase):
     """Build a real temporary package, then inspect its observable archive."""
 
+    def set_plugin_version(self, version):
+        for name in ('plugin.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json'):
+            path = self.kit / name
+            manifest = json.loads(path.read_text()); manifest['version'] = version
+            path.write_text(json.dumps(manifest))
+        marketplace = self.fixture_root / '.claude-plugin/marketplace.json'
+        data = json.loads(marketplace.read_text())
+        for entry in data['plugins']:
+            if entry['name'] == 'hollis':
+                entry['version'] = version
+        marketplace.write_text(json.dumps(data))
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="hollis-package-archive-")
         self.addCleanup(self.temp.cleanup)
@@ -69,11 +81,7 @@ class PackageArchiveTests(unittest.TestCase):
 
         # Retain the legacy archive compatibility fixture independently of
         # current plugin metadata and pending published runtime pins.
-        for name in ('plugin.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json'):
-            path = self.kit / name
-            manifest = json.loads(path.read_text())
-            manifest['version'] = '0.1.0'
-            path.write_text(json.dumps(manifest))
+        self.set_plugin_version('0.1.0')
         self.lock = json.loads((self.kit / "runtime.lock.json").read_text())
         self.lock.update(schema_version=1, version='0.3.3', source_ref='refs/tags/v0.3.3',
                          release_url='https://github.com/kamenxrider/hollis/releases/download/v0.3.3')

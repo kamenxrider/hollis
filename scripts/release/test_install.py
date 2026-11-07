@@ -11,6 +11,9 @@ import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
+INSTALLER = dict(line.split('=', 1) for line in (ROOT / 'scripts/install.sh').read_text().splitlines()
+                 if line.split('=', 1)[0] in ('version', 'protocol', 'source_commit'))
+VERSION, PROTOCOL, COMMIT = INSTALLER['version'], INSTALLER['protocol'], INSTALLER['source_commit']
 
 
 class CLIInstallTests(unittest.TestCase):
@@ -47,26 +50,26 @@ cp "$5" "$7"''')
         p = self.bin / name
         p.write_text('#!/bin/bash\nset -e\n' + source + '\n'); p.chmod(0o700)
 
-    def build_assets(self, helper_version='0.4.0'):
+    def build_assets(self, helper_version=VERSION, protocol=PROTOCOL):
         bridges = io.BytesIO()
         with zipfile.ZipFile(bridges, 'w') as z:
             for n in ('Cloud', 'Cloud Pro', 'On-Device', 'ChatGPT', 'Image'):
                 z.writestr(n + '.shortcut', 'synthetic bridge')
-        cli = '''#!/bin/bash
+        cli = f'''#!/bin/bash
 case "$1" in
---version) echo 'hollis 0.4.0';;
-config) echo "config $*" >> "$FIXTURE_LOG"; [[ "$2" != show ]] || echo '{"image_bridge":""}';;
+--version) echo 'hollis {VERSION}';;
+config) echo "config $*" >> "$FIXTURE_LOG"; [[ "$2" != show ]] || echo '{{"image_bridge":""}}';;
 *) exit 99;;
 esac
 '''
         helper = f'''#!/bin/bash
 case "$1" in
 --version) echo 'hollis-native {helper_version}';;
---protocol-version) echo 1;;
+--protocol-version) echo {protocol};;
 *) exit 99;;
 esac
 '''
-        bundle = self.assets / 'hollis-0.4.0-darwin-arm64.zip'
+        bundle = self.assets / f'hollis-{VERSION}-darwin-arm64.zip'
         with zipfile.ZipFile(bundle, 'w') as z:
             for n, data in [('hollis', cli), ('hollis-native', helper)]:
                 info = zipfile.ZipInfo(n); info.create_system = 3; info.external_attr = 0o100755 << 16
@@ -91,11 +94,11 @@ esac
         for n in ('hollis', 'hollis-native'):
             self.assertEqual((self.home / '.local/bin' / n).stat().st_mode & 0o777, 0o755)
         log = (self.base / 'calls').read_text()
-        self.assertIn('--source-digest 1906721a1cd5594ce47be6d4d306d7daa1e6891f', log)
+        self.assertIn(f'--source-digest {COMMIT}', log)
         self.assertIn('--deny-self-hosted-runners', log)
         self.assertIn('config config set image-bridge Hollis Image - Reference Input v2', log)
         self.assertEqual(sum(s.startswith('open ') for s in log.splitlines()), 5)
-        imports = self.base / 'state/bridge-imports/0.4.0'
+        imports = self.base / f'state/bridge-imports/{VERSION}'
         self.assertTrue(all(p.stat().st_mode & 0o777 == 0o600 for p in imports.iterdir()))
 
     def test_existing_custom_image_setting_is_preserved(self):
@@ -104,13 +107,13 @@ esac
         self.assertNotIn('config set', (self.base / 'calls').read_text())
 
     def test_only_current_imports_are_opened(self):
-        imports = self.base / 'state/bridge-imports/0.4.0'; imports.mkdir(parents=True)
+        imports = self.base / f'state/bridge-imports/{VERSION}'; imports.mkdir(parents=True)
         (imports / 'unrelated.shortcut').write_text('preserve')
         self.run_install()
         self.assertNotIn('unrelated.shortcut', (self.base / 'calls').read_text())
 
     def test_checksum_failure_precedes_execution(self):
-        (self.assets / 'hollis-0.4.0-darwin-arm64.zip').write_bytes(b'corruption')
+        (self.assets / f'hollis-{VERSION}-darwin-arm64.zip').write_bytes(b'corruption')
         self.run_install(False)
         self.assertNotIn('shortcuts', (self.base / 'calls').read_text())
 
@@ -123,6 +126,9 @@ esac
 
     def test_helper_version_mismatch_precedes_install(self):
         self.build_assets('0.3.3'); self.run_install(False)
+
+    def test_helper_protocol_mismatch_precedes_install(self):
+        self.build_assets(protocol='3'); self.run_install(False)
 
     def test_intel_and_old_os_stop_before_network(self):
         for key, value in [('FIXTURE_ARCH', 'x86_64'), ('FIXTURE_OS', '26.0')]:

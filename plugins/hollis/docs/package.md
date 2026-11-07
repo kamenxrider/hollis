@@ -28,7 +28,7 @@ plugins/hollis/                 Plugin root: hosts load this directory
 ├── examples/                 Fictional sample plan and workflow steps
 └── assets/runtime/           Added to built archives; absent from source
     ├── hollis-darwin-arm64
-    ├── hollis-native-darwin-arm64  Matching native-local helper (0.2.0)
+    ├── hollis-native-darwin-arm64  Matching native-local helper (0.7.0)
     ├── hollis-bridges.zip     All five bridges
     └── provenance.json       Runtime-asset verification receipt
 ```
@@ -114,7 +114,7 @@ provenance. An existing archive is never overwritten.
 
 ## Versions and release sequence
 
-Plugin **0.2.0** pins the published runtime **0.4.0** and its matching native
+Plugin **0.3.0** pins the published runtime **0.7.0** and its matching native
 helper. Source setup and packaging refuse an older runtime under this version.
 Editing skills or docs does not upgrade the bundled binary, and preserved
 review archives do not change with source. The plugin release is explicitly
@@ -136,14 +136,16 @@ tag publishes it.
 [Recorded validation](validation.md)
 
 
-## 0.2.0 release sequencing
+## 0.3.0 release sequencing
 
-The checked-in runtime lock pins the authenticated public 0.4.0 release.
-Packaging 0.2.0 refuses an old lock instead of labelling 0.3.3 as 0.4.0.
+Until runtime 0.7.0 is published, the checked-in lock still pins 0.4.0.
+Packaging and source setup for 0.3.0 refuse that lock instead of shipping 0.4.0
+under the new plugin version.
 After runtime publication, a maintainer runs `scripts/plugin/refresh_lock.py`
 with the full release commit and an explicit output file, reviews that
 provenance-verified lock, then updates the source lock for the separate plugin
-release. Every Go/helper/bridge asset is authenticated again when packaging.
+release, together with `scripts/plugin/testdata/agent-context-<version>.json`
+captured from that runtime. Every Go/helper/bridge asset is authenticated again when packaging.
 No candidate-build hash is evidence of published provenance.
 
 Schema 2 adds the `native` asset pin and protocol version. Installation verifies

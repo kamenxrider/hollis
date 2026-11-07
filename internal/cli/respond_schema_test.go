@@ -677,7 +677,31 @@ func TestLocalCapabilitiesMirrorsTheRouteSpec(t *testing.T) {
 		t.Fatalf("max_images = %v; want the route's limit", full["max_images"])
 	}
 	if full["tools"] != false {
-		t.Fatal("tools is not implemented on any route")
+		t.Fatal("route table capabilities must not claim tools")
+	}
+}
+
+func TestLocalRowToolsFollowHelperAdvertisement(t *testing.T) {
+	executable := &runner.Capabilities{Tools: &runner.ToolCapability{Supported: true, Executable: true, TurnHandoff: true}}
+	metadataOnly := &runner.Capabilities{Tools: &runner.ToolCapability{Supported: true}}
+	for _, c := range []struct {
+		name   string
+		status runner.LocalStatus
+		err    error
+		want   bool
+	}{
+		{"executable handoff", runner.LocalStatus{Available: true, Capabilities: executable}, nil, true},
+		{"metadata only", runner.LocalStatus{Available: true, Capabilities: metadataOnly}, nil, false},
+		{"no advertisement", runner.LocalStatus{Available: true}, nil, false},
+		{"unavailable model", runner.LocalStatus{Capabilities: executable}, nil, false},
+		{"failed status read", runner.LocalStatus{Available: true, Capabilities: executable}, errors.New("probe failed"), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			caps := localModelRow(c.status, c.err)["capabilities"].(map[string]any)
+			if caps["tools"] != c.want {
+				t.Fatalf("tools = %v; want %v", caps["tools"], c.want)
+			}
+		})
 	}
 }
 

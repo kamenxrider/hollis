@@ -39,6 +39,7 @@ func localModelRow(status runner.LocalStatus, err error) map[string]any {
 		"helper_protocol": status.Protocol, "helper_version": status.Version,
 		"capabilities": routeCapabilities(spec),
 	}
+	row["capabilities"].(map[string]any)["tools"] = available && status.ExecutableTools()
 	// The context window is a measured signal: report it where a successful
 	// status read states it and omit it otherwise rather than printing an
 	// invented zero, or a leftover value from an event we refused.
@@ -60,7 +61,8 @@ func routeCapabilities(spec runner.RouteSpec) map[string]any {
 		"images":         spec.Capabilities.Images,
 		"max_images":     spec.Capabilities.MaxImages,
 		"guided_output":  spec.Capabilities.Schema,
-		// Tools remain unimplemented on every route.
+		// Shortcuts routes have no tools; Local depends on its helper's
+		// advertisement and is set by localModelRow.
 		"tools": false,
 	}
 }

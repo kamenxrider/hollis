@@ -17,7 +17,7 @@ const validConfig = `{
   "servers": {
     "files": {"command": "npx", "args": ["-y", "pkg"], "env": {"LOG_LEVEL": "error"}, "env_from": {"GH_FILE": "GITHUB_TOKEN"}, "dir": "/tmp", "approval": "ask"},
     "wiki": {"url": "https://mcp.example.dev/mcp", "auth": {"type": "bearer", "env": "WIKI_TOKEN"}, "approval": "auto", "allow": ["read_page"], "call_timeout_ms": 20000, "connect_timeout_ms": 10000},
-    "local": {"url": "http://127.0.0.1:8080/mcp"},
+    "local": {"url": "http://127.0.0.1:8080/mcp?region=eu&format=json"},
     "v6": {"url": "http://[::1]:9/mcp", "auth": {"type": "header", "name": "X-Api-Key", "env": "K"}}
   }
 }`
@@ -69,6 +69,10 @@ func TestConfigInvariants(t *testing.T) {
 		{"plaintext remote", server(`{"url":"http://example.com/mcp"}`), "plaintext http is only allowed for loopback"},
 		{"userinfo", server(`{"url":"https://u:p@example.com/mcp"}`), "user information"},
 		{"fragment", server(`{"url":"https://example.com/mcp#x"}`), "fragment"},
+		{"api key query", server(`{"url":"https://example.com/mcp?api_key=x"}`), "credential-like query parameters"},
+		{"token query", server(`{"url":"https://example.com/mcp?region=eu&Token=x"}`), "credential-like query parameters"},
+		{"signature query", server(`{"url":"https://example.com/mcp?sig=x"}`), "credential-like query parameters"},
+		{"malformed query", server(`{"url":"https://example.com/mcp?a=%zz"}`), "malformed query"},
 		{"ftp", server(`{"url":"ftp://example.com/mcp"}`), "must use https"},
 		{"auto empty", server(`{"command":"a","approval":"auto"}`), "allow is empty"},
 		{"bad approval", server(`{"command":"a","approval":"yes"}`), "must be \"ask\" or \"auto\""},

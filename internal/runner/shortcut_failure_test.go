@@ -108,6 +108,27 @@ func TestShortcutFailureClassificationAndNoRetry(t *testing.T) {
 	}
 }
 
+func TestExitZeroAnswerMentioningRateLimitIsAnAnswer(t *testing.T) {
+	for _, answer := range []string{
+		"Error: Rate limit exceeded is what an API returns when a client sends too many requests.",
+		"Error: rate-limit handling belongs in the client.",
+	} {
+		r, _ := runnerWithFake(t, "empty")
+		quoted := strings.ReplaceAll(answer, "'", "'\\''")
+		if err := os.WriteFile(r.ShortcutsPath, []byte("#!/bin/sh\nprintf '%s' '"+quoted+"'\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		r.failureLog = func(context.Context, time.Time, time.Time) ShortcutFailureInfo {
+			t.Fatal("successful answer checked the log")
+			return ShortcutFailureInfo{}
+		}
+		text, _, _, err := r.RunWithFallback(t.Context(), ModelCloud, "explain rate limits")
+		if err != nil || text != answer {
+			t.Fatalf("answer %q became text=%q err=%v", answer, text, err)
+		}
+	}
+}
+
 func TestShortcutLogTimeoutFallsBackAndSuccessNeverChecksLog(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "log")

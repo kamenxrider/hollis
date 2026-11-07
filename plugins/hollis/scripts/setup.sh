@@ -13,7 +13,7 @@ fetch_asset() {
     url=$(field "$RUNTIME_LOCK" release_url)
     [[ "$url" == "https://github.com/kamenxrider/hollis/releases/download/v$VERSION" ]] || fail 'Unexpected release URL.'
     /usr/bin/curl --fail --location --proto '=https' --proto-redir '=https' --connect-timeout 20 --max-time 300 \
-      --user-agent 'OpenAI File Downloader, XaiImageApiFetch/1.0' --output "$destination" "$url/$name"
+      --user-agent "hollis-plugin/$plugin_version" --output "$destination" "$url/$name"
   fi
   verify "$destination" "$expected"
 }
@@ -21,8 +21,8 @@ install_runtime() {
   platform; read_lock
   local plugin_version
   plugin_version=$(field "$PLUGIN_ROOT/plugin.json" version)
-  if ! newer 0.2.0 "$plugin_version" && newer 0.4.0 "$VERSION"; then
-    fail 'This 0.2.0 source package awaits verified runtime 0.4.0 release pins; no older runtime was installed.'
+  if ! newer 0.3.0 "$plugin_version" && newer 0.7.0 "$VERSION"; then
+    fail 'This 0.3.0 source package awaits verified runtime 0.7.0 release pins; no older runtime was installed.'
   fi
   local external= dest stage_names expected_names i current= keep_current=false
   external=$(external_newer || true)

@@ -114,7 +114,7 @@ func (e *Error) ShortcutDetails() map[string]any {
 func (r *ShortcutRunner) classifyFailure(ctx context.Context, e *Error, start, end time.Time, prompt, stdout, stderr string) {
 	// Text always remains available if the bounded log check cannot classify.
 	kind := e.Kind
-	if isRateLimited(stderr) || strings.HasPrefix(strings.TrimSpace(stdout), "Error:") && isRateLimited(stdout) {
+	if isRateLimited(stderr) || isAppleRateLimitOutput(stdout) {
 		kind = KindRateLimited
 	}
 	var info ShortcutFailureInfo

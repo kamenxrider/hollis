@@ -5,6 +5,7 @@ Runtime and plugin versions are separate. Each release has its own archive and v
 | Version | Status | Notes |
 | --- | --- | --- |
 | Runtime 0.7.0 | Released | [Homebrew, PDF extraction, local images, tool calling and MCP](v0.7.0.md) |
+| Plugin 0.3.0 | Released | [Runtime 0.7.0 and skills for its guided output and diagnostics](plugin-v0.3.0.md) |
 | Runtime 0.4.0 | Released | [Native local streaming and transport repair](v0.4.0.md) |
 | Plugin 0.2.0 | Withdrawn; use plugin 0.3.0 | [Native-local setup](plugin-v0.2.0.md) |
 | Runtime 0.3.3 | Released | [Maintenance rebuild with fresh provenance](v0.3.3.md) |

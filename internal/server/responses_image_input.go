@@ -34,6 +34,16 @@ func prepareResponsesImageRequest(request responsesRequest) (preparedRequest, er
 	}, nil
 }
 
+// responsesInputMessage is one Responses message item. Output items replayed
+// as input carry type "message", id and status; id and status are ignored.
+type responsesInputMessage struct {
+	Type    string     `json:"type"`
+	ID      string     `json:"id"`
+	Status  string     `json:"status"`
+	Role    string     `json:"role"`
+	Content rawContent `json:"content"`
+}
+
 func parseResponsesInput(input json.RawMessage) ([]reqMessage, []encodedImage, error) {
 	trimmed := bytes.TrimSpace(input)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -48,12 +58,19 @@ func parseResponsesInput(input json.RawMessage) ([]reqMessage, []encodedImage, e
 		return []reqMessage{{Role: "user", Content: text}}, nil, nil
 	}
 
-	var incoming []inMessage
-	if err := strictUnmarshal(trimmed, &incoming); err != nil {
+	var items []responsesInputMessage
+	if err := strictUnmarshal(trimmed, &items); err != nil {
 		if strings.Contains(err.Error(), "unknown field") {
 			return nil, nil, unsupportedParameter("input contains an unsupported parameter")
 		}
 		return nil, nil, errors.New("input must be a string or an array of messages")
+	}
+	incoming := make([]inMessage, 0, len(items))
+	for i, item := range items {
+		if item.Type != "" && item.Type != "message" {
+			return nil, nil, unsupportedParameter(fmt.Sprintf("input[%d]: unsupported item type %q", i, item.Type))
+		}
+		incoming = append(incoming, inMessage{Role: item.Role, Content: item.Content})
 	}
 
 	for _, message := range incoming {
@@ -181,15 +198,15 @@ func parseResponsesImageContent(content rawContent) (string, []encodedImage, boo
 			images = append(images, encodedImage{DataURL: part.ImageURL})
 
 		case "text", "input_text", "output_text":
-			var part struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			}
+			var part textPart
 			if err := strictUnmarshal(data, &part); err != nil {
 				if strings.Contains(err.Error(), "unknown field") {
 					return "", nil, false, unsupportedParameter("content contains an unsupported parameter")
 				}
 				return "", nil, false, errors.New("content parts must contain text")
+			}
+			if err := part.checkReplayMembers(); err != nil {
+				return "", nil, false, err
 			}
 			if strings.TrimSpace(part.Text) == "" {
 				return "", nil, false, errors.New("content part text must not be empty")

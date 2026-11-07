@@ -419,14 +419,16 @@ func newMCPAddCmd(flags *rootFlags) *cobra.Command {
 
 A stdio server is a program plus arguments, started directly with no shell.
 An HTTP server is an https URL (plain http only for loopback). Credentials are
-never stored: --env-from and --auth name parent environment variables that
-are read when the server starts.
+never stored: --auth names a parent environment variable that is read when the
+server is contacted. --env-from copies a parent variable into a stdio server's
+environment; the child name must not match the credential deny list (TOKEN,
+KEY, SECRET, PASSWORD, CREDENTIAL, AUTH, HOLLIS*).
 
 --approval auto requires at least one --allow tool. Allow-listed tools run
 automatically only after 'hollis mcp allow <server> <tool>' has pinned their
 reviewed definition.`,
 		Example: `  hollis mcp add files --command npx --arg -y --arg @modelcontextprotocol/server-filesystem --arg ~/Documents
-  hollis mcp add gh --command github-mcp --env-from GITHUB_PERSONAL_ACCESS_TOKEN=GITHUB_TOKEN
+  hollis mcp add notes --command notes-mcp --env-from NOTES_DIR=MY_NOTES_DIR
   hollis mcp add wiki --url https://mcp.deepwiki.com/mcp
   hollis mcp add search --url https://api.example.dev/mcp --auth header:X-API-Key:EXAMPLE_KEY`,
 		Args: cobra.ExactArgs(1),

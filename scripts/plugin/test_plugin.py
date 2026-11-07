@@ -461,7 +461,7 @@ class PackagingTests(unittest.TestCase):
 
     def test_source_contracts(self):
         manifest, lock = packaging.validate_source()
-        self.assertEqual(manifest["version"], "0.2.0")
+        self.assertEqual(manifest["version"], "0.3.0")
         self.assertGreaterEqual(tuple(map(int, lock["version"].split("."))), (0, 3, 3))
 
     def test_failed_provenance_never_returns_a_receipt(self):

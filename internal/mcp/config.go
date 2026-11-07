@@ -129,6 +129,10 @@ func (c Config) Names() []string {
 
 // secretLikeName is the deny rule for environment names. It is deliberately a
 // predictable substring rule on the name, never on the value.
+// secretQueryNames are common URL credential parameters that secretLikeName
+// does not already match.
+var secretQueryNames = map[string]bool{"sig": true, "signature": true, "pass": true, "pwd": true, "jwt": true, "session": true, "sessionid": true}
+
 func secretLikeName(name string) bool {
 	upper := strings.ToUpper(name)
 	if strings.HasPrefix(upper, "HOLLIS") {
@@ -380,7 +384,8 @@ func validateCommand(field, command string) error {
 }
 
 // ValidateURL enforces the transport rules: https always, http only to a
-// loopback host, no userinfo, no fragment.
+// loopback host, no userinfo, no fragment, and no credential-like query
+// parameters.
 func ValidateURL(field, raw string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Host == "" {
@@ -391,6 +396,15 @@ func ValidateURL(field, raw string) error {
 	}
 	if parsed.Fragment != "" || strings.Contains(raw, "#") {
 		return configError("%s must not contain a fragment", field)
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return configError("%s has a malformed query string", field)
+	}
+	for name := range query {
+		if secretLikeName(name) || secretQueryNames[strings.ToLower(name)] {
+			return configError("%s: credential-like query parameters are refused; use \"auth\" with an environment variable", field)
+		}
 	}
 	switch parsed.Scheme {
 	case "https":

@@ -52,7 +52,7 @@ class NativeInstallerTests(unittest.TestCase):
 
     def test_pending_source_install_does_not_install_old_runtime(self):
         manifest_path = self.kit / 'plugin.json'
-        manifest = json.loads(manifest_path.read_text()); manifest['version'] = '0.2.0'
+        manifest = json.loads(manifest_path.read_text()); manifest['version'] = '0.3.0'
         manifest_path.write_text(json.dumps(manifest))
         result = self.call('install')
         self.assertNotEqual(result.returncode, 0)
@@ -157,12 +157,19 @@ class NativeArchiveTests(unittest.TestCase):
         fixture = archive_fixture.PackageArchiveTests(methodName='runTest')
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
-        for name in ('plugin.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json'):
-            path = fixture.kit / name
-            data = json.loads(path.read_text()); data['version'] = '0.2.0'
-            path.write_text(json.dumps(data))
+        fixture.set_plugin_version('0.3.0')
         with self.assertRaisesRegex(ValueError, 'awaits verified'):
             packaging.package(fixture.fixture_root, fixture.output)
+
+    def test_marketplace_version_must_match_plugin(self):
+        fixture = archive_fixture.PackageArchiveTests(methodName='runTest')
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        marketplace = fixture.fixture_root / '.claude-plugin/marketplace.json'
+        data = json.loads(marketplace.read_text()); data['plugins'][0]['version'] = '9.9.9'
+        marketplace.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, 'Marketplace entry disagrees'):
+            packaging.validate_source(fixture.fixture_root)
 
     def test_native_asset_authenticated_and_bundled_private_extras_excluded(self):
         fixture = archive_fixture.PackageArchiveTests(methodName='runTest')
@@ -175,10 +182,7 @@ class NativeArchiveTests(unittest.TestCase):
         helper.write_bytes(b'synthetic helper')
         lock['native'] = {'name': helper.name, 'sha256': packaging.digest(helper), 'protocol_version': 1}
         (fixture.kit / 'runtime.lock.json').write_text(json.dumps(lock))
-        for name in ('plugin.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json'):
-            path = fixture.kit / name
-            data = json.loads(path.read_text()); data['version'] = '0.2.0'
-            path.write_text(json.dumps(data))
+        fixture.set_plugin_version('0.2.0')
         private = fixture.kit / 'docs/dev/private.md'
         private.parent.mkdir(); private.write_text('private canary')
         unexpected = fixture.kit / 'docs/research-notes.md'; unexpected.write_text('private canary')

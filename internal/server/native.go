@@ -114,6 +114,8 @@ func nativeError(err error) (int, map[string]any) {
 			if classified.PromptBytes > 0 {
 				message = fmt.Sprintf("a tool round renders to %d bytes; the limit is %d bytes; no messages were shortened or dropped", classified.PromptBytes, runner.NativeMaxPromptBytes)
 			}
+		case runner.KindUsage:
+			status, kind, code, message = http.StatusBadRequest, "invalid_request_error", "invalid_input", classified.Err.Error()
 		case runner.KindToolRoundCap, runner.KindToolCallInvalid:
 			// The loop's own message carries only numbers, an offered tool
 			// name and a schema pointer, never an argument value.

@@ -2,7 +2,9 @@
 # Install the published Apple Silicon bundle. Makes no model calls.
 set -euo pipefail
 umask 077
-version=0.4.0
+version=0.7.0
+protocol=4
+# The public commit tagged v$version; the attestation check below fails until it is set.
 source_commit=1906721a1cd5594ce47be6d4d306d7daa1e6891f
 repository=kamenxrider/hollis
 bin_dir="${HOME}/.local/bin"
@@ -39,7 +41,7 @@ unzip -q "$stage/$asset" -d "$stage/runtime"
 codesign --verify --strict "$stage/runtime/hollis-native"
 [[ $("$stage/runtime/hollis" --version) == "hollis $version" ]] || { echo "Runtime version mismatch." >&2; exit 1; }
 [[ $("$stage/runtime/hollis-native" --version) == "hollis-native $version" ]] || { echo "Native helper version mismatch." >&2; exit 1; }
-[[ $("$stage/runtime/hollis-native" --protocol-version) == 1 ]] || { echo "Native helper protocol mismatch." >&2; exit 1; }
+[[ $("$stage/runtime/hollis-native" --protocol-version) == "$protocol" ]] || { echo "Native helper protocol mismatch." >&2; exit 1; }
 unzip -q "$stage/runtime/hollis-bridges.zip" -d "$stage/bridges"
 mkdir "$stage/signed"
 for bridge in "$stage/bridges/"*.shortcut; do

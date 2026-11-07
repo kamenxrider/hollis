@@ -18,7 +18,7 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-UA = "OpenAI File Downloader, XaiImageApiFetch/1.0"
+UA = "hollis-plugin/" + json.loads((ROOT / "plugins/hollis/plugin.json").read_text())["version"]
 TOP_FILES = {"plugin.json", "runtime.lock.json", "README.md", "LICENSE"}
 SOURCE_ALLOWLIST = (
     '.claude-plugin/plugin.json',
@@ -78,6 +78,8 @@ def validate_source(root=ROOT):
         source = entry["source"]
         if (source if isinstance(source, str) else source.get("path")) != "./plugins/hollis":
             raise ValueError("Both host entries must address the same source package")
+        if "version" in entry and entry["version"] != portable["version"]:
+            raise ValueError("Marketplace entry disagrees on plugin version")
     lock = read_json(kit / "runtime.lock.json")
     version = lock["version"]
     if lock["schema_version"] not in (1, 2) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
@@ -171,9 +173,9 @@ def zip_entry(archive, name, content, executable=False):
 
 def package(root, output, assets=None):
     manifest, lock = validate_source(root)
-    if tuple(map(int, manifest["version"].split("."))) >= (0, 2, 0):
-        if lock["schema_version"] != 2 or tuple(map(int, lock["version"].split("."))) < (0, 4, 0):
-            raise ValueError("Plugin 0.2.0 awaits verified runtime 0.4.0 pins; run refresh_lock.py after runtime publication")
+    if tuple(map(int, manifest["version"].split("."))) >= (0, 3, 0):
+        if lock["schema_version"] != 2 or tuple(map(int, lock["version"].split("."))) < (0, 7, 0):
+            raise ValueError("Plugin 0.3.0 awaits verified runtime 0.7.0 pins; run refresh_lock.py after runtime publication")
     output.mkdir(parents=True, exist_ok=True)
     name = f"hollis-plugin-{manifest['version']}"
     final = output / f"{name}.zip"

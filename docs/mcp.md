@@ -186,7 +186,9 @@ full result before relying on an answer that needs complete evidence.
   credential (containing `TOKEN`, `KEY`, `SECRET`, `PASSWORD`, `CREDENTIAL`,
   `AUTH`, or starting with `HOLLIS`) is refused.
 - `--env-from CHILD=PARENT` passes the parent variable `PARENT` to the server
-  as `CHILD` when it starts. The value is never stored.
+  as `CHILD` when it starts. The value is never stored. `CHILD` must not match
+  the credential names above, so a stdio server that expects a credential in a
+  variable such as `GITHUB_PERSONAL_ACCESS_TOKEN` cannot receive it this way.
 - `--auth bearer:VAR` or `--auth header:NAME:VAR` sends one header whose value
   is read from `VAR` when the server is contacted.
 - `hollis mcp list` shows which referenced variables are set. It never prints

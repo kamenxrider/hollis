@@ -174,7 +174,7 @@ func decodeCapabilities(raw json.RawMessage) (*Capabilities, error) {
 // helper.
 func requireAdvertised(status LocalStatus, opts nativeOptions) *Error {
 	if opts.ToolStep != nil {
-		if tools := status.Capabilities.tools(); tools != nil && tools.Supported && tools.Executable && tools.TurnHandoff {
+		if status.ExecutableTools() {
 			return nil
 		}
 		return capabilityRefusal("tools", status.Capabilities.toolsReason())
@@ -201,6 +201,13 @@ func (c *Capabilities) tools() *ToolCapability {
 		return nil
 	}
 	return c.Tools
+}
+
+// ExecutableTools reports whether the helper advertised the executable,
+// turn-handoff tool capability that Local tool calling requires.
+func (s LocalStatus) ExecutableTools() bool {
+	tools := s.Capabilities.tools()
+	return tools != nil && tools.Supported && tools.Executable && tools.TurnHandoff
 }
 
 func (c *Capabilities) toolsReason() string {

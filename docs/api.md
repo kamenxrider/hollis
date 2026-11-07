@@ -274,7 +274,11 @@ followed by `role:"tool"` messages with matching `tool_call_id` and string
 content. Responses returns `function_call` items with `call_id`, `name` and string
 `arguments`; replay `function_call_output` with the same `call_id` and string
 `output`. Empty results are valid, but missing or null results are not.
-Duplicate, orphan or mismatched IDs fail before inference.
+Duplicate, orphan or mismatched IDs fail before inference, and so does a call
+left unanswered before the next message or at the end of the history.
+Responses output items can be replayed as returned: message items may keep
+`type:"message"`, `id` and `status`, and text parts may keep empty
+`annotations` and `logprobs`. Non-empty annotations or logprobs are refused.
 
 The default budget is eight decisions, including final synthesis and visible
 prior call batches since the most recent user turn. A batch on the final
