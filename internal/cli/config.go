@@ -24,9 +24,10 @@ import (
 type config struct {
 	// DefaultModel is the tier used when neither the positional
 	// `model <tier>` prefix nor the --model flag is given.
-	DefaultModel   string `json:"default_model"`
-	Timeout        string `json:"timeout,omitempty"`
-	PartialResults *bool  `json:"partial_results,omitempty"`
+	DefaultModel    string `json:"default_model"`
+	Timeout         string `json:"timeout,omitempty"`
+	PartialResults  *bool  `json:"partial_results,omitempty"`
+	ContextStrategy string `json:"context_strategy,omitempty"`
 	// Bridges overrides the bridge reference (name or UUID) invoked per
 	// tier. Keys are concrete tier
 	// names; "auto" is not a tier with a bridge. Overrides beat the
@@ -101,6 +102,9 @@ func loadConfigAt(path string) (config, error) {
 }
 
 func validateConfig(c config) error {
+	if c.ContextStrategy != "" && !validContextStrategy(c.ContextStrategy) {
+		return errors.New("invalid context strategy: choose strict, drop-oldest, sliding-window, or summarize")
+	}
 	if c.Timeout != "" {
 		if _, err := parseDefaultTimeout(c.Timeout); err != nil {
 			return err
@@ -360,13 +364,14 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 			}
 			if flags.asJSON {
 				return printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{
-					"path":            path,
-					"default_model":   c.DefaultModel,
-					"bridges":         bridgesForShow(c),
-					"image_bridges":   c.ImageBridges,
-					"image_bridge":    c.ImageBridge,
-					"timeout":         c.Timeout,
-					"partial_results": c.PartialResults,
+					"path":             path,
+					"default_model":    c.DefaultModel,
+					"bridges":          bridgesForShow(c),
+					"image_bridges":    c.ImageBridges,
+					"image_bridge":     c.ImageBridge,
+					"timeout":          c.Timeout,
+					"partial_results":  c.PartialResults,
+					"context_strategy": c.ContextStrategy,
 				}, flags)
 			}
 			w := cmd.OutOrStdout()
@@ -376,6 +381,9 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 				defaultModel = string(runner.ModelAuto) + " (built-in default)"
 			}
 			fmt.Fprintf(w, "default model: %s\n", defaultModel)
+			if c.ContextStrategy != "" {
+				fmt.Fprintf(w, "context strategy: %s\n", c.ContextStrategy)
+			}
 			if c.PartialResults != nil {
 				fmt.Fprintf(w, "partial results: %s\n", partialResultsValue(*c.PartialResults))
 			}
@@ -408,7 +416,7 @@ func newConfigShowCmd(flags *rootFlags) *cobra.Command {
 func newConfigSetCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set <key> <value...>",
-		Short: "Set a persisted default (keys: model, timeout, partial-results, bridge, image-bridge)",
+		Short: "Set a persisted default (keys: model, timeout, partial-results, context-strategy, bridge, image-bridge)",
 		Example: `  hollis config set model cloud-pro
   hollis config set model auto
   hollis config set bridge cloud "AFM Bridge - Cloud"
@@ -418,6 +426,15 @@ func newConfigSetCmd(flags *rootFlags) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 			switch key {
+			case "context-strategy":
+				if err := updateConfig(func(c *config) error { c.ContextStrategy = args[1]; return nil }); err != nil {
+					return configErr(err)
+				}
+				if flags.asJSON {
+					return printJSONFilteredTo(cmd.OutOrStdout(), map[string]any{"ok": true, "key": key, "value": args[1]}, flags)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "context strategy set to %s\n", args[1])
+				return nil
 			case "partial-results":
 				value := args[1] == "on"
 				if err := updateConfig(func(c *config) error { c.PartialResults = &value; return nil }); err != nil {
@@ -517,7 +534,7 @@ func newConfigSetCmd(flags *rootFlags) *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "bridge for %s set to %s\n", tier, ref)
 				return nil
 			default:
-				return usageErr(fmt.Errorf("unknown config key %q: choose model, timeout, partial-results, bridge or image-bridge", key))
+				return usageErr(fmt.Errorf("unknown config key %q: choose model, timeout, partial-results, context-strategy, bridge or image-bridge", key))
 			}
 		},
 	}
@@ -527,9 +544,13 @@ func newConfigSetCmd(flags *rootFlags) *cobra.Command {
 
 func validateConfigSetArgs(_ *cobra.Command, args []string) error {
 	if len(args) < 1 {
-		return usageErr(errors.New("config set requires a key: model, timeout, partial-results, bridge or image-bridge"))
+		return usageErr(errors.New("config set requires a key: model, timeout, partial-results, context-strategy, bridge or image-bridge"))
 	}
 	switch args[0] {
+	case "context-strategy":
+		if len(args) != 2 || !validContextStrategy(args[1]) {
+			return usageErr(errors.New("usage: hollis config set context-strategy <strict|drop-oldest|sliding-window|summarize>"))
+		}
 	case "partial-results":
 		if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
 			return usageErr(errors.New("usage: hollis config set partial-results <on|off>"))
@@ -560,7 +581,7 @@ func validateConfigSetArgs(_ *cobra.Command, args []string) error {
 			return usageErr(errors.New("bridge reference must not begin with '-'"))
 		}
 	default:
-		return usageErr(fmt.Errorf("unknown config key %q: choose model, timeout, partial-results, bridge or image-bridge", args[0]))
+		return usageErr(fmt.Errorf("unknown config key %q: choose model, timeout, partial-results, context-strategy, bridge or image-bridge", args[0]))
 	}
 	return nil
 }

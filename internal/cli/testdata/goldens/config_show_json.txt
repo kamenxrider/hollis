@@ -1,1 +1,1 @@
-{"bridges":{"chatgpt":"My ChatGPT","cloud":"My Cloud","cloud-pro":"My Pro","on-device":"My On-Device"},"default_model":"cloud","image_bridge":"Hollis Image Unified","image_bridges":null,"partial_results":null,"path":"$CONFIG_DIR/config.json","timeout":""}
+{"bridges":{"chatgpt":"My ChatGPT","cloud":"My Cloud","cloud-pro":"My Pro","on-device":"My On-Device"},"context_strategy":"","default_model":"cloud","image_bridge":"Hollis Image Unified","image_bridges":null,"partial_results":null,"path":"$CONFIG_DIR/config.json","timeout":""}

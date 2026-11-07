@@ -81,6 +81,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 	processing := resultType(reflect.TypeFor[imagegen.OutputOptions]())
 	text := resultFields("model_requested", "model_used", "response", "fallback_reason", "prompt_adjusted")
 	text.fields["usage"] = usage
+	text.fields["context"] = resultType(reflect.TypeFor[contextMetadata]())
 	text.fields["mcp_servers"] = resultType(reflect.TypeFor[[]mcpServerStatus]())
 	text.fields["tool_calls"] = resultType(reflect.TypeFor[[]mcpCallAudit]())
 	text.fields["tool_dispositions"] = resultType(reflect.TypeFor[[]mcpDisposition]())
@@ -116,7 +117,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 	for name, field := range readiness.fields {
 		doctor.fields[name] = field
 	}
-	config := resultFields("path", "default_model", "image_bridge", "timeout", "partial_results")
+	config := resultFields("path", "default_model", "image_bridge", "timeout", "partial_results", "context_strategy")
 	config.fields["bridges"] = resultFields("cloud", "cloud-pro", "on-device", "chatgpt")
 	config.fields["image_bridges"] = resultFields(imageStyles...)
 	search := resultFields("id", "title", "model", "updated_at")

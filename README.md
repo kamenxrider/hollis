@@ -200,6 +200,10 @@ must fit 128 KiB; oversized requests and native context-capacity failures produc
 errors without silently shortening history. Default timeout is 30 seconds, with a
 120-second ceiling. [CLI and data guide](docs/cli.md).
 
+Opt in to request-only shortening with `chat --context-strategy drop-oldest`
+(also `sliding-window` or Local-only `summarize`); `respond --messages` supports
+the same policies. Stored history is unchanged and every drop is disclosed.
+
 ### Image generation and understanding
 
 ```bash

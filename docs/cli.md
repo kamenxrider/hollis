@@ -60,6 +60,66 @@ See [Apple's API documentation](https://developer.apple.com/documentation/founda
 `--quiet` (`-q`) hides notes, hints and progress on stderr, not errors or the
 answer. It also works with saved chat; interactive approval is never bypassed.
 
+### Opt-in conversation shortening
+
+`chat` (including `--continue` and interactive sessions) and `respond --messages`
+accept `--context-strategy strict|drop-oldest|sliding-window|summarize`.
+The default is `strict`: an oversized conversation fails without dropping
+anything. Shortening changes only the request for the current turn. Existing
+saved messages are never edited or deleted, and generated summaries are not saved.
+
+- `drop-oldest` preserves system/developer instructions and keeps the newest
+  complete user turns that fit. A turn begins with a user message and includes
+  its following assistant replies; the current user message counts as a turn.
+- `sliding-window` keeps at most `--context-max-turns N` recent user turns
+  (default 6, range 1–256), plus instructions. If that window is still too
+  large, it errors rather than dropping more turns.
+- `summarize` is Local-only; other routes refuse it with exit 2. When shortening
+  is needed, one extra Local call summarizes the dropped older turns. A labelled
+  `Context summary (costs one extra Local model call):` note precedes the retained
+  conversation. The summary is limited to 256 output tokens and its source must
+  fit in one Local call; oversized sources fail, never recursively summarize or
+  silently lose part of the source.
+
+Local fitting uses Apple's native tokenizer and the reported context window
+(8,192 tokens on the supported system model). `--answer-reserve` reuses the
+token-counting reserve (default 1024); it is available on both commands and
+is not an output-token limit. Summarization also leaves 512 tokens of headroom
+for its note and rechecks the final request. Other routes use Hollis's existing
+128 KiB rendered-prompt limit, not an estimated provider token window.
+An oversized newest user message or instructions still returns `context_capacity`.
+The saved chat's 256-message storage limit and `--messages` 128 KiB input-file
+limit remain unchanged. Shortening cannot accompany token-count-only requests,
+tools/MCP, image input or image generation.
+
+Every shortened human request prints a stderr note unless `-q` is set:
+
+```text
+hollis: context: sent the newest 6 of 14 messages (8 older dropped) with drop-oldest to fit Local's 8,192-token window
+```
+
+Summary notes add `; summary costs one extra Local model call`. JSON and agent
+results include `context: {strategy, sent_messages, dropped_messages, summarized}`.
+Counts refer to original messages, including preserved instructions, and exclude
+the generated summary note. When messages were dropped, `-q` and `--select`
+cannot hide this JSON disclosure. No-drop opt-in results still include `context`
+with zero drops. The default strict result shape is unchanged.
+
+```sh
+hollis chat --continue <id> --context-strategy drop-oldest "What next?"
+hollis respond --model local --messages conversation.json \
+  --context-strategy sliding-window --context-max-turns 3 --answer-reserve 1024
+hollis config set context-strategy drop-oldest
+hollis config get context-strategy
+hollis config unset context-strategy
+```
+
+An explicit strategy overrides the saved setting. The saved policy applies only
+to text chat and `respond --messages`, never ordinary one-shot prompts,
+`--count-tokens`, batch or HTTP. Pass `--context-strategy strict` to restore the
+hard stop for one invocation. The HTTP API does not accept a context-strategy
+extension.
+
 ### One attached image
 
 With exactly one input `--image`, `respond` and one-shot saved `chat` detect
@@ -102,7 +162,7 @@ hollis config get partial-results
 hollis config unset partial-results
 ```
 
-`config get` and `config unset` accept `model`, `timeout`, `partial-results`, `bridge <tier>` and
+`config get` and `config unset` accept `model`, `timeout`, `partial-results`, `context-strategy`, `bridge <tier>` and
 `image-bridge [style]`. With no style, the last key names the general image
 bridge; a style names only its fixed-style override. Unset is idempotent and
 preserves unrelated settings under the config lock. Get reads saved values,

@@ -354,6 +354,9 @@ without another model round or a new resume protocol.`,
 			if extras.permissive && m != runner.ModelLocal {
 				return usageErr(errors.New("--permissive requires --model local"))
 			}
+			if err := validateContextModel(cmd.Context(), m); err != nil {
+				return err
+			}
 			generationOptions, err := sampling.options(cmd, m)
 			if err != nil {
 				return err
@@ -446,6 +449,10 @@ without another model round or a new resume protocol.`,
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
 			}
+			messages, contextInfo, err := prepareRespondContext(ctx, r, m, messages, instructions)
+			if err != nil {
+				return err
+			}
 			explicitInstructions := instructions
 			prompt, instructions, history := conversationInput(prompt, instructions, messages)
 			if err := extrasSize(prompt, instructions, history); err != nil {
@@ -527,6 +534,9 @@ without another model round or a new resume protocol.`,
 					"model_used":      string(used),
 					"response":        text,
 				}
+				if contextInfo != nil {
+					data["context"] = contextInfo
+				}
 				if promptAdjusted {
 					data["prompt_adjusted"] = true
 				}
@@ -542,7 +552,7 @@ without another model round or a new resume protocol.`,
 				if fallback.Used {
 					data["fallback_reason"] = string(fallback.Reason)
 				}
-				return printJSONFilteredTo(cmd.OutOrStdout(), data, flags)
+				return printContextJSON(cmd.OutOrStdout(), data, flags)
 			}
 			// Human output stays clean on stdout; the fallback notice goes to
 			// stderr so pipelines are unaffected.
@@ -614,6 +624,7 @@ without another model round or a new resume protocol.`,
 	sampling.addTo(cmd)
 	extras.addTo(cmd)
 	flags.checkFlagsBeforeHelp(cmd, validateRespondFlags)
+	installContextFlags(cmd, flags)
 	return cmd
 }
 
