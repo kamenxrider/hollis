@@ -254,6 +254,7 @@ Report issues: https://github.com/kamenxrider/hollis/issues`,
 	}
 
 	rootCmd.AddCommand(newRespondCmd(&flags, newRunner))
+	rootCmd.AddCommand(newBenchmarkCmd(&flags, defaultBenchmarkDeps()))
 	rootCmd.AddCommand(newExamplesCmd(&flags))
 	rootCmd.AddCommand(newBatchCmd(&flags, newRunner))
 	rootCmd.AddCommand(newImageCmd(&flags, generator))

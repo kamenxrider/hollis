@@ -1,0 +1,66 @@
+{
+  "name": "benchmark",
+  "use": "benchmark",
+  "short": "Measure native Local speed with fixed prompts",
+  "flags": [
+    {
+      "name": "agent",
+      "type": "bool",
+      "usage": "Set all agent-friendly defaults (--json --no-input)",
+      "default": "false"
+    },
+    {
+      "shorthand": "h",
+      "name": "help",
+      "type": "bool",
+      "usage": "help for benchmark",
+      "default": "false"
+    },
+    {
+      "name": "json",
+      "type": "bool",
+      "usage": "Output as JSON",
+      "default": "false"
+    },
+    {
+      "name": "model",
+      "type": "string",
+      "usage": "Must be local; no other route is used",
+      "default": "local"
+    },
+    {
+      "name": "no-input",
+      "type": "bool",
+      "usage": "Disable all interactive prompts (for CI/agents)",
+      "default": "false"
+    },
+    {
+      "shorthand": "q",
+      "name": "quiet",
+      "type": "bool",
+      "usage": "Hide notes, hints and progress on stderr; never hide errors or the answer",
+      "default": "false"
+    },
+    {
+      "name": "runs",
+      "type": "int",
+      "usage": "Warm runs per case (1-20)",
+      "default": "5"
+    },
+    {
+      "name": "select",
+      "type": "string",
+      "usage": "Comma-separated fields to include in JSON output (e.g. --select response)"
+    }
+  ],
+  "output_modes": [
+    "human",
+    "json",
+    "agent"
+  ],
+  "side_effects": [
+    "invokes only native Local with fixed built-in prompts: one first call plus four serial cases times --runs (1-20, default 5); one case counts tokens without generation",
+    "runs read-only platform, hardware, load and native availability/protocol checks; ignores saved defaults and model environment variables",
+    "does not read user prompts, write conversation state, use Shortcuts, attach tools or make network requests; Ctrl-C prints partial measurements and exits 130"
+  ]
+}

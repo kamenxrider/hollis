@@ -17,6 +17,7 @@ const shortRootHelp = `Hollis — Apple Intelligence from the terminal.
   hollis respond -f notes.txt "Summarize these notes"
   hollis chat
   hollis doctor
+  hollis benchmark --runs 3
 
 Run 'hollis --help' for all commands.
 `

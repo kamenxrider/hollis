@@ -59,6 +59,7 @@ var agentExampleCommands = []string{
 	`hollis respond --code "Write a Go function that reverses a slice" > reverse.go`,
 	`hollis respond --model local --schema person.json "Invent one person"`,
 	`hollis doctor`,
+	`hollis benchmark --runs 3`,
 	`hollis serve --token-file hollis.token`,
 }
 

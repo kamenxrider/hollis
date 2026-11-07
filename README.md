@@ -103,6 +103,8 @@ discovery, and exits nonzero when the route is not ready
 checks inference. If the model is not ready, check that Apple Intelligence is
 enabled and its downloads are complete.
 
+Measure Local speed with `hollis benchmark --runs 3`: fixed prompts, serial calls, no network; [measurements and JSON](docs/cli.md#local-speed-test).
+
 You can also skip `respond`: `hollis "Reply with OK"` sends a prompt to your
 default model, `hollis chat` starts an interactive session (type `help` or
 `quit`), and `hollis examples` prints copyable recipes.
