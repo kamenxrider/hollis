@@ -428,12 +428,21 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !decodeRequest(w, r, &request) {
 		return
 	}
+	includeUsage, compatibilityErr := request.validateCompatibility()
+	if compatibilityErr != nil {
+		writeRequestValidationError(w, compatibilityErr)
+		return
+	}
 	options, samplingErr := parseSampling(request.Model, request.samplingFields, request.MaxTokens, request.ImageGeneration)
 	if samplingErr != nil {
 		writeRequestValidationError(w, samplingErr)
 		return
 	}
 	request.Options = options
+	if jsonObjectFormat(request.ResponseFormat) {
+		s.handleChatJSONObject(w, r, request)
+		return
+	}
 	if (toolMembers{request.Tools, request.ToolChoice, request.ParallelToolCalls}).present() {
 		s.handleChatTools(w, r, request)
 		return
@@ -464,6 +473,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prepared.Options = request.Options
+	prepared.IncludeUsage = includeUsage
 	model, ok := s.validatePreparedModel(w, prepared)
 	if !ok || !validatePrompt(w, prepared.Prompt) {
 		return

@@ -83,9 +83,12 @@ truncated value.
   re-validates the returned object either way. `strict:false` does not buy a
   looser JSON mode, and a non-conforming object is still refused.
 - `type:"text"` keeps the existing plain-text behavior.
-- `type:"json_object"` and any other type are refused with **400**
-  `unsupported_parameter`. Hollis cannot promise a schema-less JSON object on
-  this route, so it refuses instead of pretending.
+- Chat Completions also accepts `response_format:{"type":"json_object"}` on
+  `model:"local"`. It instructs Local to return one JSON object and independently
+  validates the complete text. Invalid output is **502** `invalid_json_output`,
+  never a broken or partial object. Like schema output, it is complete-only and
+  cannot accompany tools or images. Other routes get **400**
+  `unsupported_parameter` naming `local`. Responses still requires a schema.
 - Unknown fields inside `response_format`, `json_schema`, `text` or `format` are
   refused with **400** `unsupported_parameter`; the top level already rejects
   unknown fields.
@@ -125,6 +128,19 @@ truncated value.
   `native_protocol`; no partial or repaired value is written.
 - The usual HTTP limits still apply: an 8 MiB request body and a 128 KiB
   rendered prompt return **413** `context_too_large` before any model work.
+
+## Chat Completions app compatibility
+
+`n:1`, `logprobs:false` or `null`, and absent/null `top_logprobs` are accepted.
+Other values are **400** `unsupported_parameter`. A `user` string is accepted
+and ignored; it is never retained or logged. Unknown fields remain strict.
+
+With `stream:true`, `stream_options:{"include_usage":true}` adds a final chunk
+before `[DONE]` with empty `choices` and measured `usage`. If the helper cannot
+provide counts, that chunk has `usage:null`; counts are never estimated.
+Absent or false `include_usage` preserves the original stream. Other option
+keys, or `stream_options` without `stream:true`, are **400**. Only Local can
+stream; Shortcut routes still reject streaming.
 
 ## Native local helper mismatch
 

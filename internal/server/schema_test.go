@@ -301,7 +301,7 @@ func TestGuidedResponseFormatShapeErrors(t *testing.T) {
 		{"format is null", "/v1/chat/completions", chat(`null`), "invalid_response_format"},
 		{"format missing type", "/v1/chat/completions", chat(`{}`), "invalid_response_format"},
 		{"format type not a string", "/v1/chat/completions", chat(`{"type":5}`), "invalid_response_format"},
-		{"json_object type", "/v1/chat/completions", chat(`{"type":"json_object"}`), "unsupported_parameter"},
+		{"json_object with schema", "/v1/chat/completions", chat(`{"type":"json_object","json_schema":{}}`), "unsupported_parameter"},
 		{"unknown type", "/v1/chat/completions", chat(`{"type":"xml"}`), "unsupported_parameter"},
 		{"text type with json_schema", "/v1/chat/completions", chat(`{"type":"text","json_schema":{"name":"p","schema":` + guidedTestSchema + `}}`), "unsupported_parameter"},
 		{"json_schema missing", "/v1/chat/completions", chat(`{"type":"json_schema"}`), "invalid_response_format"},

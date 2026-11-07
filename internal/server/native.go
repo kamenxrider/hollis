@@ -150,12 +150,14 @@ func writeNativeError(w http.ResponseWriter, err error) {
 // with sequence numbers; Chat Completions uses data-only chunks and [DONE].
 // No Apple text is used as an SSE header or copied into a frame without JSON encoding.
 type streamEvents struct {
-	w          http.ResponseWriter
-	responses  bool
-	started    bool
-	sequence   int
-	id, itemID string
-	created    int64
+	includeUsage bool
+	usage        *runner.Usage
+	w            http.ResponseWriter
+	responses    bool
+	started      bool
+	sequence     int
+	id, itemID   string
+	created      int64
 }
 
 func (e *streamEvents) send(name string, value map[string]any) error {
@@ -240,6 +242,14 @@ func (e *streamEvents) done(text string, reasons ...string) error {
 		if err := e.send("", e.chunk(map[string]any{}, reason)); err != nil {
 			return err
 		}
+		if e.includeUsage {
+			chunk := e.chunk(nil, nil)
+			chunk["choices"] = []any{}
+			chunk["usage"] = chatUsage(e.usage)
+			if err := e.send("", chunk); err != nil {
+				return err
+			}
+		}
 		if _, err := fmt.Fprint(e.w, "data: [DONE]\n\n"); err != nil {
 			return err
 		}
@@ -310,7 +320,7 @@ func (s *Server) streamPrepared(w http.ResponseWriter, r *http.Request, model ru
 	if responses {
 		prefix = "resp_"
 	}
-	events := streamEvents{w: w, responses: responses, id: prefix + randomID(), itemID: "msg_" + randomID(), created: time.Now().Unix()}
+	events := streamEvents{w: w, responses: responses, includeUsage: request.IncludeUsage, id: prefix + randomID(), itemID: "msg_" + randomID(), created: time.Now().Unix()}
 	var accumulated strings.Builder
 	emit := func(delta string) error {
 		if err := ctx.Err(); err != nil {
@@ -347,7 +357,6 @@ func (s *Server) streamPrepared(w http.ResponseWriter, r *http.Request, model ru
 		events.failed(err)
 		return
 	}
-	// Public streaming usage remains absent; negotiated helper counts are used
-	// only for the best-effort token-ceiling termination signal.
+	events.usage = result.Usage
 	_ = events.done(result.Text, finishReason(result.Usage, request.Options))
 }
