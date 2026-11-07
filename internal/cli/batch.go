@@ -140,7 +140,7 @@ is created without overwriting an existing file.
 	}
 	cmd.Flags().StringVar(&options.InputDir, "input-dir", "", "Input folder (nonrecursive)")
 	cmd.Flags().StringVar(&options.InstructionSource, "prompt-file", "", "Instruction text file")
-	cmd.Flags().StringVar(&model, "model", "", "Concrete model tier: cloud, cloud-pro, on-device, chatgpt, or local")
+	cmd.Flags().StringVarP(&model, "model", "m", "", "Concrete model tier: cloud, cloud-pro, on-device, chatgpt, or local")
 	cmd.Flags().StringVar(&options.OutputDir, "output-dir", "", "Private result folder")
 	cmd.Flags().StringVar(&options.JobPath, "job", "", "Manifest path to create")
 	return cmd

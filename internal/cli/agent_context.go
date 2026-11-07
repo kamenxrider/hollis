@@ -71,10 +71,11 @@ type agentContextCommand struct {
 }
 
 type agentContextFlag struct {
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	Usage   string `json:"usage,omitempty"`
-	Default string `json:"default,omitempty"`
+	Shorthand string `json:"shorthand,omitempty"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Usage     string `json:"usage,omitempty"`
+	Default   string `json:"default,omitempty"`
 }
 
 func newAgentContextCmd(rootCmd *cobra.Command, flags *rootFlags) *cobra.Command {
@@ -131,7 +132,7 @@ func buildAgentContext(rootCmd *cobra.Command) agentContext {
 			Network:           "HTTP defaults to loopback; remote bind requires --allow-remote plus bearer authentication and an external encrypted tunnel",
 			Local:             "local is explicit and independent of Shortcuts; streaming human text and HTTP SSE only; JSON/agent and batch outputs remain complete; complete usage is Apple-measured; context overflow fails without shortening history",
 			Stdout:            "successful command output only",
-			Stderr:            "human errors with any hint: lines, fallback notices, and newly-created plain-chat IDs only",
+			Stderr:            "human errors, hints, fallback notices and chat IDs; a single delayed waiting line on terminals only; --quiet/-q hides notes, hints and progress, never errors or answers",
 			CommandResolution: "the first positional argument names the command if exact; root persistent and respond flag definitions determine which flags consume values, including --flag=value and boolean flags; only a sole positional argument is refused as a near-miss: case-insensitive edit distance 1, or edit distance 2 for command names of 7 or more characters, with an adjacent swap counting as one edit; refusal is a usage error (exit 2) with a suggestion preserving leading flags; other non-command text is a prompt routed to respond; tokens after -- are literal prompt text with no model-prefix parsing; root --help/--version retain strict argument validation; hidden __ completion commands are not reinterpreted; a lone positional - is literal prompt text, not stdin; stdin is read when no prompt is provided; --prompt-file - reads the instruction from stdin and is refused on a terminal under --no-input or --agent",
 		},
 		Commands: collectAgentCommands(rootCmd),
@@ -165,10 +166,11 @@ func collectAgentCommands(c *cobra.Command) []agentContextCommand {
 		flagsByName := map[string]agentContextFlag{}
 		addFlag := func(f *pflag.Flag) {
 			flagsByName[f.Name] = agentContextFlag{
-				Name:    f.Name,
-				Type:    f.Value.Type(),
-				Usage:   f.Usage,
-				Default: f.DefValue,
+				Shorthand: f.Shorthand,
+				Name:      f.Name,
+				Type:      f.Value.Type(),
+				Usage:     f.Usage,
+				Default:   f.DefValue,
 			}
 		}
 		sub.Flags().VisitAll(addFlag)

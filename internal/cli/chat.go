@@ -81,6 +81,9 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 	streamOut, streamed := ctx.Value(streamOutputKey{}).(io.Writer)
 	streamed = streamed && requested == runner.ModelLocal && session == nil
 	inputImages, _ := ctx.Value(inputImageTurnKey{}).(inputImageTurn)
+	waiting, _ := ctx.Value(waitingContextKey{}).(waitingConfig)
+	stopWaiting := waiting.start(ctx, requested, streamed)
+	defer stopWaiting()
 	if session != nil {
 		messages := append(append([]store.Message(nil), history...), store.Message{Role: "user", Content: prompt})
 		outcome, err := session.run(ctx, r, messages, nil, runner.ToolChoiceAuto)
@@ -497,6 +500,7 @@ they do not control Image Playground's native generation canvas.`,
 			}
 			useRunner := resolvedNewRunnerFunc(newRunner, resolved)
 			turnContext := requestContext
+			turnContext = context.WithValue(turnContext, waitingContextKey{}, waitingForCommand(cmd, flags))
 			if mcpOptions.enabled() {
 				session, err = mcpOptions.attach(requestContext, cmd, flags, nil)
 				if err != nil {
@@ -555,7 +559,7 @@ they do not control Image Playground's native generation canvas.`,
 	cmd.Flags().BoolVar(&stream, "stream", false, "Stream native-local human text (default on terminals); --stream=false waits for completion")
 	cmd.Flags().StringArrayVar(&inputImages, "image", nil, "Attach an input PNG/JPEG to this one-shot text chat turn; use an explicit image-capable model")
 	cmd.Flags().BoolVar(&keepPrompt, "keep-prompt", false, "Send original one-image wording without a singular rewrite")
-	cmd.Flags().StringVar(&modelFlag, "model", string(runner.ModelAuto), "Model for a new conversation: auto (default: cloud first, on-device fallback), cloud, cloud-pro, on-device, chatgpt, or local (see hollis models)")
+	cmd.Flags().StringVarP(&modelFlag, "model", "m", string(runner.ModelAuto), "Model for a new conversation: auto (default: cloud first, on-device fallback), cloud, cloud-pro, on-device, chatgpt, or local (see hollis models)")
 	cmd.Flags().StringVar(&continueID, "continue", "", "Continue an existing conversation by id")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-turn timeout (default 30s, ceiling 120s)")
 	cmd.Flags().BoolVar(&generateImage, "generate-image", false, "Generate an image as this chat turn instead of calling the text model")

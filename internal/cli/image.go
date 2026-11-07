@@ -27,7 +27,7 @@ Requires an installed Image Playground Shortcut that accepts text and returns
 an image. Choose --style to select its configured bridge, or pass an explicit
 name with --bridge. Style and provider choice are set in the selected Shortcut.
 Run image styles to inspect mappings. No automatic backend or fallback is used.
-See docs/image-generation.md for the tested setup.`,
+See https://github.com/kamenxrider/hollis/blob/main/docs/image-generation.md for the tested setup.`,
 		Args: noExtraArgs("image"),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if flags.asJSON {
@@ -64,7 +64,7 @@ Install the bundled image bridge and set it with config set image-bridge.
 It accepts the prompt, style and optional reference; Save to Playground is Never.
 Animation, Illustration, Sketch, Genmoji and Any Style returned images in tests.
 Any Style does not guarantee photographs. ChatGPT generation is blocked on the
-tested macOS build. See docs/image-generation.md for setup and current limits.
+tested macOS build. See https://github.com/kamenxrider/hollis/blob/main/docs/image-generation.md for setup and current limits.
 First-run permissions may need attention. Hollis never answers a macOS
 permission dialog; --no-input does not suppress those dialogs.`,
 		Example: `  hollis image generate "A red bicycle beside a blue wall" --style illustration --output bicycle.png`,

@@ -139,6 +139,22 @@ modes, subject to normal approval. It adds a stderr notice and JSON
 
 ### Prompt or command
 
+Bare `hollis` on a terminal prints a concise description and four examples
+without reading stdin. `hollis --help` keeps the complete command list, flags,
+environment and exit codes; its parsing pointer leads here. Non-terminal
+bare-command and piped `respond` behavior is unchanged.
+
+`-m` means `--model` on respond, chat and batch plan. `-f` means repeatable
+`--file` on respond (chat and batch have no `--file` flag).
+`-s` means `--system`, and `-q` means `--quiet`.
+
+A non-streaming respond/chat run shows one `Waiting for Cloud…`-style line
+after about one second, on stderr only when it is a terminal. It clears before
+the answer or an error. JSON, agent, quiet and no-input modes suppress it;
+pipes never receive terminal escapes. There is no animation, and Ctrl-C
+cancels normally. Help links are web URLs; report issues at
+https://github.com/kamenxrider/hollis/issues.
+
 The first positional argument decides what runs. Flag values are not positional arguments. Hollis uses the root persistent and `respond` flag definitions: a value-taking flag consumes the next argument unless written `--flag=value`; boolean flags do not consume the next argument.
 
 | Input | What runs | Example |

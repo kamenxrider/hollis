@@ -132,24 +132,13 @@ unavailable bridge). Provider limits never retry or fall back.
 Agent mode: add --agent to supported data commands for JSON output + non-interactive mode.
 Native local: --model local uses the Foundation Models SDK on Apple Silicon/macOS 27;
 human terminal output streams, JSON/agent output stays complete.
-Prompt or command: the first positional argument names the command, if exact.
-Flag values are skipped using the flag definitions (including --flag=value).
-Only a sole positional argument can be refused as a near-miss: case-insensitive
-edit distance one, or two for command names of seven or more characters.
-An adjacent letter swap counts as one edit. A lone quoted command followed by
-flags, such as "doctor --json", and unknown single kebab-case words such as
-help-agent are also refused with exit 2. Use respond or -- for literal text.
-Other non-command text is a prompt:
 'hollis "Explain closures"' means 'hollis respond "Explain closures"' and
-accepts respond's flags. After --, text is literal, including model prefixes.
-Root --help/--version keep strict argument checks; use 'hollis respond --help'
-for prompt help. A lone positional '-' is prompt text, not stdin.
---prompt-file - reads the instruction from stdin; it is refused on a terminal
-under --no-input or --agent. Omit the prompt to read piped stdin instead.
-See docs/cli.md for the full rule table.
+accepts respond's flags. Use respond or -- to send literal command-like text.
+Command parsing rules: https://github.com/kamenxrider/hollis/blob/main/docs/cli.md#prompt-or-command
 Health check: run 'hollis doctor' to verify the transport and bridges.
 Local OpenAI-compatible endpoint: run 'hollis serve' (127.0.0.1:1978).
-See README.md for recipes.`,
+Recipes: https://github.com/kamenxrider/hollis/blob/main/README.md
+Report issues: https://github.com/kamenxrider/hollis/issues`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		// Classify unknown commands and --version extras before deferred help
@@ -181,6 +170,10 @@ See README.md for recipes.`,
 			if len(args) == 0 {
 				if flags.asJSON {
 					return usageErr(errors.New("a command is required in JSON or agent mode"))
+				}
+				if interactiveStdin() {
+					_, err := fmt.Fprint(cmd.OutOrStdout(), shortRootHelp)
+					return err
 				}
 				return cmd.Help()
 			}

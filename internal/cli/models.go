@@ -13,7 +13,7 @@ import (
 
 // modelsBackgroundNote closes the human models table.
 const modelsBackgroundNote = "Apple publishes no backend model IDs. The internal Shortcuts parameter\n" +
-	"strings are included in --json; background in README.md#models."
+	"strings are included in --json; background: https://github.com/kamenxrider/hollis/blob/main/README.md#models."
 
 func newModelsCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 	var modelFilter string
@@ -28,8 +28,9 @@ Availability is not proof of successful inference.
 
 Each tier name (used with --model) maps to a WFLLMModel string carried by
 the bridge shortcuts. Those are Shortcuts action parameters, not Apple
-backend model IDs — Apple publishes none. See README.md#models and
-docs/shortcuts.md for sources.`,
+backend model IDs — Apple publishes none. Sources:
+https://github.com/kamenxrider/hollis/blob/main/README.md#models
+https://github.com/kamenxrider/hollis/blob/main/docs/shortcuts.md`,
 		Example: `  hollis models
   hollis models --json`,
 		Args: noExtraArgs("models"),

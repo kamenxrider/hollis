@@ -479,6 +479,8 @@ without another model round or a new resume protocol.`,
 			var used runner.Model
 			var usage *runner.Usage
 			var structured json.RawMessage
+			stopWaiting := waitingForCommand(cmd, flags).start(ctx, m, streaming)
+			defer stopWaiting()
 			if m == runner.ModelLocal && (generationOptions != nil || instructions != "" || len(messages) > 0 || extras.permissive) {
 				completion, runErr := runLocalGeneration(ctx, r, runner.GenerationRequest{
 					Prompt: prompt, Options: generationOptions, Schema: schema, Images: images,
@@ -510,6 +512,7 @@ without another model round or a new resume protocol.`,
 					fallback = runner.Fallback{Used: true, From: runner.ModelCloud, To: used, Reason: runner.KindTransport}
 				}
 			}
+			stopWaiting()
 			if err != nil {
 				return withPDFRefusalContext(toCLIRequestError(err, m, timeout), hasPDF)
 			}
@@ -596,9 +599,9 @@ without another model round or a new resume protocol.`,
 		},
 	}
 	cmd.Flags().BoolVar(&stream, "stream", false, "Stream native-local human text (default on terminals); --stream=false waits for completion")
-	cmd.Flags().StringVar(&model, "model", string(runner.ModelAuto), "Model tier: auto (default: cloud first, on-device fallback), cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro; macOS 27+), on-device (AFM 3 Core / Core Advanced by hardware), chatgpt (ChatGPT extension), or local (native SDK; Apple Silicon/macOS 27); see hollis models")
+	cmd.Flags().StringVarP(&model, "model", "m", string(runner.ModelAuto), "Model tier: auto (default: cloud first, on-device fallback), cloud (AFM 3 Cloud), cloud-pro (AFM 3 Cloud Pro; macOS 27+), on-device (AFM 3 Core / Core Advanced by hardware), chatgpt (ChatGPT extension), or local (native SDK; Apple Silicon/macOS 27); see hollis models")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "UTF-8 file containing the instruction (instead of positional text or stdin); '-' reads the instruction from stdin")
-	cmd.Flags().StringArrayVar(&documents, "file", nil, "UTF-8 text document (any extension), or a PDF read on-device, to include; repeat to preserve source order")
+	cmd.Flags().StringArrayVarP(&documents, "file", "f", nil, "UTF-8 text document (any extension), or a PDF read on-device, to include; repeat to preserve source order")
 	cmd.Flags().StringArrayVar(&pageSpecs, "pages", nil, "PDF pages to read from a single --file PDF: 3, 3-7, or 1,4-6; repeatable, 1-based, at most 2000 pages")
 	cmd.Flags().StringArrayVar(&images, "image", nil, "PNG or JPEG image path; repeat for Cloud/Cloud Pro (Local and ChatGPT accept one; unavailable with auto/on-device)")
 	cmd.Flags().BoolVar(&keepPrompt, "keep-prompt", false, "Send original one-image wording without a singular rewrite")
