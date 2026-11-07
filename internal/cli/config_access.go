@@ -13,12 +13,12 @@ import (
 
 func validateConfigAccessArgs(_ *cobra.Command, args []string) error {
 	if len(args) < 1 || len(args) > 2 {
-		return usageErr(errors.New("choose model, timeout, partial-results, bridge <tier>, or image-bridge [style]"))
+		return usageErr(errors.New("choose model, timeout, partial-results, context-strategy, bridge <tier>, or image-bridge [style]"))
 	}
 	switch args[0] {
-	case "model", "timeout", "partial-results":
+	case "model", "timeout", "partial-results", "context-strategy":
 		if len(args) != 1 {
-			return usageErr(errors.New("model, timeout and partial-results take no selector"))
+			return usageErr(errors.New("model, timeout, partial-results and context-strategy take no selector"))
 		}
 	case "bridge":
 		if len(args) != 2 {
@@ -33,7 +33,7 @@ func validateConfigAccessArgs(_ *cobra.Command, args []string) error {
 			return usageErr(fmt.Errorf("unknown image style %q", args[1]))
 		}
 	default:
-		return usageErr(fmt.Errorf("unknown config key %q: choose model, timeout, partial-results, bridge or image-bridge", args[0]))
+		return usageErr(fmt.Errorf("unknown config key %q: choose model, timeout, partial-results, context-strategy, bridge or image-bridge", args[0]))
 	}
 	return nil
 }
@@ -50,6 +50,8 @@ func newConfigAccessCmd(flags *rootFlags, unset bool) *cobra.Command {
 			if unset {
 				if err := updateConfig(func(c *config) error {
 					switch args[0] {
+					case "context-strategy":
+						c.ContextStrategy = ""
 					case "partial-results":
 						c.PartialResults = nil
 					case "model":
@@ -77,6 +79,8 @@ func newConfigAccessCmd(flags *rootFlags, unset bool) *cobra.Command {
 					return configErr(err)
 				}
 				switch args[0] {
+				case "context-strategy":
+					value = c.ContextStrategy
 				case "partial-results":
 					if c.PartialResults != nil {
 						value = partialResultsValue(*c.PartialResults)

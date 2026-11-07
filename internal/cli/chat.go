@@ -44,6 +44,7 @@ type turnResult struct {
 	Streamed       bool
 	ToolMessages   []store.Message
 	MCP            *mcpRunMetadata
+	Context        *contextMetadata
 }
 
 type mcpChatSessionKey struct{}
@@ -52,11 +53,6 @@ type mcpChatSessionKey struct{}
 // transport step separate lets a first chat run before a conversation row is
 // visible, so failed first runs cannot leave empty conversations behind.
 func executeTurn(ctx context.Context, history []store.Message, requested runner.Model, prompt string, newRunner newRunnerFunc, timeout time.Duration) (turnResult, store.RunRecord, error) {
-	transcript := chat.RenderTranscript(history, prompt)
-	if err := chat.ValidateTranscript(history, transcript); err != nil {
-		return turnResult{}, store.RunRecord{}, usageErr(err)
-	}
-
 	// Scope signal cancellation to this inference, not the interactive
 	// reader waiting for the next prompt. This lets runner cleanup complete.
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
@@ -68,7 +64,15 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 		defer cancel()
 	}
 
-	r := retryRunnerForContext(ctx, newRunner())
+	r := newRunner()
+	transcript, contextInfo, err := prepareChatContext(ctx, r, requested, history, prompt)
+	if err != nil {
+		return turnResult{}, store.RunRecord{}, err
+	}
+	if err := chat.ValidateTranscript(history, transcript); err != nil {
+		return turnResult{}, store.RunRecord{}, usageErr(err)
+	}
+	r = retryRunnerForContext(ctx, r)
 	start := time.Now()
 	var fallback runner.Fallback
 	var text string
@@ -160,7 +164,7 @@ func executeTurn(ctx context.Context, history []store.Message, requested runner.
 		ModelUsed:      used,
 		FallbackReason: fallbackReason(requested, used, fallback),
 		Usage:          usage, Streamed: streamed,
-		ToolMessages: toolMessages, MCP: metadata,
+		ToolMessages: toolMessages, MCP: metadata, Context: contextInfo,
 	}, record, nil
 }
 
@@ -443,6 +447,9 @@ they do not control Image Playground's native generation canvas.`,
 			if mcpOptions.enabled() && selectedModel != runner.ModelLocal {
 				return usageErr(errors.New("MCP tools require model local"))
 			}
+			if err := validateContextModel(requestContext, selectedModel); err != nil {
+				return err
+			}
 			if len(inputImages) > 0 {
 				if interactive || generateImage || mcpOptions.enabled() {
 					return usageErr(errors.New("--image requires a one-shot text chat without image generation or MCP"))
@@ -572,6 +579,7 @@ they do not control Image Playground's native generation canvas.`,
 	cmd.Flags().StringVar(&outputOptions.Fit, "fit", "", "Explicit output processing: crop or pad; requires --aspect-ratio or --size")
 	mcpOptions.addTo(cmd)
 	flags.checkFlagsBeforeHelp(cmd, validateChatFlags)
+	installContextFlags(cmd, flags)
 	addLocalRetry(cmd, flags)
 	return cmd
 }
@@ -802,6 +810,9 @@ func printChatJSON(cmd *cobra.Command, result turnResult, conv store.Conversatio
 		"response":        result.Text,
 	}
 	addRetryAttempts(cmd.Context(), data)
+	if result.Context != nil {
+		data["context"] = result.Context
+	}
 	if result.PromptAdjusted {
 		data["prompt_adjusted"] = true
 	}
@@ -814,7 +825,7 @@ func printChatJSON(cmd *cobra.Command, result turnResult, conv store.Conversatio
 	if result.MCP != nil {
 		result.MCP.addTo(data)
 	}
-	return printJSONFilteredTo(cmd.OutOrStdout(), data, flags)
+	return printContextJSON(cmd.OutOrStdout(), data, flags)
 }
 
 func writeChatHuman(cmd *cobra.Command, result turnResult, conv store.Conversation) {

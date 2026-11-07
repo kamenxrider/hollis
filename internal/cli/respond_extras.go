@@ -28,7 +28,7 @@ func (e *respondExtras) addTo(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&e.systemFile, "system-file", "", "UTF-8 instruction file; mutually exclusive with --system")
 	cmd.Flags().StringVar(&e.messages, "messages", "", "One-shot OpenAI messages JSON array from a file or '-' (stdin); final role must be user")
 	cmd.Flags().BoolVar(&e.count, "count-tokens", false, "Count Local input tokens without generating; reports context size and fit with --answer-reserve")
-	cmd.Flags().IntVar(&e.reserve, "answer-reserve", 1024, "Local answer token reserve used by --count-tokens (not a generation limit)")
+	cmd.Flags().IntVar(&e.reserve, "answer-reserve", 1024, contextReserveHelp)
 	cmd.Flags().BoolVar(&e.permissive, "permissive", false, "Local text transformations with Apple's permissive guardrails; the model can still refuse")
 }
 
@@ -55,8 +55,8 @@ func (e *respondExtras) validate(cmd *cobra.Command, promptArgs []string, mcp bo
 	if e.count && (e.reserve < 0 || e.reserve > 1<<20) {
 		return usageErr(errors.New("--answer-reserve must be between 0 and 1048576"))
 	}
-	if cmd.Flags().Changed("answer-reserve") && !e.count {
-		return usageErr(errors.New("--answer-reserve requires --count-tokens"))
+	if cmd.Flags().Changed("answer-reserve") && !e.count && !cmd.Flags().Changed("messages") {
+		return usageErr(errors.New("--answer-reserve requires --count-tokens or context shortening with --messages"))
 	}
 	hasExtras := e.count || e.permissive || cmd.Flags().Changed("system") || cmd.Flags().Changed("system-file") || cmd.Flags().Changed("messages")
 	if hasExtras && (mcp || cmd.Flags().Changed("tools")) {
