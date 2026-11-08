@@ -40,6 +40,9 @@ func resolveImageBridgeRequest(style, explicitRef string) (resolvedImageBridge, 
 		if err := validateImageBridges(map[string]string{"animation": explicitRef}); err != nil {
 			return resolvedImageBridge{}, usageErr(err)
 		}
+		if explicitRef == imageSetupBridge {
+			return resolvedImageBridge{Ref: explicitRef, Style: "animation", Protocol: "json"}, nil
+		}
 		return resolvedImageBridge{Ref: explicitRef, Protocol: "text"}, nil
 	}
 	if style == "" {

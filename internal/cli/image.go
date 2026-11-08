@@ -126,7 +126,17 @@ permission dialog; --no-input does not suppress those dialogs.`,
 				Timeout:   timeout,
 			})
 			if err != nil {
-				return toImageCLIError(err)
+				failure := toImageCLIError(err)
+				var classified *cliError
+				if bridge != "" && resolved.Protocol == "text" &&
+					errors.As(failure, &classified) && classified.machineCode == "shortcut_failed" {
+					hint := fmt.Sprintf(`If this is a Hollis JSON image Shortcut (such as "Hollis Image - Reference Input v2"), run: hollis config set image-bridge %q and use --style <style>.`, bridge)
+					classified.suggestion = hint
+					if !flags.asJSON && !flags.agent {
+						classified.err = fmt.Errorf("%w\n%s", classified.err, hint)
+					}
+				}
+				return failure
 			}
 			defer func() {
 				if cleanupErr := result.Cleanup(); cleanupErr != nil {

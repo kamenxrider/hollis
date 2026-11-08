@@ -132,8 +132,12 @@ hollis image generate "A lighthouse on a cliff" --style illustration --output li
 For each legacy variant, duplicate the tested fixed-style bridge, change Style
 to the matching menu option, and give it a distinct name. Configuration is an explicit mapping,
 not runtime validation of the action. An unconfigured style fails before a
-model runs. Without `--style` or `--bridge`, Animation is selected. `--bridge` accepts an explicit custom Shortcut and cannot be combined
-with `--style`; its actual style is determined entirely by that Shortcut.
+model runs. Without `--style` or `--bridge`, Animation is selected. `--bridge`
+cannot be combined with `--style`. The exact bundled name,
+`--bridge "Hollis Image - Reference Input v2"`, uses the same JSON input as the
+single configured image bridge, with Animation as the default style. Other
+custom `--bridge` names keep the plain-text protocol and choose their own style.
+For a renamed JSON bridge, configure `image-bridge` and use `--style` instead.
 An explicit per-style mapping takes precedence over the single bridge. An
 empty name clears the relevant single bridge or per-style mapping. Restart a running
 API server after changing mappings.
@@ -153,6 +157,13 @@ during generation is also refused. Output files are created with mode 0600.
 Staging files are private and cleaned up after execution; a failed generation
 does not publish a partial image. Cancellation terminates the owned command
 process group, not the shared Shortcuts application or a remote inference job.
+
+If an explicit plain-text `--bridge` fails with the generic unrecognized
+Shortcut error, Hollis keeps that error and its exit code, then suggests
+configuring the name as `image-bridge` and using `--style` if it is a JSON
+bridge. JSON/agent errors put this hint in `suggestion`. This is a conditional
+hint, not a diagnosis of Apple's hidden error; refusals and other classified
+failures are unchanged.
 
 `--json` returns `path`, `format`, `bytes`, `width`, `height`, and `checksum`.
 `--agent` wraps these in the normal agent envelope; `--select` works as on
