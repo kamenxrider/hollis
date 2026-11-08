@@ -45,7 +45,7 @@ Available Commands:
   models        List the selectable model tiers and what maps to what
   respond       Send one prompt to Apple Intelligence and print the plain-text response
   serve         Serve the local OpenAI-compatible HTTP endpoint
-  setup         Plan setup for one selected route without changing anything
+  setup         Plan route setup, or explicitly open bundled Shortcut imports
   update        Check for a newer stable release; upgrade Homebrew only with --apply
   version       Print version
 
