@@ -14,7 +14,9 @@ The agent handles these steps:
    and wait for Apple's required downloads. A restricted check means unknown
    access, not incompatible hardware.
 2. Verify and install the runtime under
-   `~/Library/Application Support/hollis/plugin/versions/0.7.0/`.
+   `~/Library/Application Support/hollis/plugin/versions/<locked-version>/`.
+   Plugin 0.4.0 requires runtime 0.7.0, but the current lock still pins 0.4.0;
+   setup refuses it until verified published 0.7.0 assets are pinned.
    A newer existing Hollis is preserved and used. The plugin's bridge kit remains
    available. No PATH modification is needed.
 3. Native `local` requires the matching helper and no bridge; run `setup.sh status local`. Offer all five bridges and import selected ones individually. Approve
@@ -67,7 +69,7 @@ selected-route plan reports `helper_mismatch`. All three call for the matching
 bundle, not a reinstall of bridges. Native `local` needs that match;
 selected Shortcut routes remain usable with a helper mismatch. Guided output
 (`--schema`) and the measured `context_size` diagnostic additionally require
-the runtime and helper from one bundle, such as the pinned 0.7.0: check that
+the runtime and helper from one bundle, such as 0.7.0 (not the current 0.4.0 pin): check that
 `models --model local --json` reports `available: true` with
 `capabilities.guided_output: true`, rather than a protocol number. A mismatched
 helper is refused before inference. Never
@@ -116,6 +118,8 @@ bash "$KIT/scripts/run.sh" --version
 bash "$KIT/scripts/run.sh" config show --json
 bash "$KIT/scripts/run.sh" agent-context
 ```
+
+When `agent-context` lists `--import` on `setup`, `hollis setup --import --model <route>` is the runtime's way to open selected Shortcut imports. It still needs the user's Add/Allow decisions. An older runtime without that flag uses the plugin helper below.
 
 Installation and imports are separate actions. `setup.sh install` installs the
 locked runtime and bridge kit; `setup.sh import cloud` connects/imports that route.

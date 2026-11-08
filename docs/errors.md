@@ -80,13 +80,18 @@ There is no MCP execution through HTTP or batch.
 the helper and the request were both fine, but the tool loop could not converge. They share exit 5 and HTTP 502 because the
 same request should not be retried unchanged.
 
-The one permitted transient `model_busy` retry is separate from argument
+The helper's one permitted transient `model_busy` retry is separate from argument
 repair, which Local does not perform, and from tool execution, which is never
 retried. Both allowlisted errors share that one retry, identical input and the
 original deadline. A later synthesis decision may retry after earlier tools
 completed, but never after a callback in the failing decision. Other
 `LanguageModelError` codes, guardrail, context and decoding failures do not
 retry. A repeated allowlisted failure retains `model_busy`, exit 5 / HTTP 503.
+
+CLI `respond` and `chat` additionally accept [opt-in Local `--retry`](cli.md#opt-in-local-retry)
+for classified busy failures before output or tool activity, within the original
+deadline. It never retries Cloud, Cloud Pro, On-Device, ChatGPT or provider limits.
+HTTP and batch do not acquire this CLI retry policy.
 
 `ModelManagerServices.ModelManagerError` code **1042** remains `native_failed`
 (exit 5 / HTTP 502), never `model_busy`. On the inspected macOS framework its

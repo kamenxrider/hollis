@@ -3,7 +3,7 @@ name: hollis-setup
 description: Install, check, repair or update the Hollis plugin's local Mac runtime and selected Apple Shortcuts bridges. Guides first-use Apple approvals, preserves existing Hollis data and verifies pinned assets without requiring development tools.
 ---
 
-Get the user from this conversation to a useful Apple answer. Resolve `KIT` two directories above this skill's actual installed SKILL.md, and use absolute script paths. Installation is part of the experience, not a list of commands to hand off unnecessarily.
+Get the user from this conversation to a useful Apple answer. Set `SKILL_FILE` to this skill's actual installed absolute SKILL.md path; resolve `KIT` two levels above its containing directory with `KIT="$(cd "$(dirname "$SKILL_FILE")/../.." && pwd -P)"`, and use absolute script paths. Installation is part of the experience, not a list of commands to hand off unnecessarily.
 
 ## First use
 
@@ -13,6 +13,8 @@ Get the user from this conversation to a useful Apple answer. Resolve `KIT` two 
 4. Offer Cloud, Cloud Pro, native Local, On-Device, ChatGPT and image generation together. Native `local` uses the bundled SDK helper and requires no Shortcut import; check it with `setup.sh status local`. If the user already chose capabilities, use that choice. Explain that skipping a bridge leaves that capability unavailable but does not block others. For each selected route, run `setup.sh import <cloud|cloud-pro|on-device|chatgpt|image>` separately.
 5. **Before opening an import**, tell the user that Shortcuts may ask **Add Shortcut**, followed on first use by **Allow**. Honor those decisions; never click policy approvals automatically or suppress macOS protections. `permission_pending` means wait for the user, then rerun the same import command to verify discovery. Do not repeatedly open it while waiting.
 6. Run `setup.sh status <route>` for the selected route. It is route-scoped: a current runtime answers with a v1 plan (`schema_version`, `route`, `status` of `ready`, `import_required`, `approval_required`, `model_not_ready` or `unknown`, a stable `reason_code`, explicit `actions`, and `inference_tested:false`); older runtimes fall back to the legacy view marked `"source":"legacy"`. Plain `setup.sh status` covers every route. `doctor --model <route> --json` is the matching route-scoped diagnostic when `agent-context` lists `--model` on `doctor`; plain `doctor --json` works on every runtime and adds the full bridge table and the `local` row. Discovery is not inference proof. On a user's authorized first task, call that route through `run.sh` and report its actual outcome. Do not spend calls probing every optional model during routine setup.
+
+When `agent-context` lists `--import` on `setup`, `hollis setup --import --model <route>` opens the selected Shortcut imports. Explain Add/Allow first; this does not perform inference or approve anything. Otherwise use the plugin's `setup.sh import <route>` flow above. Check the actual runtime contract before offering the CLI import option.
 
 ## Helper matching and protocol
 
@@ -34,4 +36,4 @@ A `hollis` already on PATH (Homebrew, a direct download or a source build) is an
 - Rate limit: stop that sequence. Timeout or cancellation: an outcome can be uncertain; investigate before any retry. Image generation must remain unattended after first-use approvals; do not automate the visible Playground app.
 - Removing the plugin from a host does not delete Hollis conversations, configuration or generated files. Do not erase that data as part of troubleshooting or uninstall without explicit permission.
 
-The 0.3.0 release archive bundles the ARM64 binary, matching native helper and five bridges. Source installs download the exact pinned release assets. Packaging verifies their provenance; installation compares bytes against the trusted plugin's lock. This does not claim Developer ID signing, notarization or independent attestation of a specific Apple inference server.
+Plugin 0.4.0 targets runtime 0.7.0, but the checked-in lock still pins 0.4.0. Managed setup and packaging refuse that older pin until verified published 0.7.0 assets are pinned. A built release archive then bundles the ARM64 binary, matching native helper and five bridges; source installs download the exact pinned release assets. Packaging verifies their provenance; installation compares bytes against the trusted plugin's lock. This does not claim Developer ID signing, notarization or independent attestation of a specific Apple inference server.

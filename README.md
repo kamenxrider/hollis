@@ -38,6 +38,21 @@ Local-only `respond` and `chat` accept opt-in `--retry` (3 extra attempts) or
 `--retry=N` (0–5); retry is off unless supplied. Cloud, Cloud Pro, on-device,
 ChatGPT, auto and image generation are never retried.
 
+## What's new in 0.7.0
+
+- [`-s` / `--system-file`](docs/cli.md#instructions-one-shot-conversations-and-local-checks): inline instructions or an instruction file.
+- [`--messages`](docs/cli.md#instructions-one-shot-conversations-and-local-checks): pass a one-shot conversation, including host context.
+- [`-q`](docs/cli.md#instructions-one-shot-conversations-and-local-checks): hide notes and progress, not answers or errors.
+- [`--count-tokens`](docs/cli.md#instructions-one-shot-conversations-and-local-checks): check Local input fit without generating.
+- [`--permissive`](docs/cli.md#instructions-one-shot-conversations-and-local-checks): opt-in Local text transformations; refusals remain possible.
+- [`--retry`](docs/cli.md#opt-in-local-retry): opt into bounded retries for transient Local busy failures only.
+- [`--context-strategy`](docs/cli.md#opt-in-conversation-shortening): explicitly shorten a request without changing stored history.
+- [`benchmark`](docs/cli.md#local-speed-test): measure Local speed with fixed prompts and serial calls.
+- [`update`](docs/cli.md#checking-for-updates): explicitly check for a stable release and get upgrade guidance.
+- [`stream_options`](docs/api.md#chat-completions-app-compatibility): request a final Local stream usage chunk.
+- [`json_object`](docs/api.md#guided-json-output): validated, complete-only Local JSON without a schema.
+- [`n` / `logprobs` / `user`](docs/api.md#chat-completions-app-compatibility): accept single-answer, disabled-probability and ignored-label client fields.
+
 <!-- SCREENSHOT PLACEHOLDER: replace with a real terminal screenshot of a
 `hollis respond --model local` run before release. Do not use a mock-up. -->
 
@@ -169,7 +184,7 @@ hollis config set model cloud-pro
 ## What leaves your machine
 
 Hollis reads only what you supply with an argument, `--prompt-file`, `--file`,
-`--image`, stdin, the API or your agent. It does not read your workspace on its
+`--image`, `--system-file`, `--messages`, stdin, the API or your agent. It does not read your workspace on its
 own. Where the request goes depends on the route you select.
 
 | Route or feature | Where your prompt and attachments go |
@@ -259,14 +274,16 @@ batch choice. A failure stops the run. [Batch guide](docs/batch.md).
 
 ## Use Hollis in Claude Code and Codex
 
-[Plugin 0.3.0](plugins/hollis/README.md) bundles runtime **0.7.0**, its matched
-native helper and five Shortcut bridges. Ask Apple to assess a supplied plan,
+[Plugin 0.4.0](plugins/hollis/README.md) targets runtime **0.7.0**, its matched
+native helper and five Shortcut bridges. The checked-in lock still pins runtime
+**0.4.0**; setup and packaging remain blocked until the published 0.7.0 assets
+are verified and pinned. Ask Apple to assess a supplied plan,
 compare documents or create an image, then keep working in the same
 conversation. Guided setup preserves your existing configuration and
 conversations.
 
 Plugin 0.2.0 was withdrawn. Plugin 0.1.0 bundled runtime 0.3.3 without native
-local; update to 0.3.0 to get it.
+local.
 [Installation and everyday requests](plugins/hollis/README.md#install).
 
 ## OpenAI-compatible API
@@ -290,7 +307,7 @@ curl -sS http://127.0.0.1:1978/v1/chat/completions \
 ```
 
 - Through Shortcuts, answers are complete and token usage is unavailable; `stream: true` returns 400.
-- Native `local` supports real SSE streaming on both endpoints and measured token usage on complete responses. Streaming usage is not promised.
+- Native `local` supports real SSE streaming on both endpoints and measured token usage on complete responses. Chat Completions can request a final usage chunk with `stream_options`; unavailable counts stay null.
 - Guided JSON output on `local` is available through `--schema` on the CLI and through `response_format` / `text.format` on both HTTP endpoints. The object is returned as a JSON string.
 - A paired native helper that speaks another protocol or version is 502 `native_protocol` on `local` requests, guided or plain, matching CLI exit 5 and naming the matching bundle; a missing or unavailable helper stays 400 `model_unavailable`.
 - CLI `--json` and `--agent` output never stream; explicit streaming with either is rejected.

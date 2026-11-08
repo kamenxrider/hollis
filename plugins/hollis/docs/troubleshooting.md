@@ -59,7 +59,7 @@ documentation alone does not upgrade their bundled binary.
 | `native_protocol` (exit 5) | The helper does not match the CLI (older or newer), or the returned payload failed validation. Install the matching bundle; do not retry or repair |
 | `unsupported_capability` / "native helper does not support ..." (exit 5) | The matched helper did not advertise a capability the request needs. Install the matching bundle; it is not a caller mistake and not a reason to switch route |
 | `local_unavailable` / "helper is missing or not executable" (exit 5) | The paired helper is absent or not executable. Install the matching bundle; do not retry or repair |
-| `context_size` absent | The runtime predates it (0.4.0 does not report it; the pinned 0.7.0 does) or the model is unavailable. Do not estimate a window; guided output needs `available: true` with `capabilities.guided_output: true` |
+| `context_size` absent | The runtime predates it (0.4.0 does not report it; 0.7.0 does) or the model is unavailable. Do not estimate a window; guided output needs `available: true` with `capabilities.guided_output: true` |
 | Refused as a near-miss command (exit 2) | A one-word prompt close to a command name, such as `chta`, is refused and the message names the command. Send prompt text with `respond` or after `--` |
 | `--code` exit 3 | The answer contained no code, or only empty code blocks. Remove the empty output file and ask again deliberately; it is not a timeout |
 | `runtime_unverified` with a Homebrew Hollis | Setup has no plugin verification record for that executable; it does not mean tampering. Use `doctor --model <route> --json` for availability when `agent-context` lists `--model` on `doctor`, otherwise plain `doctor --json` |
@@ -80,5 +80,5 @@ With runtime 0.3.1, invalid image-reference diagnostics distinguish `file does
 not exist`, `permission denied` and other `file access failed` errors without
 printing the path. Check the attachment locally and select an accessible regular
 PNG or JPEG; invalid references do not dispatch an Apple request. The preserved
-0.3.0 archive lacks this runtime fix; the current package pins verified
-0.7.0 assets and includes it.
+0.3.0 archive lacks this runtime fix; the current 0.4.0 runtime pin includes it. Plugin 0.4.0 requires verified
+published 0.7.0 pins before source setup can proceed.

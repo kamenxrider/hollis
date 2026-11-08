@@ -9,7 +9,7 @@ hollis batch resume --job ./job.json --max-calls 12
 
 `plan` reads a sorted, nonrecursive inventory of `.txt`, `.md`, `.png`, `.jpg` and `.jpeg` files and records skipped entries. It makes no model calls. Instructions must be outside the input inventory; job and output destinations must be outside the input folder. Symlinks, existing reserved outputs, invalid text and oversized prepared prompts are rejected. The instruction and each text document together must fit 128 KiB. Image files have a 64 MiB per-file Hollis limit; planning checks readable bytes. Execution also validates PNG/JPEG content and a 64-million-pixel limit before calling a model.
 
-Choose a concrete model explicitly. On-Device supports text-only jobs; image jobs use Cloud, Cloud Pro or ChatGPT. Every run or resume requires a new `--max-calls` budget from 1 to 100. A budget-limited run pauses cleanly. Output distinguishes attempts in this invocation from lifetime attempts. There is one call per file, no automatic model switching, and no automatic retry.
+Choose a concrete model explicitly. On-Device and native `local` support text-only jobs; image jobs use Cloud, Cloud Pro or ChatGPT. Every run or resume requires a new `--max-calls` budget from 1 to 100. A budget-limited run pauses cleanly. Output distinguishes attempts in this invocation from lifetime attempts. There is one call per file, no automatic model switching, and no automatic retry.
 
 Cloud calls wait at least 30 seconds after completion before the next call; Cloud Pro waits 45 seconds and ChatGPT 15 seconds. On-Device and Local have no pacing. Apple rate-limits cloud requests per Mac without publishing the limit; we observed a block of about 17–24 hours after roughly 115 Cloud requests in 34 minutes. Pacing reduces the risk but cannot guarantee access. The pacing checkpoint survives a restart. Cancellation, a provider failure or a persistence failure stops further calls.
 
@@ -30,5 +30,3 @@ entries remain supported. An unreadable or unrecognized ACL fails closed.
 
 
 [Back to Hollis](../README.md)
-
-Native `local` also supports text-only batch jobs, with no inter-call pacing.

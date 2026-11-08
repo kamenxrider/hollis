@@ -15,6 +15,7 @@ python3 -m unittest discover -s scripts/image-install-check -p 'test_*.py'
 python3 -m unittest discover -s scripts/plugin -p 'test_*.py'
 python3 -m unittest discover -s scripts/release -p 'test_*.py'
 python3 scripts/release/privacy.py --source
+python3 scripts/check-doc-links.py
 ```
 
 Live research harnesses, raw prompts/responses, host transcripts, screenshots

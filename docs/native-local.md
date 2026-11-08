@@ -1,6 +1,6 @@
 # Native local: your Mac has more to say
 
-Hollis 0.4.0 adds `local`, an explicit route to Apple's on-device Foundation
+Hollis 0.4.0 introduced `local`, an explicit route to Apple's on-device Foundation
 Models SDK. It needs Apple Silicon, macOS 27, Apple Intelligence enabled and
 Apple's model available. It does not require a Shortcuts bridge. The existing
 `on-device` selection still uses Shortcuts; `auto` does not select native local.
@@ -30,6 +30,12 @@ silently shorten, summarise or drop history to fit the model. Its existing
 Requests that exceed either supported input limits or Apple's context capacity
 fail clearly. Start a new conversation or explicitly provide a shorter request.
 Failed or interrupted assistant turns are not saved as successful answers.
+
+In 0.7.0, [explicit context strategies](cli.md#opt-in-conversation-shortening)
+can shorten text chat or one-shot `respond --messages` requests without changing
+stored messages. Use `--count-tokens` before large Local inputs; instructions,
+permissive text transformations and [Local-only retry](cli.md#opt-in-local-retry)
+are described in the [CLI guide](cli.md#instructions-one-shot-conversations-and-local-checks).
 
 Attached MCP results also stop by default when they cannot fit Local, with
 exit 5, `tool_result_too_large_for_local`, the full byte count, and a
@@ -279,7 +285,7 @@ are never executed by Hollis. The command prints one JSON document with either
 `finish_reason:"tool_calls"` and validated calls, or `finish_reason:"stop"` and
 final text. Native framework call IDs are preserved.
 
-Tool choice accepts `auto`, `none`, `required` and `function:NAME`. Required means
+`--tool-choice` accepts `auto`, `none`, `required` and `function:NAME`. Required means
 at least one real offered function; its continuation allows dependencies.
 Named choice offers only that function initially and disables further callbacks
 after its result. A replayed structured call satisfies the obligation for the

@@ -29,9 +29,15 @@ NEEDS_NEW_RUNTIME = {
     "respond --schema": "`agent-context` lists `--schema`",
     "respond --prompt-file -": "`agent-context` describes `--prompt-file -`",
     "doctor --model": "`agent-context` lists `--model` on `doctor`",
+    "respond --messages": "`agent-context` lists `--messages` on `respond`",
+    "setup": "`agent-context` lists `--import` on `setup`",
+    "setup --model": "`agent-context` lists `--import` on `setup`",
+    "setup --import": "`agent-context` lists `--import` on `setup`",
 }
 
-ROOT_FLAGS = {"agent", "help", "json", "no-input", "select", "version"}
+ROOT_FLAGS = {"agent", "help", "json", "no-input", "quiet", "select", "version"}
+# Forward-compatible instructions must remain gated until the runtime exposes them.
+PENDING_FLAGS = {"setup": {"import"}}
 SETUP_COMMANDS = {"check", "install", "rollback", "path", "runtime-record", "status", "import"}
 SETUP_ROUTES = {"local", "cloud", "cloud-pro", "on-device", "chatgpt", "image"}
 # Flags named in the text that belong to the native helper or setup.sh, not the CLI.
@@ -127,11 +133,14 @@ def flags_in(words):
 class SkillCommandTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if not shutil.which("go"):
+        prebuilt = os.environ.get("HOLLIS_PLUGIN_TEST_BINARY")
+        if not prebuilt and not shutil.which("go"):
             raise unittest.SkipTest("Go is required to build the CLI whose agent-context is the contract")
         cls.temp = tempfile.TemporaryDirectory()
-        binary = Path(cls.temp.name) / "hollis"
-        subprocess.run(["go", "build", "-o", str(binary), "./cmd/hollis"], cwd=ROOT, check=True, timeout=600)
+        cls.addClassCleanup(cls.temp.cleanup)
+        binary = Path(prebuilt) if prebuilt else Path(cls.temp.name) / "hollis"
+        if not prebuilt:
+            subprocess.run(["go", "build", "-o", str(binary), "./cmd/hollis"], cwd=ROOT, check=True, timeout=600)
         env = dict(os.environ, HOME=cls.temp.name, HOLLIS_STATE_DIR=str(Path(cls.temp.name) / "state"))
         current = json.loads(subprocess.run([str(binary), "agent-context"], env=env, check=True,
                                             capture_output=True, text=True, timeout=60).stdout)
@@ -199,9 +208,9 @@ class SkillCommandTests(unittest.TestCase):
         return needed
 
     def test_text_names_real_commands_and_flags(self):
-        all_flags = set().union(*self.current.values()) | ROOT_FLAGS | FOREIGN_FLAGS
+        all_flags = set().union(*self.current.values(), *PENDING_FLAGS.values()) | ROOT_FLAGS | FOREIGN_FLAGS
         checked = 0
-        for name, _, raw, path, words, _ in self.uses():
+        for name, paragraph, raw, path, words, _ in self.uses():
             with self.subTest(file=name, snippet=raw):
                 flags, values = flags_in(words)
                 if path is None:
@@ -219,7 +228,10 @@ class SkillCommandTests(unittest.TestCase):
                 else:
                     allowed = self.current[path] if path else ROOT_FLAGS
                     for flag in flags:
-                        self.assertIn(flag, allowed, f"--{flag} is not a flag of '{path or 'hollis'}'")
+                        if flag in PENDING_FLAGS.get(path, set()) and flag not in allowed:
+                            self.assertIn(NEEDS_NEW_RUNTIME[f"{path} --{flag}"], paragraph)
+                        else:
+                            self.assertIn(flag, allowed, f"--{flag} is not a flag of '{path or 'hollis'}'")
                     model = values.get("model")
                     if model and not placeholder(model):
                         self.assertIn(model, self.models, f"unknown model {model}")

@@ -18,7 +18,7 @@ For a follow-up: keep the previous returned local file path, then call `image ge
 
 Ratios and sizes are local processing after generation: `--aspect-ratio 16:9 --fit crop`, or `--size 1200x800 --fit pad`. Preserve native output when neither is requested. If the user requests a ratio without specifying a fit, explain crop versus padding and ask which preserves their intent. These flags do not control Apple's native sampling. No seed control is exposed.
 
-For an explicitly persistent conversation, use `chat --agent --model cloud` initially and retain its returned ID. Image turns use `chat --continue <id> --generate-image --image-style illustration --output <new.png> <prompt>`, with `--image-reference auto|none|<path>` as appropriate. Image-understanding history is not supported by Hollis chat; use explicit `respond` calls with selected context instead.
+For an explicitly persistent conversation, use `chat --agent --model cloud` initially and retain its returned ID. Image turns use `chat --continue <id> --generate-image --image-style illustration --output <new.png> <prompt>`, with `--image-reference auto|none|<path>` as appropriate. When the installed `agent-context` lists `--image` on `chat`, a one-shot chat turn can attach an image, but its pixels are not replayed on later turns. Otherwise use explicit `respond` calls with selected context instead.
 
 ## Guided output (native local only)
 
@@ -69,7 +69,8 @@ What a client must send, checked against the current server:
 - `POST /v1/chat/completions` with `model`, `messages` and `stream`, or `POST /v1/responses` with `model`, `input`, optional `instructions` and `stream`.
 - `stream: false` for every Shortcuts route; only `local` streams. `stream: true` elsewhere is a 400.
 - On runtime 0.7.0, `local` accepts `temperature`, `top_p`, `seed`, `max_tokens` / `max_output_tokens`, and caller-executed function `tools`, `tool_choice`, `parallel_tool_calls`. Confirm support through `agent-context` and the model capabilities first. Shortcuts routes refuse these fields with 400 `unsupported_parameter`; unknown fields are refused on every route. The HTTP server never executes tools. Listing models alone does not prove calls will work.
-- Disable the client's automatic retries. A 429 `rate_limited` is Apple's limit (the advisory quota preflight may supply a reset date): stop the job rather than retrying, whatever `Retry-After` the runtime sends (a 0.4.0 server sends `Retry-After: 1`; the pinned 0.7.0 server sends none). A 429 `server_busy` is local capacity with `Retry-After: 1`.
+- On runtime 0.7.0, Chat Completions accepts `n:1`, disabled `logprobs` and an ignored `user` string; Local can request a final stream usage chunk with `stream_options:{"include_usage":true}` (null when unavailable), or complete-only validated `response_format:{"type":"json_object"}` without a schema. Responses JSON still requires a schema. Check the installed runtime before configuring these options.
+- Disable the client's automatic retries. A 429 `rate_limited` is Apple's limit (the advisory quota preflight may supply a reset date): stop the job rather than retrying, whatever `Retry-After` the runtime sends (a 0.4.0 server sends `Retry-After: 1`; a 0.7.0 server sends none). A 429 `server_busy` is local capacity with `Retry-After: 1`.
 
 Guided JSON (`response_format` / `text.format` with `json_schema`) works only with `model: "local"` and the same runtime support as `--schema`; it returns the object as a JSON string. Never expose the server beyond loopback unless the user explicitly asks: that needs `--allow-remote`, a token and an encrypted path such as an SSH tunnel, because Hollis provides no TLS.
 

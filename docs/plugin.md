@@ -16,15 +16,25 @@ one set of skills and scripts, a portable manifest and native Claude/Codex adapt
 - [Fictional workflow example](../plugins/hollis/examples/demo.md)
 
 The source package downloads the pinned runtime during setup; a built archive
-bundles the provenance-verified ARM64 Hollis 0.7.0 executable, matching native helper and all five bridges.
+is intended to bundle the provenance-verified ARM64 Hollis 0.7.0 executable, matching native helper and all five bridges.
 New source docs do not update a preserved ZIP; older archives retain their
 original runtimes and recorded checksums.
 
-Install using the guide above. Plugin 0.3.0 pins runtime 0.7.0, and setup
-downloads those checksum-verified assets. Plugin 0.2.0 was withdrawn. The
+Plugin 0.4.0 targets runtime 0.7.0. The checked-in lock currently pins runtime
+0.4.0, so source setup and packaging refuse it until published 0.7.0 assets are
+verified and pinned. Nothing in these docs upgrades that lock. Plugin 0.2.0 was withdrawn. The
 plugin's validation record
 distinguishes completed tests from remaining first-account acceptance work;
 see the [validation report](plugin-validation.md).
+
+## Other agents
+
+The package's portable core follows [Agent Plugins 1.0.0](https://agent-plugins.org/specification),
+so compatible skills-capable clients can load its skills. The skills are tested
+with Claude Code and Codex; no other client is qualified for this package.
+See the [compatible client list](https://agent-plugins.org/clients) for each
+client's format support. Calls still need execution and permissions on the
+eligible local Mac; loading a skill on a remote host does not provide them.
 
 Maintainer checks, runtime provenance and release sequencing are documented in
 the plugin's [package guide](../plugins/hollis/docs/package.md).

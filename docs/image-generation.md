@@ -20,8 +20,8 @@ hollis image generate "A small red sailboat on a calm blue lake" \
 ```
 
 Choose a fresh PNG filename in an existing directory. Restart a running Hollis
-API server after configuring the bridge. `hollis doctor` checks the four model
-bridges; the generation above is the actual image-route check.
+API server after configuring the bridge. `hollis doctor --model image` checks
+image-route prerequisites without inference; the generation above tests an actual image request.
 
 **Upgrading an earlier image bridge:** replace the old Reference Input v2
 Shortcut when importing the release copy. The corrected bridge explicitly

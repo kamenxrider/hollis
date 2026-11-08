@@ -28,7 +28,7 @@ plugins/hollis/                 Plugin root: hosts load this directory
 ├── examples/                 Fictional sample plan and workflow steps
 └── assets/runtime/           Added to built archives; absent from source
     ├── hollis-darwin-arm64
-    ├── hollis-native-darwin-arm64  Matching native-local helper (0.7.0)
+    ├── hollis-native-darwin-arm64  Matching native-local helper
     ├── hollis-bridges.zip     All five bridges
     └── provenance.json       Runtime-asset verification receipt
 ```
@@ -62,7 +62,7 @@ permissions and image rendering.
 Format references: [Agent Plugins specification](https://agent-plugins.org/specification),
 [Claude plugins](https://code.claude.com/docs/en/plugins),
 [Claude marketplace paths](https://code.claude.com/docs/en/plugin-marketplaces#relative-paths),
-[OpenAI plugin packaging](https://developers.openai.com/plugins/build/plugins).
+[OpenAI plugin packaging](https://developers.openai.com/codex/plugins).
 The Codex terminal commands in this guide were also checked against the local
 CLI's `plugin --help`, `plugin marketplace add --help` and `plugin add --help`
 on 7 September 2026; older hosts may expose different capabilities.
@@ -96,6 +96,14 @@ python3 scripts/plugin/package_plugin.py --validate-only
 for script in plugins/hollis/scripts/*.sh; do bash -n "$script"; done
 ```
 
+`test_portable.py` checks the closed manifest fields and types, plugin and
+skill names, frontmatter bounds, immediate-child discovery, extension namespace
+rules and resolved path containment offline. It also loads the two skills
+without native host adapters and resolves their scripts from an unrelated
+working directory, without host environment variables. The rules are encoded
+directly; no third-party schema is vendored or fetched by a client. Native
+manifests remain separate compatibility adapters, not portable extension data.
+
 These checks do not call Apple. Archive tests use explicitly synthetic fixtures;
 they do not produce publishable provenance. Live host and first-consent checks
 remain separate in [validation](validation.md).
@@ -114,8 +122,9 @@ provenance. An existing archive is never overwritten.
 
 ## Versions and release sequence
 
-Plugin **0.3.0** pins the published runtime **0.7.0** and its matching native
-helper. Source setup and packaging refuse an older runtime under this version.
+Plugin **0.4.0** targets runtime **0.7.0** and its matching native helper.
+The checked-in lock still pins **runtime 0.4.0**; source setup and packaging
+refuse that pin until verified published 0.7.0 assets are pinned.
 Editing skills or docs does not upgrade the bundled binary, and preserved
 review archives do not change with source. The plugin release is explicitly
 excluded from GitHub's “Latest” label so the CLI installer continues to find
@@ -136,10 +145,10 @@ tag publishes it.
 [Recorded validation](validation.md)
 
 
-## 0.3.0 release sequencing
+## 0.4.0 release sequencing
 
 Until runtime 0.7.0 is published, the checked-in lock still pins 0.4.0.
-Packaging and source setup for 0.3.0 refuse that lock instead of shipping 0.4.0
+Packaging and source setup for 0.4.0 refuse that lock instead of shipping 0.4.0
 under the new plugin version.
 After runtime publication, a maintainer runs `scripts/plugin/refresh_lock.py`
 with the full release commit and an explicit output file, reviews that
