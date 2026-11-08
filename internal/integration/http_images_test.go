@@ -92,7 +92,7 @@ func TestHTTPImageEndpointsProviderFree(t *testing.T) {
 		if call.model != runner.ModelCloud || len(call.digests) != 1 || call.digests[0] != wantDigest {
 			t.Fatalf("call %d model=%q digests=%x", i, call.model, call.digests)
 		}
-		for _, want := range []string{"SYSTEM:\nUse plain words", "USER:\nDescribe this"} {
+		for _, want := range []string{"Instructions:\nUse plain words", "USER:\nDescribe this"} {
 			if !strings.Contains(call.prompt, want) {
 				t.Fatalf("call %d prompt missing %q: %q", i, want, call.prompt)
 			}

@@ -234,7 +234,7 @@
     "internal/integration/cli_process_test.go": "b8b13eb6c5a38f535f2470c22ef3607e8925e6db912b789c0956f00a23cf9024",
     "internal/integration/count_bridges_test.go": "c2a75fb8fbc7b6b7447a670ce70247277c48efff7300ad761357e28ba4cabc95",
     "internal/integration/document_input_test.go": "31ab0581b04c87c5269f45819208d875d288259810585abe5bcd1fcb95ae3e01",
-    "internal/integration/http_images_test.go": "a185201a7ab21f31316b0371a0a47dc9d57098ebe2ba47623636362631158a69",
+    "internal/integration/http_images_test.go": "37889549dc1ea265350f1883e2017f9ca0cc5791a5a49be5198f5975093146d2",
     "internal/integration/http_process_test.go": "158590f2213ffebe901ec6f57f9ed447cbca4d1a16d1d63c2a6d4a875a3f31b7",
     "internal/integration/image_generation_test.go": "c970914e40a4a500d4a547a20c470fa2fd2c1dd7cbb7fa808cbff9356e79c7ad",
     "internal/integration/live_token_test.go": "13a019f635fb870e7c398196f899012e689dc57b1cb87101bd7ddfa8521ea5e8",
