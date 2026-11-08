@@ -526,6 +526,10 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	request.Options = options
+	if responsesJSONObject(request.Text) {
+		s.handleResponsesJSONObject(w, r, request)
+		return
+	}
 	if (toolMembers{request.Tools, request.ToolChoice, request.ParallelToolCalls}).present() {
 		s.handleResponsesTools(w, r, request)
 		return

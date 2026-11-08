@@ -18,7 +18,7 @@ func TestDoctorDuplicateBridgeNames(t *testing.T) {
 		}
 		got, _ := runSetupFixture(t, &setupStatusRunner{}, append(args, "--json")...)
 		warnings, ok := got["warnings"].([]any)
-		if !ok || len(warnings) != 1 {
+		if !ok || len(warnings) == 0 {
 			t.Fatalf("args=%v warnings=%v", args, got["warnings"])
 		}
 		warning := warnings[0].(map[string]any)
@@ -41,7 +41,7 @@ func TestSetupImportForceWarnsBeforeOpening(t *testing.T) {
 	f := newImportFixture(t)
 	t.Setenv("IMPORT_INSTALLED", "AFM Bridge - ChatGPT")
 	_, notes, err := f.run(t, "", "--import", "chatgpt", "--force", "--yes")
-	if err != nil || !strings.Contains(notes, "Warning (duplicate_bridge_name): Replacing a Shortcut can leave duplicate names.") || !strings.Contains(f.calls(t), "open ") {
+	if err != nil || !strings.HasPrefix(notes, "Warning (duplicate_bridge_name): Replacing a Shortcut can leave duplicate names.") || !strings.Contains(f.calls(t), "open ") {
 		t.Fatalf("err=%v notes=%s calls=%s", err, notes, f.calls(t))
 	}
 }

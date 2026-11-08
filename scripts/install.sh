@@ -85,7 +85,7 @@ if [[ -z $image_bridge ]]; then
 fi
 for bridge in "$stage/signed/"*.shortcut; do open "$imports/${bridge##*/}"; done
 printf '\nHollis %s installed in %s.\n' "$version" "$bin_dir"
-printf 'Choose Add Shortcut for each of the five imports. Then run hollis doctor.\n'
+printf 'Choose Add Shortcut for each of the nine imports. Then run hollis doctor.\n'
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
   *) printf 'Add this directory to your shell PATH: %s\n' "$bin_dir" ;;

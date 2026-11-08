@@ -43,7 +43,7 @@ func TestDoctorNextNeverSuggestsStandaloneSetup(t *testing.T) {
 				args = append(args, "--model", tc.route)
 			}
 			out, _ := runFirstRunCommand(t, &setupStatusRunner{err: tc.localErr}, args...)
-			if strings.Contains(out, "hollis setup") || !strings.HasSuffix(out, "Next: "+tc.next+"\n") {
+			if strings.Contains(out, "Next: hollis setup\n") || !strings.HasSuffix(out, "Next: "+tc.next+"\n") {
 				t.Fatalf("next step: %s", out)
 			}
 		})

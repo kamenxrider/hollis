@@ -1,3 +1,7 @@
+Warning (json_bridge_missing): JSON bridge missing; using the text bridge. Run hollis setup --import cloud for reliable JSON.
+Warning (json_bridge_missing): JSON bridge missing; using the text bridge. Run hollis setup --import cloud-pro for reliable JSON.
+Warning (json_bridge_missing): JSON bridge missing; using the text bridge. Run hollis setup --import on-device for reliable JSON.
+Warning (json_bridge_missing): JSON bridge missing; using the text bridge. Run hollis setup --import chatgpt for reliable JSON.
 hollis doctor (version dev)
   local: unavailable: native helper availability has not been checked (availability only; inference not tested)
   transport: ok

@@ -45,7 +45,9 @@ type ShortcutRunner struct {
 	// BridgeRefs maps models to the identifier passed to `shortcuts run`.
 	// New defaults to UUID candidates; callers should replace them with the
 	// positively discovered names or explicit configured references.
-	BridgeRefs map[Model]string
+	BridgeRefs         map[Model]string
+	JSONBridgeRefs     map[Model]string
+	JSONDiscoveryKnown bool
 	// Timeout applies when the caller's context carries no deadline.
 	// Measured p50 is ~1s; 30s default, 120s ceiling per plan §25.
 	Timeout time.Duration
@@ -410,6 +412,11 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 		return "", &Error{Kind: KindUsage, ExitCode: -1, Err: fmt.Errorf("%w: %q", ErrUnknownModel, model)}
 	}
 	ref, ok := r.BridgeRefs[model]
+	outputType := BridgeOutputText
+	if requested, _ := ctx.Value(jsonOutputKey{}).(bool); requested && r.JSONBridgeRefs[model] != "" {
+		ref, ok = r.JSONBridgeRefs[model], true
+		outputType = routeSpecs[model].JSONBridge.Output
+	}
 	if !ok || strings.TrimSpace(ref) == "" {
 		return "", &Error{
 			Kind: KindShortcutMissing, ExitCode: -1,
@@ -456,8 +463,8 @@ func (r *ShortcutRunner) runTierWithImages(ctx context.Context, model Model, pro
 		return "", err
 	}
 
-	// Rule 1: plain text, never the RTF default. Rule 7: reference by UUID.
-	args := []string{"run", ref, "--output-type", "public.plain-text"}
+	// Always request the explicit capability's wire type, never the RTF default.
+	args := []string{"run", ref, "--output-type", string(outputType)}
 	// Native stdin can classify code-shaped text as a different input object.
 	// Always stage the exact rendered text, including for text-only requests.
 	// Keep the prompt first when co-delivering images. Never retry via stdin.

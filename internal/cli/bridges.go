@@ -140,12 +140,34 @@ func applyResolvedRefs(r runner.Runner, resolved map[runner.Model]runner.Resolve
 		return
 	}
 	refs := make(map[runner.Model]string, len(resolved))
+	jsonRefs := make(map[runner.Model]string, len(resolved))
 	for m, rb := range resolved {
+		sr.JSONDiscoveryKnown = rb.JSONDiscoveryKnown
+		if rb.JSONRef != "" {
+			jsonRefs[m] = rb.JSONRef
+		}
 		if rb.Available {
 			refs[m] = rb.Ref
 		}
 	}
 	sr.BridgeRefs = refs
+	sr.JSONBridgeRefs = jsonRefs
+}
+
+// jsonResolvedAvailability permits a JSON-only installation for JSON requests
+// without making it available for ordinary text or image requests.
+func jsonResolvedAvailability(resolved map[runner.Model]runner.ResolvedBridge) map[runner.Model]runner.ResolvedBridge {
+	if resolved == nil {
+		return nil
+	}
+	out := make(map[runner.Model]runner.ResolvedBridge, len(resolved))
+	for model, bridge := range resolved {
+		if bridge.JSONRef != "" {
+			bridge.Available = true
+		}
+		out[model] = bridge
+	}
+	return out
 }
 
 // checkModelAvailable refuses tiers whose bridge did not resolve. Auto is

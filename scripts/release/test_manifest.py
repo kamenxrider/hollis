@@ -122,7 +122,7 @@ class ManifestTests(unittest.TestCase):
                 )
 
     def test_bridge_archive_must_have_exact_members(self):
-        with self.assertRaisesRegex(ValueError, 'exactly the five'):
+        with self.assertRaisesRegex(ValueError, 'exactly the nine'):
             manifest.inspect_bridges(_zip_bytes({'only.shortcut': b'fixture'}))
 
     def test_stale_bundle_is_rejected_against_final_assets(self):

@@ -20,6 +20,10 @@ BRIDGE_MEMBERS = {
     'AFM Bridge - Cloud Pro.shortcut',
     'AFM Bridge - On-Device.shortcut',
     'AFM Bridge - ChatGPT.shortcut',
+    'AFM Bridge JSON - Cloud.shortcut',
+    'AFM Bridge JSON - Cloud Pro.shortcut',
+    'AFM Bridge JSON - On-Device.shortcut',
+    'AFM Bridge JSON - ChatGPT.shortcut',
     'Hollis Image - Reference Input v2.shortcut',
 }
 BUNDLE_MEMBERS = {'hollis', 'hollis-native', 'hollis-bridges.zip', 'LICENSE', 'manifest.json'}
@@ -81,7 +85,7 @@ def inspect_bridges(data):
         infos = archive.infolist()
         names = [item.filename for item in infos]
         if len(names) != len(set(names)) or set(names) != BRIDGE_MEMBERS:
-            raise ValueError('Bridge archive must contain exactly the five pinned bridges')
+            raise ValueError('Bridge archive must contain exactly the nine pinned bridges')
         for item in infos:
             mode = (item.external_attr >> 16) & 0o170000
             if mode not in (0, 0o100000) or item.is_dir():

@@ -50,7 +50,16 @@ func TestOverviewReadinessSelection(t *testing.T) {
 				if !ok || len(diagnostics) != 1 || diagnostics[0].(map[string]any)["code"] != "missing" {
 					t.Fatalf("diagnostics lost: %s", out.String())
 				}
-				wantFields := 4
+				warnings, ok := row["warnings"].([]any)
+				if !ok || len(warnings) != 4 {
+					t.Fatalf("missing JSON bridge warnings lost: %s", out.String())
+				}
+				for _, warning := range warnings {
+					if warning.(map[string]any)["reason_code"] != "json_bridge_missing" {
+						t.Fatalf("unexpected warning: %v", warning)
+					}
+				}
+				wantFields := 5
 				if strings.Contains(selection, "version") {
 					wantFields++
 					if row["version"] != version {

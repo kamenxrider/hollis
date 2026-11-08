@@ -5,6 +5,8 @@ package cli
 import (
 	"fmt"
 	"io"
+
+	"github.com/kamenxrider/hollis/internal/runner"
 )
 
 type bridgeWarning struct {
@@ -12,6 +14,23 @@ type bridgeWarning struct {
 	Name       string `json:"name"`
 	Count      int    `json:"count"`
 	Message    string `json:"message"`
+}
+
+func missingJSONBridgeWarnings(resolved map[runner.Model]runner.ResolvedBridge, models []runner.Model, osMajor int) []bridgeWarning {
+	var warnings []bridgeWarning
+	for _, model := range models {
+		bridge := resolved[model]
+		if bridge.JSONDiscoveryKnown && bridge.JSONRef == "" {
+			spec, ok := runner.Spec(model)
+			if !ok || (spec.MinOSMajor > 0 && osMajor < spec.MinOSMajor) {
+				continue
+			}
+			warnings = append(warnings, bridgeWarning{ReasonCode: "json_bridge_missing",
+				Name:    spec.JSONBridge.Names[len(spec.JSONBridge.Names)-1],
+				Message: runner.MissingJSONBridgeHint(model)})
+		}
+	}
+	return warnings
 }
 
 func duplicateBridgeWarnings(names, references []string) []bridgeWarning {

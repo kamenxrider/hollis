@@ -28,12 +28,14 @@ import (
 
 var setupImportExecutable = os.Executable
 
-var importRoutes = []string{"cloud", "cloud-pro", "on-device", "chatgpt", "image"}
+var importRoutes = []string{"cloud", "cloud-json", "cloud-pro", "cloud-pro-json", "on-device", "on-device-json", "chatgpt", "chatgpt-json", "image"}
 
 var importNames = map[string]string{
 	"cloud": "AFM Bridge - Cloud", "cloud-pro": "AFM Bridge - Cloud Pro",
 	"on-device": "AFM Bridge - On-Device", "chatgpt": "AFM Bridge - ChatGPT",
-	"image": imageSetupBridge,
+	"image":      imageSetupBridge,
+	"cloud-json": "AFM Bridge JSON - Cloud", "cloud-pro-json": "AFM Bridge JSON - Cloud Pro",
+	"on-device-json": "AFM Bridge JSON - On-Device", "chatgpt-json": "AFM Bridge JSON - ChatGPT",
 }
 
 const importNextStep = "Choose Add Shortcut in each window, then run hollis doctor"
@@ -60,6 +62,9 @@ func selectedImportRoutes(args []string) ([]string, error) {
 		}
 		if !slices.Contains(selected, route) {
 			selected = append(selected, route)
+		}
+		if _, ok := importNames[route+"-json"]; ok && !slices.Contains(selected, route+"-json") {
+			selected = append(selected, route+"-json")
 		}
 	}
 	return selected, nil
@@ -137,12 +142,12 @@ func checkedBridgeZip(data []byte) (map[string]*zip.File, error) {
 			valid = valid || f.Name == name+".shortcut"
 		}
 		if !valid || files[f.Name] != nil || !f.Mode().IsRegular() || f.UncompressedSize64 > 8<<20 {
-			return nil, errors.New("unsafe bridge archive member; expected exactly the five bundled regular Shortcut files")
+			return nil, errors.New("unsafe bridge archive member; expected exactly the nine bundled regular Shortcut files")
 		}
 		files[f.Name] = f
 	}
 	if len(files) != len(importRoutes) {
-		return nil, errors.New("bridge archive must contain exactly five bundled Shortcuts")
+		return nil, errors.New("bridge archive must contain exactly nine bundled Shortcuts")
 	}
 	return files, nil
 }
@@ -192,6 +197,8 @@ func runSetupImport(cmd *cobra.Command, flags *rootFlags, args []string, yes, fo
 		found := slices.Contains(names, importNames[route])
 		if route == "image" {
 			found = found || (c.ImageBridge != "" && slices.Contains(names, c.ImageBridge))
+		} else if textRoute, json := strings.CutSuffix(route, "-json"); json {
+			found = found || resolved[runner.Model(textRoute)].JSONRef != ""
 		} else {
 			found = found || resolved[runner.Model(route)].Verified
 		}
@@ -211,10 +218,10 @@ func runSetupImport(cmd *cobra.Command, flags *rootFlags, args []string, yes, fo
 	}
 	// This exact list always precedes all writes, signing and windows, even
 	// with --yes or JSON output. Keep stdout a single machine-readable result.
-	fmt.Fprintln(cmd.ErrOrStderr(), "Shortcut imports to open:")
 	if force && len(needed) > 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(), "Warning (duplicate_bridge_name): Replacing a Shortcut can leave duplicate names. Keep only one copy of each bridge in the Shortcuts app; Shortcuts may run either copy.")
 	}
+	fmt.Fprintln(cmd.ErrOrStderr(), "Shortcut imports to open:")
 	for _, route := range needed {
 		fmt.Fprintf(cmd.ErrOrStderr(), "  %s: %s\n", route, importNames[route])
 	}

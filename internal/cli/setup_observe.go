@@ -125,8 +125,12 @@ func collectSetupFacts(ctx context.Context, route string, newRunner newRunnerFun
 	references := []string{o.Bridge.Reference, importNames[route]}
 	if spec, ok := runner.Spec(runner.Model(route)); ok {
 		references = append(references, spec.BridgeNames...)
+		references = append(references, spec.JSONBridge.Names...)
 	}
-	if warnings := duplicateBridgeWarnings(names, references); len(warnings) > 0 {
+	warnings := duplicateBridgeWarnings(names, references)
+	resolved := runner.ResolveBridges(names, true, major, bridgeOverrides(c))
+	warnings = append(warnings, missingJSONBridgeWarnings(resolved, []runner.Model{runner.Model(route)}, major)...)
+	if len(warnings) > 0 {
 		report["warnings"] = warnings
 	}
 	return o, report, nil

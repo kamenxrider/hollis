@@ -28,7 +28,7 @@ func newSetupCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 	var importBridges, yes, force bool
 	cmd := &cobra.Command{
 		Use: "setup [route…]", Short: "Plan route setup, or explicitly open bundled Shortcut imports",
-		Long: "Choose a route with --model: local, cloud, cloud-pro, on-device, chatgpt or image. Without --model or --import, print this help. Standalone planning cannot verify installation files; use doctor --model <route> for availability diagnostics. Planning changes nothing. Explicit --import [cloud cloud-pro on-device chatgpt image] verifies the installed bridge archive against its bundle manifest, signs private copies and opens Add Shortcut windows after confirmation; omit routes for all five. Installed bridges are skipped unless --force. Non-interactive, --json, --no-input and --agent imports require --yes. Never downloads, changes Apple settings or requests inference.",
+		Long: "Choose a route with --model: local, cloud, cloud-pro, on-device, chatgpt or image. Without --model or --import, print this help. Standalone planning cannot verify installation files; use doctor --model <route> for availability diagnostics. Planning changes nothing. Explicit --import [cloud cloud-pro on-device chatgpt image] verifies the installed bridge archive against its bundle manifest, signs private copies and opens Add Shortcut windows after confirmation; omit routes for all nine. Each text route also selects its JSON bridge; use a -json suffix for only that bridge. Installed bridges are skipped unless --force. Non-interactive, --json, --no-input and --agent imports require --yes. Never downloads, changes Apple settings or requests inference.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if importBridges {
 				if cmd.Flags().Changed("model") || producer != "" || len(pending) != 0 {
@@ -93,7 +93,7 @@ func newSetupCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&route, "model", "", "Selected route: local, cloud, cloud-pro, on-device, chatgpt or image")
-	cmd.Flags().BoolVar(&importBridges, "import", false, "Open selected bundled Shortcut imports (all five if no routes)")
+	cmd.Flags().BoolVar(&importBridges, "import", false, "Open selected bundled Shortcut imports (all nine if no routes; text routes include JSON)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Approve --import without prompting")
 	cmd.Flags().BoolVar(&force, "force", false, "Import even bridges already found installed (requires --import)")
 	cmd.Flags().StringVar(&producer, "runtime-record-command", "", "Local caller-selected verified-runtime record producer")

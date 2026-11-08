@@ -27,6 +27,9 @@ const (
 
 // ResolvedBridge is the runtime resolution outcome for one tier.
 type ResolvedBridge struct {
+	// JSONRef is populated only by a successful exact-name discovery.
+	JSONRef            string
+	JSONDiscoveryKnown bool
 	// Model is the tier this resolution belongs to.
 	Model Model
 	// Ref is the identifier to pass to `shortcuts run`: a name or a UUID.
@@ -99,6 +102,15 @@ func ResolveBridges(installed []string, listOK bool, osMajor int, overrides map[
 			Ref:     CompiledUUID(m),
 			Source:  SourceCompiled,
 			OSKnown: osMajor != 0,
+		}
+		res.JSONDiscoveryKnown = listOK
+		if listOK && (routeSpecs[m].MinOSMajor == 0 || osMajor >= routeSpecs[m].MinOSMajor) {
+			for _, name := range routeSpecs[m].JSONBridge.Names {
+				if have[name] {
+					res.JSONRef = name
+					break
+				}
+			}
 		}
 		// Discovery is fail-closed. A failed `shortcuts list` is a transport
 		// problem, not evidence that bridges are installed; the caller keeps

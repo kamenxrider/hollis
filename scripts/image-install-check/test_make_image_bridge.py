@@ -72,6 +72,9 @@ class ImageBridgeGeneratorTests(unittest.TestCase):
                 self.assertEqual(set(archive.namelist()), {
                     f"AFM Bridge - {model}.shortcut"
                     for model in ("Cloud", "Cloud Pro", "On-Device", "ChatGPT")
+                } | {
+                    f"AFM Bridge JSON - {model}.shortcut"
+                    for model in ("Cloud", "Cloud Pro", "On-Device", "ChatGPT")
                 } | {"Hollis Image - Reference Input v2.shortcut"})
                 workflow = plistlib.loads(archive.read("Hollis Image - Reference Input v2.shortcut"))
                 actions = workflow["WFWorkflowActions"]

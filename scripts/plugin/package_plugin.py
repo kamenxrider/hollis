@@ -111,8 +111,8 @@ def validate_source(root=ROOT):
                 or not re.fullmatch(r"[a-f0-9]{64}", native.get("sha256", ""))):
             raise ValueError("Invalid locked native helper")
     names = lock["bridge_files"]
-    if len(names) != 5 or len(set(names)) != 5 or any(Path(n).name != n or not n.endswith(".shortcut") for n in names):
-        raise ValueError("Expected five unique flat bridge filenames")
+    if len(names) not in (5, 9) or len(set(names)) != len(names) or any(Path(n).name != n or not n.endswith(".shortcut") for n in names):
+        raise ValueError("Expected five legacy or nine current unique flat bridge filenames")
     return portable, lock
 
 

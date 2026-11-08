@@ -23,7 +23,8 @@ import zipfile
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MANIFEST = 'scripts/release/public-source.json'
 BUNDLE_FILES = {'hollis', 'hollis-native', 'hollis-bridges.zip', 'LICENSE', 'manifest.json'}
-BRIDGE_FILES = {'AFM Bridge - Cloud.shortcut', 'AFM Bridge - Cloud Pro.shortcut', 'AFM Bridge - On-Device.shortcut', 'AFM Bridge - ChatGPT.shortcut', 'Hollis Image - Reference Input v2.shortcut'}
+LEGACY_BRIDGE_FILES = {'AFM Bridge - Cloud.shortcut', 'AFM Bridge - Cloud Pro.shortcut', 'AFM Bridge - On-Device.shortcut', 'AFM Bridge - ChatGPT.shortcut', 'Hollis Image - Reference Input v2.shortcut'}
+BRIDGE_FILES = LEGACY_BRIDGE_FILES | {f'AFM Bridge JSON - {tier}.shortcut' for tier in ('Cloud', 'Cloud Pro', 'On-Device', 'ChatGPT')}
 PRIVATE_PREFIXES = ('docs/dev/', 'assets/brand/', '.git/', '.claude/', '.venv/',
                     'scripts/live-suite/', 'scripts/image-suite/', 'plugins/hollis/examples/recorded/')
 PRIVATE_NAMES = {'macos-26-compat.md', 'tool-protocol-26A5425a.md',
@@ -94,6 +95,9 @@ def check_names(names, kind='source'):
             raise ValueError(f'Private or generated material in {kind}: {name}')
     if kind in ('bundle', 'bridges'):
         expected = BUNDLE_FILES if kind == 'bundle' else BRIDGE_FILES
+        # Authenticated older plugin runtimes retain their exact five-file set.
+        if kind == 'bridges' and set(clean) == LEGACY_BRIDGE_FILES:
+            expected = LEGACY_BRIDGE_FILES
         exact_members(clean, expected, kind)
     return clean
 

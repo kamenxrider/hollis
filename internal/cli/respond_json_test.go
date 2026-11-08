@@ -58,7 +58,7 @@ func TestRespondJSONObject(t *testing.T) {
 							}
 						}
 					} else {
-						if ExitCode(err) != 5 || errorCode(err) != "invalid_json_output" || err.Error() != jsonoutput.InvalidMessage {
+						if ExitCode(err) != 5 || errorCode(err) != "invalid_json_output" || !strings.HasPrefix(err.Error(), jsonoutput.InvalidMessage) {
 							t.Fatalf("err=%v out=%s", err, out)
 						}
 						if envelope != "" {

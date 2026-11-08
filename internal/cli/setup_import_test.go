@@ -208,9 +208,9 @@ func TestSetupImportSelectionSkipAndForce(t *testing.T) {
 			if err := json.Unmarshal([]byte(out), &envelope); err != nil {
 				t.Fatal(err)
 			}
-			want := []string{"on-device"}
+			want := []string{"cloud-json", "chatgpt-json", "on-device", "on-device-json"}
 			if force {
-				want = []string{"cloud", "chatgpt", "on-device"}
+				want = []string{"cloud", "cloud-json", "chatgpt", "chatgpt-json", "on-device", "on-device-json"}
 			}
 			if !reflect.DeepEqual(envelope.Results.Opened, want) || strings.Contains(f.calls(t), imageSetupBridge) {
 				t.Fatalf("out=%s calls=%s", out, f.calls(t))
@@ -338,7 +338,7 @@ func TestSetupImportDiscoveryAndSigningFailuresNeverOpen(t *testing.T) {
 
 func TestSetupImportAllInstalledDoesNotSignOrOpen(t *testing.T) {
 	f := newImportFixture(t)
-	t.Setenv("IMPORT_INSTALLED", "AFM Bridge - Cloud")
+	t.Setenv("IMPORT_INSTALLED", "AFM Bridge - Cloud\nAFM Bridge JSON - Cloud")
 	out, _, err := f.run(t, "", "--import", "cloud", "--yes", "--json")
 	if err != nil || strings.Contains(f.calls(t), "shortcuts sign") || strings.Contains(f.calls(t), "open ") ||
 		!strings.Contains(out, `"unchanged"`) || !strings.Contains(out, `"cloud"`) ||

@@ -50,6 +50,8 @@ func TestReleaseDryRun(t *testing.T) {
 	expected := []string{
 		"AFM Bridge - ChatGPT.shortcut", "AFM Bridge - Cloud Pro.shortcut",
 		"AFM Bridge - Cloud.shortcut", "AFM Bridge - On-Device.shortcut",
+		"AFM Bridge JSON - ChatGPT.shortcut", "AFM Bridge JSON - Cloud Pro.shortcut",
+		"AFM Bridge JSON - Cloud.shortcut", "AFM Bridge JSON - On-Device.shortcut",
 		"Hollis Image - Reference Input v2.shortcut",
 	}
 	if strings.Join(names, "\n") != strings.Join(expected, "\n") {

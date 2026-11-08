@@ -76,16 +76,22 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 			references := []string{imageSetupBridge}
 			for _, spec := range runner.Specs() {
 				references = append(references, spec.BridgeNames...)
+				references = append(references, spec.JSONBridge.Names...)
 				references = append(references, resolved[spec.ID].Ref)
 			}
 			if c, err := readSetupConfig(); err == nil {
 				references = append(references, c.ImageBridge)
 			}
 			warnings := duplicateBridgeWarnings(names, references)
+			var warningModels []runner.Model
+			for _, spec := range runner.Specs() {
+				warningModels = append(warningModels, spec.ID)
+			}
+			osMajor := macosMajorVersion()
+			warnings = append(warnings, missingJSONBridgeWarnings(resolved, warningModels, osMajor)...)
 			if len(warnings) > 0 {
 				report["warnings"] = warnings
 			}
-			osMajor := macosMajorVersion()
 			report["macos"] = macosVersion()
 			report["macos_build"] = macosBuild()
 			report["support"] = supportNote

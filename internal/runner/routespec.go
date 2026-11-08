@@ -58,6 +58,9 @@ type RouteSpec struct {
 	// BridgeNames are the expected import display names, most specific
 	// first (the ".signed" spelling before the bare name). nil for native.
 	BridgeNames []string
+	// JSONBridge is the separately installed Dictionary-output capability.
+	// It does not enforce a schema, field names or value types.
+	JSONBridge BridgeSpec
 	// CompiledUUID is the compile-time placeholder reference: synthetic,
 	// never a captured workflow ID, and never availability evidence on a
 	// host. Empty for native.
@@ -100,6 +103,7 @@ var routeSpecs = map[Model]RouteSpec{
 		Transport:    TransportShortcuts,
 		Selection:    "Apple Intelligence",
 		BridgeNames:  []string{"AFM Bridge - Cloud.signed", "AFM Bridge - Cloud"},
+		JSONBridge:   BridgeSpec{Names: []string{"AFM Bridge JSON - Cloud.signed", "AFM Bridge JSON - Cloud"}, Output: BridgeOutputJSON},
 		CompiledUUID: BridgeUUIDCloud,
 		Names: NameSet{
 			Measured: "AFM 3 Cloud (Private Cloud Compute)",
@@ -117,6 +121,7 @@ var routeSpecs = map[Model]RouteSpec{
 		Transport:    TransportShortcuts,
 		Selection:    "Apple Intelligence Pro",
 		BridgeNames:  []string{"AFM Bridge - Cloud Pro.signed", "AFM Bridge - Cloud Pro"},
+		JSONBridge:   BridgeSpec{Names: []string{"AFM Bridge JSON - Cloud Pro.signed", "AFM Bridge JSON - Cloud Pro"}, Output: BridgeOutputJSON},
 		CompiledUUID: BridgeUUIDCloudPro,
 		MinOSMajor:   MeasuredOSMajor,
 		Names: NameSet{
@@ -135,6 +140,7 @@ var routeSpecs = map[Model]RouteSpec{
 		Transport:    TransportShortcuts,
 		Selection:    "Apple Intelligence on Device",
 		BridgeNames:  []string{"AFM Bridge - On-Device.signed", "AFM Bridge - On-Device"},
+		JSONBridge:   BridgeSpec{Names: []string{"AFM Bridge JSON - On-Device.signed", "AFM Bridge JSON - On-Device"}, Output: BridgeOutputJSON},
 		CompiledUUID: BridgeUUIDOnDevice,
 		Names: NameSet{
 			Measured: "AFM 3 Core or AFM 3 Core Advanced (by hardware)",
@@ -153,6 +159,7 @@ var routeSpecs = map[Model]RouteSpec{
 		Transport:    TransportShortcuts,
 		Selection:    "ChatGPT",
 		BridgeNames:  []string{"AFM Bridge - ChatGPT.signed", "AFM Bridge - ChatGPT"},
+		JSONBridge:   BridgeSpec{Names: []string{"AFM Bridge JSON - ChatGPT.signed", "AFM Bridge JSON - ChatGPT"}, Output: BridgeOutputJSON},
 		CompiledUUID: BridgeUUIDChatGPT,
 		Names: NameSet{
 			Measured: "OpenAI ChatGPT extension for Apple Intelligence",
@@ -238,6 +245,9 @@ func validateRouteTable() error {
 		}
 		if len(spec.BridgeNames) == 0 {
 			return fmt.Errorf("%s: missing bridge name candidates", m)
+		}
+		if len(spec.JSONBridge.Names) == 0 || spec.JSONBridge.Output != BridgeOutputJSON {
+			return fmt.Errorf("%s: missing Dictionary bridge capability", m)
 		}
 		if spec.CompiledUUID == "" {
 			return fmt.Errorf("%s: missing compiled UUID", m)

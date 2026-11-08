@@ -438,6 +438,9 @@ without another model round or a new resume protocol.`,
 			// retains normal signal behavior while in-flight staging can unwind.
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 			defer stop()
+			if format == "json" {
+				ctx = runner.WithJSONObject(ctx)
+			}
 			if extras.count && !hasPDF {
 				prompt, instructions, history := conversationInput(prompt, instructions, messages)
 				if err := extrasSize(prompt, instructions, history); err != nil {
@@ -452,7 +455,11 @@ without another model round or a new resume protocol.`,
 			if err != nil && !canAttemptAfterDiscoveryFailure(resolved, m) {
 				return resolutionCLIError(err)
 			}
-			if err := checkModelAvailable(resolved, m); err != nil {
+			availability := resolved
+			if format == "json" {
+				availability = jsonResolvedAvailability(resolved)
+			}
+			if err := checkModelAvailable(availability, m); err != nil {
 				return err
 			}
 			applyResolvedRefs(r, resolved)
@@ -499,6 +506,7 @@ without another model round or a new resume protocol.`,
 					return usageErr(err)
 				}
 			}
+			jsonTransport := r
 			r = retryRunnerForContext(ctx, r)
 			if mcpOptions.enabled() {
 				return withPDFRefusalContext(runRespondMCP(ctx, cmd, flags, r, prompt, toolSet, runner.ToolChoice(toolChoice), &mcpOptions, generationOptions), hasPDF)
@@ -545,17 +553,24 @@ without another model round or a new resume protocol.`,
 				}
 			}
 			stopWaiting()
+			jsonHint := ""
+			if format == "json" {
+				jsonHint = runner.JSONBridgeHint(jsonTransport, used)
+				if jsonHint != "" && !flags.asJSON {
+					fmt.Fprintln(cmd.ErrOrStderr(), "hollis: "+jsonHint)
+				}
+			}
 			if err != nil {
 				var classified *runner.Error
 				if format == "json" && errors.As(err, &classified) && classified.Kind == runner.KindNoOutput {
-					return invalidJSONObjectOutput(text)
+					return invalidJSONObjectOutputWithHint(text, jsonHint, !flags.asJSON)
 				}
 				return withPDFRefusalContext(toCLIRequestError(err, m, timeout), hasPDF)
 			}
 			if format == "json" {
 				object, ok := jsonoutput.Object(text)
 				if !ok {
-					return invalidJSONObjectOutput(text)
+					return invalidJSONObjectOutputWithHint(text, jsonHint, !flags.asJSON)
 				}
 				text = object
 			}
@@ -569,6 +584,9 @@ without another model round or a new resume protocol.`,
 					"model_requested": string(m),
 					"model_used":      string(used),
 					"response":        text,
+				}
+				if jsonHint != "" {
+					data["json_bridge_hint"] = jsonHint
 				}
 				addRetryAttempts(ctx, data)
 				if contextInfo != nil {
@@ -668,9 +686,25 @@ without another model round or a new resume protocol.`,
 }
 
 func invalidJSONObjectOutput(raw string) error {
+	return invalidJSONObjectOutputWithHint(raw, "", false)
+}
+
+func invalidJSONObjectOutputWithHint(raw, hint string, human bool) error {
 	contract := runner.ErrorContractFor(runner.KindInvalidJSONOutput)
+	message := contract.HTTPMessage
+	if human {
+		excerpt := []rune(strings.Join(strings.Fields(raw), " "))
+		if len(excerpt) > 120 {
+			excerpt = append(excerpt[:117], '.', '.', '.')
+		}
+		message += fmt.Sprintf(" Raw answer: %q", string(excerpt))
+	}
+	details := map[string]any{"raw_response": raw}
+	if hint != "" {
+		details["json_bridge_hint"] = hint
+	}
 	return &cliError{code: contract.ExitCode, machineCode: contract.MachineCode,
-		err: errors.New(contract.HTTPMessage), details: map[string]any{"raw_response": raw}}
+		err: errors.New(message), details: details}
 }
 
 // prepareDocuments frames text-only document input, which needs no helper.

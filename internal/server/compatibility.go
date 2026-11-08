@@ -93,7 +93,7 @@ func (s *Server) handleChatJSONObject(w http.ResponseWriter, r *http.Request, re
 		prepared.Prompt = jsonoutput.Instruction + "\n\n" + prepared.Prompt
 	}
 	prepared.Options = request.Options
-	model, ok := s.validatePreparedModel(w, prepared)
+	model, ok := s.validateJSONObjectModel(w, prepared.Model)
 	if !ok || !validatePrompt(w, prepared.Prompt) {
 		return
 	}
@@ -129,14 +129,21 @@ func (s *Server) handleChatJSONObject(w http.ResponseWriter, r *http.Request, re
 	if completion.Usage != nil {
 		result["usage"] = chatUsage(completion.Usage)
 	}
+	if hint := runner.JSONBridgeHint(s.Runner, completion.Model); !local && hint != "" {
+		result["json_bridge_hint"] = hint
+	}
 	writeJSON(w, http.StatusOK, result)
 }
 
-func writeJSONObjectError(w http.ResponseWriter, raw string) {
+func writeJSONObjectError(w http.ResponseWriter, raw string, hints ...string) {
 	contract := runner.ErrorContractFor(runner.KindInvalidJSONOutput)
+	details := map[string]any{"raw_response": raw}
+	if len(hints) > 0 && hints[0] != "" {
+		details["json_bridge_hint"] = hints[0]
+	}
 	writeJSON(w, contract.HTTPStatus, map[string]any{"error": map[string]any{
 		"type": contract.HTTPType, "code": contract.HTTPCode, "message": contract.HTTPMessage,
-		"details": map[string]any{"raw_response": raw},
+		"details": details,
 	}})
 }
 
@@ -148,12 +155,88 @@ func (s *Server) completeShortcutJSONObject(r *http.Request, w http.ResponseWrit
 	defer release()
 	ctx, cancel := context.WithTimeout(r.Context(), runner.MaxTimeout)
 	defer cancel()
-	text, used, err := s.Runner.Run(ctx, model, prompt)
+	text, used, err := s.Runner.Run(runner.WithJSONObject(ctx), model, prompt)
+	hint := runner.JSONBridgeHint(s.Runner, used)
 	var classified *runner.Error
 	if errors.As(err, &classified) && classified.Kind == runner.KindNoOutput {
-		writeJSONObjectError(w, text)
+		writeJSONObjectError(w, text, hint)
 		return runner.Completion{}, false
 	}
 	text, used, ok = writeRunResult(w, model, text, used, err)
+	if ok {
+		object, valid := jsonoutput.Object(text)
+		if !valid {
+			writeJSONObjectError(w, text, hint)
+			return runner.Completion{}, false
+		}
+		text = object
+	}
 	return runner.Completion{Text: text, Model: used}, ok
+}
+
+func (s *Server) validateJSONObjectModel(w http.ResponseWriter, name string) (runner.Model, bool) {
+	model := runner.Model(name)
+	if name == "" {
+		model = runner.ModelAuto
+	}
+	if runner.HasJSONBridge(s.Runner, model) ||
+		(model == runner.ModelAuto && (runner.HasJSONBridge(s.Runner, runner.ModelCloud) || runner.HasJSONBridge(s.Runner, runner.ModelOnDevice))) {
+		return model, true
+	}
+	return s.validateModel(w, name)
+}
+
+func responsesJSONObject(raw json.RawMessage) bool {
+	var text responsesText
+	return json.Unmarshal(raw, &text) == nil && jsonObjectFormat(text.Format)
+}
+
+// Responses uses the standard text.format spelling of json_object.
+func (s *Server) handleResponsesJSONObject(w http.ResponseWriter, r *http.Request, request responsesRequest) {
+	var text struct {
+		Format struct {
+			Type string `json:"type"`
+		} `json:"format"`
+	}
+	if strictUnmarshal(request.Text, &text) != nil || request.Model == string(runner.ModelLocal) {
+		writeRequestValidationError(w, unsupportedParameter("Responses json_object requires a Shortcut route and only text.format.type; use json_schema on Local"))
+		return
+	}
+	if request.Stream || len(request.ImageGeneration) != 0 || (toolMembers{request.Tools, request.ToolChoice, request.ParallelToolCalls}).present() {
+		writeRequestValidationError(w, unsupportedParameter("json_object is complete-only and cannot be combined with tools or image generation"))
+		return
+	}
+	if request.Instructions != "" {
+		request.Instructions += "\n\n"
+	}
+	request.Instructions += jsonoutput.Instruction
+	prepared, err := prepareResponsesImageRequest(request)
+	if err != nil {
+		writeRequestValidationError(w, err)
+		return
+	}
+	if err := guidedPrompt(prepared); err != nil {
+		writeRequestValidationError(w, err)
+		return
+	}
+	model, ok := s.validateJSONObjectModel(w, prepared.Model)
+	if !ok || !validatePrompt(w, prepared.Prompt) {
+		return
+	}
+	completion, ok := s.completeShortcutJSONObject(r, w, model, prepared.Prompt)
+	if !ok {
+		return
+	}
+	result := map[string]any{
+		"id": "resp_" + randomID(), "object": "response", "created_at": time.Now().Unix(),
+		"model": string(completion.Model), "status": "completed",
+		"output": []map[string]any{{
+			"type": "message", "id": "msg_" + randomID(), "role": "assistant", "status": "completed",
+			"content": []map[string]any{{"type": "output_text", "text": completion.Text, "annotations": []any{}}},
+		}},
+	}
+	if hint := runner.JSONBridgeHint(s.Runner, completion.Model); hint != "" {
+		result["json_bridge_hint"] = hint
+	}
+	writeJSON(w, http.StatusOK, result)
 }

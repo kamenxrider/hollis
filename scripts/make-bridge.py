@@ -62,12 +62,14 @@ PROFILES = {
 }
 
 
-def build(model: str, client_version: str) -> dict:
+def build(model: str, client_version: str, output_type: str = "text") -> dict:
+    if output_type not in ("text", "json"):
+        raise ValueError("output_type must be text or json")
     ask = {
         "WFWorkflowActionIdentifier": "is.workflow.actions.askllm",
         "WFWorkflowActionParameters": {
             "UUID": ASK_UUID,
-            "WFGenerativeResultType": "Text",
+            "WFGenerativeResultType": "Dictionary" if output_type == "json" else "Text",
             "WFLLMModel": model,
             # The whole prompt is the piped stdin text.
             "WFLLMPrompt": token_string({"Type": "ExtensionInput"}),
@@ -92,7 +94,7 @@ def build(model: str, client_version: str) -> dict:
         },
     }
 
-    return {
+    workflow = {
         "WFWorkflowActions": [ask, out],
         "WFWorkflowClientVersion": client_version,
         "WFWorkflowMinimumClientVersion": 900,
@@ -112,6 +114,23 @@ def build(model: str, client_version: str) -> dict:
             "WFWorkflowIconStartColor": 2071128575,
         },
     }
+    if output_type == "json":
+        # Dictionary profile measured on macOS 27. Keep the complete observed
+        # input classes and root metadata, not only the Use Model result type.
+        workflow["WFWorkflowClientVersion"] = "5114.0.6.204"
+        workflow["WFWorkflowOutputContentItemClasses"] = ["WFDictionaryContentItem"]
+        workflow["WFWorkflowInputContentItemClasses"] = [
+            "WFAppContentItem", "WFAppStoreAppContentItem", "WFArticleContentItem",
+            "WFContactContentItem", "WFDateContentItem", "WFEmailAddressContentItem",
+            "WFFolderContentItem", "WFGenericFileContentItem", "WFImageContentItem",
+            "WFiTunesProductContentItem", "WFLocationContentItem", "WFDCMapsLinkContentItem",
+            "WFAVAssetContentItem", "WFPDFContentItem", "WFPhoneNumberContentItem",
+            "WFRichTextContentItem", "WFSafariWebPageContentItem", "WFStringContentItem",
+            "WFURLContentItem",
+        ]
+        workflow["WFWorkflowTypes"] = ["WFWorkflowTypeShowInSearch"]
+        del out["WFWorkflowActionParameters"]["WFNoOutputSurfaceBehavior"]
+    return workflow
 
 
 def main() -> int:
@@ -131,7 +150,11 @@ def main() -> int:
         help="target macOS generation (default: 27, the measured profile; "
         "26 writes three bridges with best-guess strings and is untested)",
     )
+    parser.add_argument("--output-type", choices=("text", "json"), default="text",
+                        help="text bridges (default) or macOS 27 Dictionary bridges")
     args = parser.parse_args()
+    if args.output_type == "json" and args.os != "27":
+        parser.error("Dictionary bridges are measured only on macOS 27")
 
     profile = PROFILES[args.os]
     outdir = Path(args.outdir)
@@ -143,9 +166,11 @@ def main() -> int:
             "and Cloud Pro does not exist on 26. Treat the output as untested."
         )
     for name, model in profile["bridges"].items():
+        if args.output_type == "json":
+            name = name.replace("AFM Bridge - ", "AFM Bridge JSON - ")
         path = outdir / f"{name}.shortcut"
         with path.open("wb") as fh:
-            plistlib.dump(build(model, profile["client_version"]), fh, fmt=plistlib.FMT_BINARY)
+            plistlib.dump(build(model, profile["client_version"], args.output_type), fh, fmt=plistlib.FMT_BINARY)
         print(f"wrote {path}  (WFLLMModel={model!r})")
     return 0
 
