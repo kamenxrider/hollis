@@ -212,6 +212,9 @@ func runSetupImport(cmd *cobra.Command, flags *rootFlags, args []string, yes, fo
 	// This exact list always precedes all writes, signing and windows, even
 	// with --yes or JSON output. Keep stdout a single machine-readable result.
 	fmt.Fprintln(cmd.ErrOrStderr(), "Shortcut imports to open:")
+	if force && len(needed) > 0 {
+		fmt.Fprintln(cmd.ErrOrStderr(), "Warning (duplicate_bridge_name): Replacing a Shortcut can leave duplicate names. Keep only one copy of each bridge in the Shortcuts app; Shortcuts may run either copy.")
+	}
 	for _, route := range needed {
 		fmt.Fprintf(cmd.ErrOrStderr(), "  %s: %s\n", route, importNames[route])
 	}

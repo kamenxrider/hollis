@@ -105,6 +105,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 	}
 	doctor := resultFields("shortcuts_cli", "macos", "macos_build", "support", "resolution", "timeout_default", "version", "overview", "readiness")
 	doctor.fields["diagnostics"] = resultArray(resultFields("code", "message"))
+	doctor.fields["warnings"] = resultType(reflect.TypeFor[[]bridgeWarning]())
 	doctor.fields["pcc_quota"] = resultType(reflect.TypeFor[runner.PCCQuota]())
 	doctor.fields["local"] = local
 	doctor.fields["bridges"] = resultType(reflect.TypeFor[[]bridgeCheck]())
@@ -113,6 +114,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 	readiness := resultFields("schema_version", "source", "route", "status", "reason_code",
 		"message", "artifact_verification", "inference_tested")
 	readiness.fields["actions"] = resultArray(resultFields("code", "message"))
+	readiness.fields["warnings"] = resultType(reflect.TypeFor[[]bridgeWarning]())
 	readiness.fields["bridge"] = resultFields("discovery", "configured", "reference", "discovered")
 	setupResult := resultFields()
 	for name, field := range readiness.fields {

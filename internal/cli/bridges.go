@@ -114,16 +114,21 @@ func bridgeOverrides(c config) map[runner.Model]string {
 // list` name match > compiled placeholder UUID. The list subprocess is skipped
 // only when every tier has a config override.
 func resolveBridges(ctx context.Context) (map[runner.Model]runner.ResolvedBridge, error) {
+	resolved, _, err := resolveBridgesWithNames(ctx)
+	return resolved, err
+}
+
+func resolveBridgesWithNames(ctx context.Context) (map[runner.Model]runner.ResolvedBridge, []string, error) {
 	c, err := loadConfig()
 	if err != nil {
-		return nil, &bridgeResolutionError{state: true, err: fmt.Errorf("load bridge config: %w", err)}
+		return nil, nil, &bridgeResolutionError{state: true, err: fmt.Errorf("load bridge config: %w", err)}
 	}
 	overrides := bridgeOverrides(c)
 	names, listErr := listInstalledShortcuts(ctx)
 	if listErr != nil {
-		return runner.ResolveBridges(nil, false, macosMajorVersion(), overrides), &bridgeResolutionError{err: listErr}
+		return runner.ResolveBridges(nil, false, macosMajorVersion(), overrides), nil, &bridgeResolutionError{err: listErr}
 	}
-	return runner.ResolveBridges(names, true, macosMajorVersion(), overrides), nil
+	return runner.ResolveBridges(names, true, macosMajorVersion(), overrides), names, nil
 }
 
 // applyResolvedRefs points a real ShortcutRunner at the resolved bridge

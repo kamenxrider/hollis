@@ -183,6 +183,9 @@ func runSelectedDoctor(cmd *cobra.Command, flags *rootFlags, route string, newRu
 		return printRouteDiagnostic(cmd, flags, report, err)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "%s: %s (%s)\n", route, report["status"], report["reason_code"])
+	if warnings, ok := report["warnings"].([]bridgeWarning); ok {
+		printBridgeWarnings(cmd.OutOrStdout(), warnings)
+	}
 	if quota != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "PCC quota: %s (information only; requests may still fail)\n", strings.ReplaceAll(quota.Status, "_", " "))
 		if quota.ResetDate != "" {

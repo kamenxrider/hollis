@@ -11,12 +11,21 @@ also puts system/developer instructions after image context and revisions.
 
 Start with the [verified install and first request](../README.md#install-verified). This guide keeps the detailed command and storage contracts together.
 
-## Checking for updates
+## Import and bridge warnings
 
 `setup --import` prints “Choose Add Shortcut in each window, then run hollis
 doctor” only after opening at least one import window. When every selected
 bridge is installed, it instead reports: “All selected bridges are already
 installed; nothing to import. Run hollis doctor to check them.”
+
+`doctor` and `doctor --json`, including `--model`, warn about exact duplicate
+bridge names with reason code `duplicate_bridge_name`. JSON `warnings` entries
+contain `reason_code`, `name`, `count` and `message`. This is a warning only:
+routing and exit status do not change, and Hollis never deletes a Shortcut.
+Keep one copy of each bridge in the Shortcuts app. `setup --import --force`
+warns before opening that replacing a Shortcut can leave duplicate names.
+
+## Checking for updates
 
 ```sh
 hollis update

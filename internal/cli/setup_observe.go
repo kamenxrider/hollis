@@ -122,6 +122,13 @@ func collectSetupFacts(ctx context.Context, route string, newRunner newRunnerFun
 		rb := runner.ResolveBridges(names, true, major, bridgeOverrides(c))[model]
 		o.Bridge.Reference, o.Bridge.Configured, o.Bridge.Discovered = rb.Ref, c.Bridges[route] != "", rb.Verified
 	}
+	references := []string{o.Bridge.Reference, importNames[route]}
+	if spec, ok := runner.Spec(runner.Model(route)); ok {
+		references = append(references, spec.BridgeNames...)
+	}
+	if warnings := duplicateBridgeWarnings(names, references); len(warnings) > 0 {
+		report["warnings"] = warnings
+	}
 	return o, report, nil
 }
 

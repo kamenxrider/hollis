@@ -72,7 +72,19 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 
 			// Runtime bridge resolution:
 			// what each tier would invoke and whether it is usable here.
-			resolved, resErr := resolveBridges(cmd.Context())
+			resolved, names, resErr := resolveBridgesWithNames(cmd.Context())
+			references := []string{imageSetupBridge}
+			for _, spec := range runner.Specs() {
+				references = append(references, spec.BridgeNames...)
+				references = append(references, resolved[spec.ID].Ref)
+			}
+			if c, err := readSetupConfig(); err == nil {
+				references = append(references, c.ImageBridge)
+			}
+			warnings := duplicateBridgeWarnings(names, references)
+			if len(warnings) > 0 {
+				report["warnings"] = warnings
+			}
 			osMajor := macosMajorVersion()
 			report["macos"] = macosVersion()
 			report["macos_build"] = macosBuild()
@@ -145,6 +157,9 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 					return err
 				}
 				data := projected.(map[string]any)
+				if len(warnings) > 0 {
+					data["warnings"] = warnings
+				}
 				// A projection must not turn a successful overview into a
 				// seemingly successful selected-route readiness check.
 				for _, key := range []string{"overview", "readiness", "inference_tested", "diagnostics"} {
@@ -157,6 +172,7 @@ func newDoctorCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 			}
 
 			w := cmd.OutOrStdout()
+			printBridgeWarnings(w, warnings)
 			fmt.Fprintf(w, "hollis doctor (version %s)\n", version)
 			fmt.Fprintf(w, "  local: %s%s (availability only; inference not tested)\n", localStatusLabel(localStatus, localErr), localStatusDetail(localStatus, localErr))
 			fmt.Fprintf(w, "  transport: %s\n", report["shortcuts_cli"])
