@@ -28,6 +28,21 @@ describes PDF support on `--file`, PDFs are extracted on the Mac; `--pages`
 selects pages from one PDF. Office files need conversion first. Instructions and documents must fit the runtime's 128 KiB rendered
 prompt limit. Oversized requests need a smaller agreed scope, not silent truncation.
 
+## Context and Local controls
+
+Use the actual runtime's `agent-context` before offering newer flags. When it
+lists `--messages` on `respond`, `respond --messages <private-file> --agent --model cloud`
+passes selected host context as a one-shot messages array; it does not save a
+second transcript. Listed `--system` (`-s`) and `--system-file` supply instructions.
+Before large Local inputs, listed `--count-tokens` checks fit without generating.
+Context shortening needs your explicit agreement to omit older context:
+`--context-strategy` supports request-only drop-oldest, sliding-window and
+Local-only summarize (one extra Local call), without editing stored history.
+Listed `--retry` is opt-in for Local busy failures only, never Cloud or ChatGPT;
+`--permissive` is only for Local transformations of supplied text and can still
+refuse. `benchmark` makes serial Local model calls only when requested;
+`update` makes an explicit GitHub check, never an automatic upgrade.
+
 ## Choose the route
 
 | Route | Text and text documents | Image understanding |

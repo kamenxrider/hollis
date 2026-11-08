@@ -8,8 +8,10 @@ It works in **Claude Code and Codex**, alongside gstack or on its own. You ask
 in the conversation; Hollis calls the selected Apple route on your Mac and
 brings the result back. No separate server or model API key is needed.
 
-**Plugin 0.3.0 bundles runtime 0.7.0**, its matching native helper and five
-Shortcut bridges. Explicit native `local` adds genuine streaming for human
+**Plugin 0.4.0 targets runtime 0.7.0**, its matching native helper and five
+Shortcut bridges. The checked-in `runtime.lock.json` still pins **runtime 0.4.0**;
+source setup and packaging refuse that older pin until published 0.7.0 assets
+are verified and pinned. This plugin version is not yet published. Explicit native `local` adds genuine streaming for human
 terminal output and measured token usage on complete responses. Agent/JSON
 replies remain complete; local needs no Shortcut import.
 
@@ -28,8 +30,9 @@ See [compatibility](docs/compatibility.md).
 ## Install
 
 Use a source checkout of this repository. Setup downloads the exact pinned,
-checksum-verified runtime 0.7.0 assets from their published release and does
-not need the plugin's own release archive.
+checksum-verified assets named by `runtime.lock.json` and does not need the
+plugin's own release archive. The current 0.4.0 runtime pin cannot satisfy this
+plugin's 0.7.0 minimum; setup remains blocked until that lock is updated.
 
 | What you have | Folder to give the host | Included runtime |
 | --- | --- | --- |
@@ -147,6 +150,9 @@ absolute **Open image** link and a preview where the host supports it.
   Attach a previous image when requesting a variation; choose local crop, pad or
   resize processing when you need a particular output shape.
 - Folder processing with a preview, a specific call budget and resumable progress.
+- On a supporting runtime, host context as one-shot messages, Local token-fit
+  checks before large inputs, and consent-based context shortening. Local-only
+  retries are opt-in; permissive guardrails are for supplied-text transformations.
 - Hollis as the model behind your own scripts, or behind another tool through a
   local, token-protected OpenAI-compatible endpoint on this Mac. See
   [Hollis as the model behind another tool](docs/usage.md#hollis-as-the-model-behind-another-tool).

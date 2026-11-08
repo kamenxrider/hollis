@@ -8,8 +8,8 @@
 | Apple readiness | Enable Apple Intelligence and complete Apple's downloads/first-use approvals; inference is the final check |
 | Text | Shortcuts Cloud, Cloud Pro, On-Device, ChatGPT; explicit native `local` |
 | Native Local | Matching bundled helper; no Shortcut import; human text streaming, complete agent/JSON replies |
-| Guided output (`--schema`) | Native local only; requires the CLI and helper from one bundle (the pinned 0.7.0 qualifies; 0.4.0 does not); check `models --model local --json` for `available: true` with `capabilities.guided_output: true` |
-| Local diagnostics | Measured `usage` on complete responses; measured `context_size` from availability checks on newer runtimes; no streaming usage, allowance or reset time |
+| Guided output (`--schema`) | Native local only; requires the CLI and helper from one bundle (0.7.0 qualifies; the current 0.4.0 pin does not); check `models --model local --json` for `available: true` with `capabilities.guided_output: true` |
+| Local diagnostics | Measured `usage` on complete responses; measured `context_size` from availability checks on newer runtimes; no estimated streaming usage or remaining request allowance |
 | External runtime | A newer Hollis on PATH, including Homebrew, is kept and used; the plugin reports it as unverified rather than downgrading it |
 | Local HTTP endpoint | `hollis serve` on loopback with a token; Chat Completions and Responses; sampling and caller-executed function tools on `local` only |
 | Image understanding | Cloud, Cloud Pro, ChatGPT; Native Local accepts one PNG/JPEG when its image capability is reported; not On-Device |
@@ -34,8 +34,9 @@ listed in the [validation record](validation.md). Temporary test directories est
 installer behavior; they do **not** establish clean-account readiness, Rosetta
 execution or behavior on an untested OS.
 
-Plugin 0.3.0 bundles runtime 0.7.0 and its native helper after verification of their
-GitHub provenance and checksums. Earlier source and archive tests retain their
+Plugin 0.4.0 targets runtime 0.7.0 and its native helper. The checked-in lock
+still pins runtime 0.4.0; setup and packaging refuse it until verified published
+0.7.0 assets are pinned. Earlier source and archive tests retain their
 original version labels in the validation record. Fresh-account and first-consent
 testing remain deferred.
 

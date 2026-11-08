@@ -175,7 +175,7 @@ def package(root, output, assets=None):
     manifest, lock = validate_source(root)
     if tuple(map(int, manifest["version"].split("."))) >= (0, 3, 0):
         if lock["schema_version"] != 2 or tuple(map(int, lock["version"].split("."))) < (0, 7, 0):
-            raise ValueError("Plugin 0.3.0 awaits verified runtime 0.7.0 pins; run refresh_lock.py after runtime publication")
+            raise ValueError(f"Plugin {manifest['version']} awaits verified runtime 0.7.0 pins; run refresh_lock.py after runtime publication")
     output.mkdir(parents=True, exist_ok=True)
     name = f"hollis-plugin-{manifest['version']}"
     final = output / f"{name}.zip"

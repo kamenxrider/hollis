@@ -22,7 +22,7 @@ install_runtime() {
   local plugin_version
   plugin_version=$(field "$PLUGIN_ROOT/plugin.json" version)
   if ! newer 0.3.0 "$plugin_version" && newer 0.7.0 "$VERSION"; then
-    fail 'This 0.3.0 source package awaits verified runtime 0.7.0 release pins; no older runtime was installed.'
+    fail "This $plugin_version source package awaits verified runtime 0.7.0 release pins; no older runtime was installed."
   fi
   local external= dest stage_names expected_names i current= keep_current=false
   external=$(external_newer || true)
