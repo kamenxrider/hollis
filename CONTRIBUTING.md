@@ -52,6 +52,9 @@ python3 scripts/count_bridges.py /tmp/bridges26 3
 
 The source-archive check reads committed files, so commit your change first.
 
+For documentation changes, also run `python3 scripts/check-doc-links.py`.
+It checks local links and heading anchors without network access.
+
 On Apple silicon with macOS 27 and SDK 27 or later, the `scripts/native` suite
 builds the helper from source and runs its golden event cases as well as the
 source contract. On other hosts the build and event cases skip, and only the

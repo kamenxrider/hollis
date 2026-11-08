@@ -139,7 +139,7 @@ Instruction/conversation options currently cannot accompany caller tools or MCP.
 `respond --count-tokens 'Hello' --system 'Be brief' --json` counts with Apple's
 Local tokenizer without generating an answer. Text/PDF `--file` input is
 supported. Output fields are `tokens`, `context_size`, `answer_reserve` (default
-1024; override with `--answer-reserve`) and `fits`. The count includes the native
+1024; override with `--answer-reserve`, range 0–1048576) and `fits`. The count includes the native
 transcript framing and instructions. Fit means input plus reserve is at most
 the Local context size; it does not guarantee the model will use that many
 answer tokens. An explicit non-local model is a usage error (exit 2), even if a
@@ -450,7 +450,7 @@ On-Device Shortcut ignored the pixels, making automatic fallback unsafe.
 
 Images must be direct regular PNG/JPEG files, at most 64 MiB and 64 million pixels each. Hollis rejects symlinks in the file or its parent directories, apart from macOS's standard root-owned `/var`, `/tmp` and `/etc` aliases. Use the real path for an image reached through a custom directory link. The runner validates a private byte snapshot and passes only that snapshot to the selected backend; staged images are removed after success, failure or cancellation. Native local applies EXIF orientation and downsizes the longest side to 4096 pixels before attaching the pixels, without an OCR text fallback.
 
-When images are present, give the prompt as an argument, with `--prompt-file`, or through piped stdin. For Shortcuts routes, Hollis passes the private prompt file first, followed by the images as repeated inputs, and cleans up staging after the run subject to the limits described above. Image chat history remains unsupported. The same model tiers accept inline images through the API, described in the [API guide](api.md#inline-image-input).
+When images are present, give the prompt as an argument, with `--prompt-file`, or through piped stdin. For Shortcuts routes, Hollis passes the private prompt file first, followed by the images as repeated inputs, and cleans up staging after the run subject to the limits described above. One-shot saved chat also accepts `--image`; its pixels are not replayed on later turns, and interactive chat does not accept attachments. The same model tiers accept inline images through the API, described in the [API guide](api.md#inline-image-input).
 
 ## Persistent chats
 
@@ -499,6 +499,8 @@ hollis chats delete <id> --yes
 ```
 
 The whole search query is treated as one phrase, so hyphenated tokens like `VANTA-ORBIT` match verbatim. Archived conversations are skipped.
+`chats search` accepts `--model` to filter by tier and `--limit`
+to cap the result count (default 20).
 
 Empty human output suggests one next command:
 
@@ -519,7 +521,7 @@ returns the existing not-found error envelope (`error.code: "missing"`) on
 stdout with exit 3; `--agent` also includes `meta`. Hints appear only in human
 output, never in JSON.
 
-A continuation always uses the model stored with that conversation. Combining `--continue` with a positional model or explicit `--model` is rejected. Hollis stores complete turns atomically and preserves complete history; when a chat reaches 256 stored messages or its rendered prompt exceeds 128 KiB, it fails clearly instead of trimming or summarizing it.
+A continuation always uses the model stored with that conversation. Combining `--continue` with a positional model or explicit `--model` is rejected. Hollis stores complete turns atomically and preserves complete history. The 256-message storage limit remains a hard stop. Oversized rendered requests fail by default; [explicit context strategies](#opt-in-conversation-shortening) can shorten the current request without editing saved messages.
 
 ## Code output
 
@@ -615,6 +617,7 @@ Nested array paths project each element, not a numeric index. Selecting a
 parent includes its whole value. Agent `meta` and diagnostic `error` payloads
 are never removed by projection. `agent-context` keeps its intrinsic JSON
 shape and supports selection with `--json` or `--agent`.
+`agent-context --pretty` indents that contract for reading.
 
 **Intentional compatibility correction:** unknown fields, malformed paths and
 paths through scalar values now fail with a clear usage error (exit 2), rather
@@ -665,6 +668,8 @@ hollis completion zsh
 hollis completion fish
 hollis completion powershell
 ```
+
+All four shell subcommands accept `--no-descriptions` to omit completion descriptions.
 
 The installer does not install completions. It ends with a hint naming the
 setup help for your login shell, `hollis completion <shell> --help`. To load

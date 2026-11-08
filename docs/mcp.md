@@ -95,6 +95,7 @@ hollis mcp remove files
 
 - A stdio server is a program and its arguments. It is started directly, with
   no shell: `--command "npx -y pkg"` is refused. Pass each argument with `--arg`.
+  `--dir` sets an absolute working directory for that server.
 - An HTTP server is an `https://` URL. Plain `http://` is accepted only for
   loopback addresses.
 - `--header NAME:VALUE` adds a non-secret HTTP provider setting, repeatable
@@ -222,6 +223,10 @@ Each server has an approval mode:
   cannot ask fails closed with `approval_required`. `--json`, `--agent`,
   `--no-input` and a missing controlling terminal cannot approve calls.
 - `auto`: only exact tool names in the allow list run without asking.
+
+`mcp add --approval auto --allow <tool>` initializes automatic mode and its
+allow list, but cannot pin a definition. Run `hollis mcp allow <server> <tool>`
+after inspecting the definition before automatic calls can proceed.
 
 ```bash
 hollis mcp allow wiki read_wiki_structure
