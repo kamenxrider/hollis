@@ -20,6 +20,16 @@ It adds a fixed JSON-only instruction and validates the complete answer.
 select Hollis's envelope, whose `response` remains the validated JSON text.
 Without an envelope, stdout is the object itself.
 
+The four `AFM Bridge JSON - <Route>` Dictionary bridges use `public.json`;
+text bridges keep `public.plain-text`. On success this guarantees one valid
+object, not exact fields or types: the model may use `false` for null or nest
+the answer. Local `--schema` is the way to guarantee fields. If the JSON bridge
+is missing, Hollis keeps the text-bridge behavior and suggests
+`hollis setup --import <route>`; envelopes include `json_bridge_hint` (under
+`error.details` on invalid output). Doctor reports missing JSON bridges as
+warnings, not readiness errors. Numeric spelling is preserved: Shortcuts may
+serialize 19.95 as `19.949999999999999`; Hollis does not round or re-encode it.
+
 Outer whitespace is trimmed. One whole fenced block, opened with exactly
 ` ```json ` or ` ``` ` (without the spaces shown here), is unwrapped only if
 its entire content is an object. Surrounding prose, arrays, null, malformed
@@ -28,7 +38,8 @@ repaired and no retry is made. Machine errors preserve the original text at
 `error.details.raw_response`; handle it as untrusted, potentially private data.
 The exact error is: “The model did not return a valid JSON object. Use -s to
 clarify the required object, or use --model local --schema for guided output.
-No retry was attempted.”
+No retry was attempted.” Human errors also include a single-line raw-answer
+excerpt of at most 120 characters; machine errors retain the complete raw text.
 
 This is complete-only and cannot accompany `--stream`, `--code`, `--schema`,
 tools, `--count-tokens` or images. Local refuses `--format json` with exit 2:
@@ -707,7 +718,9 @@ not prove a helper is missing. Use selected doctor to inspect availability.
 ### Explicit Shortcut imports
 
 `hollis setup --import [cloud cloud-pro on-device chatgpt image]` opens selected
-bundled Shortcut imports; omit routes for all five. It verifies the archive
+bundled Shortcut imports; omit routes for all nine. A text route selects both
+its text and JSON bridge; a `-json` suffix selects only that JSON bridge
+(for example `cloud-pro-json`). Each bridge is independently skipped if installed. It verifies the archive
 against the sibling bundle manifest, signs private copies and skips installed
 bridges unless `--force`. Use the complete release bundle or Homebrew layout.
 Noninteractive, JSON and agent invocations require `--yes`. Planning without

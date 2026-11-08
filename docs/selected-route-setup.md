@@ -34,7 +34,7 @@ The complete installed bundle and Homebrew formula include the bridge archive
 and its manifest next to the resolved executable. No manual extraction is needed:
 
 ```sh
-hollis setup --import                 # all five bridges
+hollis setup --import                 # all nine bridges
 hollis setup --import cloud chatgpt   # selected bridges only
 hollis setup --import image --yes --json
 ```

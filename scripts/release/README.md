@@ -21,7 +21,7 @@ python3 -m unittest discover -s scripts/release -p 'test_*.py'
 ```
 
 The archive check requires exact source membership and reviewed bytes. Runtime
-bundles contain exactly five named files; bridge archives contain exactly five
+bundles contain exactly five named files; bridge archives contain exactly nine
 production bridges. Plugin archives have their own explicit file list, and
 embedded source must match the reviewed files. Nested bridge ZIPs are inspected.
 Symlinks, duplicate members, unsafe paths and oversized inspection inputs fail.

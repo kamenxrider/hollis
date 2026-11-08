@@ -16,7 +16,7 @@ one set of skills and scripts, a portable manifest and native Claude/Codex adapt
 - [Fictional workflow example](../plugins/hollis/examples/demo.md)
 
 The source package downloads the pinned runtime during setup; a built archive
-is intended to bundle the provenance-verified ARM64 Hollis 0.7.0 executable, matching native helper and all five bridges.
+is intended to bundle the provenance-verified ARM64 Hollis 0.7.0 executable, matching native helper and all nine bridges.
 New source docs do not update a preserved ZIP; older archives retain their
 original runtimes and recorded checksums.
 

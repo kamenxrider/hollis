@@ -100,7 +100,14 @@ truncated value.
   original answer in `error.details.raw_response`. No fields are repaired and
   nothing is retried. This is complete-only and cannot accompany tools or
   images. Local's existing validation is unchanged: fenced answers are refused.
-  Responses still requires a schema. `guided_output` capabilities continue to
+  Responses also accepts `text:{"format":{"type":"json_object"}}` on Shortcut
+  routes; Local Responses still requires a schema. Both endpoints select the
+  route's `AFM Bridge JSON - <Route>` Dictionary bridge with `public.json`.
+  Missing JSON bridges keep the text behavior and add `json_bridge_hint` to
+  successful output or invalid-output error details. Success guarantees one
+  valid object, not fields or types: the model may use `false` for null or nest
+  the answer. Use Local `json_schema` (CLI `--schema`) for guaranteed fields.
+  Numeric spelling is preserved, including `19.949999999999999` for 19.95. `guided_output` capabilities continue to
   describe native schema enforcement, not this instruction-and-validation mode.
 - Unknown fields inside `response_format`, `json_schema`, `text` or `format` are
   refused with **400** `unsupported_parameter`; the top level already rejects

@@ -61,6 +61,13 @@ ChatGPT, auto and image generation are never retried.
 [What leaves your machine](#what-leaves-your-machine) ·
 [Limits and caveats](#limits-and-caveats)
 
+JSON requests on Shortcut routes use four `AFM Bridge JSON - <Route>`
+Dictionary bridges. `respond --format json` and API `json_object` guarantee
+one valid JSON object on success, not exact fields or types: a model may use
+`false` for null or nest the answer. Use Local `--schema` for guaranteed fields.
+`hollis setup --import cloud` imports both Cloud bridges; missing JSON bridges
+retain text behavior with an import hint. See [JSON output](docs/cli.md#json-object-responses).
+
 ## Requirements
 
 Check these before installing:

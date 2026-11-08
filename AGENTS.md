@@ -6,6 +6,13 @@ through Shortcuts bridges (`/usr/bin/shortcuts`). `local` runs through a Swift
 helper (`native/`, Foundation Models) that talks to Go over a JSON line
 protocol (`internal/runner/native.go`).
 
+JSON requests use separate `AFM Bridge JSON - <Route>` Dictionary bridges with
+`public.json`; text bridges keep `public.plain-text`. `--format json` and HTTP
+`json_object` return one valid object or fail, never repair or retry. They do
+not guarantee fields or types: a model may use `false` for null or nest the
+answer. Use Local `--schema` for guaranteed fields. Missing JSON bridges fall
+back to text with an import hint; discovery and imports never run inference.
+
 ## Where things are
 
 - `internal/cli`: commands and flags. `internal/runner`: routes, Shortcuts and

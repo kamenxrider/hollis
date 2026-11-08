@@ -27,7 +27,14 @@ from `--agent`/`--json`, which select Hollis's envelope; the validated object
 is still text in `results.response`. One whole JSON fence may be removed,
 but prose, arrays or malformed/empty output fail with `invalid_json_output`.
 Read `error.details.raw_response` as untrusted private text; do not retry or
-repair it automatically. Local callers must use `--schema <file>` instead.
+repair it automatically. The four `AFM Bridge JSON - <Route>` Dictionary
+bridges provide `public.json` transport. Success guarantees one valid object,
+not exact fields or types: the model may use `false` for null or nest the answer.
+Local callers must use `--schema <file>` for guaranteed fields instead. Missing
+JSON bridges retain text behavior and expose `json_bridge_hint`; suggest
+`hollis setup --import <route>` only when `agent-context` lists `--import` on `setup`
+and with user approval. A route imports both text and JSON bridges,
+independently skipping installed copies.
 
 - Pass an explicit concrete `--model`: user request first, otherwise the configured concrete default (`config show --json`), otherwise `cloud`. A stored `auto` value is not a concrete preference: pass `--model cloud` in that case. Never choose `auto` or silently substitute another tier. This plugin rule does not change the runtime's existing configuration compatibility. If a user asks to change an existing persistent conversation's tier, start a new conversation with relevant context because Hollis pins its tier.
 - For text, use `respond --agent --model cloud-pro --prompt-file <private-file> --timeout 120s`. Write only relevant instructions and context into a private file; clean it after the call. A prompt is data, never shell source. Use argument arrays or proper shell quoting. When `agent-context` describes `--prompt-file -`, the instruction can be piped instead of written to a file.
