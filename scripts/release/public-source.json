@@ -526,7 +526,7 @@
     "scripts/plugin/test_recovery.py": "0ee05704929263cf355fe5a30c44093123e4290ed7f23dfeb42ca693a8ce65ac",
     "scripts/plugin/test_refresh_lock.py": "4dd305d1a4d2d195f4e9eddf2ae2f0b9c5caff6bf0d7eadee8701ee6f255b78d",
     "scripts/plugin/test_runtime_record.py": "70caa0e1b686f42a056e03617da0cc5c84b25b220519adf09b5a2b7e41f10e35",
-    "scripts/plugin/test_skill_commands.py": "20c3e820981078ee67a36dc0b21de9302c68a63699e078c128d8a3021db9fd50",
+    "scripts/plugin/test_skill_commands.py": "a75c8a4a72d13dab346fa5a912bd46504ba660822f7e9080d3c2fed102cb83be",
     "scripts/plugin/testdata/agent-context-0.4.0.json": "ece3d6ae594535d77bf315cfebb99769d94e88a7a66bed04de69cd9ee5552342",
     "scripts/release/README.md": "0c18d3cdd04c2efaa1cb405cd9a0bf4855a41e93b33a312752ac29da134610c8",
     "scripts/release/manifest.py": "a6fa11b8455f1d16a8ec3f959b5a58f5f44807510299f947b917e606a4a3ec58",

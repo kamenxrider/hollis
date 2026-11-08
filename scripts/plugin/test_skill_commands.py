@@ -26,6 +26,7 @@ PINNED = Path(__file__).resolve().parent / "testdata/agent-context-0.4.0.json"
 # must accompany it so an agent on 0.4.0 checks before running it.
 NEEDS_NEW_RUNTIME = {
     "respond --code": "`agent-context` lists `--code`",
+    "respond --format": "`agent-context` lists `--format`",
     "respond --schema": "`agent-context` lists `--schema`",
     "respond --prompt-file -": "`agent-context` describes `--prompt-file -`",
     "doctor --model": "`agent-context` lists `--model` on `doctor`",
