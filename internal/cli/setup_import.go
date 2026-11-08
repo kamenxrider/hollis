@@ -333,6 +333,11 @@ func setDefaultImportImageBridge() error {
 }
 
 func printSetupImport(cmd *cobra.Command, flags *rootFlags, result setupImportResult) error {
+	if len(result.Opened) == 0 {
+		result.Message = "All selected bridges are already installed; nothing to import. Run hollis doctor to check them."
+	} else {
+		result.Message = importNextStep
+	}
 	if flags.asJSON {
 		row := map[string]any{
 			"schema_version": result.SchemaVersion, "source": result.Source, "status": result.Status,

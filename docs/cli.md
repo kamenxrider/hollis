@@ -13,6 +13,11 @@ Start with the [verified install and first request](../README.md#install-verifie
 
 ## Checking for updates
 
+`setup --import` prints “Choose Add Shortcut in each window, then run hollis
+doctor” only after opening at least one import window. When every selected
+bridge is installed, it instead reports: “All selected bridges are already
+installed; nothing to import. Run hollis doctor to check them.”
+
 ```sh
 hollis update
 hollis update --json

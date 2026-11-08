@@ -341,7 +341,8 @@ func TestSetupImportAllInstalledDoesNotSignOrOpen(t *testing.T) {
 	t.Setenv("IMPORT_INSTALLED", "AFM Bridge - Cloud")
 	out, _, err := f.run(t, "", "--import", "cloud", "--yes", "--json")
 	if err != nil || strings.Contains(f.calls(t), "shortcuts sign") || strings.Contains(f.calls(t), "open ") ||
-		!strings.Contains(out, `"unchanged"`) || !strings.Contains(out, `"cloud"`) {
+		!strings.Contains(out, `"unchanged"`) || !strings.Contains(out, `"cloud"`) ||
+		strings.Contains(out, importNextStep) || !strings.Contains(out, "All selected bridges are already installed; nothing to import. Run hollis doctor to check them.") {
 		t.Fatalf("out=%s err=%v calls=%s", out, err, f.calls(t))
 	}
 }
@@ -351,7 +352,8 @@ func TestSetupImportAlreadyInstalledImageCanSelectUnsetDefault(t *testing.T) {
 	t.Setenv("IMPORT_INSTALLED", imageSetupBridge)
 	out, _, err := f.run(t, "", "--import", "image", "--yes", "--json")
 	if err != nil || strings.Contains(f.calls(t), "shortcuts sign") || strings.Contains(f.calls(t), "open ") ||
-		!strings.Contains(out, `"configured"`) {
+		!strings.Contains(out, `"configured"`) || strings.Contains(out, importNextStep) ||
+		!strings.Contains(out, "nothing to import") {
 		t.Fatalf("out=%s err=%v calls=%s", out, err, f.calls(t))
 	}
 	c, err := readSetupConfig()
