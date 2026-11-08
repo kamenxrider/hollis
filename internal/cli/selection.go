@@ -114,6 +114,13 @@ func buildResultSchemas() map[string]*fieldSchema {
 		"message", "artifact_verification", "inference_tested")
 	readiness.fields["actions"] = resultArray(resultFields("code", "message"))
 	readiness.fields["bridge"] = resultFields("discovery", "configured", "reference", "discovered")
+	setupResult := resultFields()
+	for name, field := range readiness.fields {
+		setupResult.fields[name] = field
+	}
+	setupResult.fields["opened"] = resultType(reflect.TypeFor[[]string]())
+	setupResult.fields["skipped"] = resultType(reflect.TypeFor[[]string]())
+	setupResult.fields["import_folder"] = &fieldSchema{}
 	for name, field := range readiness.fields {
 		doctor.fields[name] = field
 	}
@@ -175,7 +182,7 @@ func buildResultSchemas() map[string]*fieldSchema {
 		"hollis image generate":          image,
 		"hollis models":                  resultArray(models),
 		"hollis doctor":                  doctor,
-		"hollis setup":                   readiness,
+		"hollis setup":                   setupResult,
 		"hollis batch plan":              plan,
 		"hollis batch run":               invocation,
 		"hollis batch resume":            invocation,

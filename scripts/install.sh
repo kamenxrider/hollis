@@ -6,6 +6,8 @@ version=0.7.0
 protocol=4
 # The public commit tagged v$version; the attestation check below fails until it is set.
 source_commit=1906721a1cd5594ce47be6d4d306d7daa1e6891f
+# Pin the final release bundle SHA-256 before distributing this installer.
+asset_sha256=
 repository=kamenxrider/hollis
 bin_dir="${HOME}/.local/bin"
 if [[ ${1:-} == --bin-dir && $# == 2 ]]; then
@@ -18,25 +20,39 @@ fi
 [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || { echo 'Hollis inference requires an Apple silicon Mac.' >&2; exit 1; }
 os_version=$(sw_vers -productVersion)
 [[ ${os_version%%.*} -ge 27 ]] || { echo 'This bundle requires macOS 27 or later.' >&2; exit 1; }
-for command in gh shasum unzip shortcuts codesign plutil install; do
+for command in shasum unzip shortcuts codesign plutil install; do
   command -v "$command" >/dev/null || { echo "Required command missing: $command" >&2; exit 1; }
 done
 stage=$(mktemp -d "${TMPDIR:-/tmp}/hollis-install.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 asset="hollis-$version-darwin-arm64.zip"
-gh release download "v$version" --repo "$repository" --dir "$stage" \
-  --pattern "$asset" --pattern SHA256SUMS
+if command -v gh >/dev/null; then
+  gh release download "v$version" --repo "$repository" --dir "$stage" \
+    --pattern "$asset" --pattern SHA256SUMS
+else
+  [[ $asset_sha256 =~ ^[0-9a-f]{64}$ ]] || { echo 'Installer release SHA-256 is not pinned; use a published installer with asset_sha256 set, or install gh for build-provenance verification.' >&2; exit 1; }
+  command -v curl >/dev/null || { echo 'Required command missing: curl' >&2; exit 1; }
+  release_url="https://github.com/$repository/releases/download/v$version"
+  curl -fsSL "$release_url/$asset" -o "$stage/$asset"
+  curl -fsSL "$release_url/SHA256SUMS" -o "$stage/SHA256SUMS"
+  printf '%s  %s\n' "$asset_sha256" "$asset" > "$stage/PINNED_SHA256SUMS"
+  (cd "$stage" && shasum -a 256 -c PINNED_SHA256SUMS)
+fi
 (
   cd "$stage"
   awk -v asset="$asset" '$2 == asset { n++; print } END { if (n != 1) exit 1 }' \
     SHA256SUMS > SELECTED_SHA256SUMS
   shasum -a 256 -c SELECTED_SHA256SUMS
 )
-gh attestation verify "$stage/$asset" --repo "$repository" \
-  --signer-workflow "$repository/.github/workflows/release.yml" \
-  --source-ref "refs/tags/v$version" --source-digest "$source_commit" \
-  --deny-self-hosted-runners
-# Extract only after checksum and provenance verification.
+if command -v gh >/dev/null; then
+  gh attestation verify "$stage/$asset" --repo "$repository" \
+    --signer-workflow "$repository/.github/workflows/release.yml" \
+    --source-ref "refs/tags/v$version" --source-digest "$source_commit" \
+    --deny-self-hosted-runners
+else
+  printf "%s\n" "GitHub CLI not found: verified the download's SHA-256 checksum; install gh for build-provenance verification too."
+fi
+# Extract only after checksum verification (and provenance when gh is present).
 unzip -q "$stage/$asset" -d "$stage/runtime"
 codesign --verify --strict "$stage/runtime/hollis-native"
 [[ $("$stage/runtime/hollis" --version) == "hollis $version" ]] || { echo "Runtime version mismatch." >&2; exit 1; }

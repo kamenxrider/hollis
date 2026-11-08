@@ -28,6 +28,47 @@ extension in System Settings > Apple Intelligence & Siri.
 Selected doctor and setup JSON support `--select` under the same declared
 result schemas and strict unknown-field rules as other data commands.
 
+## Explicit Shortcut imports
+
+The complete installed bundle and Homebrew formula include the bridge archive
+and its manifest next to the resolved executable. No manual extraction is needed:
+
+```sh
+hollis setup --import                 # all five bridges
+hollis setup --import cloud chatgpt   # selected bridges only
+hollis setup --import image --yes --json
+```
+
+This explicit operation is separate from read-only planning. It verifies the
+archive's SHA-256 against the installed bundle manifest before extraction,
+rejects unexpected paths, duplicate entries and symlinks, signs private copies
+with `shortcuts sign --mode anyone`, and lists exactly which Add Shortcut
+windows will open before asking for terminal confirmation. `--yes` approves
+without prompting and is required with non-interactive input, `--json`,
+`--no-input` or `--agent`. Discovery skips installed bridges unless `--force`;
+a failed discovery stops rather than guessing that bridges are missing.
+
+Signed files remain private under the Hollis state directory's `bridge-imports`
+folder so asynchronous Add dialogs can read them. When importing image, Hollis
+sets the bundled image bridge only if no image bridge is configured; existing
+custom configuration is preserved. It never changes Apple settings or requests
+inference. Choose **Add Shortcut** in each window, then run `hollis doctor`.
+Apple requires this manual approval; Hollis cannot silently import a Shortcut.
+
+JSON returns `source: "bundle-import-v1"`, `opened` and `skipped` route arrays,
+`import_folder` when windows open, `inference_tested: false` and the next-step
+`message`. `status: "approval_required"` means windows were opened, not that
+imports or inference succeeded; `unchanged` means every selected bridge was
+already found and no configuration changed. `configured` means only the unset
+image default was selected for an already installed bridge, with no windows.
+Successful import-window launch exits 0. Invalid selection or
+missing consent exits 2, tool failures exit 5, and invalid bundle/configuration
+exits 10. `--select` and the normal agent envelope are supported.
+
+This verifies local bundle integrity, not GitHub build provenance or an entire
+CLI/helper installation. A standalone `go install` executable has no bundled
+archive and cannot perform this operation.
+
 ## Evidence and verification
 
 Availability is not artifact authentication or successful inference.
@@ -82,7 +123,7 @@ model downloads, and Siri/macOS language consistency. A language mismatch is one
 possible cause, not a diagnosis. Hollis neither reads an invented settings key
 nor changes language settings.
 
-Setup effects remain separate, explicit plugin install/import operations.
+Setup effects require explicit `setup --import` or plugin install/import operations.
 Image generation requires an unlocked session. A successful first inference
 must be separately authorized; this change performs none.
 

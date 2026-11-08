@@ -41,13 +41,15 @@ hollis respond --model local "hello"
 ```
 
 No Shortcuts imports are needed for `local`. Shortcuts imports are optional:
-enable them only for Cloud, Cloud Pro or images. See
+enable them only for Cloud, Cloud Pro, On-Device, ChatGPT or images. See
 [selected-route diagnostics](../../docs/selected-route-setup.md) and the
 [image setup guide](../../docs/image-generation.md#setup).
-The bridge archive is installed at
-`$(brew --prefix hollis)/libexec/<version>/hollis-bridges.zip`; extract it, sign
-only the bridges you need locally with `shortcuts sign --mode anyone`, then
-open the signed copies in Shortcuts and approve their imports.
+Run `hollis setup --import` to open all five bundled imports, or
+`hollis setup --import cloud chatgpt` for selected routes. It verifies the archive
+against the installed manifest, signs private copies, skips bridges discovery
+already finds installed (unless `--force`), and asks before opening any window.
+Choose **Add Shortcut** in each window, then run `hollis doctor`.
+Non-interactive, JSON and agent invocations require explicit `--yes`.
 Installation does not import them or request inference.
 
 For a brew install, `hollis setup --model local --json` returns
@@ -57,10 +59,37 @@ tampered files or that the local model cannot run. Homebrew installation does
 not produce that record, and standalone receipt verification is not implemented.
 Use `hollis doctor --model local --json` for read-only availability checks, then
 run the local command above when you want inference. For an optional Shortcut
-route, import its bridge manually and use `hollis doctor --model cloud-pro --json`
+route, run `hollis setup --import cloud-pro` and use `hollis doctor --model cloud-pro --json`
 (or the selected route). Doctor does not authenticate artifacts or prove
 inference works. Reinstalling with brew does not satisfy setup's trust boundary;
 do not fabricate a verification record.
+
+## Background API
+
+```sh
+brew services start hollis
+brew services stop hollis
+```
+
+The optional service runs `hollis serve --addr 127.0.0.1:1978 --no-auth`.
+It never binds a remote address. Unauthenticated requests must pass loopback
+Host/Origin checks, but any local process can use this API, including making
+model requests. Starting a service does not import Shortcuts or make a model
+request. Logs go to `$(brew --prefix)/var/log/hollis/stdout.log` and `stderr.log`.
+Stop the service before upgrading and restart it afterwards.
+
+For authenticated service operation, use a custom service plist whose
+`ProgramArguments` replace `--no-auth` with `--token-file` and an absolute path
+to a private mode-600 token file containing at least 32 bytes of token:
+
+```sh
+brew services start hollis --file=/absolute/path/hollis.plist
+```
+
+The [LaunchAgent template](../launchd/io.github.kamenxrider.hollis.serve.plist)
+uses the same loopback endpoint with token-file authentication. Adapt its binary,
+token and log paths for your installation and create the log directory first.
+Never put a token value in a plist. See [server setup](../../docs/serve.md).
 
 ## Upgrades and verification
 
@@ -74,7 +103,9 @@ does not remove manually imported Shortcuts.
 
 The formula checks bundle-internal hashes only; it does not verify GitHub build
 attestations. The [curl installer](../../scripts/install.sh) remains the route
-that verifies those attestations. The native helper is ad-hoc signed, not
+that verifies those attestations when `gh` is installed. Without `gh`, it
+requires a release-pinned bundle SHA-256 and checks `SHA256SUMS`, but does not
+verify build provenance. The native helper is ad-hoc signed, not
 Developer ID signed or notarized.
 
 ## Local validation

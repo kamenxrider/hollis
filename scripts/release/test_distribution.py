@@ -35,14 +35,20 @@ class DistributionPreparationTests(unittest.TestCase):
             self.assertIn('https://github.com/kamenxrider/hollis/releases/download/v0.4.0/', formula)
             self.assertIn('def caveats', formula)
             self.assertIn('hollis respond --model local "hello"', formula)
-            self.assertIn('Shortcuts imports are optional for Cloud, Cloud Pro, and images.', formula)
+            self.assertIn('Shortcuts imports are optional.', formula)
+            self.assertIn('For Cloud, Cloud Pro, On-Device, ChatGPT or images, run:', formula)
+            self.assertIn('hollis setup --import', formula)
+            self.assertIn('brew services start hollis', formula)
+            self.assertIn('run [opt_bin/"hollis", "serve", "--addr", "127.0.0.1:1978", "--no-auth"]',
+                          formula)
             self.assertIn('close any running hollis serve or chat', formula)
             self.assertIn('one-way database migration (schema v2 to v3)', formula)
             self.assertIn('Going back to v0.4.0', formula)
             self.assertIn('requires the backup-recovery procedure', formula)
             self.assertIn('brew cleanup removes the old version', formula)
             self.assertIn('bundle-internal hashes only, not GitHub build attestations', formula)
-            self.assertIn('Use the curl installer to verify GitHub build attestations.', formula)
+            self.assertIn('Use the curl installer with gh installed to verify GitHub build attestations.',
+                          formula)
             root = Path(__file__).resolve().parents[2]
             for path, anchor in (
                     ('docs/cli.md', 'database-upgrades-and-recovery'),

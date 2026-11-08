@@ -227,6 +227,8 @@ func commandSideEffects(command *cobra.Command) []string {
 		return []string{"runs read-only native availability and Shortcuts discovery without inference; --model local skips Shortcuts discovery"}
 	case "hollis doctor":
 		return []string{"runs read-only native availability and Shortcuts discovery without inference; --model limits discovery to the selected route", "human output ends with a suggested next action, without executing it"}
+	case "hollis setup":
+		return []string{"planning changes nothing and never requests inference", "explicit --import verifies the installed bridge archive against its bundle manifest, signs private copies and opens Add Shortcut windows after confirmation; non-interactive modes require --yes", "sets the bundled image bridge only when image is selected and none is configured; never changes Apple settings"}
 	case "hollis mcp add", "hollis mcp set", "hollis mcp remove", "hollis mcp deny", "hollis mcp mode":
 		return []string{"writes mcp.json atomically under its lock", "never starts a server or calls a model"}
 	case "hollis mcp list":
