@@ -65,7 +65,7 @@
     "internal/batch/manifest.go": "e5a11b0d1e1d1ed6e31177397834e755dade3a56a919051906fc6fa2b9938865",
     "internal/batch/manifest_test.go": "3234c5e1e24d3a845f2f02235aaacdacacf56dcaba17c7aad27bca1298996203",
     "internal/batch/store.go": "c9175658754899460edbdacd7bc5b760ee014c07455d5972a61a9dd863b576ca",
-    "internal/batch/store_test.go": "1688b34d32b3146174437cc7e1f0e8b8f106fb2c89fb770cd7a1f151c5b2c7cd",
+    "internal/batch/store_test.go": "c126aef5b727a35765682dbadbfd12ccf1737094d43c33d996fffd18def85e1d",
     "internal/batch/types.go": "53d92b6e20993500298dfe7ac365c16cc43995210f3a85d3d993a3919dfa0597",
     "internal/chat/render.go": "af206ef15c23372901612c0614b137527ad7c5432bfd169d99350ad5b3136098",
     "internal/chat/render_test.go": "90646c82207f378943eefaab1a6d4c58ce725fece1d26a5e35ce79357b60b9a2",

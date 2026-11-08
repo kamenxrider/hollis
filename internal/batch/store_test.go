@@ -472,15 +472,23 @@ func TestLocalStoreLockReleasedOnProcessDeath(t *testing.T) {
 	}
 }
 
+var localStoreLockHelperRoots struct {
+	store *LocalStore
+	lock  Lock
+}
+
 func TestLocalStoreLockHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_BATCH_LOCK_HELPER") != "1" {
 		return
 	}
 	store := NewLocalStore()
-	if _, err := store.Lock(context.Background(), os.Getenv("HOLLIS_BATCH_LOCK_JOB_PATH")); err != nil {
+	lock, err := store.Lock(context.Background(), os.Getenv("HOLLIS_BATCH_LOCK_JOB_PATH"))
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
+	// Keep both reachable: the file finalizer would close the fd and release the flock.
+	localStoreLockHelperRoots.store, localStoreLockHelperRoots.lock = store, lock
 	fmt.Fprintln(os.Stdout, "locked")
 	for {
 		time.Sleep(time.Hour)
