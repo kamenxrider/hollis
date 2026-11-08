@@ -27,5 +27,14 @@ plugin's validation record
 distinguishes completed tests from remaining first-account acceptance work;
 see the [validation report](plugin-validation.md).
 
+## Other agents
+
+The package's portable core follows [Agent Plugins 1.0.0](https://agent-plugins.org/specification),
+so compatible skills-capable clients can load its skills. The skills are tested
+with Claude Code and Codex; no other client is qualified for this package.
+See the [compatible client list](https://agent-plugins.org/clients) for each
+client's format support. Calls still need execution and permissions on the
+eligible local Mac; loading a skill on a remote host does not provide them.
+
 Maintainer checks, runtime provenance and release sequencing are documented in
 the plugin's [package guide](../plugins/hollis/docs/package.md).

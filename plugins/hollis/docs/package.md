@@ -96,6 +96,14 @@ python3 scripts/plugin/package_plugin.py --validate-only
 for script in plugins/hollis/scripts/*.sh; do bash -n "$script"; done
 ```
 
+`test_portable.py` checks the closed manifest fields and types, plugin and
+skill names, frontmatter bounds, immediate-child discovery, extension namespace
+rules and resolved path containment offline. It also loads the two skills
+without native host adapters and resolves their scripts from an unrelated
+working directory, without host environment variables. The rules are encoded
+directly; no third-party schema is vendored or fetched by a client. Native
+manifests remain separate compatibility adapters, not portable extension data.
+
 These checks do not call Apple. Archive tests use explicitly synthetic fixtures;
 they do not produce publishable provenance. Live host and first-consent checks
 remain separate in [validation](validation.md).

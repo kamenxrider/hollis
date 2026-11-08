@@ -17,6 +17,8 @@ import tempfile
 import urllib.request
 import zipfile
 
+from portable import validate_plugin
+
 ROOT = Path(__file__).resolve().parents[2]
 UA = "hollis-plugin/" + json.loads((ROOT / "plugins/hollis/plugin.json").read_text())["version"]
 TOP_FILES = {"plugin.json", "runtime.lock.json", "README.md", "LICENSE"}
@@ -61,7 +63,7 @@ def validate_source(root=ROOT):
     for required in TOP_FILES:
         if not (kit / required).is_file() or (kit / required).is_symlink():
             raise ValueError(f"Missing or unsafe package file: {required}")
-    portable = read_json(kit / "plugin.json")
+    portable, _ = validate_plugin(kit)
     if portable.get("name") != "hollis" or not re.fullmatch(r"\d+\.\d+\.\d+", portable.get("version", "")):
         raise ValueError("Invalid portable plugin identity")
     for host in (".claude-plugin", ".codex-plugin"):

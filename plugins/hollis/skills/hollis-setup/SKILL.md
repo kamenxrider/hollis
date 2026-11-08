@@ -3,7 +3,7 @@ name: hollis-setup
 description: Install, check, repair or update the Hollis plugin's local Mac runtime and selected Apple Shortcuts bridges. Guides first-use Apple approvals, preserves existing Hollis data and verifies pinned assets without requiring development tools.
 ---
 
-Get the user from this conversation to a useful Apple answer. Resolve `KIT` two directories above this skill's actual installed SKILL.md, and use absolute script paths. Installation is part of the experience, not a list of commands to hand off unnecessarily.
+Get the user from this conversation to a useful Apple answer. Set `SKILL_FILE` to this skill's actual installed absolute SKILL.md path; resolve `KIT` two levels above its containing directory with `KIT="$(cd "$(dirname "$SKILL_FILE")/../.." && pwd -P)"`, and use absolute script paths. Installation is part of the experience, not a list of commands to hand off unnecessarily.
 
 ## First use
 

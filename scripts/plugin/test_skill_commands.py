@@ -30,6 +30,8 @@ NEEDS_NEW_RUNTIME = {
     "respond --prompt-file -": "`agent-context` describes `--prompt-file -`",
     "doctor --model": "`agent-context` lists `--model` on `doctor`",
     "respond --messages": "`agent-context` lists `--messages` on `respond`",
+    "setup": "`agent-context` lists `--import` on `setup`",
+    "setup --model": "`agent-context` lists `--import` on `setup`",
     "setup --import": "`agent-context` lists `--import` on `setup`",
 }
 

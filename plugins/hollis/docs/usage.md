@@ -30,8 +30,8 @@ prompt limit. Oversized requests need a smaller agreed scope, not silent truncat
 
 ## Context and Local controls
 
-Use the actual runtime's `agent-context` before offering newer flags. When it
-lists `--messages` on `respond`, `respond --messages <private-file> --agent --model cloud`
+Use the actual runtime contract before offering newer flags. When `agent-context` lists `--messages` on `respond`,
+`respond --messages <private-file> --agent --model cloud`
 passes selected host context as a one-shot messages array; it does not save a
 second transcript. Listed `--system` (`-s`) and `--system-file` supply instructions.
 Before large Local inputs, listed `--count-tokens` checks fit without generating.

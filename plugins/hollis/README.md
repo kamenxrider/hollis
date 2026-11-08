@@ -182,6 +182,15 @@ Hollis is an independent companion, with no upstream gstack modification or
 endorsement implied. Use the same skills for a letter, an event brief, an image
 or a folder of documents.
 
+## Other agents
+
+The portable core follows [Agent Plugins 1.0.0](https://agent-plugins.org/specification),
+so compatible skills-capable clients can discover and load its shared skills.
+The skills are tested with Claude Code and Codex. See the
+[compatible client list](https://agent-plugins.org/clients) for format support;
+other clients have not been qualified with this package. Execution still needs
+the eligible local Mac and the host's permission to run scripts.
+
 ## One package, multiple hosts
 
 The plugin lives in Hollis's repository and has its own version and release
