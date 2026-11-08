@@ -51,12 +51,25 @@ Go, Python, Node, shell configuration edits or administrator installation.
 
 Enter these in the **Claude conversation**, one at a time:
 
+For GitHub marketplace installation:
+
+```text
+/plugin marketplace add kamenxrider/hollis
+/plugin install hollis@hollis-plugins
+```
+
+This option needs the published release and refreshed runtime pins; it is not
+ready while the checked-in lock still pins runtime 0.4.0.
+
+For the local checkout:
+
 ```text
 /plugin marketplace add /absolute/path/to/hollis
 /plugin install hollis@hollis-plugins
 ```
 
-Use the source checkout above so Claude installs the pinned runtime.
+Both options use the same pinned runtime and require pins satisfying the
+plugin's 0.7.0 minimum.
 
 Choose the installation scope in Claude. If the install summary asks for
 `/reload-plugins`, run it; otherwise start a new session if the skills are not

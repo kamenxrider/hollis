@@ -658,6 +658,26 @@ Plain `hollis setup` prints route guidance. Selected standalone setup still
 reports `runtime_unverified`: it cannot verify installation files, which does
 not prove a helper is missing. Use selected doctor to inspect availability.
 
+### Explicit Shortcut imports
+
+`hollis setup --import [cloud cloud-pro on-device chatgpt image]` opens selected
+bundled Shortcut imports; omit routes for all five. It verifies the archive
+against the sibling bundle manifest, signs private copies and skips installed
+bridges unless `--force`. Use the complete release bundle or Homebrew layout.
+Noninteractive, JSON and agent invocations require `--yes`. Planning without
+`--import` remains read-only. Import-window launch is not proof of completed
+imports or successful inference.
+
+```sh
+hollis setup --import
+hollis setup --import cloud chatgpt
+hollis setup --import cloud-pro --force --yes --no-input
+```
+
+Confirm the listed imports, choose **Add Shortcut** in each window, then run
+`hollis doctor`. See [selected-route setup](selected-route-setup.md) for consent,
+archive validation and retained private import files.
+
 ## Shell completions
 
 Generate a completion script without reading configuration or invoking a runner:
@@ -780,7 +800,8 @@ hollis models                               # show all tiers, default and unavai
 hollis config set model cloud-pro           # save a default tier
 ```
 
-`hollis setup` and `hollis doctor --model <route>` inspect one concrete route
+`hollis setup --model <route>` without `--import` and
+`hollis doctor --model <route>` inspect one concrete route
 without requesting inference, importing Shortcuts or changing settings.
 Statuses, actions and exit codes are in
 [selected-route setup and diagnostics](selected-route-setup.md).

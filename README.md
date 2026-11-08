@@ -70,8 +70,9 @@ Check these before installing:
   ([compatibility](docs/compatibility.md)).
 - **Apple Intelligence** enabled in *System Settings → Apple Intelligence &
   Siri*, with its model downloads complete.
-- [GitHub CLI](https://cli.github.com/) (`gh`) for the installer’s download
-  verification. Plugin setup does not require it.
+- Optional [GitHub CLI](https://cli.github.com/) (`gh`) for installer build-provenance
+  verification. Without it, the published installer verifies SHA-256 checksums only.
+  Plugin setup does not require it.
 - Network access for Cloud, Cloud Pro and ChatGPT. On-Device and native local
   work offline.
 - For ChatGPT, enable the extension in *System Settings → Apple Intelligence & Siri*.
@@ -86,9 +87,19 @@ Check these before installing:
 Start with `local`: it runs on your Mac and needs no Shortcut import. Using
 Claude Code or Codex? Start with the [plugin installation](plugins/hollis/README.md#install) instead.
 
-**1. Install.** The installer verifies the published ARM64 bundle’s checksum
-and GitHub build provenance, then installs `hollis` with its matching native
-helper in `~/.local/bin`. It makes no model calls and needs no `sudo`.
+**1. Install.** Homebrew installs the matched CLI and native helper from the
+Hollis tap:
+
+```bash
+brew install kamenxrider/tap/hollis
+```
+
+Or download and inspect the [curl installer](scripts/install.sh), then run it.
+It installs the published ARM64 bundle's matched CLI and native helper in
+`~/.local/bin`, without model calls or `sudo`. The published installer works
+without `gh`: it verifies the release-pinned SHA-256 and release `SHA256SUMS`
+only. With `gh`, it also verifies GitHub build provenance. The source
+placeholder must be pinned before publication.
 
 ```bash
 curl -fsSLo install-hollis.sh https://raw.githubusercontent.com/kamenxrider/hollis/main/scripts/install.sh && \
@@ -99,14 +110,11 @@ export PATH="$HOME/.local/bin:$PATH"
 Add `~/.local/bin` to your shell’s PATH permanently if needed. Inspect the
 [installer](scripts/install.sh) first, or [verify manually](#verification-and-trust).
 
-**Homebrew:** install the same matched CLI and native helper from the Hollis tap:
-
-```bash
-brew install kamenxrider/tap/hollis
-```
-
-The formula checks the bundle's file hashes; the installer above also verifies
-GitHub build provenance. See the [Homebrew notes](packaging/homebrew/README.md).
+The formula checks the bundle's file hashes. Homebrew users can optionally run
+the loopback API with `brew services start hollis`; the default service has no
+authentication, so any local process can use it. See the
+[Homebrew notes](packaging/homebrew/README.md#background-api) for token-file
+configuration and service upgrade steps.
 
 **2. Check native local and ask.**
 
@@ -130,13 +138,17 @@ default model, `hollis chat` starts an interactive session (type `help` or
 
 <a id="add-shortcuts"></a>
 
-**3. Add the Shortcuts routes.** Cloud, Cloud Pro, On-Device, ChatGPT and image
-generation run through Shortcuts. The installer opens five imports: choose
-**Add Shortcut** for each of the four model bridges (Cloud, Cloud Pro,
-On-Device, ChatGPT) and **Hollis Image - Reference Input v2**. When updating an
-older image bridge, replace it with this version. The installer configures the
-bundled image bridge only when no general image bridge is set; custom settings
-are preserved. The first request may also require Apple’s **Allow** approval.
+**3. Optionally add the Shortcuts routes.** Shortcuts are optional for native
+Local. For Cloud, Cloud Pro, On-Device, ChatGPT or images, run
+`hollis setup --import`, or select routes with
+`hollis setup --import cloud chatgpt`. This command needs the complete release
+bundle or Homebrew layout. Confirm the listed imports, choose **Add Shortcut**
+in each window, then run `hollis doctor`.
+
+The curl installer also opens the five bundled import windows; Homebrew does
+not. When updating an older image bridge, replace it with
+**Hollis Image - Reference Input v2**. Existing custom image-bridge settings
+are preserved. The first request may also require Apple's **Allow** approval.
 
 ```bash
 hollis doctor
@@ -370,8 +382,9 @@ not have them. The CLI and native helper must come from the same release. See
 
 ## Verification and trust
 
-The binaries are not Developer ID signed or notarized. The installer’s checksum
-and GitHub build-provenance checks establish their release origin; for the
+The binaries are not Developer ID signed or notarized. The installer checks
+release checksums; with `gh`, it also verifies GitHub build provenance. Without
+`gh`, it verifies the release-pinned SHA-256, not provenance. For the
 smallest trust chain, build from source
 ([other install routes](docs/compatibility.md#other-install-routes)). To run the
 installer’s checks yourself:
