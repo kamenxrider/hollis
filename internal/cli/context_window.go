@@ -350,6 +350,8 @@ func prepareRespondContext(ctx context.Context, r runner.Runner, model runner.Mo
 	return shortenContext(ctx, r, model, messages, func(ms []store.Message) runner.GenerationRequest {
 		prompt, system, history := conversationInput("", instructions, ms)
 		if model != runner.ModelLocal {
+			// Match dispatch: explicit instructions follow the whole replay,
+			// including its closing directive, and count toward the byte limit.
 			return runner.GenerationRequest{Prompt: shortcutInstructions(chat.RenderTranscript(ms[:len(ms)-1], ms[len(ms)-1].Content), instructions)}
 		}
 		return runner.GenerationRequest{Prompt: prompt, Instructions: system, History: history}

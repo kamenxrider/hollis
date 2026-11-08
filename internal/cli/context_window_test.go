@@ -170,6 +170,29 @@ func TestContextRouteRulesAndByteLimits(t *testing.T) {
 	}
 }
 
+func TestShortcutInstructionsAfterConversation(t *testing.T) {
+	stubConfigPath(t)
+	const instructions = "Reply with exactly READY."
+	const input = `[{"role":"system","content":"Preserve context."},{"role":"user","content":"Old question"},{"role":"assistant","content":"Old answer"},{"role":"user","content":"Say hello."}]`
+	for _, model := range []string{"cloud", "cloud-pro", "on-device", "chatgpt"} {
+		for _, shorten := range []bool{false, true} {
+			r := &contextFixtureRunner{}
+			args := []string{"respond", "-m", model, "--messages", "-", "-s", instructions}
+			history := []store.Message{{Role: "system", Content: "Preserve context."}}
+			if shorten {
+				args = append(args, "--context-strategy", "sliding-window", "--context-max-turns", "1")
+			} else {
+				history = append(history, store.Message{Role: "user", Content: "Old question"}, store.Message{Role: "assistant", Content: "Old answer"})
+			}
+			_, _, err := runContextCommand(t, r, input, args...)
+			want := "Prompt:\n" + chat.RenderTranscript(history, "Say hello.") + "\n\nInstructions:\n" + instructions
+			if err != nil || r.calls != 1 || len(r.prompts) != 1 || r.prompts[0] != want || r.counts != 0 {
+				t.Fatalf("model=%s shorten=%t err=%v prompts=%q", model, shorten, err, r.prompts)
+			}
+		}
+	}
+}
+
 func TestContextCounterAndSummaryFailuresStop(t *testing.T) {
 	for _, summaryFailure := range []bool{false, true} {
 		r := &contextFixtureRunner{window: 2000}

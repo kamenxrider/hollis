@@ -49,6 +49,17 @@ func TestRespondInstructionsAndPermissive(t *testing.T) {
 	}
 }
 
+func TestShortcutInstructionsFollowThePrompt(t *testing.T) {
+	got := shortcutInstructions("Say hello.", "Reply with exactly READY, with no punctuation.")
+	want := "Prompt:\nSay hello.\n\nInstructions:\nReply with exactly READY, with no punctuation."
+	if got != want {
+		t.Fatalf("got %q", got)
+	}
+	if shortcutInstructions("only", "") != "only" {
+		t.Fatal("empty instructions changed the prompt")
+	}
+}
+
 func TestRespondMessagesAndTokenCount(t *testing.T) {
 	messages := `[{"role":"system","content":"Be brief"},{"role":"developer","content":"Use digits"},{"role":"user","content":"two plus two?"},{"role":"assistant","content":"4"},{"role":"user","content":"and one?"}]`
 	r := &extrasRunner{}

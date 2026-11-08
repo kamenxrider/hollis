@@ -123,9 +123,10 @@ hollis chat -m local --retry "Give me two ideas"
 `respond --system 'Be concise'` (`-s`) or `--system-file instructions.txt`
 sets instructions; the two options are mutually exclusive. Local uses real
 native session instructions. Cloud, Cloud Pro, on-device and ChatGPT Shortcuts
-accept only one text, so Hollis puts instructions at the top in an
-`Instructions:` block followed by `Prompt:`. Those routes do not have a
-separate instruction channel.
+accept only one text, so Hollis puts the `Prompt:` block first and the
+`Instructions:` block after the prompt (or the whole replayed conversation).
+These models follow the later text, so the instruction comes last. Those
+routes do not have a separate instruction channel.
 
 `respond --messages conversation.json` or `--messages -` reads a one-shot
 OpenAI messages array. Roles are system, developer, user and assistant; developer

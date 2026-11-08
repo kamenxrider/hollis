@@ -142,7 +142,9 @@ func shortcutInstructions(prompt, instructions string) string {
 	if instructions == "" {
 		return prompt
 	}
-	return "Instructions:\n" + instructions + "\n\nPrompt:\n" + prompt
+	// Shortcuts has one text field. The model follows the later block, so the
+	// instruction comes after the prompt.
+	return "Prompt:\n" + prompt + "\n\nInstructions:\n" + instructions
 }
 
 func printTokenCount(ctx context.Context, cmd *cobra.Command, flags *rootFlags, r runner.Runner, request runner.GenerationRequest, reserve int) error {
