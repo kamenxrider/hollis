@@ -31,7 +31,7 @@ type NameSet struct {
 // CapabilitySet is the static implementation truth about one route: what
 // the transport can do. It makes no claim about runtime availability or
 // prior successful inference, and must never be presented as either.
-// StreamingUsage is a measured NO on every route today. Schema is guided
+// StreamingUsage is measured on native Local only. Schema is guided
 // output: a requested JSON Schema subset whose returned object is
 // re-validated before it is reported as success.
 type CapabilitySet struct {
@@ -173,7 +173,7 @@ var routeSpecs = map[Model]RouteSpec{
 		Names: NameSet{},
 		// Runtime availability is checked by the helper. Image input accepts
 		// one attachment; guided output remains text-only.
-		Capabilities:       CapabilitySet{Images: true, MaxImages: 1, Streaming: true, Usage: true, Schema: true},
+		Capabilities:       CapabilitySet{Images: true, MaxImages: 1, Streaming: true, Usage: true, StreamingUsage: true, Schema: true},
 		BatchSpacing:       0,
 		BatchName:          "Local",
 		BatchSpacingReason: "This route has no batch pacing.",
@@ -266,7 +266,7 @@ func validateRouteTable() error {
 		return fmt.Errorf("%s: native route must not declare bridge artifacts", ModelLocal)
 	}
 	if !local.Capabilities.Streaming || !local.Capabilities.Usage || !local.Capabilities.Schema ||
-		local.Capabilities.StreamingUsage || !local.Capabilities.Images || local.Capabilities.MaxImages != 1 {
+		!local.Capabilities.StreamingUsage || !local.Capabilities.Images || local.Capabilities.MaxImages != 1 {
 		return fmt.Errorf("%s: native capabilities drifted from the measured surface", ModelLocal)
 	}
 	for id, spec := range routeSpecs {

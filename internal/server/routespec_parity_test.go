@@ -124,8 +124,8 @@ func TestRouteSpecCapabilitiesParity(t *testing.T) {
 		if got.Usage != wantUsage {
 			t.Errorf("%s usage = %v, want %v", id, got.Usage, wantUsage)
 		}
-		if got.StreamingUsage != false {
-			t.Errorf("%s streaming_usage = %v, want false", id, got.StreamingUsage)
+		if got.StreamingUsage != wantUsage || got.StreamUsage != wantUsage {
+			t.Errorf("%s streaming_usage/stream_usage = %v/%v, want %v", id, got.StreamingUsage, got.StreamUsage, wantUsage)
 		}
 	}
 

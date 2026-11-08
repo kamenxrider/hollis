@@ -30,6 +30,21 @@ func TestCapabilityJSONNames(t *testing.T) {
 	}
 }
 
+func TestRouteStreamUsageLocalOnly(t *testing.T) {
+	local, _ := Spec(ModelLocal)
+	for _, status := range []LocalStatus{{}, {Available: true}} {
+		for _, spec := range append(Specs(), local) {
+			got := RouteCapabilities(spec, status, nil)
+			if got.StreamUsage != (spec.ID == ModelLocal) {
+				t.Fatalf("%s stream_usage=%v", spec.ID, got.StreamUsage)
+			}
+			if got.StreamUsage && (!got.Streaming || !got.CompleteUsage) {
+				t.Fatalf("%s stream usage without streaming and measured usage: %+v", spec.ID, got)
+			}
+		}
+	}
+}
+
 func TestRouteToolsRequireExecutableHandoff(t *testing.T) {
 	local, _ := Spec(ModelLocal)
 	for _, tc := range []struct {
