@@ -16,6 +16,8 @@ import http.server
 import json
 import os
 from pathlib import Path
+import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -378,6 +380,39 @@ class FormulaLifecycleTests(unittest.TestCase):
             self.assertEqual(snapshot(self.lifecycle.state), state_before)
         finally:
             self.lifecycle.brew(prefix, 'uninstall', 'fixture/hollis/hollis')
+
+
+class FormulaServiceTests(unittest.TestCase):
+    """Offline service contract checks; never invoke brew or launchctl."""
+
+    def test_rendered_service_uses_stable_binary_and_loopback_guard(self):
+        template = (ROOT / 'packaging/homebrew/hollis.rb.in').read_text()
+        rendered = (template.replace('{{VERSION}}', '0.7.0')
+                    .replace('{{BUNDLE_NAME}}', 'hollis-0.7.0-darwin-arm64.zip')
+                    .replace('{{BUNDLE_SHA256}}', 'a' * 64)
+                    .replace('{{HELPER_PROTOCOL}}', '4')
+                    .replace('{{HELPER_VERSION}}', '0.7.0'))
+        self.assertNotIn('{{', rendered)
+        service = re.search(r'^  service do\n(.*?)^  end$', rendered, re.M | re.S)
+        self.assertIsNotNone(service)
+        self.assertIn('run [opt_bin/"hollis", "serve", "--addr", "127.0.0.1:1978", "--no-auth"]',
+                      service.group(1))
+        self.assertIn('keep_alive unsuccessful_exit: true', service.group(1))
+        self.assertIn('log_path var/"log/hollis/stdout.log"', service.group(1))
+        self.assertIn('error_log_path var/"log/hollis/stderr.log"', service.group(1))
+        self.assertNotIn('--allow-remote', service.group(1))
+        self.assertIn('hollis setup --import', rendered)
+        self.assertIn('--token-file /absolute/private/path/serve.token', rendered)
+        self.assertIn('brew services start hollis --file=', rendered)
+
+    def test_authenticated_launchd_template_uses_same_endpoint(self):
+        path = ROOT / 'packaging/launchd/io.github.kamenxrider.hollis.serve.plist'
+        data = plistlib.loads(path.read_bytes())
+        arguments = data['ProgramArguments']
+        self.assertEqual(arguments[1:4], ['serve', '--addr', '127.0.0.1:1978'])
+        self.assertEqual(arguments[4], '--token-file')
+        self.assertNotIn('--no-auth', arguments)
+        self.assertNotIn('--allow-remote', arguments)
 
 
 if __name__ == '__main__':

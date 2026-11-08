@@ -71,6 +71,25 @@ The sidecar-based pin refresh requires a release that publishes this record.
 Do not synthesize metadata for older published assets or change existing pins
 as part of local distribution preparation.
 
+## Installer release pins
+
+Before distributing `scripts/install.sh`, set its `version` and `protocol` to
+the selected release, `source_commit` to the full authenticated release source
+commit, and `asset_sha256` to the SHA-256 of the final
+`hollis-<version>-darwin-arm64.zip`. Obtain that hash from the independently
+verified final release set and confirm its unique `SHA256SUMS` entry agrees.
+Do not substitute a candidate hash or compute a new pin from an untrusted
+download. Pins must be updated together when release assets change.
+
+With `gh` installed the installer retains the GitHub release download and
+attestation verification path, including the source commit, tag, workflow and
+`--deny-self-hosted-runners` constraints. Without `gh` it uses `curl -fsSL` for
+the bundle and `SHA256SUMS` from the versioned GitHub release URL, checks the
+bundle against both the installer-pinned hash and release checksums, and
+explicitly says build provenance was not verified. An empty or malformed
+`asset_sha256` refuses that fallback before downloading anything. Leave it
+empty while no final authenticated release bundle is selected.
+
 The no-install-time-effects contract applies to plugin runtime installation and
 the prepared Homebrew formula: neither runs inference or opens bridge import
 dialogs during installation. It does not apply universally to every installer.

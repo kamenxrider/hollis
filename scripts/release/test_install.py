@@ -44,6 +44,9 @@ exit 1''')
 cp "$5" "$7"''')
         self.command('open', 'echo "open $*" >> "$FIXTURE_LOG"')
         self.command('plutil', 'echo "${FIXTURE_IMAGE_BRIDGE:-}"')
+        self.command('curl', '''echo "curl $*" >> "$FIXTURE_LOG"
+[[ "$1" == -fsSL && "$3" == -o ]] || exit 12
+cp "$FIXTURE_ASSETS/${2##*/}" "$4"''')
         self.build_assets()
 
     def command(self, name, source):
@@ -78,8 +81,13 @@ esac
         self.sumline = hashlib.sha256(bundle.read_bytes()).hexdigest() + '  ' + bundle.name + '\n'
         (self.assets / 'SHA256SUMS').write_text(self.sumline)
 
-    def run_install(self, success=True):
-        result = subprocess.run(['/bin/bash', str(ROOT / 'scripts/install.sh')],
+    def run_install(self, success=True, pin=None):
+        installer = ROOT / 'scripts/install.sh'
+        if pin is not None:
+            installer = self.base / 'install.sh'
+            installer.write_text((ROOT / 'scripts/install.sh').read_text().replace(
+                '\nasset_sha256=\n', f'\nasset_sha256={pin}\n'))
+        result = subprocess.run(['/bin/bash', str(installer)],
                                 env=self.env, text=True, capture_output=True, timeout=15)
         if success:
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -153,6 +161,49 @@ esac
         (dest / 'hollis-native').symlink_to(target)
         self.run_install(False)
         self.assertEqual(target.read_text(), 'keep')
+
+    def without_gh(self):
+        (self.bin / 'gh').unlink()
+        # The fixture PATH deliberately excludes package-manager directories.
+        self.assertIsNone(shutil.which('gh', path=self.env['PATH']))
+
+    def test_curl_without_gh_checks_pinned_hash_and_release_sums(self):
+        self.without_gh()
+        result = self.run_install(pin=self.sumline.split()[0])
+        self.assertIn("GitHub CLI not found: verified the download's SHA-256 checksum; "
+                      "install gh for build-provenance verification too.", result.stdout)
+        log = (self.base / 'calls').read_text()
+        prefix = f'https://github.com/kamenxrider/hollis/releases/download/v{VERSION}'
+        self.assertIn(f'curl -fsSL {prefix}/hollis-{VERSION}-darwin-arm64.zip -o ', log)
+        self.assertIn(f'curl -fsSL {prefix}/SHA256SUMS -o ', log)
+        self.assertEqual(sum(line.startswith('curl ') for line in log.splitlines()), 2)
+        self.assertNotIn('attestation', log)
+        self.assertEqual(sum(line.startswith('open ') for line in log.splitlines()), 5)
+
+    def test_curl_pinned_hash_mismatch_stops_before_execution(self):
+        self.without_gh()
+        self.run_install(False, pin='0' * 64)
+        self.assertNotIn('shortcuts', (self.base / 'calls').read_text())
+
+    def test_curl_release_sums_must_also_agree(self):
+        self.without_gh()
+        (self.assets / 'SHA256SUMS').write_text('0' * 64 + '  ' + self.sumline.split()[1] + '\n')
+        self.run_install(False, pin=self.sumline.split()[0])
+        self.assertNotIn('shortcuts', (self.base / 'calls').read_text())
+
+    def test_curl_placeholder_refuses_before_network(self):
+        self.without_gh()
+        result = self.run_install(False, pin='')
+        self.assertIn('Installer release SHA-256 is not pinned', result.stderr)
+        self.assertFalse((self.base / 'calls').exists())
+
+    def test_gh_path_does_not_use_curl_or_need_fallback_pin(self):
+        result = self.run_install(pin='')
+        log = (self.base / 'calls').read_text()
+        self.assertIn('gh release download', log)
+        self.assertIn('gh attestation verify', log)
+        self.assertNotIn('curl ', log)
+        self.assertNotIn('GitHub CLI not found', result.stdout)
 
 
 if __name__ == '__main__':

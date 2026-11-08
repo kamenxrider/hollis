@@ -63,6 +63,7 @@ class Hollis < Formula
     powershell = pkgshare / "completion" / "hollis.ps1"
     powershell.dirname.mkpath
     powershell.write(Utils.safe_popen_read(bin / "hollis", "completion", "powershell"))
+    (var/"log/hollis").mkpath
   end
 
   def caveats
@@ -72,12 +73,22 @@ class Hollis < Formula
       invoke inference, import Shortcuts, change Apple settings, or modify Hollis user data.
       The native helper is ad-hoc signed; it is not Developer ID signed or notarized.
       The formula checks bundle-internal hashes only, not GitHub build attestations.
-      Use the curl installer to verify GitHub build attestations.
+      Use the curl installer with gh installed to verify GitHub build attestations.
 
       Quick start (no Shortcuts imports):
         hollis respond --model local "hello"
-      Shortcuts imports are optional for Cloud, Cloud Pro, and images.
+      Shortcuts imports are optional. For Cloud, Cloud Pro, On-Device, ChatGPT or images, run:
+        hollis setup --import
       https://github.com/kamenxrider/hollis/blob/main/packaging/homebrew/README.md#quick-start
+
+      Optional background API:
+        brew services start hollis
+      This listens without authentication on 127.0.0.1:1978 only, with loopback
+      Host/Origin checks. Any local process can use it. Logs: #{var}/log/hollis
+      For authentication, use a custom service file with --no-auth replaced by:
+        --token-file /absolute/private/path/serve.token
+      Keep the token file private (mode 600) with at least 32 bytes of token.
+      Start that file with brew services start hollis --file=/absolute/path/hollis.plist
 
       Before upgrading, close any running hollis serve or chat.
       Upgrading from v0.4.0 runs a one-way database migration (schema v2 to v3)
@@ -89,6 +100,13 @@ class Hollis < Formula
       PowerShell completion is installed at:
         #{share}/hollis/completion/hollis.ps1
     EOS
+  end
+
+  service do
+    run [opt_bin/"hollis", "serve", "--addr", "127.0.0.1:1978", "--no-auth"]
+    keep_alive unsuccessful_exit: true
+    log_path var/"log/hollis/stdout.log"
+    error_log_path var/"log/hollis/stderr.log"
   end
 
   test do

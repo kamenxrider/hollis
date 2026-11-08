@@ -25,11 +25,27 @@ func validateSetupRoute(route string) error {
 func newSetupCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 	var route, producer string
 	var pending []string
+	var importBridges, yes, force bool
 	cmd := &cobra.Command{
-		Use: "setup", Short: "Plan setup for one selected route without changing anything",
-		Long: "Choose a route with --model: local, cloud, cloud-pro, on-device, chatgpt or image. Without --model, print this help. Standalone setup cannot verify installation files; use doctor --model <route> for availability diagnostics. This command never downloads, imports, changes Apple settings or requests inference.",
-		Args: noExtraArgs("setup"),
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Use: "setup [route…]", Short: "Plan route setup, or explicitly open bundled Shortcut imports",
+		Long: "Choose a route with --model: local, cloud, cloud-pro, on-device, chatgpt or image. Without --model or --import, print this help. Standalone planning cannot verify installation files; use doctor --model <route> for availability diagnostics. Planning changes nothing. Explicit --import [cloud cloud-pro on-device chatgpt image] verifies the installed bridge archive against its bundle manifest, signs private copies and opens Add Shortcut windows after confirmation; omit routes for all five. Installed bridges are skipped unless --force. Non-interactive, --json, --no-input and --agent imports require --yes. Never downloads, changes Apple settings or requests inference.",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if importBridges {
+				if cmd.Flags().Changed("model") || producer != "" || len(pending) != 0 {
+					return usageErr(errors.New("--import cannot be combined with setup planning flags"))
+				}
+				_, err := selectedImportRoutes(args)
+				return err
+			}
+			if yes || force {
+				return usageErr(errors.New("--yes and --force require --import"))
+			}
+			return noExtraArgs("setup")(cmd, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if importBridges {
+				return runSetupImport(cmd, flags, args, yes, force)
+			}
 			if !cmd.Flags().Changed("model") && !flags.asJSON && producer == "" && len(pending) == 0 {
 				return cmd.Help()
 			}
@@ -77,6 +93,9 @@ func newSetupCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&route, "model", "", "Selected route: local, cloud, cloud-pro, on-device, chatgpt or image")
+	cmd.Flags().BoolVar(&importBridges, "import", false, "Open selected bundled Shortcut imports (all five if no routes)")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Approve --import without prompting")
+	cmd.Flags().BoolVar(&force, "force", false, "Import even bridges already found installed (requires --import)")
 	cmd.Flags().StringVar(&producer, "runtime-record-command", "", "Local caller-selected verified-runtime record producer")
 	_ = cmd.Flags().MarkHidden("runtime-record-command")
 	cmd.Flags().StringArrayVar(&pending, "pending-import", nil, "Caller assertion of a pending import; can only require approval")
