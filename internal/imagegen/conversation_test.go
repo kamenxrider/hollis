@@ -55,7 +55,7 @@ func TestRenderConversationPromptPreservesMixedConversationAndUnrecognizedMetada
 		{Role: "user", Content: "Make it autumn."},
 	}
 	got := RenderConversationPrompt(messages)
-	for _, want := range []string{"SYSTEM:\nUse flat colors.", "USER:\nDraw a tree.", "ASSISTANT:\nThe tree has a round crown.", "keep-me", "USER:\nMake it autumn."} {
+	for _, want := range []string{"Instructions:\nUse flat colors.", "USER:\nDraw a tree.", "ASSISTANT:\nThe tree has a round crown.", "keep-me", "USER:\nMake it autumn."} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prompt missing %q: %q", want, got)
 		}

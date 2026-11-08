@@ -1,5 +1,12 @@
 # OpenAI-compatible API (Chat Completions and Responses)
 
+For Shortcut text routes, Chat Completions system/developer messages and
+Responses `instructions` plus system/developer input messages are collected in
+order into an `Instructions:` block after the conversation and replay closing
+directive. Responses `instructions` comes first in that block. Image-generation
+conversation instructions likewise follow the image context. These labels are
+not an isolation boundary; Local request framing is unchanged.
+
 ```bash
 umask 077
 openssl rand -base64 48 > hollis.token

@@ -24,8 +24,7 @@ func TestPrepareResponsesImageRequestPreservesLegacyTextAndInstructions(t *testi
 		t.Fatalf("prepared request = %+v", prepared)
 	}
 	for _, want := range []string{
-		"SYSTEM:\nAlways answer briefly",
-		"SYSTEM:\nUse plain words",
+		"Instructions:\nAlways answer briefly\n\nUse plain words",
 		"USER:\nWhat is 2+2?",
 		"ASSISTANT:\nFour",
 		"USER:\nAnd 3+3?",
@@ -65,7 +64,7 @@ func TestPrepareResponsesImageRequestPreservesStringHistoryWithImage(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"SYSTEM:\nBe concise", "USER:\nRemember the blue square", "ASSISTANT:\nI will", "USER:\nCompare this image"} {
+	for _, want := range []string{"Instructions:\nBe concise", "USER:\nRemember the blue square", "ASSISTANT:\nI will", "USER:\nCompare this image"} {
 		if !strings.Contains(prepared.Prompt, want) {
 			t.Fatalf("prompt missing %q: %q", want, prepared.Prompt)
 		}

@@ -34,7 +34,7 @@ func TestPrepareChatImageRequestPreservesHistoryAndImageOrder(t *testing.T) {
 		t.Fatalf("second image = %q, want %q", got, want)
 	}
 	for _, want := range []string{
-		"SYSTEM:\nUse plain words",
+		"Instructions:\nUse plain words",
 		"ASSISTANT:\nSure.",
 		"USER:\nDescribe both",
 	} {

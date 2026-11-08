@@ -91,6 +91,9 @@ const toolRoundClosing = "Answer the most recent USER message using the TOOL res
 // message or a tool result), an optional fixed notice, then the closing line.
 // It is a pure function of its inputs, so every round re-renders the full
 // transcript rather than appending to a previous prompt.
+// Tool execution is native-local only, never a Shortcuts route: its fixed
+// protocol scaffolding stays first. Context summarization also uses this
+// renderer with empty scaffolding and a separate native instructions channel.
 func RenderToolTranscript(instructions string, messages []store.Message, notice string) string {
 	var b strings.Builder
 	if instructions != "" {

@@ -453,7 +453,6 @@ without another model round or a new resume protocol.`,
 			if err != nil {
 				return err
 			}
-			explicitInstructions := instructions
 			prompt, instructions, history := conversationInput(prompt, instructions, messages)
 			if err := extrasSize(prompt, instructions, history); err != nil {
 				return err
@@ -466,8 +465,8 @@ without another model round or a new resume protocol.`,
 			}
 			if m != runner.ModelLocal {
 				if len(messages) > 0 {
-					prompt = chat.RenderTranscript(messages[:len(messages)-1], messages[len(messages)-1].Content)
-					prompt = shortcutInstructions(prompt, explicitInstructions)
+					prompt = chat.RenderTranscript(history, prompt)
+					prompt = shortcutInstructions(prompt, instructions)
 				} else {
 					prompt = shortcutInstructions(prompt, instructions)
 				}

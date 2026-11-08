@@ -348,6 +348,17 @@ func transcriptFrom(messages []reqMessage) string {
 	return chat.RenderTranscript(history, messages[len(messages)-1].Content)
 }
 
+func transcriptForModel(messages []reqMessage, model string) string {
+	if model == string(runner.ModelLocal) {
+		return transcriptFrom(messages)
+	}
+	history := make([]store.Message, 0, len(messages)-1)
+	for _, message := range messages[:len(messages)-1] {
+		history = append(history, store.Message{Role: message.Role, Content: message.Content})
+	}
+	return chat.ShortcutTranscript(history, messages[len(messages)-1].Content, "")
+}
+
 func validatePrompt(w http.ResponseWriter, prompt string) bool {
 	if len(prompt) > MaxPromptBytes {
 		writeAPIError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "context_too_large", "rendered prompt exceeds 128 KiB")

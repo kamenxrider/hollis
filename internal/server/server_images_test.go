@@ -135,7 +135,7 @@ func TestImageEndpointsStageOrderedBytesAndPreserveResponseEnvelopes(t *testing.
 			if len(digests) != len(wantDigests) || digests[0] != wantDigests[0] || digests[1] != wantDigests[1] {
 				t.Fatalf("image digests/order changed: %x", digests)
 			}
-			for _, want := range []string{"SYSTEM:\nBe brief", "USER:\nCompare these"} {
+			for _, want := range []string{"Instructions:\nBe brief", "USER:\nCompare these"} {
 				if !strings.Contains(prompt, want) {
 					t.Fatalf("prompt missing %q: %q", want, prompt)
 				}

@@ -1,5 +1,14 @@
 # CLI usage and local data
 
+On Shortcut text routes, explicit `--system`/`--system-file` instructions come
+first within a final `Instructions:` block, followed by conversation system and
+developer messages in their original order. Conversation text and its replay
+closing directive come before that block, including shortened and continued
+chats. These labels are not an isolation boundary. Local's native instructions
+channel is unchanged. Tool protocol scaffolding and context summarization are
+Local-only and keep their existing native framing. Image conversation rendering
+also puts system/developer instructions after image context and revisions.
+
 Start with the [verified install and first request](../README.md#install-verified). This guide keeps the detailed command and storage contracts together.
 
 ## Checking for updates

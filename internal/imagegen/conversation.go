@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/kamenxrider/hollis/internal/chat"
 )
 
 // ConversationMessage is the text context supplied to an image generation
@@ -31,6 +33,24 @@ var apiMarkerDetails = regexp.MustCompile(`^ with style (?:any|animation|genmoji
 // text remains in order. A simple image revision uses the prompt shape proven
 // against Image Playground rather than the text-chat replay instructions.
 func RenderConversationPrompt(messages []ConversationMessage) string {
+	filtered, instructions := imageInstructions(messages)
+	return chat.ShortcutInstructions(renderConversationPrompt(filtered), instructions)
+}
+
+func imageInstructions(messages []ConversationMessage) ([]ConversationMessage, string) {
+	filtered := make([]ConversationMessage, 0, len(messages))
+	var instructions []string
+	for _, message := range messages {
+		if message.Role == "system" || message.Role == "developer" {
+			instructions = append(instructions, message.Content)
+		} else {
+			filtered = append(filtered, message)
+		}
+	}
+	return filtered, strings.Join(instructions, "\n\n")
+}
+
+func renderConversationPrompt(messages []ConversationMessage) string {
 	filtered := make([]ConversationMessage, 0, len(messages))
 	removedArtifact := false
 	for _, message := range messages {
@@ -75,11 +95,16 @@ func RenderConversationPrompt(messages []ConversationMessage) string {
 // could lose the subject even with a reference attached. Callers still validate
 // the complete unfiltered transcript before this rendering step.
 func RenderConversationPromptWithReference(messages []ConversationMessage, hasReference bool) string {
+	filtered, instructions := imageInstructions(messages)
+	return chat.ShortcutInstructions(renderConversationPromptWithReference(filtered, hasReference), instructions)
+}
+
+func renderConversationPromptWithReference(messages []ConversationMessage, hasReference bool) string {
 	if !hasReference || len(messages) == 0 || messages[len(messages)-1].Role != "user" {
-		return RenderConversationPrompt(messages)
+		return renderConversationPrompt(messages)
 	}
 	last := messages[len(messages)-1].Content
-	prior := RenderConversationPrompt(messages[:len(messages)-1])
+	prior := renderConversationPrompt(messages[:len(messages)-1])
 	if strings.TrimSpace(prior) == "" {
 		return last
 	}

@@ -156,7 +156,7 @@ func TestChatCompletionsShapeAndTranscript(t *testing.T) {
 	// The echo runner returned the transcript: it must be the tested
 	// replay format with the system message and the final user turn.
 	content := got.Choices[0].Message.Content
-	for _, want := range []string{"You are continuing an existing conversation.", "SYSTEM:\nBe brief", "USER:\nHi there"} {
+	for _, want := range []string{"You are continuing an existing conversation.", "Instructions:\nBe brief", "USER:\nHi there"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("transcript missing %q: %q", want, content)
 		}
@@ -338,8 +338,7 @@ func TestResponsesArrayInputWithInstructions(t *testing.T) {
 	}
 	text := got.Output[0].Content[0].Text
 	for _, want := range []string{
-		"SYSTEM:\nAlways answer in one word",
-		"SYSTEM:\nlegacy system prompt", // developer normalizes to system
+		"Instructions:\nAlways answer in one word\n\nlegacy system prompt",
 		"USER:\nWhat is 2+2?",
 		"ASSISTANT:\nFour",
 		"USER:\nAnd 3+3?",

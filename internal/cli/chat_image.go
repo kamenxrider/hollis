@@ -115,7 +115,9 @@ func renderChatImagePromptWithReference(history []store.Message, prompt string, 
 	// Validate the complete, unfiltered history with the existing image-turn
 	// envelope first. Removing Hollis artifact records must never allow a turn
 	// that the prior bounds would have rejected.
-	unfiltered := imageTranscriptPreamble + "\n\n" + chat.RenderTranscript(history, prompt)
+	// This envelope is used only for bounds checking; dispatch below uses the
+	// image-specific renderer, which also moves system/developer text last.
+	unfiltered := chat.ShortcutTranscript(history, prompt, imageTranscriptPreamble)
 	if err := chat.ValidateTranscript(history, unfiltered); err != nil {
 		return "", usageErr(err)
 	}

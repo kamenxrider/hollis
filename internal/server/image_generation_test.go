@@ -425,7 +425,7 @@ func TestChatImageGenerationIncludesConversationAndReplaysOwnOutput(t *testing.T
 		t.Fatalf("first status=%d body=%s", first.Code, first.Body.String())
 	}
 	prompt := generator.lastCall().Prompt
-	wantPrompt := "SYSTEM:\nUse a plain background\n\nUSER:\nDraw a red boat\n\nASSISTANT:\nI will keep it simple\n\nUSER:\nAdd one white sail"
+	wantPrompt := "Prompt:\nUSER:\nDraw a red boat\n\nASSISTANT:\nI will keep it simple\n\nUSER:\nAdd one white sail\n\nInstructions:\nUse a plain background"
 	if prompt != wantPrompt {
 		t.Fatalf("generation prompt = %q, want %q", prompt, wantPrompt)
 	}
@@ -582,7 +582,7 @@ func TestResponsesImageGenerationIncludesConversationAndReplaysOwnOutput(t *test
 	if first.Code != http.StatusOK {
 		t.Fatalf("first status=%d body=%s", first.Code, first.Body.String())
 	}
-	if prompt := generator.lastCall().Prompt; !strings.Contains(prompt, "SYSTEM:\nUse flat colors") || !strings.Contains(prompt, "USER:\nDraw a green tree") {
+	if prompt := generator.lastCall().Prompt; prompt != "Prompt:\nDraw a green tree\n\nInstructions:\nUse flat colors" {
 		t.Fatalf("generation prompt lost conversation: %q", prompt)
 	}
 	var body struct {

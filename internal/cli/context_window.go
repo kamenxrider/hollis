@@ -350,9 +350,9 @@ func prepareRespondContext(ctx context.Context, r runner.Runner, model runner.Mo
 	return shortenContext(ctx, r, model, messages, func(ms []store.Message) runner.GenerationRequest {
 		prompt, system, history := conversationInput("", instructions, ms)
 		if model != runner.ModelLocal {
-			// Match dispatch: explicit instructions follow the whole replay,
-			// including its closing directive, and count toward the byte limit.
-			return runner.GenerationRequest{Prompt: shortcutInstructions(chat.RenderTranscript(ms[:len(ms)-1], ms[len(ms)-1].Content), instructions)}
+			// Count exactly the dispatched replay, including the final merged
+			// instruction block rather than inline SYSTEM messages.
+			return runner.GenerationRequest{Prompt: shortcutInstructions(chat.RenderTranscript(history, prompt), system)}
 		}
 		return runner.GenerationRequest{Prompt: prompt, Instructions: system, History: history}
 	})
@@ -365,11 +365,19 @@ func prepareChatContext(ctx context.Context, r runner.Runner, model runner.Model
 		return "", nil, usageErr(err)
 	}
 	ms := append(append([]store.Message(nil), history...), store.Message{Role: "user", Content: prompt})
+	render := func(messages []store.Message) string {
+		prior := messages[:len(messages)-1]
+		last := messages[len(messages)-1].Content
+		if model != runner.ModelLocal {
+			return chat.ShortcutTranscript(prior, last, "")
+		}
+		return chat.RenderTranscript(prior, last)
+	}
 	selected, meta, err := shortenContext(ctx, r, model, ms, func(ms []store.Message) runner.GenerationRequest {
-		return runner.GenerationRequest{Prompt: chat.RenderTranscript(ms[:len(ms)-1], ms[len(ms)-1].Content)}
+		return runner.GenerationRequest{Prompt: render(ms)}
 	})
 	if err != nil {
 		return "", nil, err
 	}
-	return chat.RenderTranscript(selected[:len(selected)-1], prompt), meta, nil
+	return render(selected), meta, nil
 }

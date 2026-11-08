@@ -45,7 +45,7 @@ func prepareChatImageRequest(request chatCompletionsRequest) (preparedRequest, e
 	return preparedRequest{
 		PromptAdjusted: adjusted,
 		Model:          request.Model,
-		Prompt:         transcriptFrom(messages),
+		Prompt:         transcriptForModel(messages, request.Model),
 		Images:         images,
 		Stream:         request.Stream,
 	}, nil
