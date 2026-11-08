@@ -103,7 +103,7 @@ func TestChatJSONObject(t *testing.T) {
 			t.Fatal(res.Body.String())
 		}
 	}
-	for _, extra := range []string{`"model":"cloud"`, `"model":"local","stream":true`, `"model":"local","tools":[]`} {
+	for _, extra := range []string{`"model":"cloud","stream":true`, `"model":"local","stream":true`, `"model":"local","tools":[]`} {
 		fake := &nativeFake{}
 		res := post(t, NewUnauthenticated(fake).Handler(), "/v1/chat/completions", `{`+extra+`,"messages":[{"role":"user","content":"hi"}],"response_format":{"type":"json_object"}}`)
 		if res.Code != 400 || fake.calls.Load() != 0 {

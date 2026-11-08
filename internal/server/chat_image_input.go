@@ -16,6 +16,10 @@ import (
 // Image data stays encoded here; validation, decoding, and staging belong to
 // stageImages.
 func prepareChatImageRequest(request chatCompletionsRequest) (preparedRequest, error) {
+	return prepareChatImageRequestWithInstructions(request, "")
+}
+
+func prepareChatImageRequestWithInstructions(request chatCompletionsRequest, instructions string) (preparedRequest, error) {
 	incoming, err := parseChatMessagesInput(request.Messages)
 	if err != nil {
 		return preparedRequest{}, err
@@ -45,7 +49,7 @@ func prepareChatImageRequest(request chatCompletionsRequest) (preparedRequest, e
 	return preparedRequest{
 		PromptAdjusted: adjusted,
 		Model:          request.Model,
-		Prompt:         transcriptForModel(messages, request.Model),
+		Prompt:         transcriptForModel(messages, request.Model, instructions),
 		Images:         images,
 		Stream:         request.Stream,
 	}, nil

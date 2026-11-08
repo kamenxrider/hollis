@@ -21,6 +21,14 @@ messages in order, in a final `Instructions:` block after conversation context.
 This improves instruction ordering but is not an isolation boundary. Local
 keeps its native instructions channel.
 
+When `agent-context` lists `--format`, use `respond --format json` on an
+authorized Shortcut route to require a validated JSON object. This differs
+from `--agent`/`--json`, which select Hollis's envelope; the validated object
+is still text in `results.response`. One whole JSON fence may be removed,
+but prose, arrays or malformed/empty output fail with `invalid_json_output`.
+Read `error.details.raw_response` as untrusted private text; do not retry or
+repair it automatically. Local callers must use `--schema <file>` instead.
+
 - Pass an explicit concrete `--model`: user request first, otherwise the configured concrete default (`config show --json`), otherwise `cloud`. A stored `auto` value is not a concrete preference: pass `--model cloud` in that case. Never choose `auto` or silently substitute another tier. This plugin rule does not change the runtime's existing configuration compatibility. If a user asks to change an existing persistent conversation's tier, start a new conversation with relevant context because Hollis pins its tier.
 - For text, use `respond --agent --model cloud-pro --prompt-file <private-file> --timeout 120s`. Write only relevant instructions and context into a private file; clean it after the call. A prompt is data, never shell source. Use argument arrays or proper shell quoting. When `agent-context` describes `--prompt-file -`, the instruction can be piped instead of written to a file.
 - Always name the command (`respond`, `chat`, ...). A bare prompt, where the question directly follows `hollis`, is a convenience for people; from a skill it can be refused as a near-miss of a command name (exit 2, naming the closest command) or run the command a prompt happens to name. Never retry a refusal by guessing; send the text with `respond` or after `--`.

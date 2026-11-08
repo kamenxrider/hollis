@@ -91,11 +91,17 @@ truncated value.
   looser JSON mode, and a non-conforming object is still refused.
 - `type:"text"` keeps the existing plain-text behavior.
 - Chat Completions also accepts `response_format:{"type":"json_object"}` on
-  `model:"local"`. It instructs Local to return one JSON object and independently
-  validates the complete text. Invalid output is **502** `invalid_json_output`,
-  never a broken or partial object. Like schema output, it is complete-only and
-  cannot accompany tools or images. Other routes get **400**
-  `unsupported_parameter` naming `local`. Responses still requires a schema.
+  Local and Shortcut routes (Cloud, Cloud Pro, On-Device and ChatGPT). It adds
+  a fixed JSON-only instruction and independently validates one complete object.
+  Shortcut answers have outer whitespace trimmed; one whole fenced block with
+  an exact opening of three backticks, optionally followed by `json`, is
+  unwrapped only when its content is an object. Surrounding prose, arrays,
+  malformed JSON and empty output are **502** `invalid_json_output`, with the
+  original answer in `error.details.raw_response`. No fields are repaired and
+  nothing is retried. This is complete-only and cannot accompany tools or
+  images. Local's existing validation is unchanged: fenced answers are refused.
+  Responses still requires a schema. `guided_output` capabilities continue to
+  describe native schema enforcement, not this instruction-and-validation mode.
 - Unknown fields inside `response_format`, `json_schema`, `text` or `format` are
   refused with **400** `unsupported_parameter`; the top level already rejects
   unknown fields.

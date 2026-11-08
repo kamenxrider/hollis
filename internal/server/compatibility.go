@@ -4,11 +4,13 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
 
+	"github.com/kamenxrider/hollis/internal/jsonoutput"
 	"github.com/kamenxrider/hollis/internal/runner"
 )
 
@@ -65,10 +67,6 @@ func (s *Server) handleChatJSONObject(w http.ResponseWriter, r *http.Request, re
 		writeRequestValidationError(w, unsupportedParameter("json_object only supports response_format.type"))
 		return
 	}
-	if request.Model != string(runner.ModelLocal) {
-		writeRequestValidationError(w, unsupportedParameter("json_object requires model \"local\""))
-		return
-	}
 	if request.Stream {
 		writeRequestValidationError(w, unsupportedParameter("guided output is complete-only; stream must be false"))
 		return
@@ -77,7 +75,12 @@ func (s *Server) handleChatJSONObject(w http.ResponseWriter, r *http.Request, re
 		writeRequestValidationError(w, unsupportedParameter("json_object cannot be combined with tools or image generation"))
 		return
 	}
-	prepared, err := prepareChatImageRequest(request)
+	instructions := ""
+	local := request.Model == string(runner.ModelLocal)
+	if !local {
+		instructions = jsonoutput.Instruction
+	}
+	prepared, err := prepareChatImageRequestWithInstructions(request, instructions)
 	if err != nil {
 		writeRequestValidationError(w, err)
 		return
@@ -86,20 +89,38 @@ func (s *Server) handleChatJSONObject(w http.ResponseWriter, r *http.Request, re
 		writeRequestValidationError(w, err)
 		return
 	}
-	prepared.Prompt = "Return exactly one valid JSON object, with no markdown fences or other text.\n\n" + prepared.Prompt
+	if local {
+		prepared.Prompt = jsonoutput.Instruction + "\n\n" + prepared.Prompt
+	}
 	prepared.Options = request.Options
 	model, ok := s.validatePreparedModel(w, prepared)
 	if !ok || !validatePrompt(w, prepared.Prompt) {
 		return
 	}
-	completion, ok := s.completePrepared(r.Context(), w, model, prepared)
+	var completion runner.Completion
+	if local {
+		completion, ok = s.completePrepared(r.Context(), w, model, prepared)
+	} else {
+		completion, ok = s.completeShortcutJSONObject(r, w, model, prepared.Prompt)
+	}
 	if !ok {
 		return
 	}
-	var object map[string]json.RawMessage
-	if json.Unmarshal([]byte(completion.Text), &object) != nil || object == nil {
-		writeAPIError(w, http.StatusBadGateway, "server_error", "invalid_json_output", "Local did not return a valid JSON object; no partial output was returned")
-		return
+	if local {
+		// Preserve Local's existing complete-text validation, including its
+		// refusal of fences; it has no Shortcut fence-unwrapping concession.
+		var object map[string]json.RawMessage
+		if json.Unmarshal([]byte(completion.Text), &object) != nil || object == nil {
+			writeAPIError(w, http.StatusBadGateway, "server_error", "invalid_json_output", "Local did not return a valid JSON object; no partial output was returned")
+			return
+		}
+	} else {
+		object, valid := jsonoutput.Object(completion.Text)
+		if !valid {
+			writeJSONObjectError(w, completion.Text)
+			return
+		}
+		completion.Text = object
 	}
 	result := map[string]any{
 		"id": "chatcmpl-" + randomID(), "object": "chat.completion", "created": time.Now().Unix(), "model": string(model),
@@ -109,4 +130,30 @@ func (s *Server) handleChatJSONObject(w http.ResponseWriter, r *http.Request, re
 		result["usage"] = chatUsage(completion.Usage)
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func writeJSONObjectError(w http.ResponseWriter, raw string) {
+	contract := runner.ErrorContractFor(runner.KindInvalidJSONOutput)
+	writeJSON(w, contract.HTTPStatus, map[string]any{"error": map[string]any{
+		"type": contract.HTTPType, "code": contract.HTTPCode, "message": contract.HTTPMessage,
+		"details": map[string]any{"raw_response": raw},
+	}})
+}
+
+func (s *Server) completeShortcutJSONObject(r *http.Request, w http.ResponseWriter, model runner.Model, prompt string) (runner.Completion, bool) {
+	release, ok := s.acquireCapacity(w)
+	if !ok {
+		return runner.Completion{}, false
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(r.Context(), runner.MaxTimeout)
+	defer cancel()
+	text, used, err := s.Runner.Run(ctx, model, prompt)
+	var classified *runner.Error
+	if errors.As(err, &classified) && classified.Kind == runner.KindNoOutput {
+		writeJSONObjectError(w, text)
+		return runner.Completion{}, false
+	}
+	text, used, ok = writeRunResult(w, model, text, used, err)
+	return runner.Completion{Text: text, Model: used}, ok
 }

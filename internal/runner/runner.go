@@ -90,9 +90,10 @@ var MaxTimeout = 120 * time.Second
 type Kind string
 
 const (
-	KindLocalUnavailable Kind = "local_unavailable"
-	KindContextCapacity  Kind = "context_capacity"
-	KindNativeProtocol   Kind = "native_protocol"
+	KindLocalUnavailable  Kind = "local_unavailable"
+	KindContextCapacity   Kind = "context_capacity"
+	KindNativeProtocol    Kind = "native_protocol"
+	KindInvalidJSONOutput Kind = "invalid_json_output"
 	// KindUnsupportedCapability is a negotiated-capability refusal: the paired
 	// helper speaks this protocol era but did not advertise, or refused, a
 	// capability this request needs. It is deliberately not native_protocol:

@@ -8,6 +8,7 @@ agent schema version remain unchanged.
 
 | Machine code | Meaning | CLI exit | HTTP status | Next action |
 | --- | --- | --- | --- | --- |
+| `invalid_json_output` | JSON-object mode received something other than one valid object | 5 | 502 | Clarify with `-s`, or use Local `--schema`; no retry or repair. Shortcut JSON errors include the raw answer in `error.details.raw_response` |
 | `rate_limited` | An advisory PCC reading of limit reached, Shortcuts code 1508, explicit usage-limit text, or likely-limit “can't be completed right now” diagnostic | 5 | 429, no Retry-After | Apple is rate-limiting cloud requests from this Mac. Wait before trying again (this can last hours). No automatic retry or model fallback |
 | `content_refused` | Shortcuts model rejection, code 900 | 5 | 422 | Apple declined this request. Rephrasing may help; retrying will not. |
 | `access_required` | Shortcuts account access failure, code 1511 | 5 | 403 | Cloud Pro is not available for this account. |

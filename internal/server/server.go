@@ -348,7 +348,7 @@ func transcriptFrom(messages []reqMessage) string {
 	return chat.RenderTranscript(history, messages[len(messages)-1].Content)
 }
 
-func transcriptForModel(messages []reqMessage, model string) string {
+func transcriptForModel(messages []reqMessage, model string, instructions ...string) string {
 	if model == string(runner.ModelLocal) {
 		return transcriptFrom(messages)
 	}
@@ -356,7 +356,7 @@ func transcriptForModel(messages []reqMessage, model string) string {
 	for _, message := range messages[:len(messages)-1] {
 		history = append(history, store.Message{Role: message.Role, Content: message.Content})
 	}
-	return chat.ShortcutTranscript(history, messages[len(messages)-1].Content, "")
+	return chat.ShortcutTranscript(history, messages[len(messages)-1].Content, strings.Join(instructions, "\n\n"))
 }
 
 func validatePrompt(w http.ResponseWriter, prompt string) bool {

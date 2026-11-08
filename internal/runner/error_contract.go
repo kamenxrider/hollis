@@ -2,6 +2,8 @@
 
 package runner
 
+import "github.com/kamenxrider/hollis/internal/jsonoutput"
+
 // ErrorContract holds the stable public classification of a runner failure.
 // CLI and HTTP codes differ intentionally; HTTP messages never expose helper
 // diagnostics. Empty HTTPMessage means the caller supplies a bounded message.
@@ -20,6 +22,7 @@ type ErrorContract struct {
 // failures. Keeping those here lets help, selection and agent-context derive
 // their existing code lists without changing their public surface.
 var errorContracts = []ErrorContract{
+	{KindInvalidJSONOutput, 5, "invalid_json_output", 502, "server_error", "invalid_json_output", jsonoutput.InvalidMessage, true},
 	{KindRateLimited, 5, "rate_limited", 429, "rate_limit_error", "rate_limited", "the native local model is rate limited", true},
 	{KindContentRefused, 5, "content_refused", 502, "server_error", "native_failed", "the native local model request failed", true},
 	{KindAccessRequired, 5, "access_required", 502, "server_error", "native_failed", "the native local model request failed", true},

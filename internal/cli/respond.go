@@ -18,6 +18,7 @@ import (
 
 	"github.com/kamenxrider/hollis/internal/chat"
 	"github.com/kamenxrider/hollis/internal/docinput"
+	"github.com/kamenxrider/hollis/internal/jsonoutput"
 	"github.com/kamenxrider/hollis/internal/runner"
 	"github.com/kamenxrider/hollis/internal/store"
 	"github.com/spf13/cobra"
@@ -36,6 +37,7 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		stream     bool
 		schemaFile string
 		code       bool
+		format     string
 		toolsFile  string
 		toolChoice string
 		mcpOptions mcpFlags
@@ -48,6 +50,17 @@ func newRespondCmd(flags *rootFlags, newRunner newRunnerFunc) *cobra.Command {
 		}
 		if cmd.Flags().Changed("model") && !runner.Model(model).Valid() {
 			return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", model))
+		}
+		if format != "text" && format != "json" {
+			return usageErr(errors.New("--format must be text or json"))
+		}
+		if format == "json" {
+			if code || cmd.Flags().Changed("schema") || cmd.Flags().Changed("tools") || mcpOptions.enabled() || extras.count || len(images) > 0 {
+				return usageErr(errors.New("--format json cannot be combined with --code, --schema, tools, --count-tokens or --image"))
+			}
+			if cmd.Flags().Changed("stream") && stream {
+				return usageErr(errors.New("--format json is complete-only and cannot be combined with --stream"))
+			}
 		}
 		_, promptArgs, _ := splitRespondModelArgs(cmd, args)
 		if err := extras.validate(cmd, promptArgs, mcpOptions.enabled()); err != nil {
@@ -139,6 +152,9 @@ the model may still refuse. --quiet/-q hides notes, never errors or answers.
 Guide the native response with --schema <file>: the supported JSON Schema
 subset is validated before anything runs, and the returned object is checked
 again before it is reported as success.
+On Shortcut routes, --format json requests and validates a single JSON object;
+--json instead selects Hollis's machine-readable envelope. No output is repaired
+or retried. Local callers should use --schema rather than --format json.
 Use --code to print only the first complete fenced code block with content,
 skipping empty or whitespace-only blocks, so the answer can be redirected into
 a source file. A response without a complete fence is printed as it is.
@@ -345,6 +361,15 @@ without another model round or a new resume protocol.`,
 			if !m.Valid() {
 				return usageErr(fmt.Errorf("unknown model %q: choose auto (default), cloud, cloud-pro, on-device, chatgpt, or local", m))
 			}
+			if format == "json" {
+				if m == runner.ModelLocal {
+					return usageErr(errors.New("--format json requires a Shortcut model; use --model local --schema <file> for guided JSON output"))
+				}
+				if instructions != "" {
+					instructions += "\n\n"
+				}
+				instructions += jsonoutput.Instruction
+			}
 			if extras.count {
 				if (cmd.Flags().Changed("model") && runner.Model(model) != runner.ModelLocal) || (hasPosModel && runner.Model(posModel) != runner.ModelLocal) {
 					return usageErr(errors.New("--count-tokens requires Local; remove the explicit non-local model"))
@@ -521,7 +546,18 @@ without another model round or a new resume protocol.`,
 			}
 			stopWaiting()
 			if err != nil {
+				var classified *runner.Error
+				if format == "json" && errors.As(err, &classified) && classified.Kind == runner.KindNoOutput {
+					return invalidJSONObjectOutput(text)
+				}
 				return withPDFRefusalContext(toCLIRequestError(err, m, timeout), hasPDF)
+			}
+			if format == "json" {
+				object, ok := jsonoutput.Object(text)
+				if !ok {
+					return invalidJSONObjectOutput(text)
+				}
+				text = object
 			}
 
 			if flags.asJSON {
@@ -618,6 +654,7 @@ without another model round or a new resume protocol.`,
 	cmd.Flags().BoolVar(&keepPrompt, "keep-prompt", false, "Send original one-image wording without a singular rewrite")
 	cmd.Flags().StringVar(&schemaFile, "schema", "", "JSON Schema file for guided native-local output; requires --model local and completes without streaming")
 	cmd.Flags().BoolVar(&code, "code", false, "Print the first complete non-empty fenced code block (or the whole answer when there is no complete fence); exit 3 when there is nothing to print")
+	cmd.Flags().StringVar(&format, "format", "text", "Response format: text or json (one validated object on Shortcut routes; --json selects the Hollis envelope)")
 	cmd.Flags().StringVar(&toolsFile, "tools", "", "JSON file with an OpenAI-shaped tools array for native-local tool calling; prints the tool calls or the answer as one JSON document")
 	cmd.Flags().StringVar(&toolChoice, "tool-choice", string(runner.ToolChoiceAuto), "With --tools or MCP: auto (default), none, required, or function:NAME")
 	cmd.Flags().DurationVar(&timeout, "timeout", runner.DefaultTimeout, "Per-call timeout (default 30s, ceiling 120s)")
@@ -628,6 +665,12 @@ without another model round or a new resume protocol.`,
 	installContextFlags(cmd, flags)
 	addLocalRetry(cmd, flags)
 	return cmd
+}
+
+func invalidJSONObjectOutput(raw string) error {
+	contract := runner.ErrorContractFor(runner.KindInvalidJSONOutput)
+	return &cliError{code: contract.ExitCode, machineCode: contract.MachineCode,
+		err: errors.New(contract.HTTPMessage), details: map[string]any{"raw_response": raw}}
 }
 
 // prepareDocuments frames text-only document input, which needs no helper.

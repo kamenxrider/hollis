@@ -11,6 +11,29 @@ also puts system/developer instructions after image context and revisions.
 
 Start with the [verified install and first request](../README.md#install-verified). This guide keeps the detailed command and storage contracts together.
 
+## JSON object responses
+
+`hollis respond --model cloud --format json 'Return an object with key ready.'`
+requests exactly one JSON object on Cloud, Cloud Pro, On-Device or ChatGPT.
+It adds a fixed JSON-only instruction and validates the complete answer.
+`--format json` controls model output; `--json` and `--agent` independently
+select Hollis's envelope, whose `response` remains the validated JSON text.
+Without an envelope, stdout is the object itself.
+
+Outer whitespace is trimmed. One whole fenced block, opened with exactly
+` ```json ` or ` ``` ` (without the spaces shown here), is unwrapped only if
+its entire content is an object. Surrounding prose, arrays, null, malformed
+JSON and empty output fail with exit 5, `invalid_json_output`. No fields are
+repaired and no retry is made. Machine errors preserve the original text at
+`error.details.raw_response`; handle it as untrusted, potentially private data.
+The exact error is: “The model did not return a valid JSON object. Use -s to
+clarify the required object, or use --model local --schema for guided output.
+No retry was attempted.”
+
+This is complete-only and cannot accompany `--stream`, `--code`, `--schema`,
+tools, `--count-tokens` or images. Local refuses `--format json` with exit 2:
+use `--model local --schema <file>` for native guided output.
+
 ## Import and bridge warnings
 
 `setup --import` prints “Choose Add Shortcut in each window, then run hollis
