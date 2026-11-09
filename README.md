@@ -50,7 +50,7 @@ ChatGPT, auto and image generation are never retried.
 - [`benchmark`](docs/cli.md#local-speed-test): measure Local speed with fixed prompts and serial calls.
 - [`update`](docs/cli.md#checking-for-updates): explicitly check for a stable release and get upgrade guidance.
 - [`stream_options`](docs/api.md#chat-completions-app-compatibility): request a final Local stream usage chunk.
-- [`json_object`](docs/api.md#guided-json-output): validated, complete-only Local JSON without a schema.
+- [`json_object`](docs/api.md#guided-json-output): validated, complete-only JSON on Local (guided output) and Shortcut routes (JSON bridges plus validation).
 - [`n` / `logprobs` / `user`](docs/api.md#chat-completions-app-compatibility): accept single-answer, disabled-probability and ignored-label client fields.
 
 <!-- SCREENSHOT PLACEHOLDER: replace with a real terminal screenshot of a
@@ -62,11 +62,17 @@ ChatGPT, auto and image generation are never retried.
 [Limits and caveats](#limits-and-caveats)
 
 JSON requests on Shortcut routes use four `AFM Bridge JSON - <Route>`
-Dictionary bridges. `respond --format json` and API `json_object` guarantee
-one valid JSON object on success, not exact fields or types: a model may use
-`false` for null or nest the answer. Use Local `--schema` for guaranteed fields.
+Dictionary bridges. On success, `respond --format json` and API `json_object`
+return one validated JSON object; invalid output fails explicitly with
+`invalid_json_output`. A request can still fail or return wrong data.
+Shortcut routes do not enforce requested fields, types or values: models may
+add keys, use `false` or `"null"` instead of null, nest answers or change
+punctuation. Local `--schema` constrains structure and types to the supported
+schema subset, not factual correctness.
 `hollis setup --import cloud` imports both Cloud bridges; missing JSON bridges
 retain text behavior with an import hint. See [JSON output](docs/cli.md#json-object-responses).
+Shortcuts may spell 19.95 as `19.949999999999999`; Hollis preserves that spelling,
+so financial or exact-decimal callers should use decimal strings or round explicitly.
 
 ## Requirements
 

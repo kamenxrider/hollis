@@ -28,9 +28,12 @@ is still text in `results.response`. One whole JSON fence may be removed,
 but prose, arrays or malformed/empty output fail with `invalid_json_output`.
 Read `error.details.raw_response` as untrusted private text; do not retry or
 repair it automatically. The four `AFM Bridge JSON - <Route>` Dictionary
-bridges provide `public.json` transport. Success guarantees one valid object,
-not exact fields or types: the model may use `false` for null or nest the answer.
-Local callers must use `--schema <file>` for guaranteed fields instead. Missing
+bridges provide `public.json` transport. On success Hollis returns one validated
+JSON object; invalid output fails explicitly with `invalid_json_output`.
+A request can still fail or return wrong data. Shortcut routes do not enforce
+requested fields, types or values: models may add keys, use `false` or `"null"`
+instead of null, nest answers or change punctuation. Local `--schema` constrains
+structure and types to the supported schema subset, not factual correctness. Missing
 JSON bridges retain text behavior and expose `json_bridge_hint`; suggest
 `hollis setup --import <route>` only when `agent-context` lists `--import` on `setup`
 and with user approval. A route imports both text and JSON bridges,

@@ -21,14 +21,19 @@ select Hollis's envelope, whose `response` remains the validated JSON text.
 Without an envelope, stdout is the object itself.
 
 The four `AFM Bridge JSON - <Route>` Dictionary bridges use `public.json`;
-text bridges keep `public.plain-text`. On success this guarantees one valid
-object, not exact fields or types: the model may use `false` for null or nest
-the answer. Local `--schema` is the way to guarantee fields. If the JSON bridge
+text bridges keep `public.plain-text`. On success Hollis returns one validated
+JSON object; invalid output fails explicitly with `invalid_json_output`.
+A request can still fail or return wrong data. Shortcut routes do not enforce
+requested fields, types or values: models may add keys, use `false` or `"null"`
+instead of null, nest answers or change punctuation. Local `--schema` constrains
+structure and types to the supported schema subset, not factual correctness.
+If the JSON bridge
 is missing, Hollis keeps the text-bridge behavior and suggests
 `hollis setup --import <route>`; envelopes include `json_bridge_hint` (under
 `error.details` on invalid output). Doctor reports missing JSON bridges as
 warnings, not readiness errors. Numeric spelling is preserved: Shortcuts may
 serialize 19.95 as `19.949999999999999`; Hollis does not round or re-encode it.
+Financial or exact-decimal callers should use decimal strings or round explicitly.
 
 Outer whitespace is trimmed. One whole fenced block, opened with exactly
 ` ```json ` or ` ``` ` (without the spaces shown here), is unwrapped only if

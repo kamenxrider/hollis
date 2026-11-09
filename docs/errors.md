@@ -42,6 +42,14 @@ agent schema version remain unchanged.
 | `tool_name_conflict` | Caller and MCP tools share a rendered name | 2 | n/a | Rename the caller tool or select noncolliding servers |
 | `tool_count_limit` | The combined offer exceeds 128, or caller tools exceed 32 | 2 | n/a | Select fewer servers or caller tools; no automatic pruning occurs |
 
+JSON-object mode returns one validated JSON object on success; invalid output
+fails explicitly with `invalid_json_output`. A request can still fail or return
+wrong data. Shortcut routes do not enforce requested fields, types or values:
+models may add keys, use `false` or `"null"` instead of null, nest answers or
+change punctuation. Those differences do not cause `invalid_json_output` when
+the answer is still a valid object. Local `--schema` / `json_schema` constrains
+structure and types to the supported schema subset, not factual correctness.
+
 `native_protocol` is a component mismatch, not a bad invocation: the command
 was understood and the installed helper cannot serve it. It deliberately shares
 exit 5 with the transport family so a script can treat a stale pairing like any

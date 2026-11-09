@@ -104,10 +104,16 @@ truncated value.
   routes; Local Responses still requires a schema. Both endpoints select the
   route's `AFM Bridge JSON - <Route>` Dictionary bridge with `public.json`.
   Missing JSON bridges keep the text behavior and add `json_bridge_hint` to
-  successful output or invalid-output error details. Success guarantees one
-  valid object, not fields or types: the model may use `false` for null or nest
-  the answer. Use Local `json_schema` (CLI `--schema`) for guaranteed fields.
-  Numeric spelling is preserved, including `19.949999999999999` for 19.95. `guided_output` capabilities continue to
+  successful output or invalid-output error details. On success Hollis returns
+  one validated JSON object; invalid output fails explicitly with
+  `invalid_json_output`. A request can still fail or return wrong data.
+  Shortcut routes do not enforce requested fields, types or values: models may
+  add keys, use `false` or `"null"` instead of null, nest answers or change
+  punctuation. Local `json_schema` (CLI `--schema`) constrains structure and
+  types to the supported schema subset, not factual correctness.
+  Numeric spelling is preserved, including `19.949999999999999` for 19.95.
+  Financial or exact-decimal callers should use decimal strings or round explicitly.
+  `guided_output` capabilities continue to
   describe native schema enforcement, not this instruction-and-validation mode.
 - Unknown fields inside `response_format`, `json_schema`, `text` or `format` are
   refused with **400** `unsupported_parameter`; the top level already rejects

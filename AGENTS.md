@@ -8,9 +8,13 @@ protocol (`internal/runner/native.go`).
 
 JSON requests use separate `AFM Bridge JSON - <Route>` Dictionary bridges with
 `public.json`; text bridges keep `public.plain-text`. `--format json` and HTTP
-`json_object` return one valid object or fail, never repair or retry. They do
-not guarantee fields or types: a model may use `false` for null or nest the
-answer. Use Local `--schema` for guaranteed fields. Missing JSON bridges fall
+`json_object` return one validated JSON object on success; invalid output fails
+explicitly with `invalid_json_output`, without repair or retry. A request can
+still fail or return wrong data. Shortcut routes do not enforce requested
+fields, types or values: models may add keys, use `false` or `"null"` instead
+of null, nest answers or change punctuation. Local `--schema` constrains
+structure and types to the supported schema subset, not factual correctness.
+Missing JSON bridges fall
 back to text with an import hint; discovery and imports never run inference.
 
 ## Where things are
