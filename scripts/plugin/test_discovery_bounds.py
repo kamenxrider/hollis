@@ -287,10 +287,11 @@ class DiscoveryBoundsTests(unittest.TestCase):
 
     def test_sign_deadline_releases_setup_lock(self):
         self.fixture.install()
+        # Keep the bridge missing so import reaches the signing deadline.
         self.replace_shortcuts(
             "#!/bin/bash\n"
             "case \"${1:-}\" in\n"
-            "  list) printf 'AFM Bridge - Cloud Pro\\n'; exit 0;;\n"
+            "  list) exit 0;;\n"
             "  sign) sleep 240;;\n"
             "  *) exit 97;;\n"
             "esac\n")

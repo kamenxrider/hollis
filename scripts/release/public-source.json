@@ -525,7 +525,7 @@
     "scripts/plugin/refresh_lock.py": "b06de32a6b939ddb2772599bd835ee9647a7cf1cd6c54a313a7032a6bc5b5d29",
     "scripts/plugin/test_bridge_sets.py": "2e2b6ce0daba2f0d5446cd5e3cdd52b347bda3e5d45b2bbc7beacb131e0a1ef9",
     "scripts/plugin/test_bundle_versions.py": "24d8fb127535c16eaaaa2d9399d9fcef7ff65bd322ca4fec03450b60b5560327",
-    "scripts/plugin/test_discovery_bounds.py": "2af0b88fb69bb053aec25f8e4290650655cce3973f57025738ff6f92fec709b7",
+    "scripts/plugin/test_discovery_bounds.py": "dd6213b72a0683f936fe6a75555bf1e921992edd806e66363017dfabd523cc61",
     "scripts/plugin/test_native_package.py": "0f92be93bea06b6f6d365f979210142bb6f52ffc9c555fbc042bb6f2fe6d2383",
     "scripts/plugin/test_native_protocol_authority.py": "e553bf7af00fbff95b6b9a2a583fb6a50be94c024cdb64ea59c4da5662c82fd1",
     "scripts/plugin/test_package_archive.py": "ce4edbac1d7e4f065f6206b4a3812bd5239f0ab4a4baeecbadc72385b2a07b12",
