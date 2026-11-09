@@ -24,6 +24,8 @@ The agent handles these steps:
    the image route imports one bridge. The legacy 0.4.0 kit has five bridges. Approve
    **Add Shortcut** in Shortcuts. Existing discovered bridges and custom choices
    are preserved; skipping one does not disable another.
+   Default text and JSON bridge discovery accepts the bare name or its `.signed`
+   spelling. Archive members still use the bare name plus `.shortcut`.
 4. Verify discovery and return to your task. The first requested inference can
    require Apple's **Allow** prompt or acceptance of provider terms. You make
    those decisions. A successful response establishes that route's readiness.

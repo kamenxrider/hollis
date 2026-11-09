@@ -214,6 +214,16 @@ bridge_name() {
     image) printf 'Hollis Image - Reference Input v2';;
   esac
 }
+listed_bridge() {
+  local reference
+  for reference in "$1.signed" "$1"; do
+    if /usr/bin/grep -Fxq -- "$reference" "$WORK_DIR/shortcuts.txt"; then
+      printf '%s' "$reference"
+      return 0
+    fi
+  done
+  return 1
+}
 route_info() {
   local route=$1 i model
   ROUTE_REF=; ROUTE_VERIFIED=false; ROUTE_STATUS=missing; ROUTE_CONFIGURED=true
@@ -257,13 +267,14 @@ if [[ "$ROUTE" != image ]]; then
   text_name=$(bridge_name "$ROUTE")
   candidate=${text_name/AFM Bridge - /AFM Bridge JSON - }
   if /usr/bin/grep -Fxq -- "$candidate.shortcut" <<< "$BRIDGE_NAMES"; then json_name=$candidate; fi
-  if [[ "$ROUTE_VERIFIED" != true && -z $(field "$WORK_DIR/config.json" "bridges.$ROUTE" || true) ]] &&
-      /usr/bin/grep -Fxq -- "$text_name" "$WORK_DIR/shortcuts.txt"; then
-    ROUTE_VERIFIED=true; ROUTE_REF=$text_name
+  if [[ "$ROUTE_VERIFIED" != true && -z $(field "$WORK_DIR/config.json" "bridges.$ROUTE" || true) ]]; then
+    if text_ref=$(listed_bridge "$text_name"); then
+      ROUTE_VERIFIED=true; ROUTE_REF=$text_ref
+    fi
   fi
 fi
 if [[ "$ROUTE_VERIFIED" == true ]] &&
-    { [[ -z "$json_name" ]] || /usr/bin/grep -Fxq -- "$json_name" "$WORK_DIR/shortcuts.txt"; }; then
+    { [[ -z "$json_name" ]] || listed_bridge "$json_name" >/dev/null; }; then
   if [[ "$ROUTE" == image && -z $(field "$WORK_DIR/config.json" image_bridge || true) ]]; then
     "$BIN" config set image-bridge "$ROUTE_REF" >/dev/null
   fi
@@ -301,7 +312,7 @@ import_names=$(
   if [[ "$ROUTE_VERIFIED" != true ]] &&
       ! /usr/bin/grep -Fxq -- "$name" "$WORK_DIR/shortcuts.txt"; then printf '%s\n' "$name"; fi
   if [[ -n "$json_name" ]] &&
-      ! /usr/bin/grep -Fxq -- "$json_name" "$WORK_DIR/shortcuts.txt"; then printf '%s\n' "$json_name"; fi
+      ! listed_bridge "$json_name" >/dev/null; then printf '%s\n' "$json_name"; fi
   true
 )
 if [[ -z "$import_names" ]]; then

@@ -13,6 +13,12 @@ runtime's `agent-context`, and empty `NEEDS_NEW_RUNTIME` in
 `scripts/plugin/test_skill_commands.py`; that test fails until the fixture
 matches the lock.
 
+## Bridge discovery
+
+Plugin discovery accepts the bare and `.signed` spellings of default text and
+JSON bridge names, preferring `.signed` when both are listed. Imported archive
+members keep their bare `.shortcut` filenames. Discovery does not run inference.
+
 ## Instructions that need the new runtime
 
 `test_skill_commands.py` checks the commands in `plugins/hollis/skills` and

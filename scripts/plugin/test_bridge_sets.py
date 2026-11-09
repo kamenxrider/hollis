@@ -10,6 +10,8 @@ import package_plugin
 import test_native_package
 
 
+TEXT_ROUTES = (('cloud', 'Cloud'), ('cloud-pro', 'Cloud Pro'),
+               ('on-device', 'On-Device'), ('chatgpt', 'ChatGPT'))
 LEGACY = [
     'AFM Bridge - Cloud.shortcut', 'AFM Bridge - Cloud Pro.shortcut',
     'AFM Bridge - On-Device.shortcut', 'AFM Bridge - ChatGPT.shortcut',
@@ -177,6 +179,61 @@ class BridgeSetTests(unittest.TestCase):
     def opened(self):
         path = Path(self.fixture.env['OPEN_LOG'])
         return path.read_text().splitlines() if path.exists() else []
+
+    def prepare_discovery(self):
+        self.fixture.binary.write_text(self.fixture.binary.read_text().replace(
+            '"verified":true', '"verified":false'))
+        self.fixture.relock()
+        self.route_helpers()
+        self.install()
+
+    def test_signed_json_is_discovered_without_reopening_imports(self):
+        self.prepare_discovery()
+        for route, title in TEXT_ROUTES:
+            with self.subTest(route=route):
+                self.fixture.env['FIXTURE_LIST'] = (
+                    f'AFM Bridge - {title}\nAFM Bridge JSON - {title}.signed')
+                result = self.fixture.call('import', route)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)['status'], 'discovered')
+                self.assertEqual(self.opened(), [])
+                self.assertFalse((self.fixture.home / 'imports/pending').exists())
+
+    def test_bare_json_is_discovered_without_reopening_imports(self):
+        self.prepare_discovery()
+        for route, title in TEXT_ROUTES:
+            with self.subTest(route=route):
+                self.fixture.env['FIXTURE_LIST'] = (
+                    f'AFM Bridge - {title}\nAFM Bridge JSON - {title}')
+                result = self.fixture.call('import', route)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)['status'], 'discovered')
+                self.assertEqual(self.opened(), [])
+
+    def test_missing_json_imports_the_bare_archive_member(self):
+        self.prepare_discovery()
+        for route, title in TEXT_ROUTES:
+            with self.subTest(route=route):
+                self.fixture.env['FIXTURE_LIST'] = f'AFM Bridge - {title}'
+                before = len(self.opened())
+                result = self.fixture.call('import', route)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)['status'], 'permission_pending')
+                self.assertEqual(self.opened()[before:], [
+                    f'AFM Bridge JSON - {title}.shortcut'])
+
+    def test_signed_text_and_json_are_discovered_together(self):
+        self.prepare_discovery()
+        for route, title in TEXT_ROUTES:
+            with self.subTest(route=route):
+                text = f'AFM Bridge - {title}.signed'
+                self.fixture.env['FIXTURE_LIST'] = text + f'\nAFM Bridge JSON - {title}.signed'
+                result = self.fixture.call('import', route)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)['status'], 'discovered')
+                self.assertEqual(self.opened(), [])
+                discovered = self.fixture.home / 'imports' / (route + '.discovered')
+                self.assertEqual(discovered.read_text().strip(), text)
 
     def test_each_text_route_selects_text_and_json_without_importing_other_routes(self):
         self.fixture.binary.write_text(self.fixture.binary.read_text().replace(
