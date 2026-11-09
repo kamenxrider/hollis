@@ -19,7 +19,9 @@ The agent handles these steps:
    setup refuses it until verified published 0.7.0 assets are pinned.
    A newer existing Hollis is preserved and used. The plugin's bridge kit remains
    available. No PATH modification is needed.
-3. Native `local` requires the matching helper and no bridge; run `setup.sh status local`. Offer all five bridges and import selected ones individually. Approve
+3. Native `local` requires the matching helper and no bridge; run `setup.sh status local`. Offer the four Shortcut text routes and images. For each selected text route,
+   import its text and JSON bridges together from the nine-bridge 0.7.0 kit;
+   the image route imports one bridge. The legacy 0.4.0 kit has five bridges. Approve
    **Add Shortcut** in Shortcuts. Existing discovered bridges and custom choices
    are preserved; skipping one does not disable another.
 4. Verify discovery and return to your task. The first requested inference can

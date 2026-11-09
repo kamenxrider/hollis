@@ -8,8 +8,8 @@ It works in **Claude Code and Codex**, alongside gstack or on its own. You ask
 in the conversation; Hollis calls the selected Apple route on your Mac and
 brings the result back. No separate server or model API key is needed.
 
-**Plugin 0.4.0 targets runtime 0.7.0**, its matching native helper and five
-Shortcut bridges. The checked-in `runtime.lock.json` still pins **runtime 0.4.0**;
+**Plugin 0.4.0 targets runtime 0.7.0**, its matching native helper and nine
+Shortcut bridges (four text, four JSON and one image). The checked-in `runtime.lock.json` still pins **runtime 0.4.0**;
 source setup and packaging refuse that older pin until published 0.7.0 assets
 are verified and pinned. This plugin version is not yet published. Explicit native `local` provides streaming for human
 terminal output and measured token usage on complete responses. Agent/JSON

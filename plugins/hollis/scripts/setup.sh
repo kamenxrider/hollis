@@ -24,7 +24,7 @@ install_runtime() {
   if ! newer 0.3.0 "$plugin_version" && newer 0.7.0 "$VERSION"; then
     fail "This $plugin_version source package awaits verified runtime 0.7.0 release pins; no older runtime was installed."
   fi
-  local external= dest stage_names expected_names i current= keep_current=false
+  local external= dest stage_names expected_names name current= keep_current=false
   external=$(external_newer || true)
   acquire setup
   if [[ -e "$PLUGIN_HOME/current" || -L "$PLUGIN_HOME/current" ]]; then
@@ -46,11 +46,11 @@ install_runtime() {
       chmod 700 "$WORK_DIR/hollis-native"
     fi
     stage_names=$(unzip -Z1 "$WORK_DIR/hollis-bridges.zip" | LC_ALL=C sort)
-    expected_names=$(for i in 0 1 2 3 4; do field "$RUNTIME_LOCK" "bridge_files.$i"; done | LC_ALL=C sort)
-    [[ "$stage_names" == "$expected_names" ]] || fail 'The archive must contain exactly the five pinned bridges, with no extra or duplicate entries.'
+    expected_names=$BRIDGE_NAMES
+    [[ "$stage_names" == "$expected_names" ]] || fail 'The archive must contain exactly the pinned bridges, with no extra or duplicate entries.'
     mkdir "$WORK_DIR/bridges"
     unzip -q "$WORK_DIR/hollis-bridges.zip" -d "$WORK_DIR/bridges"
-    for i in 0 1 2 3 4; do regular "$WORK_DIR/bridges/$(field "$RUNTIME_LOCK" "bridge_files.$i")"; done
+    while IFS= read -r name; do regular "$WORK_DIR/bridges/$name"; done <<< "$expected_names"
     cp "$RUNTIME_LOCK" "$WORK_DIR/runtime.lock.json"
     chmod 700 "$WORK_DIR/hollis"
     [[ $("$WORK_DIR/hollis" --version) == "hollis $VERSION" ]] || fail 'Downloaded executable reports an unexpected version.'

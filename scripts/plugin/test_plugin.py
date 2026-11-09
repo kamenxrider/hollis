@@ -111,7 +111,7 @@ esac
         self.relock()
         result = self.call("install")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("exactly the five", result.stderr)
+        self.assertIn("exactly the pinned bridges", result.stderr)
         self.assertFalse((self.home / "current").exists())
 
     def test_symlink_install_destination_rejected(self):

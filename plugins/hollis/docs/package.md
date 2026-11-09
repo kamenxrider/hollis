@@ -29,7 +29,7 @@ plugins/hollis/                 Plugin root: hosts load this directory
 └── assets/runtime/           Added to built archives; absent from source
     ├── hollis-darwin-arm64
     ├── hollis-native-darwin-arm64  Matching native-local helper
-    ├── hollis-bridges.zip     All five bridges
+    ├── hollis-bridges.zip     All nine bridges
     └── provenance.json       Runtime-asset verification receipt
 ```
 
@@ -116,7 +116,7 @@ python3 scripts/plugin/package_plugin.py --output dist/plugin-review
 
 Packaging downloads the locked assets, verifies their hashes and GitHub provenance,
 and bundles both marketplace entries, this plugin directory, the ARM64 binary
-and all five bridges. It also produces a checksum and runtime-provenance receipt.
+and all nine bridges for 0.7.0 (four text, four JSON and one image). It also produces a checksum and runtime-provenance receipt.
 `--assets-dir /absolute/cached-assets` reuses cached assets while still checking
 provenance. An existing archive is never overwritten.
 

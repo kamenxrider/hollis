@@ -193,6 +193,35 @@ platform() {
   os=$(sw_vers -productVersion)
   [[ ${os%%.*} == 27 ]] || { report unsupported "This plugin supports the tested macOS 27 route; found $os."; exit 3; }
 }
+locked_bridge_names() {
+  local receipt=$1 count i name expected actual
+  local names=()
+  count=$(/usr/bin/plutil -extract bridge_files raw -expect array -o - "$receipt" 2>/dev/null) || return 1
+  case "$count" in 5|9) ;; *) return 1;; esac
+  for ((i=0; i<count; i++)); do
+    name=$(field "$receipt" "bridge_files.$i") || return 1
+    if [[ -z "$name" || "$name" == */* || "$name" == *\\* ||
+          "$name" == *'*'* || "$name" == *'?'* || "$name" == *'['* || "$name" == *']'* || "$name" == *$'\n'* ||
+          "$name" == *$'\r'* || "$name" == *$'\t'* || "$name" != *.shortcut ]]; then
+      return 1
+    fi
+    names[$i]=$name
+  done
+  if field "$receipt" "bridge_files.$count" >/dev/null 2>&1; then return 1; fi
+  expected=$(
+    printf '%s\n' 'AFM Bridge - Cloud.shortcut' 'AFM Bridge - Cloud Pro.shortcut' \
+      'AFM Bridge - On-Device.shortcut' 'AFM Bridge - ChatGPT.shortcut' \
+      'Hollis Image - Reference Input v2.shortcut'
+    if [[ "$count" == 9 ]]; then
+      printf '%s\n' 'AFM Bridge JSON - Cloud.shortcut' 'AFM Bridge JSON - Cloud Pro.shortcut' \
+        'AFM Bridge JSON - On-Device.shortcut' 'AFM Bridge JSON - ChatGPT.shortcut'
+    fi
+  )
+  expected=$(printf '%s\n' "$expected" | LC_ALL=C sort)
+  actual=$(printf '%s\n' "${names[@]}" | LC_ALL=C sort)
+  [[ "$actual" == "$expected" ]] || return 1
+  printf '%s\n' "$actual"
+}
 read_lock() {
   regular "$RUNTIME_LOCK"
   [[ $(field "$RUNTIME_LOCK" schema_version) == 1 || $(field "$RUNTIME_LOCK" schema_version) == 2 ]] || fail 'Unsupported runtime lock.'
@@ -201,6 +230,7 @@ read_lock() {
   BINARY_NAME=$(field "$RUNTIME_LOCK" binary.name)
   BRIDGES_NAME=$(field "$RUNTIME_LOCK" bridges.name)
   [[ "$BINARY_NAME" == hollis-darwin-arm64 && "$BRIDGES_NAME" == hollis-bridges.zip ]] || fail 'Unexpected runtime asset names.'
+  BRIDGE_NAMES=$(locked_bridge_names "$RUNTIME_LOCK") || fail 'The lock must list exactly the legacy five or current nine bridges, without duplicates or unsafe names.'
 }
 runtime_path() {
   safe_path "$PLUGIN_HOME"
@@ -329,7 +359,6 @@ runtime_record() {
   RR_DETAIL=
   local candidate out ver dir receipt schema expected actual native_name native_hash
   local bridge_hash i name expected_names actual_names members= separator= member_hash previous
-  local bridge_names=()
   if ! (read_lock; safe_path "$PLUGIN_HOME") >/dev/null 2>&1; then
     emit_runtime_record; return 10
   fi
@@ -373,18 +402,7 @@ runtime_record() {
     RR_COMMIT= RR_DETAIL='Installed runtime receipt does not match its version.'
     emit_runtime_record; return 10
   fi
-  for i in 0 1 2 3 4; do
-    name=$(field "$receipt" "bridge_files.$i" || true)
-    if [[ -z "$name" || "$name" == */* || "$name" == *\\* ||
-          "$name" == *'*'* || "$name" == *'?'* || "$name" == *'['* || "$name" == *']'* || "$name" == *$'\n'* ||
-          "$name" == *$'\r'* || "$name" == *$'\t'* || "$name" != *.shortcut ]]; then
-      emit_runtime_record; return 10
-    fi
-    bridge_names[$i]=$name
-  done
-  expected_names=$(printf '%s\n' "${bridge_names[@]}" | LC_ALL=C sort)
-  if [[ $(printf '%s\n' "${bridge_names[@]}" | LC_ALL=C sort -u | wc -l | tr -d ' ') != 5 ]] ||
-      field "$receipt" bridge_files.5 >/dev/null 2>&1; then
+  if ! expected_names=$(locked_bridge_names "$receipt"); then
     emit_runtime_record; return 10
   fi
   native_name=$(field "$receipt" native.name || true)

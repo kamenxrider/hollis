@@ -6,7 +6,7 @@ MODE=${1:-status}; ROUTE=${2:-all}
 [[ $# -le 3 ]] || fail 'Usage: import <route> [--reopen] or status [route].'
 [[ -z ${3:-} || ( "$MODE" == import && "$3" == --reopen ) ]] || fail 'Only import accepts --reopen.'
 case "$ROUTE" in local|cloud|cloud-pro|on-device|chatgpt|image|all) ;; *) fail 'Unknown bridge route.';; esac
-[[ "$MODE" != import || "$ROUTE" != all ]] || fail 'Import one selected bridge at a time.'
+[[ "$MODE" != import || "$ROUTE" != all ]] || fail 'Import one selected route at a time.'
 # External Shortcuts interactions get hard time bounds. macOS has no
 # timeout(1), so the bound is pure bash 3.2: monitor mode gives the child its
 # own process group, and a polling reaper kills the GROUP — direct child and
@@ -252,7 +252,18 @@ if [[ "$MODE" == status ]]; then
 fi
 [[ "$MODE" == import ]] || fail 'Expected import or status.'
 route_info "$ROUTE"
-if [[ "$ROUTE_VERIFIED" == true ]]; then
+json_name=
+if [[ "$ROUTE" != image ]]; then
+  text_name=$(bridge_name "$ROUTE")
+  candidate=${text_name/AFM Bridge - /AFM Bridge JSON - }
+  if /usr/bin/grep -Fxq -- "$candidate.shortcut" <<< "$BRIDGE_NAMES"; then json_name=$candidate; fi
+  if [[ "$ROUTE_VERIFIED" != true && -z $(field "$WORK_DIR/config.json" "bridges.$ROUTE" || true) ]] &&
+      /usr/bin/grep -Fxq -- "$text_name" "$WORK_DIR/shortcuts.txt"; then
+    ROUTE_VERIFIED=true; ROUTE_REF=$text_name
+  fi
+fi
+if [[ "$ROUTE_VERIFIED" == true ]] &&
+    { [[ -z "$json_name" ]] || /usr/bin/grep -Fxq -- "$json_name" "$WORK_DIR/shortcuts.txt"; }; then
   if [[ "$ROUTE" == image && -z $(field "$WORK_DIR/config.json" image_bridge || true) ]]; then
     "$BIN" config set image-bridge "$ROUTE_REF" >/dev/null
   fi
@@ -268,7 +279,7 @@ fi
 # Do not overwrite a user's configured but currently unlisted bridge.
 if [[ "$ROUTE" == image ]]; then custom=$(field "$WORK_DIR/config.json" image_bridge || true)
 else custom=$(field "$WORK_DIR/config.json" "bridges.$ROUTE" || true); fi
-if [[ -n "$custom" ]]; then
+if [[ -n "$custom" && "$ROUTE_VERIFIED" != true ]]; then
   # config show includes only explicit overrides; see runtime contract.
   report action_required "Configured $ROUTE reference is not verified: $custom. Preserve it and resolve discovery or confirm a replacement."
   exit 3
@@ -286,16 +297,33 @@ verify "$dir/hollis-bridges.zip" "$(field "$dir/runtime.lock.json" bridges.sha25
 mkdir "$WORK_DIR/unsigned"
 unzip -q "$dir/hollis-bridges.zip" -d "$WORK_DIR/unsigned"
 name=$(bridge_name "$ROUTE")
+import_names=$(
+  if [[ "$ROUTE_VERIFIED" != true ]] &&
+      ! /usr/bin/grep -Fxq -- "$name" "$WORK_DIR/shortcuts.txt"; then printf '%s\n' "$name"; fi
+  if [[ -n "$json_name" ]] &&
+      ! /usr/bin/grep -Fxq -- "$json_name" "$WORK_DIR/shortcuts.txt"; then printf '%s\n' "$json_name"; fi
+  true
+)
+if [[ -z "$import_names" ]]; then
+  report discovered "Selected $ROUTE bridges are already listed. Its next requested call will test Apple access."
+  exit 0
+fi
 private_dir "$PLUGIN_HOME/imports"
-target="$PLUGIN_HOME/imports/$name.shortcut"
-[[ ! -L "$target" ]] || fail 'Refusing symlinked import output.'
-printf 'Hollis will open “%s”. Choose Add Shortcut. The first model call may then ask Allow.\n' "$name" >&2
-bound_run "$SIGN_DEADLINE" /usr/bin/shortcuts sign --mode anyone --input "$WORK_DIR/unsigned/$name.shortcut" --output "$WORK_DIR/signed.shortcut"
-if [[ "$BOUND_DEADLINE_FIRED" == yes ]]; then fail "Signing did not complete within ${SIGN_DEADLINE} seconds; no import state changed."; fi
-(( $BOUND_CODE == 0 )) || exit "$BOUND_CODE"
-mv "$WORK_DIR/signed.shortcut" "$target"
+import_label= separator=
+while IFS= read -r name; do
+  target="$PLUGIN_HOME/imports/$name.shortcut"
+  [[ ! -L "$target" ]] || fail 'Refusing symlinked import output.'
+  printf 'Hollis will open “%s”. Choose Add Shortcut. The first model call may then ask Allow.\n' "$name" >&2
+  bound_run "$SIGN_DEADLINE" /usr/bin/shortcuts sign --mode anyone --input "$WORK_DIR/unsigned/$name.shortcut" --output "$WORK_DIR/signed.shortcut"
+  if [[ "$BOUND_DEADLINE_FIRED" == yes ]]; then fail "Signing did not complete within ${SIGN_DEADLINE} seconds; no import state changed."; fi
+  (( $BOUND_CODE == 0 )) || exit "$BOUND_CODE"
+  mv "$WORK_DIR/signed.shortcut" "$target"
+  import_label="$import_label$separator$name"; separator=', '
+done <<< "$import_names"
 atomic_text "$PLUGIN_HOME/imports/pending" "$ROUTE"
-bound_run "$OPEN_DEADLINE" /usr/bin/open "$target"
-if [[ "$BOUND_DEADLINE_FIRED" == yes ]]; then fail "Hollis could not open the Shortcut. Allow the Shortcuts dialog to appear and retry with import $ROUTE --reopen."; fi
-(( $BOUND_CODE == 0 )) || exit "$BOUND_CODE"
-report permission_pending "Add $name in Shortcuts, then run import $ROUTE again to verify discovery."
+while IFS= read -r name; do
+  bound_run "$OPEN_DEADLINE" /usr/bin/open "$PLUGIN_HOME/imports/$name.shortcut"
+  if [[ "$BOUND_DEADLINE_FIRED" == yes ]]; then fail "Hollis could not open the Shortcut. Allow the Shortcuts dialog to appear and retry with import $ROUTE --reopen."; fi
+  (( $BOUND_CODE == 0 )) || exit "$BOUND_CODE"
+done <<< "$import_names"
+report permission_pending "Add $import_label in Shortcuts, then run import $ROUTE again to verify discovery."
