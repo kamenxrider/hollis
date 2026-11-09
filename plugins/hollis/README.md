@@ -15,8 +15,9 @@ are verified and pinned. This plugin version is not yet published. Explicit nati
 terminal output and measured token usage on complete responses. Agent/JSON
 replies remain complete; local needs no Shortcut import.
 
-Plugin 0.2.0 was withdrawn. Plugin 0.1.0 bundles runtime 0.3.3 and does not
-include native local.
+Plugin 0.2.0 was withdrawn. The latest published plugin,
+[0.1.0](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0),
+bundles runtime 0.3.3 and does not include native local.
 
 **Requires a local Apple-silicon Mac running macOS 27 with Apple Intelligence.**
 Have Claude Code or Codex installed and signed in. The host must execute on this

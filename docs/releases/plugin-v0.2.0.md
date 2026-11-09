@@ -1,8 +1,9 @@
 # Hollis plugin 0.2.0
 
-**This release was withdrawn.** Its archive is no longer published. Install
-from the repository's main branch instead; a versioned plugin release will
-follow. The notes below are kept as the record of what 0.2.0 contained.
+**This release was withdrawn.** Its archive is no longer published. Use the
+published [plugin 0.1.0](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0),
+which bundles runtime 0.3.3 without native local. Plugin 0.4.0 will follow after
+the runtime 0.7.0 pin update. The notes below record what 0.2.0 contained.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kamenxrider/hollis/v0.4.0/docs/assets/hollis-logo-dark.svg">
@@ -34,16 +35,15 @@ describe the withdrawn release and do not apply now.
 The archive included both host entries, shared skills, runtime, native helper and
 five bridges. It excluded private research, recordings and brand working files,
 and was published with checksums, runtime provenance and GitHub build
-attestations. Runtime 0.4.0 remains the latest runtime release; plugin versions
-are separate.
+attestations. It targeted runtime 0.4.0; plugin and runtime versions are separate.
 
 ## Withdrawn
 
 The 0.2.0 archive, its checksum file and its runtime provenance file were
 removed from the releases page, and the `plugin-v0.2.0` tag was deleted, so the
-steps above no longer apply and no versioned link resolves. Install from the
-repository's main branch with
-[the current install guide](../../plugins/hollis/README.md#install). Setup from
-main downloads the same pinned, checksum-verified runtime 0.4.0 assets, so no
-capability described above is lost. The tag name will not be reused; the next
-plugin release gets a new version and tag.
+steps above no longer apply and no 0.2.0 versioned link resolves.
+Use the [0.1.0 release](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0)
+and its versioned instructions instead. Current plugin 0.4.0 source setup is
+blocked by the old runtime lock, not an available replacement for 0.2.0.
+See [the pending plugin guide](../../plugins/hollis/README.md).
+The withdrawn tag name will not be reused.

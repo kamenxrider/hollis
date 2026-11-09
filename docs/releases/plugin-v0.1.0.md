@@ -6,7 +6,8 @@ understand an image or generate an illustration, then ask follow-up questions.
 
 ## Install and ask
 
-The [plugin guide](../../plugins/hollis/README.md#install) covers Claude Code and
+These instructions apply to the 0.1.0 archive or tag, not the pending 0.4.0 source.
+The [versioned plugin guide](https://github.com/kamenxrider/hollis/blob/plugin-v0.1.0/plugins/hollis/README.md#install) covers Claude Code and
 Codex installation from GitHub or the downloadable archive. In Claude, start
 with `/hollis:hollis-setup`; in Codex, use `$hollis:hollis-setup`.
 Setup explains the required **Add Shortcut** and first-use **Allow** prompts.
