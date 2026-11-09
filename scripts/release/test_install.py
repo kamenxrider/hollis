@@ -78,6 +78,9 @@ esac
                 info = zipfile.ZipInfo(n); info.create_system = 3; info.external_attr = 0o100755 << 16
                 z.writestr(info, data)
             z.writestr('hollis-bridges.zip', bridges.getvalue())
+            z.writestr('manifest.json', json.dumps({'version': VERSION, 'sha256': {
+                'hollis-bridges.zip': hashlib.sha256(bridges.getvalue()).hexdigest()}}))
+            z.writestr('LICENSE', 'Synthetic license')
         self.sumline = hashlib.sha256(bundle.read_bytes()).hexdigest() + '  ' + bundle.name + '\n'
         (self.assets / 'SHA256SUMS').write_text(self.sumline)
 
@@ -100,7 +103,16 @@ esac
     def test_matched_pair_imports_permissions_and_default(self):
         self.run_install()
         for n in ('hollis', 'hollis-native'):
-            self.assertEqual((self.home / '.local/bin' / n).stat().st_mode & 0o777, 0o755)
+            link = self.home / '.local/bin' / n
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(link.resolve(), self.home / '.local/share/hollis' / VERSION / n)
+            self.assertEqual(link.stat().st_mode & 0o777, 0o755)
+        runtime = (self.home / '.local/bin/hollis').resolve().parent
+        self.assertEqual({p.name for p in runtime.iterdir()},
+                         {'hollis', 'hollis-native', 'manifest.json', 'hollis-bridges.zip', 'LICENSE'})
+        manifest = json.loads((runtime / 'manifest.json').read_text())
+        self.assertEqual(manifest['sha256']['hollis-bridges.zip'],
+                         hashlib.sha256((runtime / 'hollis-bridges.zip').read_bytes()).hexdigest())
         log = (self.base / 'calls').read_text()
         self.assertIn(f'--source-digest {COMMIT}', log)
         self.assertIn('--deny-self-hosted-runners', log)
@@ -161,6 +173,39 @@ esac
         (dest / 'hollis-native').symlink_to(target)
         self.run_install(False)
         self.assertEqual(target.read_text(), 'keep')
+
+    def test_upgrade_replaces_plain_files(self):
+        dest = self.home / '.local/bin'; dest.mkdir(parents=True)
+        for name in ('hollis', 'hollis-native'):
+            (dest / name).write_text('old executable')
+        self.run_install()
+        for name in ('hollis', 'hollis-native'):
+            self.assertTrue((dest / name).is_symlink())
+
+    def test_upgrade_replaces_managed_links_without_mutating_old_bundle(self):
+        old = self.home / '.local/share/hollis/0.6.0'; old.mkdir(parents=True)
+        dest = self.home / '.local/bin'; dest.mkdir(parents=True)
+        for name in ('hollis', 'hollis-native'):
+            (old / name).write_text('keep old executable')
+            (dest / name).symlink_to(old / name)
+        self.run_install()
+        for name in ('hollis', 'hollis-native'):
+            self.assertEqual((old / name).read_text(), 'keep old executable')
+            self.assertEqual((dest / name).resolve().parent.name, VERSION)
+
+    def test_runtime_directory_symlink_is_preserved(self):
+        target = self.base / 'existing'; target.mkdir()
+        root = self.home / '.local/share/hollis'; root.mkdir(parents=True)
+        (root / VERSION).symlink_to(target)
+        self.run_install(False)
+        self.assertEqual(list(target.iterdir()), [])
+
+    def test_existing_changed_bundle_is_not_overwritten(self):
+        runtime = self.home / '.local/share/hollis' / VERSION
+        runtime.mkdir(parents=True)
+        (runtime / 'hollis').write_text('keep changed executable')
+        self.run_install(False)
+        self.assertEqual((runtime / 'hollis').read_text(), 'keep changed executable')
 
     def without_gh(self):
         (self.bin / 'gh').unlink()

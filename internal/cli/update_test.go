@@ -183,6 +183,22 @@ func TestUpdateInstallationDetection(t *testing.T) {
 	if got := detectUpdateInstallation(other, home); got != "manual" {
 		t.Fatalf("unrelated cellar=%s", got)
 	}
+	versioned := updateFixtureFile(t, filepath.Join(home, ".local", "share", "hollis", "0.7.0", "hollis"))
+	if got := detectUpdateInstallation(versioned, home); got != "manual" {
+		t.Fatalf("missing versioned helper=%s", got)
+	}
+	updateFixtureFile(t, filepath.Join(filepath.Dir(versioned), "hollis-native"))
+	if err := os.Remove(installer); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(versioned, installer); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{installer, versioned} {
+		if got := detectUpdateInstallation(path, home); got != "installer" {
+			t.Fatalf("versioned %s=%s", path, got)
+		}
+	}
 }
 
 func TestUpdateApply(t *testing.T) {

@@ -10,6 +10,8 @@ source_commit=1906721a1cd5594ce47be6d4d306d7daa1e6891f
 asset_sha256=
 repository=kamenxrider/hollis
 bin_dir="${HOME}/.local/bin"
+runtime_root="${HOME}/.local/share/hollis"
+runtime_dir="$runtime_root/$version"
 if [[ ${1:-} == --bin-dir && $# == 2 ]]; then
   bin_dir=$2
 elif [[ $# != 0 ]]; then
@@ -24,7 +26,16 @@ for command in shasum unzip shortcuts codesign plutil install; do
   command -v "$command" >/dev/null || { echo "Required command missing: $command" >&2; exit 1; }
 done
 stage=$(mktemp -d "${TMPDIR:-/tmp}/hollis-install.XXXXXX")
-trap 'rm -rf "$stage"' EXIT
+runtime_stage=
+cleanup() {
+  rm -rf "$stage"
+  if [[ -n $runtime_stage ]]; then
+    rm -f "$runtime_stage/hollis" "$runtime_stage/hollis-native" \
+      "$runtime_stage/manifest.json" "$runtime_stage/hollis-bridges.zip" "$runtime_stage/LICENSE"
+    rmdir "$runtime_stage"
+  fi
+}
+trap cleanup EXIT
 asset="hollis-$version-darwin-arm64.zip"
 if command -v gh >/dev/null; then
   gh release download "v$version" --repo "$repository" --dir "$stage" \
@@ -63,13 +74,44 @@ mkdir "$stage/signed"
 for bridge in "$stage/bridges/"*.shortcut; do
   shortcuts sign --mode anyone --input "$bridge" --output "$stage/signed/${bridge##*/}"
 done
-# Do not follow a destination symlink to another executable.
-[[ ! -L $bin_dir ]] || { echo 'Installation directory must not be a symlink.' >&2; exit 1; }
-mkdir -p "$bin_dir"
-for name in hollis hollis-native; do
-  [[ ! -L $bin_dir/$name && ( ! -e $bin_dir/$name || -f $bin_dir/$name ) ]] || { echo "Unsafe destination: $name" >&2; exit 1; }
+# Keep the full bundle beside the real executable, as Homebrew does.
+for directory in "$HOME/.local" "$HOME/.local/share" "$runtime_root" "$runtime_dir" "$bin_dir"; do
+  [[ ! -L $directory && ( ! -e $directory || -d $directory ) ]] || { echo 'Unsafe installation directory.' >&2; exit 1; }
 done
-install -m 755 "$stage/runtime/hollis" "$stage/runtime/hollis-native" "$bin_dir/"
+for name in hollis hollis-native manifest.json hollis-bridges.zip LICENSE; do
+  [[ -f $stage/runtime/$name && ! -L $stage/runtime/$name ]] || { echo "Missing regular bundle file: $name" >&2; exit 1; }
+done
+# Replace older plain files or our own links, never an unrelated symlink.
+for name in hollis hollis-native; do
+  destination="$bin_dir/$name"
+  if [[ -L $destination ]]; then
+    target=$(readlink "$destination")
+    relative=${target#"$runtime_root/"}
+    old_version=${relative%"/$name"}
+    [[ $target == "$runtime_root/$old_version/$name" && $old_version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -f $destination ]] || { echo "Unsafe destination: $name" >&2; exit 1; }
+  else
+    [[ ! -e $destination || -f $destination ]] || { echo "Unsafe destination: $name" >&2; exit 1; }
+  fi
+done
+mkdir -p "$bin_dir" "$runtime_root"
+if [[ -d $runtime_dir ]]; then
+  # Reinstalling identical bytes is safe. Never mutate a running version.
+  for name in hollis hollis-native manifest.json hollis-bridges.zip LICENSE; do
+    [[ -f $runtime_dir/$name && ! -L $runtime_dir/$name ]] &&
+      cmp -s "$stage/runtime/$name" "$runtime_dir/$name" || { echo "Existing bundle differs: $runtime_dir; move it aside before reinstalling." >&2; exit 1; }
+  done
+  [[ -x $runtime_dir/hollis && -x $runtime_dir/hollis-native ]] || { echo 'Existing bundle is not executable.' >&2; exit 1; }
+else
+  runtime_stage=$(mktemp -d "$runtime_root/.install.XXXXXX")
+  install -m 755 "$stage/runtime/hollis" "$stage/runtime/hollis-native" "$runtime_stage/"
+  install -m 644 "$stage/runtime/manifest.json" "$stage/runtime/hollis-bridges.zip" "$stage/runtime/LICENSE" "$runtime_stage/"
+  mv "$runtime_stage" "$runtime_dir"
+  runtime_stage=
+fi
+for name in hollis hollis-native; do
+  ln -s "$runtime_dir/$name" "$stage/link-$name"
+  mv -f "$stage/link-$name" "$bin_dir/$name"
+done
 # Keep imports available while Shortcuts opens its asynchronous Add dialogs.
 state_dir="${HOLLIS_STATE_DIR:-$HOME/Library/Application Support/hollis}"
 imports="$state_dir/bridge-imports/$version"

@@ -96,10 +96,12 @@ envelope; `--select` selects these fields. `status` is `update_available`,
 
 Installation detection resolves executable symlinks: a `Cellar/hollis/<version>`
 layout is Homebrew, including nonstandard prefixes. No `brew` process is
-started for detection. The installer leaves no receipt: `~/.local/bin/hollis`
-with an executable sibling `hollis-native` is treated as the default installer
-layout, not proof of provenance. A standalone binary, custom installer
-`--bin-dir`, missing helper or unrecognized layout is `manual`.
+started for detection. The installer leaves no receipt. The complete bundle at
+`~/.local/share/hollis/<version>/hollis`, or the older plain-file
+`~/.local/bin/hollis`, with an executable sibling `hollis-native`, is treated
+as an installer layout, not proof of provenance. This includes links from a
+custom installer `--bin-dir` into that complete bundle. A standalone binary,
+missing helper or unrecognized layout is `manual`.
 
 For Homebrew the command is `brew upgrade kamenxrider/tap/hollis`.
 `--apply` runs it without a shell only when a newer stable release is available.
@@ -728,7 +730,7 @@ bundled Shortcut imports; omit routes for all nine. A text route selects both
 its text and JSON bridge; a `-json` suffix selects only that JSON bridge
 (for example `cloud-pro-json`). It verifies the archive
 against the sibling bundle manifest, signs private copies and independently skips
-installed bridges unless `--force`. Use the complete release bundle or Homebrew layout.
+installed bridges unless `--force`. Use the complete release bundle, script installer or Homebrew layout.
 Noninteractive, JSON and agent invocations require `--yes`. Planning without
 `--import` remains read-only. Import-window launch is not proof of completed
 imports or successful inference.

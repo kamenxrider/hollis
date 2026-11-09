@@ -114,7 +114,7 @@ Close running Hollis chat and serve processes before upgrading.`,
 
 // The installer leaves no receipt. Its default directory plus executable
 // paired helper is a conservative layout heuristic, not provenance verification.
-// Custom --bin-dir and standalone ~/.local/bin copies remain manual.
+// The versioned complete bundle and older plain-file layout are recognized.
 func detectUpdateInstallation(executable, home string) string {
 	resolved, err := filepath.EvalSymlinks(executable)
 	if err != nil || !filepath.IsAbs(resolved) {
@@ -129,7 +129,15 @@ func detectUpdateInstallation(executable, home string) string {
 	// macOS temporary homes may use /var while executable resolution returns
 	// /private/var. Resolve both sides before comparing the default layout.
 	resolvedHome, homeErr := filepath.EvalSymlinks(home)
-	if home != "" && homeErr == nil && resolved == filepath.Join(resolvedHome, ".local", "bin", "hollis") {
+	installerLayout := false
+	if home != "" && homeErr == nil {
+		root := filepath.Join(resolvedHome, ".local", "share", "hollis")
+		relative, relErr := filepath.Rel(root, resolved)
+		parts := strings.Split(relative, string(filepath.Separator))
+		installerLayout = resolved == filepath.Join(resolvedHome, ".local", "bin", "hollis") ||
+			(relErr == nil && len(parts) == 2 && parts[0] != ".." && parts[0] != "." && parts[1] == "hollis")
+	}
+	if installerLayout {
 		helper, err := os.Stat(filepath.Join(filepath.Dir(resolved), "hollis-native"))
 		if err == nil && helper.Mode().IsRegular() && helper.Mode().Perm()&0111 != 0 {
 			return "installer"
