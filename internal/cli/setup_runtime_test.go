@@ -247,7 +247,7 @@ func realProducerVerifiedHome(t *testing.T) string {
 		"#!/bin/sh\ncase \"$1\" in --version) printf 'hollis-native 0.3.0\\n';; --protocol-version) printf '1\\n';; esac\n", 0o700)
 	members := []string{
 		"AFM Bridge - Cloud.shortcut", "AFM Bridge - Cloud Pro.shortcut",
-		"AFM Bridge - On Device.shortcut", "AFM Bridge - ChatGPT.shortcut",
+		"AFM Bridge - On-Device.shortcut", "AFM Bridge - ChatGPT.shortcut",
 		"Hollis Image - Reference Input v2.shortcut",
 	}
 	zipPath := filepath.Join(dir, "hollis-bridges.zip")
