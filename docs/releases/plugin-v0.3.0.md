@@ -42,7 +42,7 @@ or from 0.1.0 need a plugin update and a new host session to load the new
 skills; check Hollis setup afterwards.
 
 The archive includes both host entries, the shared skills, the runtime, the
-native helper and five bridges. It excludes private research, recordings and
+native helper and nine bridges. It excludes private research, recordings and
 brand working files, and is published with checksums, runtime provenance and
 GitHub build attestations. Plugin and runtime versions are separate; runtime
 0.7.0 remains the latest runtime release.
