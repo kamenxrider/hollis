@@ -1,7 +1,10 @@
 # Homebrew formula preparation
 
-`hollis.rb.in` is the template for the formula published in the
-`kamenxrider/homebrew-tap` tap, installed with
+`hollis.rb.in` is the prepared template for a future formula in the
+`kamenxrider/homebrew-tap` tap. Publish runtime v0.7.0 first, authenticate its
+assets and source commit, then update and publish the formula. The current
+template is not a published 0.7.0 installation path. After that follow-up,
+install with
 `brew install kamenxrider/tap/hollis`. Render it only from a locally downloaded release set whose source ref, full commit,
 signer workflow and `--deny-self-hosted-runners` attestation have already been
 verified independently. The preparation script checks local manifest, asset,
@@ -44,7 +47,7 @@ No Shortcuts imports are needed for `local`. Shortcuts imports are optional:
 enable them only for Cloud, Cloud Pro, On-Device, ChatGPT or images. See
 [selected-route diagnostics](../../docs/selected-route-setup.md) and the
 [image setup guide](../../docs/image-generation.md#setup).
-Run `hollis setup --import` to open all five bundled imports, or
+Run `hollis setup --import` to open all nine bundled imports, or
 `hollis setup --import cloud chatgpt` for selected routes. It verifies the archive
 against the installed manifest, signs private copies, skips bridges discovery
 already finds installed (unless `--force`), and asks before opening any window.

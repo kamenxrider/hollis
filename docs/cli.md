@@ -4,7 +4,8 @@ On Shortcut text routes, explicit `--system`/`--system-file` instructions come
 first within a final `Instructions:` block, followed by conversation system and
 developer messages in their original order. Conversation text and its replay
 closing directive come before that block, including shortened and continued
-chats. These labels are not an isolation boundary. Local's native instructions
+chats. This is a placement choice, not an instruction-following fix or an
+isolation boundary. Local's native instructions
 channel is unchanged. Tool protocol scaffolding and context summarization are
 Local-only and keep their existing native framing. Image conversation rendering
 also puts system/developer instructions after image context and revisions.
@@ -187,8 +188,8 @@ sets instructions; the two options are mutually exclusive. Local uses real
 native session instructions. Cloud, Cloud Pro, on-device and ChatGPT Shortcuts
 accept only one text, so Hollis puts the `Prompt:` block first and the
 `Instructions:` block after the prompt (or the whole replayed conversation).
-These models follow the later text, so the instruction comes last. Those
-routes do not have a separate instruction channel.
+This is a placement choice, not an instruction-following fix or an isolation
+boundary. Those routes do not have a separate instruction channel.
 
 `respond --messages conversation.json` or `--messages -` reads a one-shot
 OpenAI messages array. Roles are system, developer, user and assistant; developer
@@ -485,7 +486,7 @@ hollis respond --file scan.pdf --pages 2 --pages 5-7 "List the dates"
 
 `--prompt-file` reads the instruction exactly as UTF-8 text; `--prompt-file -` reads it from stdin. Repeat `--file` to append local UTF-8 text documents of any extension in order, with their basenames and explicit boundaries. The instruction, boundaries and document contents together must fit the 128 KiB prompt limit; Hollis rejects oversized input without truncation. Empty, invalid UTF-8 and nonregular files are rejected.
 
-Content, not the extension, decides how a `--file` is read. A PDF is extracted on this Mac by the paired native helper (`hollis-native`, macOS 27): each page's text layer is used, and a page without one is recognized with on-device OCR. Extraction calls no model, and the extracted text then goes to the selected route like any other document, framed with one `--- Page N ---` marker per page. A PNG or JPEG passed to `--file` is refused with a pointer at `--image`; other binary content is refused as `unsupported_media`. A valid UTF-8 text file named `.pdf`, or without an extension, is still accepted as text. PDF extraction is CLI-only through `respond --file`; the HTTP endpoints do not accept PDFs or emit extraction errors.
+Content, not the extension, decides how a `--file` is read. A PDF is extracted on this Mac by the paired native helper (`hollis-native`, macOS 27): each page's text layer is used, and a page without one is recognized with on-device OCR. Extraction calls no model, and the extracted text then goes to the selected route like any other document, framed with one `--- Page N ---` marker per page. A PNG or JPEG passed to `--file` is refused with a pointer at `--image`; other binary content is refused as `unsupported_media`. A valid UTF-8 text file named `.pdf`, or without an extension, is still accepted as text. PDF extraction is CLI-only through `respond --file`; the HTTP endpoints do not accept PDFs or emit extraction errors. Extraction and OCR can contain errors, as can the model's answer; check important numbers against the original.
 
 `--pages` selects pages of exactly one PDF `--file`: a page (`3`), a range (`3-7`), or a comma list (`1,4-6`). It is repeatable, 1-based, and the selection is read in ascending order with repeats removed. A malformed token, page 0 or a reversed range is refused by name (exit 2, `unsupported_parameter`) before anything is read, and so is a selection over 2000 pages. A page past the end of the document is `page_out_of_range` (exit 2) with the document's real page count. A document over 2000 pages or a damaged one is `invalid_document`, a document with no text in the selected pages is `extract_no_text`, and extracted text over 128 KiB is `context_capacity` with the limit and the measured size (all exit 5). These messages carry numbers, never page text or paths. The framed prompt must still fit the 128 KiB prompt limit, without truncation. If the model declines a request that carried extracted text, the error says so: Apple's guardrails can refuse such text, and the refusal does not mean the file was unreadable.
 

@@ -84,7 +84,8 @@ Check these before installing:
 - **Apple Intelligence** enabled in *System Settings → Apple Intelligence &
   Siri*, with its model downloads complete.
 - Optional [GitHub CLI](https://cli.github.com/) (`gh`) for installer build-provenance
-  verification. Without it, the published installer verifies SHA-256 checksums only.
+  verification. Once final release pins are set, the installer without `gh`
+  verifies SHA-256 checksums only; the current placeholder refuses that path.
   Plugin setup does not require it.
 - Network access for Cloud, Cloud Pro and ChatGPT. On-Device and native local
   work offline.
@@ -100,19 +101,26 @@ Check these before installing:
 Start with `local`: it runs on your Mac and needs no Shortcut import. Using
 Claude Code or Codex? Start with the [plugin installation](plugins/hollis/README.md#install) instead.
 
-**1. Install.** Homebrew installs the matched CLI and native helper from the
-Hollis tap:
+**1. Install after the release is ready.** The planned sequence publishes
+v0.7.0 first. The curl installer stays unavailable and refuses installation
+until a follow-up sets the authenticated bundle SHA-256 fingerprint and source
+commit pins. Its current asset hash is empty and its source pin is stale.
+The Homebrew formula and plugin runtime pins also await authenticated release
+assets and a follow-up update; neither is a ready 0.7.0 install path yet.
+
+After the formula is published, Homebrew installs the matched CLI and native
+helper from the Hollis tap:
 
 ```bash
 brew install kamenxrider/tap/hollis
 ```
 
-Or download and inspect the [curl installer](scripts/install.sh), then run it.
-It installs the published ARM64 bundle's matched CLI and native helper in
-`~/.local/bin`, without model calls or `sudo`. The published installer works
-without `gh`: it verifies the release-pinned SHA-256 and release `SHA256SUMS`
-only. With `gh`, it also verifies GitHub build provenance. The source
-placeholder must be pinned before publication.
+After the follow-up publishes the final pins, download and inspect the
+[curl installer](scripts/install.sh), then run it. It installs the published
+ARM64 bundle's matched CLI and native helper in `~/.local/bin`, without model
+calls or `sudo`. Without `gh`, it verifies the pinned SHA-256 and release
+`SHA256SUMS` only. With `gh`, it also verifies GitHub build provenance.
+Do not run the placeholder installer as a working installation path.
 
 ```bash
 curl -fsSLo install-hollis.sh https://raw.githubusercontent.com/kamenxrider/hollis/main/scripts/install.sh && \
@@ -158,8 +166,10 @@ Local. For Cloud, Cloud Pro, On-Device, ChatGPT or images, run
 bundle or Homebrew layout. Confirm the listed imports, choose **Add Shortcut**
 in each window, then run `hollis doctor`.
 
-The curl installer also opens the five bundled import windows; Homebrew does
-not. When updating an older image bridge, replace it with
+Once its final pins are set, the curl installer signs and opens every
+`.shortcut` in the bundle: nine imports in 0.7.0 (four text, four JSON and one
+image), without skipping already-installed bridges. Homebrew does not open
+imports. When updating an older image bridge, replace it with
 **Hollis Image - Reference Input v2**. Existing custom image-bridge settings
 are preserved. The first request may also require Apple's **Allow** approval.
 
@@ -300,7 +310,7 @@ batch choice. A failure stops the run. [Batch guide](docs/batch.md).
 ## Use Hollis in Claude Code and Codex
 
 [Plugin 0.4.0](plugins/hollis/README.md) targets runtime **0.7.0**, its matched
-native helper and five Shortcut bridges. The checked-in lock still pins runtime
+native helper and nine Shortcut bridges. The checked-in lock still pins runtime
 **0.4.0**; setup and packaging remain blocked until the published 0.7.0 assets
 are verified and pinned. Ask Apple to assess a supplied plan,
 compare documents or create an image, then keep working in the same
@@ -382,9 +392,8 @@ model decisions. [Native tools and sampling](docs/native-local.md#tools) and
 
 ### Documents
 
-PDF extraction returns the document's text exactly, but the answer still comes
-from the selected model. The on-device model can misread figures in long
-pages; check numbers that matter.
+PDF text extraction and OCR run on your Mac. Extraction and model answers can
+contain errors; check important numbers against the original.
 
 ### Versions
 
@@ -395,9 +404,10 @@ not have them. The CLI and native helper must come from the same release. See
 
 ## Verification and trust
 
-The binaries are not Developer ID signed or notarized. The installer checks
-release checksums; with `gh`, it also verifies GitHub build provenance. Without
-`gh`, it verifies the release-pinned SHA-256, not provenance. For the
+The binaries are not Developer ID signed or notarized. Once final release pins
+are set, the installer checks release checksums; with `gh`, it also verifies
+GitHub build provenance. Without `gh`, it verifies the pinned SHA-256, not
+provenance. The current placeholder is not ready to install 0.7.0. For the
 smallest trust chain, build from source
 ([other install routes](docs/compatibility.md#other-install-routes)). To run the
 installer’s checks yourself:
@@ -408,10 +418,14 @@ installer’s checks yourself:
 <details>
 <summary>Verify manually</summary>
 
-These commands verify and install a matched release bundle. Set `HOLLIS_VERSION`
-and `HOLLIS_SOURCE_DIGEST` from that release's [release notes](docs/releases/README.md)
-(the version and full source commit). Artifact names and source pins are fixed
-at publication; do not substitute a candidate build. The last command selects
+These commands verify and install a matched published release bundle. Set
+`HOLLIS_VERSION` to `0.7.0` and `HOLLIS_SOURCE_DIGEST` to the full commit selected
+by the authenticated [`v0.7.0` release tag](https://github.com/kamenxrider/hollis/releases/tag/v0.7.0),
+as shown on GitHub's release or tag page. Independently authenticate that tag
+and commit before using them. The commands below require those values; they
+do not discover or authenticate the tag's commit for you. The attestation check
+must match both that tag and the full commit. Do not substitute a candidate
+build or a branch head. The last command selects
 the bundled image bridge; skip it if you
 already use a custom image bridge. Do not install a bundle that fails either
 the checksum or the attestation check.
@@ -420,8 +434,8 @@ the checksum or the attestation check.
 (
 set -euo pipefail
 umask 077
-: "${HOLLIS_VERSION:?Set the version from the pinned release notes}"
-: "${HOLLIS_SOURCE_DIGEST:?Set the full source commit from the pinned release notes}"
+: "${HOLLIS_VERSION:?Set the version from the authenticated release tag}"
+: "${HOLLIS_SOURCE_DIGEST:?Set the full source commit from the authenticated release tag}"
 HOLLIS_BUNDLE="hollis-$HOLLIS_VERSION-darwin-arm64.zip"
 cd "$(mktemp -d)"
 gh release download "v$HOLLIS_VERSION" --repo kamenxrider/hollis \
@@ -472,8 +486,9 @@ rm -i "$HOME/.local/bin/hollis" "$HOME/.local/bin/hollis-native"
 ```
 
 For an earlier `/usr/local/bin` install, remove those copies instead. Remove the
-plugin through its host’s plugin manager. Delete the five Hollis shortcuts in
-Shortcuts if no remaining installation uses them. Your chats and settings remain;
+plugin through its host’s plugin manager. Delete the Hollis shortcuts you
+imported (up to nine from 0.7.0) in Shortcuts if no remaining installation uses
+them. Your chats and settings remain;
 to erase them too, delete the Hollis Application Support folder in Finder after
 backing up anything you want to keep. [Plugin state and removal](plugins/hollis/docs/setup.md).
 

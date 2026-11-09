@@ -114,7 +114,7 @@ go install github.com/kamenxrider/hollis/cmd/hollis@latest   # needs Go 1.27+
 go build -o "$(go env GOPATH)/bin/hollis" ./cmd/hollis        # from a clone
 ```
 
-From a clone, `python3 scripts/package-bridges.py dist` creates the complete five-bridge archive. `python3 scripts/make-bridge.py bridges/` generates just the four model bridges.
+From a clone, `python3 scripts/package-bridges.py dist` creates the complete nine-bridge archive (four text, four JSON and one image). `python3 scripts/make-bridge.py bridges/` generates just the four model bridges.
 
 Release binaries and Shortcut files are **unsigned by a Developer ID and not notarized**. Verify the downloaded checksum and attestation using the [manual verification steps](../README.md#verification-and-trust); releases also carry a GitHub build-provenance attestation and an SPDX SBOM. For the smallest trust chain, inspect the source and build it yourself with the second command above. Hollis does not claim Gatekeeper approval. If a command seems to be missing after a `git pull`, rebuild: an older binary on `PATH` is usually the cause.
 

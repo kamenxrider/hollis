@@ -18,3 +18,17 @@ func TestSanitizeAppleTextVariants(t *testing.T) {
 		t.Logf("%-15s leaks=%v -> %s", name, strings.Contains(strings.ToUpper(out), m), out)
 	}
 }
+
+func TestSanitizeAppleTextPathPrefixes(t *testing.T) {
+	for _, prefix := range []string{"/Users/example/", "/private/", "/var/", "/tmp/"} {
+		value := prefix + "fixture/report.pdf"
+		if got := sanitizeAppleText(value, ""); got != "[path redacted]" {
+			t.Errorf("recognized prefix %q: got %q", prefix, got)
+		}
+	}
+	for _, value := range []string{"/opt/fixture/report.pdf", "/Volumes/fixture/report.pdf", "relative/report.pdf"} {
+		if got := sanitizeAppleText(value, ""); got != value {
+			t.Errorf("unrecognized path %q: got %q", value, got)
+		}
+	}
+}

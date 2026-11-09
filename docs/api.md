@@ -5,7 +5,8 @@ messages and Responses `instructions` plus system/developer input messages in
 order in an `Instructions:` block after the conversation and replay closing
 directive. Responses `instructions` comes first in that block. Image-generation
 conversation instructions likewise follow the image context. These labels are
-not an isolation boundary; Local request framing is unchanged.
+a placement choice, not an instruction-following fix or an isolation boundary;
+Local request framing is unchanged.
 
 ```bash
 umask 077
@@ -249,8 +250,11 @@ After a failed run only, a five-second, 1 MiB bounded macOS unified-log check
 can classify the run; overlapping/ambiguous runs or unavailable logs fall back
 to text. `error.message` preserves bounded sanitized Apple text, and optional
 `error.details` includes `apple_stderr`, `apple_stdout` and
-`shortcut_failure` (domain/code/known keys only). Prompt text, paths,
-credentials and raw log messages are not included. Unknown failures remain
+`shortcut_failure` (domain/code/known keys only). Raw unified-log messages are
+not returned. Sanitization redacts exact prompt matches and nonempty trimmed
+prompt lines, paths beginning with `/Users/`, `/private/`, `/var/` or `/tmp/`,
+and recognized credential patterns. It does not remove every path, transformed
+prompt echo or credential; treat these diagnostics as potentially private. Unknown failures remain
 HTTP 502 `shortcut_failed`. See [failures](errors.md).
 
 ## Clients: listing is not the same as working
