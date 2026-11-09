@@ -20,7 +20,7 @@
 | Remote agents | Must execute on the eligible Mac; installing a skill on Linux does not provide Apple access |
 
 The existing runtime enforces prompt and attachment limits. The plugin discovers
-the installed command contract rather than inventing new parameters. A model's
+the installed command contract and does not invent new parameters. A model's
 internal context window is not inferred from a different developer API.
 
 Generation returns square native output; requested aspect ratio/size uses

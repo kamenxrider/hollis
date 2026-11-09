@@ -4,19 +4,19 @@ This guide covers the Hollis CLI and Shortcuts transport. The [plugin compatibil
 
 ## What you need
 
-An **Apple-silicon Mac** with **Apple Intelligence** enabled, macOS 27 for the measured setup, and `/usr/bin/shortcuts` (included with macOS). Cloud, Cloud Pro and ChatGPT need network access; On-Device works offline. For the ChatGPT bridge, enable the extension in *System Settings → Apple Intelligence & Siri*.
+You need an **Apple-silicon Mac** with **Apple Intelligence** enabled, macOS 27 for the measured setup, and `/usr/bin/shortcuts` (included with macOS). Cloud, Cloud Pro and ChatGPT need network access; On-Device works offline. For the ChatGPT bridge, enable the extension in *System Settings → Apple Intelligence & Siri*.
 
 ## Compatibility
 
-**macOS 27 — historical Shortcuts checks.** On `26A5421a` and `26A5425a` the Shortcuts selector exposed Cloud, Cloud Pro, On-Device and ChatGPT, and all four bridges returned responses in those tests. The 0.4.0 candidate was also checked on `26A428`. On 2026-10-31, Cloud and Cloud Pro each succeeded once on the merged runtime; this does not requalify every bridge or guarantee continuing availability.
+**macOS 27: historical Shortcuts checks.** On `26A5421a` and `26A5425a` the Shortcuts selector exposed Cloud, Cloud Pro, On-Device and ChatGPT, and all four bridges returned responses in those tests. The 0.4.0 candidate was also checked on `26A428`. On 2026-10-31, Cloud and Cloud Pro each succeeded once on the merged runtime; this does not requalify every bridge or guarantee continuing availability.
 
-**macOS 27.2 — native local checked 2026-11-01.** Apple Silicon, build `26B123`,
+**macOS 27.2: native local checked 2026-11-01.** Apple Silicon, build `26B123`,
 SDK 27.0, helper 0.5.0/protocol 2 at that time: one plain complete call and
 one guided JSON call succeeded, with measured usage. Diagnostics reported an
 8,192-token context window. See the [qualification scope](../EVIDENCE.md#dated-qualification-summary);
 runtime 0.4.0 does not include these features.
 
-**macOS 26 — experimental, untested.** macOS 26 Shortcuts exposed three model locations: Cloud, On-Device and ChatGPT. There was no Cloud Pro, and hollis refuses `cloud-pro` when that bridge is unavailable. The macOS 26 `cloud` choice is the earlier PCC model generation, not the 27 Cloud / Cloud Pro pair.
+**macOS 26: experimental, untested.** macOS 26 Shortcuts exposed three model locations: Cloud, On-Device and ChatGPT. There was no Cloud Pro, and hollis refuses `cloud-pro` when that bridge is unavailable. The macOS 26 `cloud` choice is the earlier PCC model generation, not the 27 Cloud / Cloud Pro pair.
 
 ```bash
 python3 scripts/make-bridge.py --os 26 bridges/
@@ -24,7 +24,7 @@ hollis doctor
 hollis respond --model cloud "Reply with OK"
 ```
 
-Please include `hollis doctor` output when reporting macOS 26 results — that is the fastest way for this to stop being untested.
+Include `hollis doctor` output when reporting macOS 26 test results.
 
 ## Native local
 
@@ -36,9 +36,9 @@ do not support Apple Intelligence inference. The primary installer selects the
 ARM64 bundle. A source-only Go install does not install the Swift helper; use the [native-local guide](native-local.md).
 
 Hollis 0.7.0 uses helper 0.7.0 and protocol 4. CLI and helper always ship as a
-matched bundle, and strict version identity is intentional. A mismatched pair
-fails closed with a clear mismatch error and matching-bundle remedy (exit 5,
-HTTP 502 `native_protocol`), before generation. The helper accepts request
+matched bundle and must have exactly the same version. A mismatched pair
+fails closed before generation, with a clear error asking you to install the
+matching bundle (exit 5, HTTP 502 `native_protocol`). The helper accepts request
 formats 1, 2, 3 and 4 but stamps every event with 0.7.0; this does not make older
 CLIs compatible.
 

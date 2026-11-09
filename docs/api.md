@@ -1,8 +1,8 @@
 # OpenAI-compatible API (Chat Completions and Responses)
 
-For Shortcut text routes, Chat Completions system/developer messages and
-Responses `instructions` plus system/developer input messages are collected in
-order into an `Instructions:` block after the conversation and replay closing
+For Shortcut text routes, Hollis collects Chat Completions system/developer
+messages and Responses `instructions` plus system/developer input messages in
+order in an `Instructions:` block after the conversation and replay closing
 directive. Responses `instructions` comes first in that block. Image-generation
 conversation instructions likewise follow the image context. These labels are
 not an isolation boundary; Local request framing is unchanged.
@@ -72,11 +72,11 @@ curl -s localhost:1978/v1/responses \
                    "required":["name"]}}}}'
 ```
 
-The validated object is returned as a JSON **string**: Chat Completions puts it
-in `choices[0].message.content`, so `message.content` is
+Both endpoints return the validated object as a JSON **string**. Chat
+Completions puts it in `choices[0].message.content`, so `message.content` is
 `"{\"name\":\"Ada\",\"age\":36}"` rather than an object. Responses puts the same
-string in `output[0].content[0].text` with `"type":"output_text"`. Measured
-usage is reported exactly as for a plain complete response. There is no
+string in `output[0].content[0].text` with `"type":"output_text"`. Both endpoints
+report measured usage exactly as for a plain complete response. There is no
 `refusal` field and no partial object: a failure is an error response, never a
 truncated value.
 
@@ -87,7 +87,7 @@ truncated value.
 - `description` is optional, accepted and ignored for the same reason.
 - `strict` is optional and may be `true` or `false`. Both are accepted and
   ignored: Apple's guided generation always enforces the schema, and Hollis
-  re-validates the returned object either way. `strict:false` does not buy a
+  re-validates the returned object either way. `strict:false` does not allow a
   looser JSON mode, and a non-conforming object is still refused.
 - `type:"text"` keeps the existing plain-text behavior.
 - Chat Completions also accepts `response_format:{"type":"json_object"}` on
@@ -159,7 +159,7 @@ truncated value.
 
 `n:1`, `logprobs:false` or `null`, and absent/null `top_logprobs` are accepted.
 Other values are **400** `unsupported_parameter`. A `user` string is accepted
-and ignored; it is never retained or logged. Unknown fields remain strict.
+and ignored; it is never retained or logged. Unknown fields are still rejected.
 
 With `stream:true`, `stream_options:{"include_usage":true}` adds a final chunk
 before `[DONE]` with empty `choices` and measured `usage`. If the helper cannot
@@ -226,9 +226,9 @@ Omitting `model` on an image request selects `cloud`. Explicit `auto` and `on-de
 
 Hollis validates and stages image bytes privately, holds a concurrency slot through staging and execution, then removes staged files. Shortcut responses remain complete text without usage counts; native Local also supports streaming.
 
-Port **1978**, not 1976 — `fm serve` uses 1976 throughout Apple's own examples, and two servers cannot share a port.
+Use port **1978**, not 1976: `fm serve` uses 1976 throughout Apple's own examples, and two servers cannot share a port.
 
-Model work is serialized by default. `--max-concurrency` accepts 1–4; work beyond the limit is rejected immediately with HTTP 429 and `Retry-After: 1`. `/health` remains available independently of model capacity. Request headers have 5 seconds, reads 15 seconds, writes 125 seconds, idle connections 60 seconds, and shutdown gets five seconds to finish.
+Model work is serialized by default. `--max-concurrency` accepts 1 to 4; work beyond the limit is rejected immediately with HTTP 429 and `Retry-After: 1`. `/health` remains available independently of model capacity. Request headers have 5 seconds, reads 15 seconds, writes 125 seconds, idle connections 60 seconds, and shutdown gets five seconds to finish.
 
 Local capacity rejection has code `server_busy`. Provider throttling has code
 `rate_limited` and HTTP 429, for both Shortcuts and native local, but omits
@@ -255,7 +255,7 @@ HTTP 502 `shortcut_failed`. See [failures](errors.md).
 
 ## Clients: listing is not the same as working
 
-Point an OpenAI-compatible client at `http://127.0.0.1:1978/v1` and it will usually **see** the models. That does not mean it can **call** them.
+Point an OpenAI-compatible client at `http://127.0.0.1:1978/v1` and it will usually list the models. Listing does not mean it can call them.
 
 For `cloud`, `cloud-pro`, `on-device`, `chatgpt` and `auto`, set `stream: false`
 in the **JSON body**. These routes cannot stream. For native `local`, either

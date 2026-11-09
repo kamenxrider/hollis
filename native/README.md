@@ -44,7 +44,7 @@ Limits are 2,000 pages and 128 KiB extracted text. Typed failures include
 `invalid_document`, `extract_no_text`, `unsupported_media`,
 `extract_media_mismatch`, `page_out_of_range` and `context_capacity`.
 
-Image-bearing `complete` and `stream` requests carry one `images` path.
+`complete` and `stream` requests with images carry one `images` path.
 `ImageInput.swift` checks direct regular PNG/JPEG files, EXIF orientation,
 64 MiB input, 64 million pixels and a 4,096-pixel longest-side cap.
 Images are real prompt attachments, not OCR. Images cannot accompany guided
@@ -116,7 +116,7 @@ satisfies it; a new user turn resets it. Required has no synthetic exit tool.
 Tool requests remain complete-only.
 
 Legacy `--native-definitions` and `--hybrid-tools` metadata formats remain
-isolated compatibility inputs. They are not used for Local production dispatch.
+separate compatibility inputs. Local production dispatch does not use them.
 
 ## Sampling
 
@@ -128,4 +128,4 @@ rejected, not ignored. Positive integral `max_tokens` maps to
 `maximumResponseTokens` per decision, not a cumulative tool-loop quota.
 
 Sampling applies to Local only. Reproducibility across model or OS versions
-is not promised. Availability and schema conformance do not establish intent
+is not promised. Availability and schema conformance do not establish intent.

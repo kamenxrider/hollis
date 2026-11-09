@@ -13,7 +13,7 @@ It replaces the withdrawn plugin 0.2.0.
   widened schema subset, `doctor --model <route>`, and the measured
   `context_size` diagnostic. They still check `agent-context` and
   `models --model local --json` before offering a feature, so a newer or older
-  Hollis already on PATH is used for what it actually reports.
+  Hollis already on PATH is used only for the capabilities it reports.
 - Setup verifies the matched CLI and helper, preserves configuration and
   conversations, and keeps verified rollback candidates. Plugin 0.3.0 refuses to
   install an older runtime under its version.

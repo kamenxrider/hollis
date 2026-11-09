@@ -31,7 +31,8 @@ result schemas and strict unknown-field rules as other data commands.
 ## Explicit Shortcut imports
 
 The complete installed bundle and Homebrew formula include the bridge archive
-and its manifest next to the resolved executable. No manual extraction is needed:
+and its manifest next to the resolved executable. You do not need to extract
+them manually:
 
 ```sh
 hollis setup --import                 # all nine bridges
@@ -80,7 +81,7 @@ fresh verified-runtime record. Without that record, standalone, source,
 `go install`, direct and Homebrew invocations return an action-needed
 `runtime_unverified` result. They can still use selected doctor for independent
 read-only availability diagnostics. Standalone receipt verification is not
-implemented by this change.
+implemented.
 
 The internal plugin adapter selects its local runtime-record producer explicitly.
 The CLI invokes that producer through an argument array, with a deadline and
@@ -124,8 +125,8 @@ possible cause, not a diagnosis. Hollis neither reads an invented settings key
 nor changes language settings.
 
 Setup effects require explicit `setup --import` or plugin install/import operations.
-Image generation requires an unlocked session. A successful first inference
-must be separately authorized; this change performs none.
+Image generation requires an unlocked session. You must separately authorize
+a successful first inference; these checks perform none.
 
 ## Exit status
 
@@ -135,6 +136,6 @@ failure and 10 for unknown, unsupported or action-needed configuration.
 Native probe timeouts and protocol failures retain their existing classifications.
 JSON/agent diagnostic errors remain top-level even when result fields are selected.
 
-Current-Mac offline fixtures verify these contracts. They do not establish
+Offline fixtures on the current Mac verify these contracts. They do not establish
 fresh-account onboarding, authenticated published downloads or live inference
 qualification.

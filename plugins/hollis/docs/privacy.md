@@ -5,7 +5,7 @@ Compute**. This is separate from Apple's native Foundation Models developer API
 and `fm` tooling. We do not borrow that API's entitlement, context or quota claims.
 See [Apple's PCC explanation](https://security.apple.com/blog/expanding-pcc/).
 
-PCC's processing protections are meaningful. Your calling agent still sees the
+PCC provides processing protections. Your calling agent still sees the
 context it submits and Apple's returned answer; that host has its own privacy
 and retention policy. ChatGPT is a separate extension route. On-Device is the
 local model selection. Hollis testing observed no separate charge for Apple
@@ -33,6 +33,6 @@ CLI: provenance verification is done when producing the package. Verification
 receipts accompany the bundled assets. A local build is not an attested public
 release merely because its runtime assets passed verification.
 
-Hollis has no asserted Developer ID signature/notarization. macOS may apply its
+Hollis does not claim Developer ID signing or notarization. macOS may apply its
 normal downloaded-code protections. The installer never strips quarantine,
 approves permissions, edits security policy or requests administrator installation.

@@ -1,7 +1,7 @@
 # Hollis: Your Mac has more to say.
 
-Ask Apple's Cloud or Cloud Pro for a useful second perspective, turn documents
-into clear writing, understand images, or generate an illustration—then continue
+Ask Apple's Cloud or Cloud Pro for a second opinion, turn documents
+into clear writing, understand images, or generate an illustration, then continue
 in the same agent conversation.
 
 It works in **Claude Code and Codex**, alongside gstack or on its own. You ask
@@ -11,7 +11,7 @@ brings the result back. No separate server or model API key is needed.
 **Plugin 0.4.0 targets runtime 0.7.0**, its matching native helper and five
 Shortcut bridges. The checked-in `runtime.lock.json` still pins **runtime 0.4.0**;
 source setup and packaging refuse that older pin until published 0.7.0 assets
-are verified and pinned. This plugin version is not yet published. Explicit native `local` adds genuine streaming for human
+are verified and pinned. This plugin version is not yet published. Explicit native `local` provides streaming for human
 terminal output and measured token usage on complete responses. Agent/JSON
 replies remain complete; local needs no Shortcut import.
 
@@ -178,7 +178,7 @@ document formats and model choices are in [everyday use](docs/usage.md).
 
 ## Alongside gstack
 
-After a gstack plan review, ask Hollis for Apple's assessment of the agreed plan.
+After a gstack plan review, ask Hollis to have Apple assess the agreed plan.
 For example, in Claude Code:
 
 ```text
@@ -212,7 +212,7 @@ and small native Claude/Codex manifests. There are no separate host-specific
 copies of the workflow. The portable format is already included; it is not a
 third plugin to install. Claude Code and Codex are the supported hosts for this
 release. Support for additional harnesses is future work: each needs a tested
-installation and conversation flow on the eligible Mac before we advertise it.
+installation and conversation flow on the eligible Mac before we claim support.
 See the [folder map, format boundaries and build instructions](docs/package.md).
 
 [Setup](docs/setup.md) · [Compatibility](docs/compatibility.md) ·

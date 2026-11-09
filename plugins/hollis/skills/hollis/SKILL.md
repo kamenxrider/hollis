@@ -3,7 +3,7 @@ name: hollis
 description: Use Hollis to ask Apple's Cloud or Cloud Pro from the current conversation, or explicitly use its native Local, On-Device, ChatGPT, document, image and paced-folder capabilities on a Mac. Applies when the user asks for Apple Intelligence or Hollis; works alongside gstack and general writing, research and creative tasks.
 ---
 
-Bring Apple's contribution back into this conversation. Lead with the useful answer or image, labelled with the selected model/style. Keep receipts and setup mechanics in the background unless needed.
+Bring Apple's contribution back into this conversation. Lead with the useful answer or image, labelled with the selected model/style. Keep receipts and setup details in the background unless needed.
 
 ## Connect
 
@@ -11,7 +11,7 @@ Set `SKILL_FILE` to this skill's actual installed absolute SKILL.md path, then r
 
 1. Run `bash "$KIT/scripts/setup.sh" check`. If setup is required, use the sibling **hollis-setup** skill. A remote host without execution on an eligible Mac cannot call Apple merely because the plugin loaded.
 2. Use `bash "$KIT/scripts/run.sh" agent-context` to discover the actual runtime contract. Expect schema version 2; inspect changed schemas before using them. It is the machine contract: use a flag only when it is listed on that command, and read `contracts` for exit codes and command resolution. `hollis --help` sections are for people. `setup.sh path` supplies the executable if direct access is needed. Before offering guided output, confirm the installed runtime reports it: `agent-context` lists `--schema` on `respond`, and `run.sh models --model local --json` shows `available: true` with `capabilities.guided_output: true`. `available` is the live part: the CLI accepts only the helper from its own bundle and reports `available: false` for any other. Runtime 0.7.0 has both; the checked-in lock still pins 0.4.0, which has neither. Plugin 0.4.0 requires published 0.7.0 pins before managed setup can proceed; an external runtime must pass its own capability checks.
-3. Use `run.sh` for calls: it verifies the managed binary and its pinned native helper and serializes operations with pacing. Existing explicit route/scope authorization remains valid; explain any forthcoming Apple approval rather than asking again for ordinary authorized calls.
+3. Use `run.sh` for calls: it verifies the managed binary and its pinned native helper and serializes operations with pacing. Existing explicit route/scope authorization remains valid; explain any upcoming Apple approval rather than asking again for ordinary authorized calls.
 4. Check the selected capability with `setup.sh status <route>`. If missing or unknown, use setup for that route only. For images, `discovered` with `configured:false` means the shortcut exists but its runtime mapping still needs `setup.sh import image`; that command connects a discovered bridge without opening an import. A user's fixed-style overrides remain intact. Do not mistake runtime installation or discovery for completed route setup.
 
 ## Ask and continue
@@ -70,7 +70,7 @@ runtime provides it (0.7.0 does; the current 0.4.0 pin does not), as does
 headroom, never to invent a remaining Apple allowance.
 
 When listed, opt-in `--retry` on Local `respond`/`chat` adds three attempts,
-or `--retry=N` selects 0–5. Use it only with user authorization for transient
+or `--retry=N` selects 0 to 5. Use it only with user authorization for transient
 Local busy failures; never add it to Cloud, Cloud Pro, On-Device, ChatGPT,
 `auto` or image generation. Output/tool activity and timeouts prevent replay.
 `--permissive`, when listed on `respond`, is only for Local transformations

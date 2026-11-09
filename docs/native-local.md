@@ -24,7 +24,7 @@ them move the cursor, change the clipboard or execute terminal escape sequences.
 This presentation does not rewrite the raw response saved in successful chats
 or encoded in API/JSON output.
 
-The complete rendered conversation is submitted each turn. Hollis does not
+Hollis submits the complete rendered conversation each turn. It does not
 silently shorten, summarise or drop history to fit the model. Its existing
 128 KiB prompt limit is a byte safeguard, not the model's context capacity.
 Requests that exceed either supported input limits or Apple's context capacity
@@ -67,7 +67,7 @@ the source.
 
 ## Guided output
 
-This section describes Hollis 0.7.0, with helper 0.7.0/protocol 4. Runtime
+Hollis 0.7.0 uses helper 0.7.0/protocol 4. Runtime
 0.4.0 and plugin 0.2.0's runtime use protocol 1 and do not include `--schema`
 or the protocol-2 and protocol-3 diagnostics described here. Use the CLI and
 helper from the same release bundle; do not mix a 0.7.0 CLI with an older
@@ -77,7 +77,7 @@ Protocol 3 adds a `capabilities` object to the helper's status event, and every
 operation negotiates before it runs. The helper accepts request formats 1, 2, 3 and
 4, but stamps all events with version 0.7.0. Older CLIs reject that version;
 accepting their request format does not make them compatible. This CLI speaks
-protocol 4 only and checks strict version identity because the CLI and helper
+protocol 4 only and requires an exact version match because the CLI and helper
 ship as one bundle. A mismatched pair fails closed with a clear error asking
 for the matching bundle, never a plain-text downgrade. A capability the helper
 did not advertise (tool calling on an older build, for example) is refused by name as
@@ -85,7 +85,7 @@ did not advertise (tool calling on an older build, for example) is refused by na
 is a component fault at exit 5 and HTTP 502, distinct from a caller mistake.
 
 `--schema` asks the native model for an object that follows a supported subset
-of JSON Schema. The schema is validated before the helper is spawned, so an
+of JSON Schema. Hollis validates the schema before spawning the helper, so an
 unsupported schema costs no inference:
 
 ```sh
@@ -97,8 +97,8 @@ With `--json`, `response` is the decoded object rather than a string. Human
 output prints the same object, indented. Usage keeps its existing three counts;
 no field is added.
 
-The subset is deliberately small, and anything outside it is rejected with the
-offending JSON pointer instead of being approximated:
+Hollis rejects anything outside this small subset and reports the offending
+JSON pointer; it does not approximate unsupported schemas:
 
 - the root is an object, and every object is closed: `"additionalProperties"`
   may be `false` or omitted, and omitted means `false`, so a returned object
@@ -160,10 +160,10 @@ nullable-union rules are a compatible relaxation: every schema accepted before
 them is still accepted, sent to the helper as the same bytes, and validated
 identically.
 
-Every rule in that list is enforced by Hollis before the helper is spawned, and
-by the helper's own parser as well. A schema Hollis accepts is therefore a
-schema the helper accepts, and a rejection is a usage error (exit 2) naming the
-offending JSON pointer with no inference and no process spawned.
+Hollis checks every rule in that list before spawning the helper. The helper's
+parser checks the same rules. A schema Hollis accepts is therefore a schema
+the helper accepts. A rejection is a usage error (exit 2) naming the offending
+JSON pointer, with no inference and no process spawned.
 
 The helper reaches that agreement by scanning the raw request bytes before
 Foundation's decoder sees them: the request envelope is checked for strict JSON

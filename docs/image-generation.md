@@ -9,7 +9,7 @@ bridge accepts a style and an optional reference image.
 The normal **hollis-bridges.zip** release download includes all four model
 bridges plus **Hollis Image - Reference Input v2**. Follow the
 [verified install](../README.md#install-verified) to verify the package, sign the shortcuts
-on your Mac and add them. No source checkout or separate image download is needed.
+on your Mac and add them. You do not need a source checkout or separate image download.
 
 Then configure the exact image Shortcut name:
 
@@ -83,8 +83,8 @@ the [repeated test results](releases/v0.3.2.md#validation).
 
 **Any Style does not guarantee photographs.** Native Image Playground can
 produce photographs, but we have not found a repeatable unattended photographic
-setting for its Shortcut action. The image bridge remains experimental, with
-provider refusals and build-specific behavior recorded rather than hidden.
+setting for its Shortcut action. The image bridge remains experimental;
+provider refusals and build-specific behavior are recorded.
 
 **ChatGPT image generation is blocked on the tested build** (`26A5425a`). Fixed
 and parameterized Shortcuts failed before inference with a Shortcuts ToolKit
@@ -94,8 +94,8 @@ worked. That is the historical signature, kept for comparison.
 A later check on 2026-11-02, on the source that became 0.7.0, saw the same request refused
 in under a second with exit 5 `request_declined` ("Apple asked for a different
 description; the underlying reason was not specified.") before any image was
-made. The observed signature differs; the conclusion does not. The style stays
-blocked, Hollis still does not silently substitute a provider, and neither
+made. The observed signature differs, but the style remains
+blocked. Hollis still does not silently substitute a provider, and neither
 signature is claimed as permanent. Recheck after a supported Apple update.
 
 This does not affect the separate ChatGPT text/image-understanding
@@ -149,8 +149,8 @@ hollis image generate "A red circle on a white background. No text." \
   --bridge "Hollis Image Generation Probe" --output circle.png
 ```
 
-Use a new destination in an existing directory. One positional prompt, one
-selected bridge, one output file, one generation attempt. `--timeout` accepts
+Use a new destination in an existing directory. Each request uses one positional
+prompt, one selected bridge, one output file and one generation attempt. `--timeout` accepts
 positive durations up to 120s (the default). There are no automatic retries.
 An existing output is rejected before generation, and a collision that arises
 during generation is also refused. Output files are created with mode 0600.
@@ -200,7 +200,7 @@ processing. With no output options, the native PNG is saved. Genmoji may return
 a transparent background even when a prompt requests white. Cropping can cut
 into the subject; choose padding when preserving the whole composition matters.
 
-Apple's native framework does document size/aspect-ratio selection through
+Apple's native framework documents size/aspect-ratio selection through
 [SizeSpecification](https://developer.apple.com/documentation/imageplayground/imageplaygroundoptions/sizespecification-swift.struct).
 However, its programmatic [ImageCreator initializer](https://developer.apple.com/documentation/imageplayground/imagecreator/init())
 is documented to throw `notSupported` on macOS 27 and later. Apple directs

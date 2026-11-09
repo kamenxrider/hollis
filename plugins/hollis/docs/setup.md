@@ -28,7 +28,7 @@ The agent handles these steps:
 
 If setup is interrupted, ask to continue. Completed runtime/bridge steps are
 recorded locally; pending imports are checked again before opening anything.
-Setup does not pretend to enable Apple Intelligence or approve policies itself.
+Setup does not claim to enable Apple Intelligence or approve policies itself.
 Readiness checks are read-only and can run concurrently. A host sandbox can
 still block Shortcuts discovery or runtime writes: permit the relevant local
 operation using that host's controls. This is separate from Apple's approvals.
@@ -68,7 +68,7 @@ reports `helper_protocol_mismatch` or `helper_version_mismatch`, and a
 selected-route plan reports `helper_mismatch`. All three call for the matching
 bundle, not a reinstall of bridges. Native `local` needs that match;
 selected Shortcut routes remain usable with a helper mismatch. Guided output
-(`--schema`) and the measured `context_size` diagnostic additionally require
+(`--schema`) and the measured `context_size` diagnostic also require
 the runtime and helper from one bundle, such as 0.7.0 (not the current 0.4.0 pin): check that
 `models --model local --json` reports `available: true` with
 `capabilities.guided_output: true`, rather than a protocol number. A mismatched
@@ -133,7 +133,7 @@ The helpers use only macOS utilities. A downloaded archive contains the runtime;
 source installations fetch its exact locked assets over HTTPS. Each managed
 binary is hash-checked again before execution. `setup.sh path` returns its
 absolute path. A pre-existing newer executable on PATH remains part of your
-existing installation's trust boundary; it is not falsely described as our pin.
+existing installation's trust boundary; the plugin does not claim to have pinned it.
 
 ## Updates and removal
 

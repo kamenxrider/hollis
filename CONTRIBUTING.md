@@ -1,8 +1,8 @@
 # Contributing to Hollis
 
 Hollis is a small project. Bug reports, fixes and documentation corrections are
-welcome. For a larger change, open a feature request first so the approach can
-be agreed before you write it.
+welcome. For a larger change, open a feature request first to agree on the
+approach before you write it.
 
 ## Build
 

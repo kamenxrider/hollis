@@ -13,4 +13,4 @@ Proposed first version:
 - We retain bookings indefinitely to compare attendance across future events.
 
 We want a calm, welcoming experience, minimal personal data, and a first event
-that volunteers can actually manage. What should change before we build it?
+that volunteers can manage. What should change before we build it?

@@ -20,7 +20,7 @@ python3 scripts/release/prepare_distribution.py /path/to/verified-release \
   --output /tmp/hollis.rb
 ```
 
-This renders a local formula only. It does not write to a tap, install Homebrew,
+The script renders a local formula only. It does not write to a tap, install Homebrew,
 change global package-manager state, or run inference. Do not treat a locally
 built candidate or an offline fixture as published provenance.
 
@@ -110,9 +110,9 @@ Developer ID signed or notarized.
 
 ## Local validation
 
-Formula installation and its lifecycle have been tested against a real
-Homebrew executable in disposable isolated prefixes by
-`packaging/homebrew/test_formula_lifecycle.py`: a clean install with generated
+`packaging/homebrew/test_formula_lifecycle.py` has tested formula installation
+and its lifecycle against a real Homebrew executable in disposable, isolated
+prefixes: a clean install with generated
 completions, symlinked sibling-helper invocation, tampered-helper rejection,
 upgrade and uninstall that retain conversations and configuration byte for
 byte, and a prefix path containing spaces. Installing from a published tap
@@ -120,8 +120,8 @@ into a real user Homebrew, verifying actual published downloads and
 fresh-account onboarding remain unverified, and real package-manager testing
 stays in isolated prefixes.
 
-Both fixture version labels are built from the checkout under test; this tests package
-upgrade preservation, not migration from a released v0.4.0 executable.
+Both fixture version labels are built from the checkout under test. These tests
+check package upgrade preservation, not migration from a released v0.4.0 executable.
 
 Run the six lifecycle tests on a Mac with Homebrew, Go, a configured Git commit
 identity and the macOS 27 SDK:

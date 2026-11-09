@@ -1,6 +1,6 @@
 # Native helper protocol harness
 
-Model-free checks for the `hollis-native` JSON protocol. The helper is built
+These model-free checks cover the `hollis-native` JSON protocol. The helper is built
 with `scripts/build-native.sh` and driven the way the Go runner drives it: one
 NDJSON request on stdin, an event stream on stdout.
 
@@ -24,9 +24,10 @@ NDJSON request on stdin, an event stream on stdout.
   checks PDF text-layer extraction, Vision OCR of scanned and rotated pages,
   page selection, the page and text ceilings, the file ceiling, symlink and FIFO
   refusal, the no-text case (no non-whitespace text in the selected pages), and
-  render and recognition failures, which a test-only seam injects and which must
-  fail the whole document rather than read as an empty page. It creates every fixture itself, calls no
-  model, and needs PDFKit and Vision to be usable (Apple silicon, macOS 27).
+  render and recognition failures injected through a test-only seam. These
+  failures must fail the whole document rather than count as an empty page.
+  The test creates every fixture itself, calls no model, and needs PDFKit and
+  Vision to be usable (Apple silicon, macOS 27).
 - `test_image_input.py` uses generated PNG/JPEG fixtures to check bounded
   decoding, EXIF orientation, downscaling, pixel/file ceilings, direct-file
   checks and typed errors. Its damaged-image helper request stops before any

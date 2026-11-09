@@ -51,7 +51,7 @@ the answer is still a valid object. Local `--schema` / `json_schema` constrains
 structure and types to the supported schema subset, not factual correctness.
 
 `native_protocol` is a component mismatch, not a bad invocation: the command
-was understood and the installed helper cannot serve it. It deliberately shares
+was understood and the installed helper cannot serve it. It shares
 exit 5 with the transport family so a script can treat a stale pairing like any
 other failed execution, while the machine code names the cause. `hollis serve`
 keeps the classification from its startup status probe, so a paired helper that
@@ -62,9 +62,10 @@ unavailable helper stays 400 `model_unavailable`; a malformed payload from a
 matched helper keeps the shared `native_protocol` sentence.
 
 `unsupported_capability` is a component mismatch of the same family but a narrower cause: the helper answered validly, in the
-right protocol, and simply does not offer what the request needs. It is never used for a caller mistake such as too many
-images or an unsupported parameter; those stay usage errors, because telling a caller to reinstall for a bad request would be
-wrong. The remedy is the same matching bundle.
+right protocol, and simply does not offer what the request needs. It is never
+used for a caller mistake such as too many images or an unsupported parameter.
+Those remain usage errors; telling a caller to reinstall for a bad request
+would be wrong. Install the matching bundle for a capability mismatch.
 
 The `mcp_*` codes come from `hollis mcp` commands and explicitly attached
 `respond`/`chat` tools. `hollis serve` never reads
@@ -97,7 +98,7 @@ completed, but never after a callback in the failing decision. Other
 `LanguageModelError` codes, guardrail, context and decoding failures do not
 retry. A repeated allowlisted failure retains `model_busy`, exit 5 / HTTP 503.
 
-CLI `respond` and `chat` additionally accept [opt-in Local `--retry`](cli.md#opt-in-local-retry)
+CLI `respond` and `chat` also accept [opt-in Local `--retry`](cli.md#opt-in-local-retry)
 for classified busy failures before output or tool activity, within the original
 deadline. It never retries Cloud, Cloud Pro, On-Device, ChatGPT or provider limits.
 HTTP and batch do not acquire this CLI retry policy.

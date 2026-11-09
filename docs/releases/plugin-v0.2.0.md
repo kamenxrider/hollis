@@ -9,8 +9,8 @@ follow. The notes below are kept as the record of what 0.2.0 contained.
   <img src="https://raw.githubusercontent.com/kamenxrider/hollis/v0.4.0/docs/assets/hollis-logo.svg" alt="hollis — Your Mac has more to say." width="680">
 </picture>
 
-Cloud and Cloud Pro in Claude Code and Codex, now with the complete **Hollis 0.4.0**
-runtime and its native-local helper in one package.
+The package includes Cloud and Cloud Pro in Claude Code and Codex, along with
+the complete **Hollis 0.4.0** runtime and its native-local helper.
 
 - Explicit `local` selects Apple’s on-device SDK without a Shortcut import.
 - Human terminal text streams; agent and JSON output stays complete. Complete local responses report measured token usage; streamed usage is not promised.

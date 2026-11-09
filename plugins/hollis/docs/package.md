@@ -1,7 +1,7 @@
 # Package layout and maintenance
 
 Hollis keeps the runtime and plugin in one repository, with separate versions
-and release artifacts. This directory is the plugin's source of truth. Claude
+and release artifacts. The plugin source lives in this directory. Claude
 and Codex consume the same skills and scripts through their native manifests.
 
 ## Folder map

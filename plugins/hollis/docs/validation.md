@@ -13,7 +13,7 @@ python3 scripts/plugin/package_plugin.py --validate-only
 The offline portable-core checks validate Agent Plugins 1.0.0 manifest rules,
 skill discovery and frontmatter, path containment, and script lookup without
 Claude/Codex manifests or host-specific environment variables. This is a
-synthetic generic-client check, not an installation test in every compatible
+synthetic check of a generic client, not an installation test in every compatible
 client. Claude Code and Codex remain the tested hosts.
 
 A published plugin must also verify the exact runtime assets against GitHub build

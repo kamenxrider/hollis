@@ -26,7 +26,7 @@ list item or table row:
 | `respond --prompt-file -` | `agent-context` describes `--prompt-file -` | `-` is read as a file name |
 | `doctor --model <route>` | `agent-context` lists `--model` on `doctor` | unknown flag, exit 2; plain `doctor --json` works |
 
-Also runtime-dependent and described as a check, not run as a command:
+The following also depend on the runtime and are described as checks, not commands to run:
 
 - Bare prompts and near-miss refusal: the skills tell agents to always name the
   command, which works on both runtimes.

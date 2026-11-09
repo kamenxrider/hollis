@@ -6,7 +6,7 @@ ships a template at
 [`packaging/launchd/io.github.kamenxrider.hollis.serve.plist`](../packaging/launchd/io.github.kamenxrider.hollis.serve.plist);
 nothing installs or loads it for you.
 
-The template is safe by default:
+The template uses these default settings:
 
 - It binds to loopback, `127.0.0.1:1978`, and does not pass `--allow-remote`
   or `--no-auth`.
@@ -107,7 +107,7 @@ Standard output and standard error both go to
 **Log Reports**. Each start writes one line, for example
 `hollis serve listening on http://127.0.0.1:1978 (GET /health)`, and a failed
 start writes its error. Hollis does not log requests, prompts or responses
-there, and the token is never printed.
+there, and Hollis never prints the token.
 
 launchd appends to the file and does not rotate it. Delete or truncate it when
 you like; it is recreated at the next start.
@@ -118,7 +118,7 @@ you like; it is recreated at the next start.
 foreground run from a shell where you supply the value. For a LaunchAgent, the
 value would have to be written into the plist's `EnvironmentVariables` or set
 with `launchctl setenv`, which exposes it to every process in your session. The
-token file keeps the secret out of both, so the template uses it.
+template uses a token file to keep the secret out of both.
 
 [Back to the API guide](api.md) · [Back to Hollis](../README.md)
 

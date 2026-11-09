@@ -5,23 +5,23 @@
 
 **Apple Intelligence’s Cloud and Cloud Pro models in your terminal, scripts and AI agents.**
 
-Hollis brings Apple’s model choices to your command line and your agents. No
-model API key, no account to create and no per-request charge from Hollis.
+Use Apple’s model choices from your command line and agents. Hollis requires
+no model API key or new account and has no per-request charge.
 
-- **Apple’s Cloud and Cloud Pro models.** Two distinct Private Cloud Compute
+- Apple’s Cloud and Cloud Pro models: two distinct Private Cloud Compute
   selections from Shortcuts’ **Use Model** action, chosen explicitly and never
   silently switched.
-- **On-device answers with `local`.** Apple’s native Foundation Models SDK on
+- On-device answers with `local`. Apple’s native Foundation Models SDK on
   your Mac: offline, streaming in the terminal, with guided JSON output, one
   image per request and tool calling.
-- **PDFs and scans.** Text and OCR extraction on your Mac before any model sees
+- PDFs and scans: text and OCR extraction on your Mac before any model sees
   the document.
-- **Image generation.** Animation, Illustration, Sketch, Genmoji and Any Style,
+- Image generation: Animation, Illustration, Sketch, Genmoji and Any Style,
   saved as PNG files, from the terminal, a chat or the API.
-- **Saved chats.** Conversations stay on your Mac and can be continued and searched.
-- **Batch processing.** A folder of documents or images with a preview, a call
-  budget and resumable progress.
-- **An agent plugin** for Claude Code and Codex, and an OpenAI-compatible API on
+- Saved chats stay on your Mac. You can continue and search them.
+- Batch processing handles a folder of documents or images with a preview,
+  a call budget and resumable progress.
+- An agent plugin for Claude Code and Codex, and an OpenAI-compatible API on
   localhost for other clients.
 
 ```bash
@@ -35,7 +35,7 @@ hollis image generate "A red sailboat" --style illustration --output boat.png
 ```
 
 Local-only `respond` and `chat` accept opt-in `--retry` (3 extra attempts) or
-`--retry=N` (0–5); retry is off unless supplied. Cloud, Cloud Pro, on-device,
+`--retry=N` (0 to 5); retry is off unless supplied. Cloud, Cloud Pro, on-device,
 ChatGPT, auto and image generation are never retried.
 
 ## What's new in 0.7.0
@@ -242,8 +242,8 @@ hollis chat --continue <id> "What did we decide?"
 hollis chats list
 ```
 
-Attach UTF-8 text files of any extension, or PDFs. A PDF is read on this Mac by the
-paired native helper, from its text layer with OCR for pages that have none;
+Attach UTF-8 text files of any extension, or PDFs. The paired native helper reads
+a PDF on this Mac from its text layer, with OCR for pages that have none;
 `--pages` selects pages of a single PDF. Extraction is CLI-only, not an HTTP
 feature. The extracted page text, not the PDF bytes, goes to whichever answering
 route you select, including cloud, cloud-pro, or ChatGPT. Use `--model local`
@@ -291,7 +291,7 @@ Planning makes no model calls. Runs have an explicit call budget and verify
 saved results before skipping them. After each completion, Cloud waits at least
 30 seconds, Cloud Pro 45 seconds and ChatGPT 15 seconds; On-Device and native
 local run without a pause. Apple rate-limits cloud requests per Mac without
-publishing the limit; we observed a block of about 17–24 hours after roughly
+publishing the limit; we observed a block of about 17 to 24 hours after roughly
 115 Cloud requests in 34 minutes. Pacing reduces risk but cannot guarantee
 access. Text supports all five
 explicit model choices; images use Cloud, Cloud Pro or ChatGPT. `auto` is not a
@@ -334,7 +334,7 @@ curl -sS http://127.0.0.1:1978/v1/chat/completions \
 - Through Shortcuts, answers are complete and token usage is unavailable; `stream: true` returns 400.
 - Native `local` supports real SSE streaming on both endpoints and measured token usage on complete responses. Chat Completions can request a final usage chunk with `stream_options`; unavailable counts stay null.
 - Guided JSON output on `local` is available through `--schema` on the CLI and through `response_format` / `text.format` on both HTTP endpoints. The object is returned as a JSON string.
-- A paired native helper that speaks another protocol or version is 502 `native_protocol` on `local` requests, guided or plain, matching CLI exit 5 and naming the matching bundle; a missing or unavailable helper stays 400 `model_unavailable`.
+- If the paired native helper speaks another protocol or version, Hollis returns 502 `native_protocol` for `local` requests, guided or plain. This matches CLI exit 5 and names the matching bundle. A missing or unavailable helper stays 400 `model_unavailable`.
 - CLI `--json` and `--agent` output never stream; explicit streaming with either is rejected.
 - Caller-provided tools on `local` only (`tools`, `role:"tool"` / `function_call_output` results, `finish_reason:"tool_calls"`); Hollis never runs a tool. `system` and `instructions` are advisory prompt content.
 

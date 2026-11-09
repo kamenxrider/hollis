@@ -10,7 +10,8 @@ Stop on failure or throttling; these recipes do not retry or change models.
 Use a scratch directory: the file recipes create or replace `notes.md`,
 `reverse.go` and `person.json`. The chat recipe writes your local Hollis chat
 history. Bash or zsh can run the blocks. Replace the synthetic input with your
-own text deliberately; generated code is saved for review, never executed.
+own text deliberately. The recipes save generated code for review and never
+execute it.
 
 ## Summarize meeting notes
 

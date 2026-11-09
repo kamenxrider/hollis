@@ -1,7 +1,7 @@
 # Plugin verification
 
 See the [plugin verification guide](../plugins/hollis/docs/validation.md) for
-synthetic installation tests and the distinction between local checks, published
+synthetic installation tests and the differences between local checks, published
 provenance and first-use Apple consent. See [Testing Hollis](testing.md) for the
 runtime's ordinary regression tests.
 

@@ -1,6 +1,6 @@
 # Testing Hollis
 
-The public source contains ordinary regression tests with synthetic inputs.
+The public source includes regression tests with synthetic inputs.
 They exercise transport, output contracts, terminal safety, context limits,
 HTTP streaming, cancellation, storage and installer behaviour without model calls.
 
@@ -49,10 +49,10 @@ runs on any host.
 The same suite builds the helper with `scripts/build-native.sh` and runs golden
 request cases: protocol and operation guards, malformed and non-canonical JSON,
 unsupported schemas, the request-size cap, the status event shape at each
-supported protocol, and the prompt guards. Every case is rejected before a
-generation session exists or asks only for the non-generative status event, so
-no model call is made. The cases skip themselves where a helper built for macOS
-27 cannot execute; the build is still compiled there.
+supported protocol, and the prompt guards. Each case either checks rejection
+before a generation session exists or asks only for the non-generative status
+event. No case makes a model call. The cases skip themselves where a helper
+built for macOS 27 cannot execute; the build is still compiled there.
 
 `native/Extraction.swift` (document extraction) is tested the same way with a
 driver that creates its own fixtures: a text-layer PDF, a scanned PDF whose
@@ -110,8 +110,7 @@ prompt contains request-shaped text. The payload rows add a repeated key and a
 trailing comma. Mutating the helper by removing its scan, its duplicate-key
 check or its payload scan fails these rows.
 
-Accepted limitation, resolved by a subset rule rather than a dependency: the
-two runtimes normalise Unicode differently, so a schema whose property name,
+The two runtimes normalise Unicode differently. A schema whose property name,
 `required` name or `enum` choice was precomposed `é` would be one name in
 Foundation (canonical equivalence) and a different byte string in Go. Rather
 than adding a normalisation library, the subset holds authoring names and enum

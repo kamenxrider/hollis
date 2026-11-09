@@ -9,7 +9,7 @@ channel is unchanged. Tool protocol scaffolding and context summarization are
 Local-only and keep their existing native framing. Image conversation rendering
 also puts system/developer instructions after image context and revisions.
 
-Start with the [verified install and first request](../README.md#install-verified). This guide keeps the detailed command and storage contracts together.
+Start with the [verified install and first request](../README.md#install-verified).
 
 ## JSON object responses
 
@@ -35,7 +35,7 @@ warnings, not readiness errors. Numeric spelling is preserved: Shortcuts may
 serialize 19.95 as `19.949999999999999`; Hollis does not round or re-encode it.
 Financial or exact-decimal callers should use decimal strings or round explicitly.
 
-Outer whitespace is trimmed. One whole fenced block, opened with exactly
+Hollis trims outer whitespace. One whole fenced block, opened with exactly
 ` ```json ` or ` ``` ` (without the spaces shown here), is unwrapped only if
 its entire content is an object. Surrounding prose, arrays, null, malformed
 JSON and empty output fail with exit 5, `invalid_json_output`. No fields are
@@ -73,8 +73,8 @@ hollis update --apply          # Homebrew only; asks first on a terminal
 hollis update --apply --yes --no-input
 ```
 
-Only `hollis update` checks for updates. No startup, background, scheduled or
-automatic check is performed. It makes one explicit request to the public
+Only `hollis update` checks for updates. Hollis does not check at startup, in the
+background, on a schedule or automatically. The command makes one explicit request to the public
 GitHub latest-release API for `kamenxrider/hollis`, with a `hollis/<version>`
 User-Agent, a 10-second timeout, no redirects and no retry. This is the same
 repository and `v<version>` tag convention used by the verified installer.
@@ -91,7 +91,7 @@ JSON fields are `current_version`, `latest_version`, `update_available`,
 envelope; `--select` selects these fields. `status` is `update_available`,
 `up_to_date`, `newer_than_published` or `unknown`. An unversioned source build
 (such as `dev`) reports `unknown`, `version_comparable: false` and
-`update_available: false` rather than inventing a version.
+`update_available: false`.
 
 Installation detection resolves executable symlinks: a `Cellar/hollis/<version>`
 layout is Homebrew, including nonstandard prefixes. No `brew` process is
@@ -166,7 +166,7 @@ The native helper's existing single pre-callback busy retry is unchanged.
 
 Backoff is 1, 2, 4, 8, 8 seconds, interruptible immediately with Ctrl-C.
 All extra attempts and waits share the original request/turn `--timeout`
-budget; each retry does not restart the timeout. Respond's discovery and PDF
+budget; retries do not restart the timeout. Respond's discovery and PDF
 extraction retain their existing separate budgets. Chat continuation locking
 uses the same turn budget. Stderr notes name the upcoming attempt:
 `hollis: Local model busy; retrying in 1 s (attempt 2 of 4)`.
@@ -228,8 +228,8 @@ hollis benchmark --runs 3 --json
 ```
 
 `benchmark` always uses native Local. `--model`/`-m` accepts only `local`; any other
-value exits 2 before a helper starts. Saved model/timeout defaults and environment
-overrides are ignored. No user input, chat history, tools, Shortcuts, Cloud,
+value exits 2 before a helper starts. The command ignores saved model/timeout
+defaults and environment overrides. No user input, chat history, tools, Shortcuts, Cloud,
 Cloud Pro, ChatGPT or network requests are used, and no answer text is stored.
 Unavailable Local reports the existing `local_unavailable` error (exit 5).
 
@@ -265,7 +265,7 @@ contain `name`, `check`, `attempted`, `succeeded`, `wall_ms`, `first_text_ms`,
 `output_tokens_per_second` and `samples`; statistics contain `median`, `p95`,
 `min` and `max`. Samples contain `run`, `success`, `wall_ms`, `first_text_ms`,
 `usage`, `output_tokens_per_second`, `token_count`, `error_code` and `error`.
-No generated answer text is returned. `--agent` wraps the same report under
+The report contains no generated answer text. `--agent` wraps the same report under
 `results` with the usual `meta`; `--select` works for declared report fields.
 `--quiet` hides the up-front stderr notice, not the results or failed checks.
 
@@ -345,8 +345,8 @@ extension.
 With exactly one input `--image`, `respond` and one-shot saved `chat` detect
 the explicit English words `images`, `pictures` and `photos`. They drop the
 plural `s`; directly preceding `these`/`those` become `this`/`that`, and
-`both`/`two`/`all` become `the`. Capitalization and intervening spaces are
-preserved. This is a conservative word table, not a grammar or pronoun
+`both`/`two`/`all` become `the`. Hollis preserves capitalization and intervening
+spaces. This is a conservative word table, not a grammar or pronoun
 rewrite: surrounding verbs and independent pronouns are left alone.
 
 In a human Terminal, Hollis warns, shows the suggested prompt and asks
@@ -359,9 +359,9 @@ Singular prompts and zero/multiple images are unchanged. No environment
 variable or saved default controls this feature.
 
 For a one-shot saved chat, attach `--image` with an explicit image-capable
-model (for example `--model local`). Only the new user's text is adjusted
-before normal history framing; the sent text and an adjustment flag are
-saved atomically. The attachment is not replayed on later turns.
+model (for example `--model local`). Hollis adjusts only the new user's text
+before normal history framing. It saves the sent text and an adjustment flag
+atomically. The attachment is not replayed on later turns.
 Input images are unavailable in the interactive chat loop or together with
 MCP/image generation. Batch never rewrites its manifest-bound instruction;
 planning records a warning instead.
@@ -391,10 +391,10 @@ or change permissions. An unset value prints a blank line (exit 0); JSON
 reports `value: ""` and `configured: false`. Both support JSON, agent output
 and field selection.
 
-For `respond` and new text chats, model precedence is positional
+For `respond` and new text chats, model priority is positional
 `model <tier>` > `--model` > `HOLLIS_MODEL` > saved model > built-in default.
 A continued chat always uses its stored model, ignoring `HOLLIS_MODEL`.
-For `respond`, `chat` and `image generate`, timeout precedence is
+For `respond`, `chat` and `image generate`, timeout priority is
 `--timeout` > `HOLLIS_TIMEOUT` > saved timeout > command default (30 seconds
 for text, 120 seconds for image generation). All durations must be greater
 than zero and at most 120 seconds. Empty or invalid environment values are
@@ -528,7 +528,7 @@ hollis chat "Remember the codeword VANTA-ORBIT-7319"
 hollis chat --continue <id> "What was the codeword?"
 ```
 
-Run `hollis chat` with no argument in a terminal for an interactive session — blank lines are skipped, Ctrl-D ends it, and `--continue <id>` resumes an existing conversation:
+Run `hollis chat` with no argument in a terminal for an interactive session. Blank lines are skipped, Ctrl-D ends it, and `--continue <id>` resumes an existing conversation:
 
 ```
 $ hollis chat
@@ -550,7 +550,7 @@ Interactive sessions accept a few commands instead of sending the line to the mo
 
 Anything else is a prompt. Commands are matched exactly after trimming and case folding, so `/imageology` and `help me` still go to the model.
 
-Managing them:
+To manage saved chats:
 
 ```bash
 hollis chats list
@@ -624,8 +624,8 @@ When the platform is known and Shortcuts
 discovery fails, that reason says bridge presence is unknown, matching the
 Cloud and On-Device rows. A helper that answers but does not match this Hollis
 version is `helper_mismatch`, distinct from a missing helper or malformed or
-incomplete status data (`native_protocol`). If the
-configuration cannot be read, rows omit `default` rather than guess. Existing row fields
+incomplete status data (`native_protocol`). If Hollis cannot read the
+configuration, rows omit `default`. Existing row fields
 and metadata schema version 2 are unchanged. A configured UUID may remain
 `available: true` while its readiness is unknown: it is callable but not
 discovery-verified. `--select model,default,available,reason` can project these
@@ -645,8 +645,8 @@ first Shortcut route. Selected-route diagnostics target only that route. The
 suggestion acts on the observed state: the
 `hollis config set bridge <route> <name-or-uuid>` line for a missing bridge,
 Shortcuts for a pending import, and System Settings for an unavailable model.
-Missing transport or unsupported platforms receive repair guidance rather than
-a cycle through other diagnostic commands. For native repair, use the same
+For missing transport or unsupported platforms, doctor suggests repairs instead
+of cycling through other diagnostic commands. For native repair, use the same
 installation source to restore the matched CLI and sibling helper: the formula
 for Homebrew, the same revision for source builds, or the matched release
 bundle for downloads. Doctor does not guess installation ownership or select a
@@ -663,8 +663,8 @@ Use `hollis doctor --model <route>` for a nonzero exit when the selected route
 is unready.
 
 JSON output carries both `model_requested` (what you asked for) and `model_used` (what
-answered). They differ when `auto` falls back from Cloud to On-Device — the two
-are not interchangeable, so the substitution is reported rather than hidden. In
+answered). When `auto` falls back from Cloud to On-Device, the fields differ
+because the two routes are not interchangeable. Hollis reports the substitution. In
 human mode that fallback prints one line to stderr, leaving stdout clean for
 pipelines. The local API reports the serving tier in its `model` field, as
 OpenAI does.
@@ -681,7 +681,7 @@ are never removed by projection. `agent-context` keeps its intrinsic JSON
 shape and supports selection with `--json` or `--agent`.
 `agent-context --pretty` indents that contract for reading.
 
-**Intentional compatibility correction:** unknown fields, malformed paths and
+Intentional compatibility correction: unknown fields, malformed paths and
 paths through scalar values now fail with a clear usage error (exit 2), rather
 than being silently omitted. Validation uses the command's declared schema
 before model calls or other command work, not the first result row. Fields that
@@ -725,9 +725,9 @@ not prove a helper is missing. Use selected doctor to inspect availability.
 `hollis setup --import [cloud cloud-pro on-device chatgpt image]` opens selected
 bundled Shortcut imports; omit routes for all nine. A text route selects both
 its text and JSON bridge; a `-json` suffix selects only that JSON bridge
-(for example `cloud-pro-json`). Each bridge is independently skipped if installed. It verifies the archive
-against the sibling bundle manifest, signs private copies and skips installed
-bridges unless `--force`. Use the complete release bundle or Homebrew layout.
+(for example `cloud-pro-json`). It verifies the archive
+against the sibling bundle manifest, signs private copies and independently skips
+installed bridges unless `--force`. Use the complete release bundle or Homebrew layout.
 Noninteractive, JSON and agent invocations require `--yes`. Planning without
 `--import` remains read-only. Import-window launch is not proof of completed
 imports or successful inference.
@@ -779,8 +779,7 @@ For PowerShell, add the output of `hollis completion powershell` to your
 profile. Start a new shell afterwards. Regenerate the script after upgrading
 Hollis so new commands and flags complete.
 
-The
-prepared Homebrew formula generates Bash, Zsh and Fish completions during
+The prepared Homebrew formula generates Bash, Zsh and Fish completions during
 installation. It places the PowerShell script at
 `$(brew --prefix)/share/hollis/completion/hollis.ps1`. The template is preparation
 only; this does not announce a published tap.
@@ -802,7 +801,7 @@ The state directory is mode `0700`; its database, config, lock, migration backup
 
 Generated images and batch results live at the output paths you choose, outside this state directory. They are not deleted when you delete a chat.
 
-Run diagnostics contain only request ID, requested/used tier, timing, exit code, error class, fallback, and byte counts — never prompts, replies, or raw Apple stderr. Conversation deletion removes its messages, run records, and search entries in one transaction. To delete everything Hollis knows, remove that directory. To delete one conversation, `hollis chats delete <id>`.
+Run diagnostics contain only request ID, requested/used tier, timing, exit code, error class, fallback, and byte counts. They never contain prompts, replies, or raw Apple stderr. Conversation deletion removes its messages, run records, and search entries in one transaction. To delete everything Hollis knows, remove that directory. To delete one conversation, `hollis chats delete <id>`.
 
 ### Database upgrades and recovery
 

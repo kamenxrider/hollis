@@ -3,7 +3,7 @@ name: hollis-setup
 description: Install, check, repair or update the Hollis plugin's local Mac runtime and selected Apple Shortcuts bridges. Guides first-use Apple approvals, preserves existing Hollis data and verifies pinned assets without requiring development tools.
 ---
 
-Get the user from this conversation to a useful Apple answer. Set `SKILL_FILE` to this skill's actual installed absolute SKILL.md path; resolve `KIT` two levels above its containing directory with `KIT="$(cd "$(dirname "$SKILL_FILE")/../.." && pwd -P)"`, and use absolute script paths. Installation is part of the experience, not a list of commands to hand off unnecessarily.
+Help the user get a useful Apple answer in this conversation. Set `SKILL_FILE` to this skill's actual installed absolute SKILL.md path; resolve `KIT` two levels above its containing directory with `KIT="$(cd "$(dirname "$SKILL_FILE")/../.." && pwd -P)"`, and use absolute script paths. Handle installation in this conversation instead of unnecessarily handing the user a list of commands.
 
 ## First use
 
@@ -28,7 +28,7 @@ A `hollis` already on PATH (Homebrew, a direct download or a source build) is an
 
 ## Recovery and upgrades
 
-- The installer is resumable: rerun `install`, then only unfinished bridge imports. It never overwrites user configuration wholesale. A configured but unverified custom bridge needs diagnosis or explicit replacement, not automatic duplicate installation.
+- The installer is resumable: rerun `install`, then only unfinished bridge imports. It never overwrites the entire user configuration. A configured but unverified custom bridge needs diagnosis or explicit replacement, not automatic duplicate installation.
 - A pending import does not open again automatically. If the user closed it and now requests another attempt, use `setup.sh import <route> --reopen` once.
 - Installer and inference locks prevent overlapping operations. If an interrupted operation leaves a lock, inspect its recorded PID and confirm no operation is running before removing only that stale lock. Never clear locks blindly.
 - A runtime upgrade retains the previous version, including corrupt files. Managed install/check results include `rollback` with `status`, `version` and `message`: `available` means the candidate was verified at that check; `unavailable` explains why it cannot be selected; `none` means no candidate is recorded and `version` is null. A repair upgrade may proceed when the older runtime is corrupt. `setup.sh rollback` verifies again immediately before switching; a refused rollback leaves the current runtime selected. Configuration, conversations and bridges are preserved. A newer installed runtime is not automatically downgraded to this plugin's pin.

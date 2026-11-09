@@ -1,8 +1,8 @@
 # Hollis plugin 0.1.0 — Apple inside the conversation
 
-Bring Apple Cloud and Cloud Pro into the agent conversation you already use.
-Ask for a perspective on a plan, compare documents, understand an image or
-generate an illustration, then follow up naturally.
+The plugin connects Apple Cloud and Cloud Pro to your existing agent
+conversation. You can ask for a perspective on a plan, compare documents,
+understand an image or generate an illustration, then ask follow-up questions.
 
 ## Install and ask
 

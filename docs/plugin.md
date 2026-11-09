@@ -2,7 +2,7 @@
 
 The Hollis plugin brings Apple's contribution into Claude Code or Codex: ask for
 an answer, document comparison, image assessment or illustration, then continue
-the conversation. It is designed to work alongside gstack while remaining useful
+the conversation. It is designed for use alongside gstack and
 for everyday writing, research synthesis and creative work.
 
 Start with the [plugin guide](../plugins/hollis/README.md) for installation and

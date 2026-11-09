@@ -1,18 +1,18 @@
 # AI review helper
 
-This directory contains the trusted, standard-library-only client used by the
-AI pull-request review workflow. The workflow runs only for non-draft,
+The AI pull-request review workflow uses this trusted client, which depends
+only on the standard library. The workflow runs only for non-draft,
 same-repository pull requests targeting `main`.
 
 The helper first validates the open pull request against the repository, pull
 request number, full base SHA, and full head SHA from the GitHub event. It then
-requests the matching compare endpoint's unified-diff media type. The response
-is read as UTF-8 text with a 120,000-byte hard limit. An HTTP error, redirect,
+requests the matching compare endpoint's unified-diff media type. The helper
+reads the response as UTF-8 text with a 120,000-byte hard limit. An HTTP error, redirect,
 invalid text response, or oversized response fails before any partial diff is
 sent to the model provider.
 
 The provider call is a direct `POST` to
-`https://api.openai.com/v1/chat/completions`, and every provider value lives in
+`https://api.openai.com/v1/chat/completions`, and all provider settings are in
 one marked configuration block at the top of `ai_review.py`: the URL, the
 expected host, the model, the reasoning effort, the completion budget, the
 socket timeout, and the secret's environment variable name. The model is
@@ -36,13 +36,13 @@ request contains text messages only and no tools.
 
 A non-streamed `xhigh` completion sends nothing back until the model finishes,
 so the provider call gets its own 900-second socket timeout while the GitHub
-calls keep 30. Both the review job and the smoke job allow 20 minutes, which
-outlasts the socket timeout plus checkout, the GitHub calls, validation, and the
-artifact upload, so a slow call ends with the helper's own diagnostic rather
-than a cancelled job. The policy tests read `PROVIDER_TIMEOUT_SECONDS` from the
+calls keep 30. Both the review job and the smoke job allow 20 minutes.
+This covers the socket timeout plus checkout, the GitHub calls, validation, and
+the artifact upload. A slow call therefore ends with the helper's own diagnostic
+rather than a cancelled job. The policy tests read `PROVIDER_TIMEOUT_SECONDS` from the
 helper and fail if either job timeout drops below it plus a margin.
 
-Responses are rejected if they request a tool or function call, do not finish
+The helper rejects responses if they request a tool or function call, do not finish
 with `stop`, do not carry an `assistant` message, refuse without content, or
 exceed the 60,000-byte review limit. `finish_reason` `length` has its own
 message saying the completion budget was exhausted, so a budget problem is not

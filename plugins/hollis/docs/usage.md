@@ -1,8 +1,8 @@
 # Ask Apple, then continue
 
 After [installation and setup](../README.md#install), use `/hollis:hollis` in
-Claude Code or `$hollis:hollis` in a Codex conversation. The examples below are
-the request to put after that prefix. Select actual files in your host or give
+Claude Code or `$hollis:hollis` in a Codex conversation. Put the example requests
+below after that prefix. Select actual files in your host or give
 their accessible local paths; example filenames are not attachments by themselves.
 
 ## Everyday requests
@@ -30,7 +30,7 @@ prompt limit. Oversized requests need a smaller agreed scope, not silent truncat
 
 ## Context and Local controls
 
-Use the actual runtime contract before offering newer flags. When `agent-context` lists `--messages` on `respond`,
+Check the actual runtime contract before offering newer flags. When `agent-context` lists `--messages` on `respond`,
 `respond --messages <private-file> --agent --model cloud`
 passes selected host context as a one-shot messages array; it does not save a
 second transcript. Listed `--system` (`-s`) and `--system-file` supply instructions.

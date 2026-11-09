@@ -67,7 +67,7 @@ documentation alone does not upgrade their bundled binary.
 | Wrong/unavailable style | Use one of the five tested styles; do not route ChatGPT generation to another model silently |
 
 Ask the agent for the relevant receipt or `doctor --json` output when needed.
-The main answer should remain readable. Keep diagnostics private unless you
+Keep the main answer readable. Keep diagnostics private unless you
 choose to share them; even prompts in otherwise harmless test logs can contain
 personal or project information.
 

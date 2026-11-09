@@ -4,7 +4,7 @@ Hollis 0.7.0 can attach MCP (Model Context Protocol) tools to an explicit
 `local` model request, from a local program over stdio or a remote server over
 HTTP. Calls need your approval (`ask`, the default) or an explicit allow list
 (`auto`). Runtime 0.4.0 does not include MCP. Servers in `mcp.json` remain
-inert until selected.
+inactive until selected.
 
 Local uses executable native tool callbacks, with independent Go validation
 before approval or execution. Invalid arguments stop with `tool_call_invalid`;
@@ -22,8 +22,8 @@ hollis respond --model local --mcp-server 'program "argument with spaces"' "Read
 ```
 
 `--mcp <name>` selects a configured server, repeatable in request order.
-`--mcp-server` accepts a command with quoted arguments or an HTTP URL. No
-shell, variable expansion or command substitution is used. Ad-hoc servers
+`--mcp-server` accepts a command with quoted arguments or an HTTP URL. Hollis uses
+no shell, variable expansion or command substitution. Ad-hoc servers
 are named `adhoc-1`, `adhoc-2`, and are always ask-only. `--mcp-timeout`
 sets a positive call deadline up to 120 seconds; the command/turn deadline
 still wins. `--no-mcp` overrides attachment flags and guarantees no MCP
@@ -42,7 +42,7 @@ definitions use an explicit native `arguments_json` string envelope, with the
 bounded original schema in escaped untrusted metadata. Go unwraps a strict
 JSON object without coercion or defaults, then asks with the full original
 arguments and a notice that the server validates them. An old helper refuses
-this capability rather than falling back silently.
+this capability and does not fall back silently.
 
 The default budget is eight model decisions per visible user transaction,
 including prior structured call batches and final synthesis. A callback batch
