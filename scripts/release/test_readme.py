@@ -25,7 +25,7 @@ class ReadmeVerificationTests(unittest.TestCase):
         self.assertNotIn('plugin source version 0.3.0', pending)
 
     def test_manual_verification_uses_one_release_and_source_pin(self):
-        readme = (ROOT / 'README.md').read_text()
+        readme = (ROOT / 'docs/verification.md').read_text()
         block = readme.split('<summary>Verify manually</summary>', 1)[1].split('</details>', 1)[0]
         self.assertIn('https://github.com/kamenxrider/hollis/releases/tag/v0.7.0', block)
         self.assertIn('do not discover or authenticate', block)
@@ -43,19 +43,41 @@ class ReadmeVerificationTests(unittest.TestCase):
         self.assertNotIn('0.4.0', block)
 
     def test_auto_falls_back_only_for_missing_bridge(self):
-        readme = (ROOT / 'README.md').read_text()
+        readme = (ROOT / 'docs/overview.md').read_text()
         self.assertIn('once only after a confirmed missing bridge', readme)
         self.assertIn('Provider limits stop without retry or fallback.', readme)
         self.assertNotIn('after a recognized Cloud limit', readme)
 
-    def test_extraction_and_pending_installer_are_not_guarantees(self):
+    def test_guide_preserves_limits_and_explains_installation(self):
+        guide = (ROOT / 'docs/getting-started.md').read_text()
+        self.assertIn('Extraction and model answers can contain errors', guide)
+        self.assertIn('check important', guide)
+        self.assertIn('nine bridges', guide)
+        self.assertIn('not Developer ID signed or notarized', guide)
+        self.assertIn('fresh', guide)
+        self.assertIn('file fingerprints (SHA-256) only', guide)
+        self.assertIn('Only `gh`', guide)
+        self.assertIn('verifies the source commit', guide)
+        self.assertIn('~/.local/share/hollis/0.7.0/', guide)
+        self.assertIn('Move that folder to the Trash', guide)
+
+    def test_landing_page_is_short_and_keeps_guide_links_and_anchors(self):
         readme = (ROOT / 'README.md').read_text()
-        self.assertIn('Extraction and model answers can', readme)
-        self.assertIn('check important numbers against the original', readme)
-        self.assertNotIn("document's text exactly", readme)
-        self.assertIn('curl installer stays unavailable and refuses installation', readme)
-        self.assertIn('fingerprint and source', readme)
-        self.assertIn('nine imports in 0.7.0', readme)
+        self.assertLess(len(readme.splitlines()), 110)
+        for target in ('docs/getting-started.md', 'plugins/hollis/docs/quickstart.md',
+                       'docs/privacy.md', 'docs/verification.md', 'docs/releases/README.md'):
+            self.assertIn(target, readme)
+        for anchor in ('install-verified', 'add-shortcuts', 'verification-and-trust',
+                       'what-leaves-your-machine', 'your-data-and-uninstalling'):
+            self.assertIn(f'<a id="{anchor}"></a>', readme)
+        self.assertNotIn('placeholder', readme)
+
+    def test_manual_layout_and_verification_tiers(self):
+        verification = (ROOT / 'docs/verification.md').read_text()
+        for text in ('file fingerprints (SHA-256) only', 'Only `gh` verifies the source commit',
+                     'codesign --verify --strict', 'mv runtime "$destination"',
+                     'ln -s "$destination/hollis"', 'hollis-native --protocol-version'):
+            self.assertIn(text, verification)
 
 
 if __name__ == '__main__':

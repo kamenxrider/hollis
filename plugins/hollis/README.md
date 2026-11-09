@@ -1,135 +1,19 @@
-# Hollis: Your Mac has more to say.
+# Hollis plugin
 
-Ask Apple's Cloud or Cloud Pro for a second opinion, turn documents
-into clear writing, understand images, or generate an illustration, then continue
-in the same agent conversation.
+Ask Apple's models for help inside Claude Code or Codex, then continue in the
+same conversation. It runs on an Apple-silicon Mac with macOS 27 and Apple
+Intelligence, alongside gstack or on its own.
 
-It works in **Claude Code and Codex**, alongside gstack or on its own. You ask
-in the conversation; Hollis calls the selected Apple route on your Mac and
-brings the result back. No separate server or model API key is needed.
+Start with the [step-by-step quick start](docs/quickstart.md): install the
+plugin, run setup and make your first request.
 
-**Plugin 0.4.0 targets runtime 0.7.0**, its matching native helper and nine
-Shortcut bridges (four text, four JSON and one image). The checked-in `runtime.lock.json` still pins **runtime 0.4.0**;
-source setup and packaging refuse that older pin until published 0.7.0 assets
-are verified and pinned. This plugin version is not yet published. Explicit native `local` provides streaming for human
-terminal output and measured token usage on complete responses. Agent/JSON
-replies remain complete; local needs no Shortcut import.
+<a id="install"></a>
+<a id="claude-code"></a>
+<a id="codex"></a>
+<a id="what-setup-asks-you-to-do"></a>
 
-Plugin 0.2.0 was withdrawn. The latest published plugin,
-[0.1.0](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0),
-bundles runtime 0.3.3 and does not include native local.
-
-**Requires a local Apple-silicon Mac running macOS 27 with Apple Intelligence.**
-Have Claude Code or Codex installed and signed in. The host must execute on this
-Mac; a remote Linux agent cannot use Apple Intelligence through this package.
-See [compatibility](docs/compatibility.md).
-
-**Start here:** [Install](#install) · [Ask and continue](#ask-and-continue) ·
-[Everyday examples](docs/usage.md) · [gstack](#alongside-gstack) ·
-[Folder map and maintenance](docs/package.md)
-
-## Install
-
-Use a source checkout of this repository. Setup downloads the exact pinned,
-checksum-verified assets named by `runtime.lock.json` and does not need the
-plugin's own release archive. The current 0.4.0 runtime pin cannot satisfy this
-plugin's 0.7.0 minimum; setup remains blocked until that lock is updated.
-
-| What you have | Folder to give the host | Included runtime |
-| --- | --- | --- |
-| Source checkout | Repository root | Downloaded during setup, matching the pinned lock |
-| Extracted 0.1.0 release archive | Outer `hollis-plugin-0.1.0` folder | Runtime 0.3.3, without native local |
-
-Replace `/absolute/path/to/hollis` below with that folder. It contains the
-marketplace entries and `plugins/hollis/`. **Do not point marketplace
-installation at the inner `plugins/hollis` folder.** Keep the source folder
-available for later local marketplace updates.
-
-Beyond the host app, normal setup uses macOS utilities: no Homebrew, GitHub CLI,
-Go, Python, Node, shell configuration edits or administrator installation.
-
-### Claude Code
-
-Enter these in the **Claude conversation**, one at a time:
-
-For GitHub marketplace installation:
-
-```text
-/plugin marketplace add kamenxrider/hollis
-/plugin install hollis@hollis-plugins
-```
-
-This option needs the published release and refreshed runtime pins; it is not
-ready while the checked-in lock still pins runtime 0.4.0.
-
-For the local checkout:
-
-```text
-/plugin marketplace add /absolute/path/to/hollis
-/plugin install hollis@hollis-plugins
-```
-
-Both options use the same pinned runtime and require pins satisfying the
-plugin's 0.7.0 minimum.
-
-Choose the installation scope in Claude. If the install summary asks for
-`/reload-plugins`, run it; otherwise start a new session if the skills are not
-listed. Then run:
-
-```text
-/hollis:hollis-setup
-```
-
-### Codex
-
-Run these in a **terminal on the same Mac**:
-
-```sh
-codex plugin marketplace add kamenxrider/hollis
-codex plugin add hollis@hollis-plugins
-```
-
-For a local checkout, use
-`codex plugin marketplace add "/absolute/path/to/hollis"` for the first
-command; add a branch or tag with `--ref` only when that ref exists.
-
-Start a new Codex conversation and type the following there, **not in the shell**:
-
-```text
-$hollis:hollis-setup
-```
-
-You can also select `hollis:hollis-setup` in the skills picker. If `codex plugin`
-is unavailable in your installation, use a plugin-capable Codex version; this
-guide does not assume that every older host understands the format.
-
-### What setup asks you to do
-
-Setup offers Cloud, Cloud Pro, On-Device, native local, ChatGPT and image generation. Select
-what you want. It explains **Add Shortcut** and first-use **Allow** prompts before
-opening them. Existing bridges and custom settings are preserved. You can skip
-capabilities and add them later by asking setup again. If interrupted, ask it to
-continue; there is no need to start over.
-
-Setup verifies installation and bridge discovery. **Your first successful Apple
-answer or image confirms that capability works.** On the tested, already approved
-account, requests ran without per-image clicks or a visible Playground editor.
-Fresh-account and first-consent testing remain open. Image generation requires
-an unlocked session. [Setup and recovery details](docs/setup.md).
-
-Binaries are not Developer ID signed or notarized. The release checksum and
-GitHub build provenance verify their origin; setup checks the pinned contents.
-
-Apple controls cloud availability. Testing encountered an explicit Cloud Pro usage
-limit and hours-long cloud interruptions; generic failures were not all confirmed
-quota hits. Remaining allowance and recovery time are unknown. Pause after a limit;
-pacing cannot guarantee access. Explicit routes never silently switch models.
-
-Cloud and Cloud Pro use Apple's **Private Cloud Compute through Shortcuts**,
-separate from the native Foundation Models developer API. The calling agent
-receives the context it sends and Apple's result. Testing observed no separate
-Apple model charge, with rate limits; your host service has its own costs and
-privacy policy. [Privacy and integrity](docs/privacy.md).
+[Installation and approvals](docs/quickstart.md) · [Everyday requests](docs/usage.md) ·
+[Compatibility](docs/compatibility.md) · [Folder map](docs/package.md)
 
 ## Ask and continue
 

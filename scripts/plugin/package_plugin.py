@@ -30,6 +30,7 @@ SOURCE_ALLOWLIST = (
     'docs/compatibility.md',
     'docs/package.md',
     'docs/privacy.md',
+    'docs/quickstart.md',
     'docs/setup.md',
     'docs/troubleshooting.md',
     'docs/usage.md',

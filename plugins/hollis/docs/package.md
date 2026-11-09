@@ -4,11 +4,19 @@ Hollis keeps the runtime and plugin in one repository, with separate versions
 and release artifacts. The plugin source lives in this directory. Claude
 and Codex consume the same skills and scripts through their native manifests.
 
+## Versions
+
+Plugin 0.4.0 targets runtime 0.7.0, its matched helper and nine bridges.
+Plugin 0.2.0 was withdrawn. Plugin 0.1.0 bundled runtime 0.3.3 without native
+Local; its extracted outer `hollis-plugin-0.1.0` folder is the marketplace
+root for that older archive. Existing-account image tests ran without per-image
+clicks or a visible Playground editor. Fresh-account consent remains untested.
+
 ## Folder map
 
 ```text
 plugins/hollis/                 Plugin root: hosts load this directory
-├── README.md                  Installation and first useful request
+├── README.md                  Overview and quick-start link
 ├── plugin.json                Portable Agent Plugins manifest
 ├── .claude-plugin/plugin.json Claude identity and namespace
 ├── .codex-plugin/plugin.json  Codex identity and skill discovery

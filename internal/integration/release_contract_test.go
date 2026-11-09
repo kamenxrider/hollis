@@ -99,9 +99,9 @@ func TestReleaseBuildCreatesAllPublishedAssets(t *testing.T) {
 	}
 }
 
-func TestReadmeQuickstartVerifiesAllArtifactsBeforeUse(t *testing.T) {
+func TestGuideVerifiesAllArtifactsBeforeUse(t *testing.T) {
 	t.Parallel()
-	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "README.md"))
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "verification.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,13 +109,15 @@ func TestReadmeQuickstartVerifiesAllArtifactsBeforeUse(t *testing.T) {
 	start := strings.Index(readme, "<summary>Verify manually</summary>")
 	end := strings.Index(readme, "</details>")
 	if start < 0 || end <= start {
-		t.Fatal("README manual verification boundaries are missing")
+		t.Fatal("guide manual verification boundaries are missing")
 	}
 	quickstart := readme[start:end]
 	for _, required := range []string{
 		`set -euo pipefail`,
 		`umask 077`,
-		`cd "$(mktemp -d)"`,
+		`temporary=$(mktemp -d)`,
+		`trap 'rm -r "$temporary"' EXIT`,
+		`cd "$temporary"`,
 		`https://github.com/kamenxrider/hollis/releases/tag/v0.7.0`,
 		`do not discover or authenticate the tag's commit for you`,
 		`: "${HOLLIS_VERSION:?Set the version from the authenticated release tag}"`,
@@ -130,26 +132,30 @@ func TestReadmeQuickstartVerifiesAllArtifactsBeforeUse(t *testing.T) {
 		`--source-ref "refs/tags/v$HOLLIS_VERSION"`,
 		`--source-digest "$HOLLIS_SOURCE_DIGEST"`,
 		`--deny-self-hosted-runners`,
-		`install -m 755 runtime/hollis runtime/hollis-native "$HOME/.local/bin/"`,
+		`codesign --verify --strict runtime/hollis-native`,
+		`mv runtime "$destination"`,
+		`ln -s "$destination/hollis" "$HOME/.local/bin/hollis"`,
+		`ln -s "$destination/hollis-native" "$HOME/.local/bin/hollis-native"`,
+		`"$destination/hollis" setup --import`,
 	} {
 		if !strings.Contains(quickstart, required) {
-			t.Errorf("README bundle installation is missing %q", required)
+			t.Errorf("guide bundle installation is missing %q", required)
 		}
 	}
 	if strings.Contains(quickstart, "--ignore-missing") || strings.Contains(quickstart, "releases/latest") {
-		t.Fatal("README must verify one selected release without ignoring missing checksums")
+		t.Fatal("guide must verify one selected release without ignoring missing checksums")
 	}
 	if strings.Contains(quickstart, "0.4.0") || strings.Contains(quickstart, "1906721a1cd5594ce47be6d4d306d7daa1e6891f") {
-		t.Fatal("README must not mix a selected release with obsolete version or source pins")
+		t.Fatal("guide must not mix a selected release with obsolete version or source pins")
 	}
 	checksumAt := strings.Index(quickstart, `shasum -a 256 -c SELECTED_SHA256SUMS`)
 	verifyAt := strings.Index(quickstart, `gh attestation verify`)
 	if checksumAt < 0 || verifyAt <= checksumAt {
-		t.Fatal("README must check the checksum before provenance verification")
+		t.Fatal("guide must check the checksum before provenance verification")
 	}
-	for _, use := range []string{`unzip -q "$HOLLIS_BUNDLE"`, `install -m 755`, `unzip -q runtime/hollis-bridges.zip`, `shortcuts sign`, `open "signed/${f##*/}"`} {
+	for _, use := range []string{`unzip -q "$HOLLIS_BUNDLE"`, `codesign --verify`, `runtime/hollis --version`, `mv runtime`, `ln -s`, `"$destination/hollis" setup --import`} {
 		if useAt := strings.Index(quickstart, use); useAt < 0 || useAt <= verifyAt {
-			t.Errorf("README uses artifact via %q before verifying the enclosing bundle", use)
+			t.Errorf("guide uses artifact via %q before verifying the enclosing bundle", use)
 		}
 	}
 }
