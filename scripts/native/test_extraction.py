@@ -11,15 +11,43 @@ Vision's exact output for a synthetic line is stable on this SDK but is still an
 OCR result; the scanned-page cases assert the recognized words rather than byte
 equality, and the text-layer cases assert exact bytes.
 """
+import contextlib
+import io
+import json
 import os
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import helper_protocol as protocol
 
 PHRASE = 'Banana bread recipe'
+
+
+class DiagnosticForwardingTests(unittest.TestCase):
+    def test_only_structured_diagnostics_are_forwarded(self):
+        record = protocol.DIAGNOSTIC_PREFIX + '{"stage":"render_begin"}'
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream):
+            protocol.forward_diagnostics(
+                'private framework output\n' + record + '\n' +
+                protocol.DIAGNOSTIC_PREFIX + 'incomplete\n' +
+                protocol.DIAGNOSTIC_PREFIX + '[]\n')
+        self.assertEqual(stream.getvalue(), record.replace(':', ': ') + '\n')
+
+    def test_timeout_preserves_stage_diagnostics_without_changing_deadline(self):
+        record = protocol.DIAGNOSTIC_PREFIX + '{"stage":"recognize_begin"}'
+        error = protocol.subprocess.TimeoutExpired(
+            ['harness'], 17, stderr=('private framework output\n' + record).encode())
+        stream = io.StringIO()
+        with mock.patch.object(protocol.subprocess, 'run', side_effect=error) as run:
+            with contextlib.redirect_stderr(stream), self.assertRaises(protocol.subprocess.TimeoutExpired):
+                protocol.harness('harness', 'extract', 'synthetic.pdf', timeout=17)
+        self.assertEqual(run.call_args.kwargs['timeout'], 17)
+        self.assertIn('"recognize_begin"', stream.getvalue())
+        self.assertNotIn('private', stream.getvalue())
 
 
 class ExtractionTests(unittest.TestCase):
@@ -37,6 +65,65 @@ class ExtractionTests(unittest.TestCase):
         answer = protocol.harness(self.harness, mode, str(path), *args)
         self.assertTrue(answer.get('ok'), answer)
         return path
+
+    def diagnostic_records(self, stream):
+        return [json.loads(line[len(protocol.DIAGNOSTIC_PREFIX):])
+                for line in stream.getvalue().splitlines()]
+
+    def test_diagnostics_redact_unknown_domains_and_bound_error_chains(self):
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream):
+            answer = protocol.harness(self.harness, 'diagnostic-errors')
+        self.assertEqual(answer, {'ok': True})
+        bounded, known = self.diagnostic_records(stream)
+        self.assertEqual(len(bounded['errors']), 8)
+        self.assertEqual(bounded['errors'][0], {'domain': 'redacted', 'code': 42})
+        self.assertEqual(known['errors'], [{'domain': 'NSOSStatusErrorDomain', 'code': -6662}])
+        self.assertNotIn('private', stream.getvalue())
+        self.assertTrue(all(set(error) == {'domain', 'code'}
+                            for record in (bounded, known) for error in record['errors']))
+
+    def test_diagnostics_preserve_render_failure_and_recognition_mapping(self):
+        path = self.fixture('make-scan-pdf', 'diagnostic.pdf', '1', PHRASE)
+        for fault in ('render-fails', 'recognize-fails', 'recognize-empty'):
+            with self.subTest(fault=fault):
+                stream = io.StringIO()
+                with contextlib.redirect_stderr(stream):
+                    answer = protocol.harness(self.harness, 'extract', str(path), '', fault)
+                expected = 'extract_no_text' if fault == 'recognize-empty' else 'invalid_document'
+                self.assertEqual(answer, {'ok': False, 'failure': expected})
+                records = self.diagnostic_records(stream)
+                stages = [record['stage'] for record in records]
+                self.assertEqual(stages[:2], ['render_begin', 'render_end'])
+                self.assertEqual(records[1]['ok'], fault != 'render-fails')
+                if fault == 'render-fails':
+                    self.assertEqual(len(records), 2)
+                else:
+                    self.assertEqual(stages[2:], ['recognize_begin', 'recognize_end'])
+                    image = records[1]['image']
+                    self.assertEqual((image['width'], image['height']), (1224, 1584))
+                    self.assertEqual(image['bits_per_component'], 8)
+                    self.assertGreater(image['nonwhite_pixels'], 0)
+                    self.assertLess(image['nonwhite_pixels'], image['width'] * image['height'])
+                    self.assertEqual(records[-1]['ok'], fault == 'recognize-empty')
+                self.assertNotIn(str(path), stream.getvalue())
+                self.assertNotIn(PHRASE, stream.getvalue())
+
+    def test_diagnostics_report_real_vision_metadata_after_recognition(self):
+        path = self.fixture('make-blank-pdf', 'diagnostic-blank.pdf')
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream):
+            answer = protocol.harness(self.harness, 'extract', str(path))
+        self.assertEqual(answer, {'ok': False, 'failure': 'extract_no_text'})
+        records = self.diagnostic_records(stream)
+        stages = [record['stage'] for record in records]
+        self.assertEqual(stages[:4], [
+            'render_begin', 'render_end', 'recognize_begin', 'recognize_end'])
+        self.assertTrue(records[3]['ok'])
+        self.assertIn('vision', stages[4:])
+        self.assertIn('supported_languages', stages[4:])
+        self.assertIn('supported_devices', stages[4:])
+        self.assertNotIn(str(path), stream.getvalue())
 
     def test_text_layer_is_extracted_exactly_and_marked_text(self):
         path = self.fixture('make-text-pdf', 'text.pdf', '2', 'Alpha beta gamma.')

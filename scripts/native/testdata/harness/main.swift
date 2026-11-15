@@ -3,9 +3,11 @@
 // prints extraction results as one JSON document. It never imports
 // FoundationModels: no model is created, no session exists, no prompt is sent.
 import CoreGraphics
+import CoreML
 import CoreText
 import Foundation
 import PDFKit
+import Vision
 
 let arguments = CommandLine.arguments
 guard arguments.count >= 2 else { fputs("usage: harness <mode> ...\n", stderr); exit(2) }
@@ -20,6 +22,91 @@ func fail(_ message: String) -> Never {
 func emit(_ payload: [String: Any]) {
     let data = try! JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
     FileHandle.standardOutput.write(data + Data([10]))
+}
+
+func diagnostic(_ payload: [String: Any]) {
+    let data = try! JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+    FileHandle.standardError.write(Data("HOLLIS_OCR_DIAGNOSTIC ".utf8) + data + Data([10]))
+}
+
+// Error descriptions and arbitrary userInfo can carry paths or document text.
+// Only known framework domains and numeric codes leave the harness.
+func errorChain(_ error: Error) -> [[String: Any]] {
+    let domains: Set<String> = [
+        VNErrorDomain, NSCocoaErrorDomain, NSPOSIXErrorDomain, NSOSStatusErrorDomain,
+        NSMachErrorDomain, "com.apple.CoreML", "com.apple.espresso", "com.apple.TextRecognition",
+    ]
+    var chain: [[String: Any]] = []
+    var current: NSError? = error as NSError
+    var seen = Set<ObjectIdentifier>()
+    while let item = current, chain.count < 8, seen.insert(ObjectIdentifier(item)).inserted {
+        chain.append(["domain": domains.contains(item.domain) ? item.domain : "redacted",
+                      "code": item.code])
+        current = item.userInfo[NSUnderlyingErrorKey] as? NSError
+    }
+    return chain
+}
+
+func imageProperties(_ image: CGImage) -> [String: Any] {
+    var properties: [String: Any] = [
+        "width": image.width, "height": image.height,
+        "bits_per_component": image.bitsPerComponent, "bits_per_pixel": image.bitsPerPixel,
+        "bytes_per_row": image.bytesPerRow, "alpha": image.alphaInfo.rawValue,
+        "color_space_model": image.colorSpace?.model.rawValue ?? -1,
+    ]
+    if image.bitsPerComponent == 8, image.bitsPerPixel == 8,
+       image.colorSpace?.model == .monochrome, let data = image.dataProvider?.data,
+       CFDataGetLength(data) >= image.bytesPerRow * image.height,
+       let bytes = CFDataGetBytePtr(data) {
+        var count = 0
+        for y in 0..<image.height {
+            for x in 0..<image.width where bytes[y * image.bytesPerRow + x] < 250 {
+                count += 1
+            }
+        }
+        properties["nonwhite_pixels"] = count
+    }
+    return properties
+}
+
+func languageTag(_ value: String) -> String {
+    value.range(of: "^[A-Za-z]{2,8}([_-][A-Za-z0-9]{1,8})*$",
+                options: .regularExpression) != nil ? value : "redacted"
+}
+
+func visionEnvironment() {
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    diagnostic(["stage": "vision", "revision": request.revision,
+                "supported_revisions": Array(VNRecognizeTextRequest.supportedRevisions),
+                "recognition_languages": request.recognitionLanguages.map(languageTag),
+                "locale": languageTag(Locale.current.language.maximalIdentifier),
+                "preferred_languages": Locale.preferredLanguages.map(languageTag)])
+    do {
+        diagnostic(["stage": "supported_languages",
+                    "languages": try request.supportedRecognitionLanguages().map(languageTag)])
+    } catch {
+        diagnostic(["stage": "supported_languages", "errors": errorChain(error)])
+    }
+    do {
+        let stages = try request.supportedComputeStageDevices
+        for (stage, devices) in stages {
+            let names = devices.map { device -> String in
+                switch device {
+                case .cpu: return "cpu"
+                case .gpu: return "gpu"
+                case .neuralEngine: return "neural_engine"
+                @unknown default: return "unknown"
+                }
+            }.sorted()
+            diagnostic(["stage": "supported_devices",
+                        "compute_stage": stage == .main ? "main" :
+                            (stage == .postProcessing ? "post_processing" : "unknown"),
+                        "devices": names])
+        }
+    } catch {
+        diagnostic(["stage": "supported_devices", "errors": errorChain(error)])
+    }
 }
 
 let mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
@@ -155,11 +242,48 @@ func ocr(fault: String?) -> Extraction.OCR {
     default:
         fail("unknown fault \(fault ?? "")")
     }
+    let render = ocr.render
+    let recognize = ocr.recognize
+    ocr.render = { page in
+        diagnostic(["stage": "render_begin"])
+        let image = render(page)
+        var record: [String: Any] = ["stage": "render_end", "ok": image != nil]
+        if let image { record["image"] = imageProperties(image) }
+        diagnostic(record)
+        return image
+    }
+    ocr.recognize = { image in
+        diagnostic(["stage": "recognize_begin"])
+        // Query metadata only after the real call, never as an OCR warm-up.
+        defer { if fault == nil || fault == "" { visionEnvironment() } }
+        do {
+            let lines = try recognize(image)
+            diagnostic(["stage": "recognize_end", "ok": true, "line_count": lines.count])
+            return lines
+        } catch {
+            diagnostic(["stage": "recognize_end", "ok": false, "errors": errorChain(error)])
+            throw error
+        }
+    }
     return ocr
 }
 
 let mode = arguments[1]
 switch mode {
+case "diagnostic-errors":
+    var error = NSError(domain: NSOSStatusErrorDomain, code: -6662,
+                        userInfo: [NSLocalizedDescriptionKey: "private diagnostic text"])
+    for code in 0..<10 {
+        error = NSError(domain: NSCocoaErrorDomain, code: code,
+                        userInfo: [NSUnderlyingErrorKey: error])
+    }
+    error = NSError(domain: "private/domain", code: 42,
+                    userInfo: [NSUnderlyingErrorKey: error,
+                               NSLocalizedDescriptionKey: "private diagnostic text"])
+    diagnostic(["stage": "error_sanitizer", "errors": errorChain(error)])
+    diagnostic(["stage": "error_sanitizer",
+                "errors": errorChain(NSError(domain: NSOSStatusErrorDomain, code: -6662))])
+    emit(["ok": true])
 case "make-text-pdf":
     makePDF(path: arguments[2], pages: Int(arguments[3]) ?? 1, text: arguments[4], scan: { _ in false })
     emit(["ok": true])

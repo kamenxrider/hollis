@@ -11,6 +11,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,6 +22,47 @@ EXTRACTION_SOURCE = ROOT / 'native/Extraction.swift'
 HARNESS_SOURCE = ROOT / 'scripts/native/testdata/harness/main.swift'
 GO_NATIVE = ROOT / 'internal/runner/native.go'
 GOLDENS = Path(__file__).resolve().parent / 'testdata/protocol'
+DIAGNOSTIC_PREFIX = 'HOLLIS_OCR_DIAGNOSTIC '
+
+
+def forward_diagnostics(stderr):
+    """Forward only the harness's structured records, never framework stderr."""
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode('utf-8', errors='replace')
+    for line in (stderr or '').splitlines():
+        if line.startswith(DIAGNOSTIC_PREFIX):
+            try:
+                record = json.loads(line[len(DIAGNOSTIC_PREFIX):])
+            except ValueError:
+                continue
+            if not isinstance(record, dict):
+                continue
+            print(DIAGNOSTIC_PREFIX + json.dumps(record, sort_keys=True),
+                  file=sys.stderr, flush=True)
+
+
+def toolchain_diagnostics():
+    commands = {
+        'os_version': ('sw_vers', '-productVersion'),
+        'os_build': ('sw_vers', '-buildVersion'),
+        'sdk_version': ('xcrun', '--sdk', 'macosx', '--show-sdk-version'),
+        'sdk_build': ('xcrun', '--sdk', 'macosx', '--show-sdk-build-version'),
+    }
+    architecture = platform.machine()
+    record = {'stage': 'host', 'architecture': architecture if architecture in
+              ('arm64', 'x86_64') else 'other'}
+    for key, args in commands.items():
+        result = command(*args)
+        value = result.stdout.strip()
+        record[key] = (value if result.returncode == 0 and
+                       re.fullmatch(r'[A-Za-z0-9.]+', value) else 'unavailable')
+    result = command('xcodebuild', '-version')
+    match = re.fullmatch(r'Xcode ([0-9.]+)\nBuild version ([A-Za-z0-9.]+)\s*',
+                         result.stdout)
+    record['xcode_version'] = match.group(1) if result.returncode == 0 and match else 'unavailable'
+    record['xcode_build'] = match.group(2) if result.returncode == 0 and match else 'unavailable'
+    print(DIAGNOSTIC_PREFIX + json.dumps(record, sort_keys=True),
+          file=sys.stderr, flush=True)
 
 
 def command(*args, **kwargs):
@@ -84,6 +126,7 @@ def build_helper(folder):
 
 def build_extraction_harness(folder):
     """Build the extraction test driver into `folder` and return its path."""
+    toolchain_diagnostics()
     harness = Path(folder) / 'harness'
     sdk_path = command('xcrun', '--sdk', 'macosx', '--show-sdk-path').stdout.strip()
     result = command(
@@ -96,8 +139,13 @@ def build_extraction_harness(folder):
 
 def harness(executable, *args, timeout=600):
     """Run the extraction driver and decode its single JSON answer."""
-    result = subprocess.run([str(executable), *args], capture_output=True,
-                            text=True, timeout=timeout)
+    try:
+        result = subprocess.run([str(executable), *args], capture_output=True,
+                                text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        forward_diagnostics(error.stderr)
+        raise
+    forward_diagnostics(result.stderr)
     if result.returncode != 0:
         raise AssertionError(f'harness exited {result.returncode}: {result.stderr}')
     return json.loads(result.stdout)
