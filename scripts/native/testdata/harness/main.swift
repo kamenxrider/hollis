@@ -68,6 +68,118 @@ func imageProperties(_ image: CGImage) -> [String: Any] {
     return properties
 }
 
+// SDK-defined domain constants and enum cases only; never stringify an error.
+func errorIdentityChain(_ error: Error) -> [[String: Any]] {
+    let domains = [
+        VNErrorDomain, "VNErrorDomain", "com.apple.Vision", "Vision.VisionError",
+        MLModelErrorDomain, "com.apple.CoreML", NSCocoaErrorDomain,
+        NSOSStatusErrorDomain, NSPOSIXErrorDomain, NSMachErrorDomain,
+    ]
+    var chain: [[String: Any]] = []
+    var current: Error? = error
+    var seen: [NSError] = []
+    while let value = current, chain.count < 8 {
+        let item = value as NSError
+        guard !seen.contains(where: { $0 === item }) else { break }
+        seen.append(item)
+        var swiftCase = "unlisted"
+        if let vision = value as? VisionError {
+            switch vision {
+            case .dataUnavailable: swiftCase = "VisionError.dataUnavailable"
+            case .internalError: swiftCase = "VisionError.internalError"
+            case .invalidArgument: swiftCase = "VisionError.invalidArgument"
+            case .invalidFormat: swiftCase = "VisionError.invalidFormat"
+            case .invalidImage: swiftCase = "VisionError.invalidImage"
+            case .invalidModel: swiftCase = "VisionError.invalidModel"
+            case .invalidOperation: swiftCase = "VisionError.invalidOperation"
+            case .ioError: swiftCase = "VisionError.ioError"
+            case .operationFailed: swiftCase = "VisionError.operationFailed"
+            case .outOfBoundsError: swiftCase = "VisionError.outOfBoundsError"
+            case .outOfMemory: swiftCase = "VisionError.outOfMemory"
+            case .pixelBufferCreationFailed: swiftCase = "VisionError.pixelBufferCreationFailed"
+            case .requestCancelled: swiftCase = "VisionError.requestCancelled"
+            case .timeout: swiftCase = "VisionError.timeout"
+            case .timeStampNotFound: swiftCase = "VisionError.timeStampNotFound"
+            case .unsupportedComputeDevice: swiftCase = "VisionError.unsupportedComputeDevice"
+            case .unsupportedComputeStage: swiftCase = "VisionError.unsupportedComputeStage"
+            case .unsupportedRequest: swiftCase = "VisionError.unsupportedRequest"
+            case .unsupportedRevision: swiftCase = "VisionError.unsupportedRevision"
+            @unknown default: swiftCase = "VisionError.unlisted"
+            }
+        }
+        chain.append([
+            "domain_match": domains.first(where: { $0 == item.domain }) ?? "unlisted",
+            "domain_bytes": item.domain.utf8.count,
+            "domain_ascii": item.domain.utf8.allSatisfy { $0 < 128 },
+            "swift_case": swiftCase, "code": item.code,
+        ])
+        current = item.userInfo[NSUnderlyingErrorKey] as? Error
+    }
+    return chain
+}
+
+enum ControlFailure: Error { case cpuUnavailable }
+
+// Each control runs in its own process, after the unchanged extraction tests.
+// A control result is telemetry, never a replacement for an extraction result.
+func diagnosticControl(path: String, fixture: String, configuration: String) {
+    guard ["scan", "rotated", "blank"].contains(fixture),
+          ["production", "cpu_only", "fast"].contains(configuration) else {
+        fail("unknown control")
+    }
+    var record: [String: Any] = [
+        "stage": "control_result", "fixture": fixture,
+        "configuration": configuration, "phase": "render",
+    ]
+    diagnostic(["stage": "control_begin", "fixture": fixture,
+                "configuration": configuration])
+    guard let document = PDFDocument(url: URL(fileURLWithPath: path)),
+          let page = document.page(at: 0), let image = Extraction.OCR.vision.render(page) else {
+        record["ok"] = false
+        diagnostic(record)
+        return
+    }
+    record["image"] = imageProperties(image)
+    do {
+        let lineCount: Int
+        if configuration == "production" {
+            record["phase"] = "recognize"
+            lineCount = try Extraction.OCR.vision.recognize(image).count
+        } else {
+            record["phase"] = "configure"
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = configuration == "fast" ? .fast : .accurate
+            if configuration == "cpu_only" {
+                let stages = try request.supportedComputeStageDevices
+                guard !stages.isEmpty else { throw ControlFailure.cpuUnavailable }
+                var configuredStages: [String] = []
+                for (stage, devices) in stages {
+                    guard let cpu = devices.first(where: {
+                        if case .cpu = $0 { return true }
+                        return false
+                    }) else { throw ControlFailure.cpuUnavailable }
+                    request.setComputeDevice(cpu, for: stage)
+                    configuredStages.append(stage == .main ? "main" :
+                        (stage == .postProcessing ? "post_processing" : "other"))
+                }
+                record["cpu_stages"] = configuredStages.sorted()
+            }
+            record["phase"] = "recognize"
+            try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+            lineCount = (request.results ?? []).compactMap { $0.topCandidates(1).first }.count
+        }
+        record["ok"] = true
+        record["line_count"] = lineCount
+    } catch {
+        record["ok"] = false
+        record["identity"] = errorIdentityChain(error)
+        if case ControlFailure.cpuUnavailable = error {
+            record["control_failure"] = "cpu_unavailable"
+        }
+    }
+    diagnostic(record)
+}
+
 func languageTag(_ value: String) -> String {
     value.range(of: "^[A-Za-z]{2,8}([_-][A-Za-z0-9]{1,8})*$",
                 options: .regularExpression) != nil ? value : "redacted"
@@ -260,7 +372,8 @@ func ocr(fault: String?) -> Extraction.OCR {
             diagnostic(["stage": "recognize_end", "ok": true, "line_count": lines.count])
             return lines
         } catch {
-            diagnostic(["stage": "recognize_end", "ok": false, "errors": errorChain(error)])
+            diagnostic(["stage": "recognize_end", "ok": false, "errors": errorChain(error),
+                        "identity": errorIdentityChain(error)])
             throw error
         }
     }
@@ -269,6 +382,9 @@ func ocr(fault: String?) -> Extraction.OCR {
 
 let mode = arguments[1]
 switch mode {
+case "diagnostic-control":
+    diagnosticControl(path: arguments[2], fixture: arguments[3], configuration: arguments[4])
+    emit(["ok": true])
 case "diagnostic-errors":
     var error = NSError(domain: NSOSStatusErrorDomain, code: -6662,
                         userInfo: [NSLocalizedDescriptionKey: "private diagnostic text"])

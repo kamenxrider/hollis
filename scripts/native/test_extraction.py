@@ -290,6 +290,20 @@ class ExtractionTests(unittest.TestCase):
                                   str(self.folder / 'absent.pdf'))
         self.assertEqual(answer, {'ok': False, 'failure': 'invalid_document'})
 
+    def test_zz_diagnostic_controls(self):
+        # Last in this class: controls cannot warm up the original OCR cases.
+        fixtures = (
+            ('scan', 'make-scan-pdf', ('1', PHRASE)),
+            ('rotated', 'make-rotated-pdf', ('Rotated scan text',)),
+            ('blank', 'make-blank-pdf', ()),
+        )
+        for fixture, mode, args in fixtures:
+            path = self.folder / f'control-{fixture}.pdf'
+            protocol.harness(self.harness, mode, str(path), *args)
+            for configuration in ('production', 'cpu_only', 'fast'):
+                protocol.harness(self.harness, 'diagnostic-control',
+                                 str(path), fixture, configuration)
+
 
 if __name__ == '__main__':
     unittest.main()
