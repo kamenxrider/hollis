@@ -5,7 +5,9 @@
 import CoreGraphics
 import CoreText
 import Foundation
+import ImageIO
 import PDFKit
+import Vision
 
 let arguments = CommandLine.arguments
 guard arguments.count >= 2 else { fputs("usage: harness <mode> ...\n", stderr); exit(2) }
@@ -101,7 +103,7 @@ func makeBlankPDF(path: String) {
     context.closePDF()
 }
 
-func makeRotatedPDF(path: String, text: String) {
+func makeRotatedPDF(path: String, text: String, rotation: Int = 90) {
     var box = mediaBox
     guard let context = CGContext(URL(fileURLWithPath: path) as CFURL, mediaBox: &box, nil) else {
         fail("could not create PDF")
@@ -128,7 +130,7 @@ func makeRotatedPDF(path: String, text: String) {
     context.endPDFPage()
     context.closePDF()
     guard let document = PDFDocument(url: URL(fileURLWithPath: path)) else { fail("could not reopen PDF") }
-    document.page(at: 0)?.rotation = 90
+    document.page(at: 0)?.rotation = rotation
     document.write(to: URL(fileURLWithPath: path))
 }
 
@@ -158,8 +160,132 @@ func ocr(fault: String?) -> Extraction.OCR {
     return ocr
 }
 
+func extractBackupFixture(path: String, fault: String, marker: String?) {
+    var attempts: [String] = []
+    var orientations: [String] = []
+    var renderCalls = 0
+    var firstImage: CGImage?
+    var firstLanguages: [String]?
+    var sameImage = true
+    var sameLanguages = true
+    var injected = Extraction.OCR.vision
+    let render = injected.render
+    injected.render = { page in
+        renderCalls += 1
+        return fault == "render-nil" ? nil : render(page)
+    }
+    injected.recognize = { image in
+        try Extraction.recognizeLines(image, checkCancellation: {
+            if fault == "cancel-between" && !orientations.isEmpty { throw CancellationError() }
+            try Task.checkCancellation()
+        }) { image, request, orientation in
+            let accurate = request.recognitionLevel == .accurate
+            attempts.append(accurate ? "accurate" : "fast")
+            if !accurate {
+                let names: [CGImagePropertyOrientation: String] = [.up: "up", .right: "right", .down: "down", .left: "left"]
+                orientations.append(names[orientation]!)
+            }
+            if let firstImage {
+                sameImage = sameImage && image === firstImage
+                sameLanguages = sameLanguages && request.recognitionLanguages == firstLanguages
+            } else {
+                firstImage = image
+                firstLanguages = request.recognitionLanguages
+            }
+            if accurate {
+                switch fault {
+                case "accurate-success": return [.init(text: "Banana bread recipe", confidence: 1)]
+                case "accurate-empty": return []
+                case "cancelled": throw CancellationError()
+                case "vision-cancelled": throw NSError(domain: VNErrorDomain, code: VNErrorCode.requestCancelled.rawValue)
+                case "vision-timeout": throw NSError(domain: VNErrorDomain, code: VNErrorCode.timeout.rawValue)
+                case "swift-cancelled": throw VisionError.requestCancelled("synthetic cancellation")
+                case "swift-timeout": throw VisionError.timeout("synthetic timeout")
+                case "url-cancelled": throw URLError(.cancelled)
+                case "url-timeout": throw URLError(.timedOut)
+                case "cocoa-cancelled": throw CocoaError(.userCancelled)
+                case "posix-cancelled": throw POSIXError(.ECANCELED)
+                case "posix-timeout": throw POSIXError(.ETIMEDOUT)
+                case "underlying-timeout":
+                    throw NSError(domain: "harness.Recognition", code: 1,
+                                  userInfo: [NSUnderlyingErrorKey: URLError(.timedOut)])
+                default: throw InjectedFault()
+                }
+            }
+            if fault == "both-throw" { throw InjectedFault() }
+            if fault == "fast-cancelled" { throw CancellationError() }
+            if fault == "fast-timeout" { throw URLError(.timedOut) }
+            if fault == "partial-throw" && orientation != .left { throw InjectedFault() }
+            if fault == "partial-throw" { return [.init(text: "last orientation", confidence: 1)] }
+            if fault == "tie" {
+                let text = orientation == .up ? "prefer up" : "not chose"
+                return [.init(text: text, confidence: 1)]
+            }
+            if fault == "weighted" {
+                return orientation == .up ? [.init(text: "I", confidence: 1)] :
+                    [.init(text: "longer reading", confidence: 0.8)]
+            }
+            if fault == "summed" {
+                return orientation == .up ? [.init(text: "aa", confidence: 1), .init(text: "bb", confidence: 1)] :
+                    [.init(text: "ccc", confidence: 1)]
+            }
+            if fault == "slow-fast" {
+                if let marker { try Data("fast".utf8).write(to: URL(fileURLWithPath: marker)) }
+                Thread.sleep(forTimeInterval: 60)
+            }
+            // Upright finds nothing; one turned view returns text at a confidence.
+            let sideways: [String: (String, Float)] = [
+                "sideways-below": ("Hi", 0.5), "sideways-at": ("ab", 1.0),
+                "sideways-just-below": ("abc", 0.66), "up-throws-short": ("Hi", 0.5),
+            ]
+            if let (text, confidence) = sideways[fault] {
+                if orientation == .up {
+                    if fault == "up-throws-short" { throw InjectedFault() }
+                    return []
+                }
+                return orientation == .right ? [.init(text: text, confidence: confidence)] : []
+            }
+            if fault == "upright-short" {
+                return orientation == .up ? [.init(text: "OK", confidence: 0.5)] : []
+            }
+            if fault == "upside-down-tie" {
+                switch orientation {
+                case .up: return [.init(text: "MOU AEd", confidence: 0.5)]
+                case .down: return [.init(text: "Pay now", confidence: 0.5)]
+                default: return []
+                }
+            }
+            if fault == "sideways-not-above-up" {
+                return orientation == .up ? [.init(text: "abcd", confidence: 0.5)] :
+                    [.init(text: "wx", confidence: 1.0)]
+            }
+            return try Extraction.performRecognition(image, request, orientation)
+        }
+    }
+    var payload: [String: Any]
+    do {
+        let document = try Extraction.extract(path: path, ocr: injected)
+        payload = ["ok": true, "pages": document.pages.map {
+            ["page": $0.number, "text": $0.text, "method": $0.method.rawValue]
+        }]
+    } catch Extraction.Failure.noText {
+        payload = ["ok": false, "failure": "extract_no_text"]
+    } catch {
+        payload = ["ok": false, "failure": "invalid_document"]
+    }
+    payload["attempts"] = attempts
+    payload["orientations"] = orientations
+    payload["render_calls"] = renderCalls
+    payload["same_image"] = sameImage
+    payload["same_languages"] = sameLanguages
+    emit(payload)
+}
+
 let mode = arguments[1]
 switch mode {
+case "extract-backup":
+    extractBackupFixture(path: arguments[2], fault: arguments[3],
+                         marker: arguments.count > 4 ? arguments[4] : nil)
 case "make-text-pdf":
     makePDF(path: arguments[2], pages: Int(arguments[3]) ?? 1, text: arguments[4], scan: { _ in false })
     emit(["ok": true])
@@ -186,7 +312,8 @@ case "make-blank-pdf":
     makeBlankPDF(path: arguments[2])
     emit(["ok": true])
 case "make-rotated-pdf":
-    makeRotatedPDF(path: arguments[2], text: arguments[3])
+    makeRotatedPDF(path: arguments[2], text: arguments[3],
+                   rotation: arguments.count > 4 ? Int(arguments[4]) ?? 90 : 90)
     emit(["ok": true])
 case "extract", "detect":
     let path = arguments[2]

@@ -60,7 +60,9 @@ pages carry pixels and no text layer, a rotated scan, a blank page, and
 documents past the page and text ceilings. The driver also swaps one OCR step
 for a failing or empty one, because a well-formed PDF cannot make rendering or
 recognition fail on demand: a failure must refuse the whole document, and only
-a recognition that finds nothing is an empty page. The no-text failure means no
+a recognition that finds nothing is an empty page. `test_ocr_backup.py` uses
+the same driver to check the fast four-orientation backup that runs only after
+accurate recognition fails. The no-text failure means no
 non-whitespace text in the selected pages. Those cases need PDFKit and Vision to
 be usable, and skip where the host cannot run a macOS 27 binary.
 

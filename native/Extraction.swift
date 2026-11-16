@@ -3,6 +3,7 @@ import CoreGraphics
 import Darwin
 import Foundation
 import ImageIO
+import OSLog
 import PDFKit
 import Vision
 
@@ -81,7 +82,7 @@ enum Extraction {
         var render: (PDFPage) -> CGImage?
         var recognize: (CGImage) throws -> [String]
 
-        static var vision: OCR { OCR(render: Extraction.render, recognize: Extraction.recognizeLines) }
+        static var vision: OCR { OCR(render: Extraction.render, recognize: { try Extraction.recognizeLines($0) }) }
     }
 
     /// Reads one document. `pages` is an optional 1-based selection in
@@ -222,12 +223,111 @@ enum Extraction {
         return lines.joined(separator: "\n")
     }
 
-    private static func recognizeLines(_ image: CGImage) throws -> [String] {
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+    private static let ocrLog = Logger(subsystem: "com.kamenxrider.hollis", category: "ocr")
+
+    struct OCRLine {
+        let text: String
+        let confidence: Float
+    }
+
+    /// All requests stay under the Go parent's original helper deadline.
+    /// Only a thrown recognition error starts the orientation backup.
+    static func recognizeLines(_ image: CGImage,
+                               checkCancellation: () throws -> Void = { try Task.checkCancellation() },
+                               perform: (CGImage, VNRecognizeTextRequest, CGImagePropertyOrientation) throws -> [OCRLine] = performRecognition) throws -> [String] {
+        try checkCancellation()
+        let accurate = VNRecognizeTextRequest()
+        accurate.recognitionLevel = .accurate
+        do {
+            let lines = try perform(image, accurate, .up)
+            ocrLog.debug("OCR completed with accurate recognition")
+            return lines.map(\.text)
+        } catch {
+            guard permitsFastBackup(error) else { throw error }
+            let accurateError = error
+            var best: [OCRLine] = []
+            var bestScore = -Double.infinity
+            var anyCompleted = false
+            // Score is confidence-weighted character count, summed across top
+            // lines. Fast reads sideways strokes as "I" at 0.5 on blank and
+            // text pages alike, so a turned reading needs a clear score and
+            // must strictly beat upright. A sideways page holding only very
+            // short text can therefore read as no text when accurate fails.
+            // Fast also misses some lone short words in every orientation, and
+            // its coarse confidence can tie a garbled upright reading of an
+            // upside-down page with the correct one; the tie keeps upright.
+            for orientation: CGImagePropertyOrientation in [.up, .right, .down, .left] {
+                try checkCancellation()
+                let fast = VNRecognizeTextRequest()
+                fast.recognitionLevel = .fast
+                fast.recognitionLanguages = accurate.recognitionLanguages
+                let lines: [OCRLine]
+                do {
+                    lines = try perform(image, fast, orientation)
+                } catch {
+                    guard permitsFastBackup(error) else { throw error }
+                    continue
+                }
+                let score = lines.reduce(0.0) { $0 + Double($1.confidence) * Double($1.text.count) }
+                anyCompleted = true
+                let eligible = orientation == .up || score >= minSidewaysScore
+                if eligible && score > bestScore {
+                    best = lines
+                    bestScore = score
+                }
+            }
+            try checkCancellation()
+            guard anyCompleted else { throw accurateError }
+            ocrLog.debug("OCR completed with fast backup recognition")
+            // Page output has no coordinates. Keep the selected request's
+            // upright reading order rather than mixing differently oriented
+            // bounding boxes or lines.
+            return best.map(\.text)
+        }
+    }
+
+    static let minSidewaysScore = 2.0
+
+    static func performRecognition(_ image: CGImage, _ request: VNRecognizeTextRequest,
+                                   _ orientation: CGImagePropertyOrientation) throws -> [OCRLine] {
+        let handler = VNImageRequestHandler(cgImage: image, orientation: orientation, options: [:])
         try handler.perform([request])
-        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+        return (request.results ?? []).compactMap {
+            guard let candidate = $0.topCandidates(1).first else { return nil }
+            return OCRLine(text: candidate.string, confidence: candidate.confidence)
+        }
+    }
+
+    private static func permitsFastBackup(_ error: Error) -> Bool {
+        var current: Error? = error
+        var seen: [NSError] = []
+        while let value = current, seen.count < 8 {
+            if value is CancellationError { return false }
+            if let vision = value as? VisionError {
+                switch vision {
+                case .requestCancelled, .timeout: return false
+                default: break
+                }
+            }
+            let item = value as NSError
+            guard !seen.contains(where: { $0 === item }) else { return false }
+            seen.append(item)
+            switch item.domain {
+            case VNErrorDomain where item.code == VNErrorCode.requestCancelled.rawValue ||
+                                     item.code == VNErrorCode.timeout.rawValue:
+                return false
+            case NSCocoaErrorDomain where item.code == CocoaError.Code.userCancelled.rawValue:
+                return false
+            case NSURLErrorDomain where item.code == NSURLErrorCancelled || item.code == NSURLErrorTimedOut:
+                return false
+            case NSPOSIXErrorDomain where item.code == Int(ECANCELED) || item.code == Int(ETIMEDOUT):
+                return false
+            default: break
+            }
+            current = item.userInfo[NSUnderlyingErrorKey] as? Error
+        }
+        // An uninspected chain is not permission to retry a possible timeout.
+        return current == nil
     }
 
     /// Renders one page at a bounded, orientation-corrected size.
