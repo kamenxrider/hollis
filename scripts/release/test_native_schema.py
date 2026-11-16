@@ -325,6 +325,16 @@ struct ProtocolGolden {
                 vision: true, tools: true, macOSMajor: 27, protocol: era)
             try HollisNative.emit(fields, protocol: era)
         }
+        for contextSize in [0, -1] {
+            for available in [false, true] {
+                for era in [1, 2, 3, 4] {
+                    let fields = HollisNative.statusFields(
+                        available: available, reason: "fixture", contextSize: contextSize,
+                        vision: true, tools: true, macOSMajor: 27, protocol: era)
+                    try HollisNative.emit(fields, protocol: era)
+                }
+            }
+        }
     }
 }
 ''')
@@ -340,7 +350,7 @@ struct ProtocolGolden {
             events = [json.loads(line) for line in result.stdout.splitlines()]
             expected = []
             for protocol in (1, 2, 3, 4):
-                event = {'protocol': protocol, 'version': '0.7.0', 'model': 'local',
+                event = {'protocol': protocol, 'version': '0.7.1', 'model': 'local',
                          'event': 'status', 'available': True, 'reason': 'fixture'}
                 if protocol >= 2:
                     event['context_size'] = 8192
@@ -357,14 +367,22 @@ struct ProtocolGolden {
                 if protocol >= 4:
                     event['capabilities']['stream_token_usage'] = True
                 expected.append(event)
+            measured = expected[:]
+            for context_size in (0, -1):
+                for available in (False, True):
+                    for prototype in measured:
+                        event = json.loads(json.dumps(prototype))
+                        event.pop('context_size', None)
+                        event['available'] = available
+                        expected.append(event)
             self.assertEqual(events, expected)
 
     def test_source_pins_protocol_four_and_helper_version(self):
         source = HELPER.read_text()
         self.assertIn('static let protocolVersion = 4', source)
-        self.assertIn('static let version = "0.7.0"', source)
+        self.assertIn('static let version = "0.7.1"', source)
         # Request-format acceptance is independent of strict bundled version
-        # identity: old CLIs still reject this helper's 0.7.0-stamped events.
+        # identity: old CLIs still reject this helper's 0.7.1-stamped events.
         self.assertIn('let accepted = [1, 2, 3, protocolVersion]', source)
         self.assertIn('request.operation == "schema"', source)
         # Legacy mode fields remain separate from executable native tools.
@@ -383,12 +401,18 @@ struct ProtocolGolden {
         if sdk is None or int(sdk.split('.')[0]) < 27:
             raise unittest.SkipTest(f'macOS SDK 27 is required to build the native helper (found {sdk})')
         with tempfile.TemporaryDirectory(prefix='hollis-native-') as folder:
-            helper = Path(folder) / 'hollis-native'
-            result = command('bash', str(BUILD), str(helper))
-            self.assertEqual(result.returncode, 0, result.stderr)
+            configured = os.environ.get('HOLLIS_NATIVE_HELPER')
+            if configured:
+                helper = Path(configured).resolve()
+                self.assertTrue(helper.is_file() and os.access(helper, os.X_OK),
+                                'configured native helper must be executable')
+            else:
+                helper = Path(folder) / 'hollis-native'
+                result = command('bash', str(BUILD), str(helper))
+                self.assertEqual(result.returncode, 0, result.stderr)
             if not can_execute_target():
                 raise unittest.SkipTest('the built helper requires macOS 27 to execute')
-            self.assertEqual(command(str(helper), '--version').stdout.strip(), 'hollis-native 0.7.0')
+            self.assertEqual(command(str(helper), '--version').stdout.strip(), 'hollis-native 0.7.1')
             self.assertEqual(command(str(helper), '--protocol-version').stdout.strip(), '4')
             # Actual helper bytes pass through Go's runner and the frozen old
             # decoders. All requests stop before model access.
@@ -401,7 +425,7 @@ struct ProtocolGolden {
                     'protocol': protocol, 'operation': 'unsupported'}))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout), {
-                    'protocol': protocol, 'version': '0.7.0', 'model': 'local',
+                    'protocol': protocol, 'version': '0.7.1', 'model': 'local',
                     'event': 'error', 'kind': 'native_failed'})
             # Requests refused before any model access emit one error event and
             # no status event. A protocol outside the accepted set is refused by

@@ -2,7 +2,7 @@
 # Install the published Apple Silicon bundle. Makes no model calls.
 set -euo pipefail
 umask 077
-version=0.7.0
+version=0.7.1
 protocol=4
 # The public commit tagged v$version; the attestation check below fails until it is set.
 source_commit=1906721a1cd5594ce47be6d4d306d7daa1e6891f

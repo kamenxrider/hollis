@@ -1,6 +1,6 @@
 # MCP servers
 
-Hollis 0.7.0 can attach MCP (Model Context Protocol) tools to an explicit
+Hollis 0.7.1 can attach MCP (Model Context Protocol) tools to an explicit
 `local` model request, from a local program over stdio or a remote server over
 HTTP. Calls need your approval (`ask`, the default) or an explicit allow list
 (`auto`). Runtime 0.4.0 does not include MCP. Servers in `mcp.json` remain

@@ -31,7 +31,7 @@ Requests that exceed either supported input limits or Apple's context capacity
 fail clearly. Start a new conversation or explicitly provide a shorter request.
 Failed or interrupted assistant turns are not saved as successful answers.
 
-In 0.7.0, [explicit context strategies](cli.md#opt-in-conversation-shortening)
+In 0.7.1, [explicit context strategies](cli.md#opt-in-conversation-shortening)
 can shorten text chat or one-shot `respond --messages` requests without changing
 stored messages. Use `--count-tokens` before large Local inputs; instructions,
 permissive text transformations and [Local-only retry](cli.md#opt-in-local-retry)
@@ -67,15 +67,15 @@ the source.
 
 ## Guided output
 
-Hollis 0.7.0 uses helper 0.7.0/protocol 4. Runtime
+Hollis 0.7.1 uses helper 0.7.1/protocol 4. Runtime
 0.4.0 and plugin 0.2.0's runtime use protocol 1 and do not include `--schema`
 or the protocol-2 and protocol-3 diagnostics described here. Use the CLI and
-helper from the same release bundle; do not mix a 0.7.0 CLI with an older
+helper from the same release bundle; do not mix a 0.7.1 CLI with an older
 helper.
 
 Protocol 3 adds a `capabilities` object to the helper's status event, and every
 operation negotiates before it runs. The helper accepts request formats 1, 2, 3 and
-4, but stamps all events with version 0.7.0. Older CLIs reject that version;
+4, but stamps all events with version 0.7.1. Older CLIs reject that version;
 accepting their request format does not make them compatible. This CLI speaks
 protocol 4 only and requires an exact version match because the CLI and helper
 ship as one bundle. A mismatched pair fails closed with a clear error asking
@@ -83,6 +83,11 @@ for the matching bundle, never a plain-text downgrade. A capability the helper
 did not advertise (tool calling on an older build, for example) is refused by name as
 `unsupported_capability`, which
 is a component fault at exit 5 and HTTP 502, distinct from a caller mistake.
+
+`context_size` is optional in status. The helper reports it only when Apple
+provides a positive measured window. An unknown window does not prevent status
+or PDF extraction; generation and token-budget operations fail closed with
+`local_unavailable` instead of assuming a size.
 
 `--schema` asks the native model for an object that follows a supported subset
 of JSON Schema. Hollis validates the schema before spawning the helper, so an
@@ -205,7 +210,7 @@ the object as a JSON string. An old helper maps to HTTP 502 `native_protocol`,
 the same class as the CLI's exit 5. Field handling, error codes and examples are
 in [the API guide](api.md#guided-json-output).
 
-Guided output requires helper 0.7.0/protocol 4 matched to the CLI. The helper is
+Guided output requires helper 0.7.1/protocol 4 matched to the CLI. The helper is
 asked which protocol it speaks before any operation spawns, so an older helper
 costs no inference: it is refused, pointing at the matching bundle.
 Pairing the CLI with any other helper release is a

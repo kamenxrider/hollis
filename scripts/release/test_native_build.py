@@ -8,6 +8,19 @@ import unittest
 BUILD = Path(__file__).resolve().parents[1] / 'build-native.sh'
 
 class NativeBuildTests(unittest.TestCase):
+    def test_native_ci_and_release_share_exact_toolchain_and_runner_coverage(self):
+        root = BUILD.parents[1]
+        ci = (root / '.github/workflows/ci.yml').read_text().split('  native-package:', 1)[1]
+        release = (root / '.github/workflows/release.yml').read_text()
+        for source in (ci, release):
+            self.assertIn('DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer', source)
+            self.assertIn('test -d "$DEVELOPER_DIR"', source)
+            self.assertIn("printf 'Xcode 27.1\\nBuild version 27A9275'", source)
+            self.assertIn('test "$(xcrun --sdk macosx --show-sdk-version)" = "27.0"', source)
+            self.assertNotIn('find /Applications', source)
+        self.assertIn("python3 -m unittest discover -s scripts/release -p 'test_native_schema.py'", ci)
+        self.assertGreaterEqual(ci.count('HOLLIS_NATIVE_HELPER:'), 2)
+
     def test_sdk_build_does_not_execute_target_binary(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

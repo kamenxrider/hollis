@@ -66,11 +66,11 @@ helper it built:
 
 ```sh
 mkdir -p dist
-CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags '-s -w -X github.com/kamenxrider/hollis/internal/cli.version=0.7.0' -o dist/hollis-darwin-arm64 ./cmd/hollis
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags '-s -w -X github.com/kamenxrider/hollis/internal/cli.version=0.7.1' -o dist/hollis-darwin-arm64 ./cmd/hollis
 bash scripts/build-native.sh dist/hollis-native-darwin-arm64
 python3 scripts/package-bridges.py dist
-python3 scripts/plugin/package_runtime.py dist --version 0.7.0
-python3 scripts/release/privacy.py --archive dist/hollis-0.7.0-darwin-arm64.zip --kind bundle
+python3 scripts/plugin/package_runtime.py dist --version 0.7.1
+python3 scripts/release/privacy.py --archive dist/hollis-0.7.1-darwin-arm64.zip --kind bundle
 python3 scripts/release/privacy.py --archive dist/hollis-bridges.zip --kind bridges
 HOLLIS_NATIVE_HELPER="$PWD/dist/hollis-native-darwin-arm64" \
   python3 -m unittest discover -s scripts/native -p 'test_*.py'

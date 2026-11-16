@@ -35,7 +35,7 @@ Local-only `respond` and `chat` accept opt-in `--retry` (3 extra attempts) or
 `--retry=N` (0 to 5); retry is off unless supplied. Cloud, Cloud Pro, on-device,
 ChatGPT, auto and image generation are never retried.
 
-## What's new in 0.7.0
+## What's new in 0.7.1
 
 - [`-s` / `--system-file`](cli.md#instructions-one-shot-conversations-and-local-checks): inline instructions or an instruction file.
 - [`--messages`](cli.md#instructions-one-shot-conversations-and-local-checks): pass a one-shot conversation, including host context.
@@ -156,7 +156,7 @@ batch choice. A failure stops the run. [Batch guide](batch.md).
 
 ## Agent plugin
 
-Plugin 0.4.0 targets runtime 0.7.0, its matched helper and nine bridges. Ask Apple to assess a supplied plan, compare documents or create an image, then continue in the same conversation. Guided setup preserves existing configuration and chats. See the [plugin quick start](../plugins/hollis/docs/quickstart.md).
+Plugin 0.4.0 targets runtime 0.7.1, its matched helper and nine bridges. Ask Apple to assess a supplied plan, compare documents or create an image, then continue in the same conversation. Guided setup preserves existing configuration and chats. See the [plugin quick start](../plugins/hollis/docs/quickstart.md).
 
 Plugin 0.2.0 was withdrawn. Plugin 0.1.0 bundled runtime 0.3.3 without native local.
 
@@ -235,7 +235,7 @@ contain errors; check important numbers against the original.
 ### Versions
 
 Guided JSON output, PDF extraction, single-image local input, tool calling,
-MCP and `doctor --model` arrived in 0.7.0. Runtime 0.4.0 and plugin 0.2.0 do
+MCP and `doctor --model` arrived in 0.7.1. Runtime 0.4.0 and plugin 0.2.0 do
 not have them. The CLI and native helper must come from the same release. See
 [native-local version requirements](native-local.md#guided-output).
 

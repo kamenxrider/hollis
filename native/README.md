@@ -1,6 +1,6 @@
 # Native local helper
 
-`hollis-native` 0.7.0 uses protocol 4. It is an Apple Silicon/macOS 27 companion
+`hollis-native` 0.7.1 uses protocol 4. It is an Apple Silicon/macOS 27 companion
 to the matching Hollis executable. Build it with `scripts/build-native.sh OUTPUT`.
 Hollis resolves its executable through symlinks and requires a regular executable
 sibling helper. It never searches `PATH` or compiles during a request.

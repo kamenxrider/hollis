@@ -6,7 +6,7 @@ and Codex consume the same skills and scripts through their native manifests.
 
 ## Versions
 
-Plugin 0.4.0 targets runtime 0.7.0, its matched helper and nine bridges.
+Plugin 0.4.0 targets runtime 0.7.1, its matched helper and nine bridges.
 Plugin 0.2.0 was withdrawn. Plugin 0.1.0 bundled runtime 0.3.3 without native
 Local; its extracted outer `hollis-plugin-0.1.0` folder is the marketplace
 root for that older archive. Existing-account image tests ran without per-image
@@ -124,15 +124,15 @@ python3 scripts/plugin/package_plugin.py --output dist/plugin-review
 
 Packaging downloads the locked assets, verifies their hashes and GitHub provenance,
 and bundles both marketplace entries, this plugin directory, the ARM64 binary
-and all nine bridges for 0.7.0 (four text, four JSON and one image). It also produces a checksum and runtime-provenance receipt.
+and all nine bridges for 0.7.1 (four text, four JSON and one image). It also produces a checksum and runtime-provenance receipt.
 `--assets-dir /absolute/cached-assets` reuses cached assets while still checking
 provenance. An existing archive is never overwritten.
 
 ## Versions and release sequence
 
-Plugin **0.4.0** targets runtime **0.7.0** and its matching native helper.
+Plugin **0.4.0** targets runtime **0.7.1** and its matching native helper.
 The checked-in lock still pins **runtime 0.4.0**; source setup and packaging
-refuse that pin until verified published 0.7.0 assets are pinned.
+refuse that pin until verified published 0.7.1 assets are pinned.
 Editing skills or docs does not upgrade the bundled binary, and preserved
 review archives do not change with source. The plugin release is explicitly
 excluded from GitHub's “Latest” label so the CLI installer continues to find
@@ -155,7 +155,7 @@ tag publishes it.
 
 ## 0.4.0 release sequencing
 
-Until runtime 0.7.0 is published, the checked-in lock still pins 0.4.0.
+Until runtime 0.7.1 is published, the checked-in lock still pins 0.4.0.
 Packaging and source setup for 0.4.0 refuse that lock instead of shipping 0.4.0
 under the new plugin version.
 After runtime publication, a maintainer runs `scripts/plugin/refresh_lock.py`

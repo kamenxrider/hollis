@@ -213,6 +213,14 @@ class MessageShapeTests(unittest.TestCase):
     def test_runner_rejects_unknown_event_fields(self):
         self.assertIn('decoder.DisallowUnknownFields()', self.go)
 
+    def test_context_size_is_optional_but_present_values_are_positive(self):
+        self.assertIn('if effective >= 2 && contextSize > 0', self.swift)
+        self.assertIn('ContextSize *int `json:"context_size,omitempty"`', self.go)
+        self.assertIn('if event.ContextSize != nil {', self.go)
+        self.assertIn('if *event.ContextSize <= 0 {', self.go)
+        self.assertEqual(self.swift.count('guard model.contextSize > 0 else {'), 2)
+        self.assertIn('fail("local_unavailable", protocol: effective)', self.swift)
+
 
 class PrivacyOfTheChannelTests(unittest.TestCase):
     """Prompt text must travel on stdin and errors must stay content-free."""

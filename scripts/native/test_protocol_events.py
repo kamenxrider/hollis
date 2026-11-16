@@ -101,7 +101,7 @@ class HelperEventTests(unittest.TestCase):
                 events = protocol.events(process.stdout)
                 self.assertEqual(len(events), 1, process.stdout)
                 status = events[0]
-                if number >= 2 and not status['available']:
+                if number >= 2:
                     self.assertLessEqual(expected_keys - {'context_size'}, set(status))
                     self.assertLessEqual(set(status), expected_keys)
                 else:
@@ -114,8 +114,7 @@ class HelperEventTests(unittest.TestCase):
                 self.assertIsInstance(status['reason'], str)
                 if 'context_size' in status:
                     self.assertIsInstance(status['context_size'], int)
-                    if status['available']:
-                        self.assertGreater(status['context_size'], 0)
+                    self.assertGreater(status['context_size'], 0)
                 if number >= 3:
                     capabilities = status['capabilities']
                     expected_capabilities = {'vision', 'macos_major', 'extract', 'images', 'tools'}

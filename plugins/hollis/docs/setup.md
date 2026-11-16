@@ -15,12 +15,12 @@ The agent handles these steps:
    access, not incompatible hardware.
 2. Verify and install the runtime under
    `~/Library/Application Support/hollis/plugin/versions/<locked-version>/`.
-   Plugin 0.4.0 requires runtime 0.7.0, but the current lock still pins 0.4.0;
-   setup refuses it until verified published 0.7.0 assets are pinned.
+   Plugin 0.4.0 requires runtime 0.7.1, but the current lock still pins 0.4.0;
+   setup refuses it until verified published 0.7.1 assets are pinned.
    A newer existing Hollis is preserved and used. The plugin's bridge kit remains
    available. No PATH modification is needed.
 3. Native `local` requires the matching helper and no bridge; run `setup.sh status local`. Offer the four Shortcut text routes and images. For each selected text route,
-   import its text and JSON bridges together from the nine-bridge 0.7.0 kit;
+   import its text and JSON bridges together from the nine-bridge 0.7.1 kit;
    the image route imports one bridge. The legacy 0.4.0 kit has five bridges. Approve
    **Add Shortcut** in Shortcuts. Existing discovered bridges and custom choices
    are preserved; skipping one does not disable another.
@@ -73,7 +73,7 @@ selected-route plan reports `helper_mismatch`. All three call for the matching
 bundle, not a reinstall of bridges. Native `local` needs that match;
 selected Shortcut routes remain usable with a helper mismatch. Guided output
 (`--schema`) and the measured `context_size` diagnostic also require
-the runtime and helper from one bundle, such as 0.7.0 (not the current 0.4.0 pin): check that
+the runtime and helper from one bundle, such as 0.7.1 (not the current 0.4.0 pin): check that
 `models --model local --json` reports `available: true` with
 `capabilities.guided_output: true`, rather than a protocol number. A mismatched
 helper is refused before inference. Never

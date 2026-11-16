@@ -1,9 +1,9 @@
 # Homebrew formula preparation
 
 `hollis.rb.in` is the prepared template for a future formula in the
-`kamenxrider/homebrew-tap` tap. Publish runtime v0.7.0 first, authenticate its
+`kamenxrider/homebrew-tap` tap. Publish runtime v0.7.1 first, authenticate its
 assets and source commit, then update and publish the formula. The current
-template is not a published 0.7.0 installation path. After that follow-up,
+template is not a published 0.7.1 installation path. After that follow-up,
 install with
 `brew install kamenxrider/tap/hollis`. Render it only from a locally downloaded release set whose source ref, full commit,
 signer workflow and `--deny-self-hosted-runners` attestation have already been

@@ -5,7 +5,7 @@ is not skill text.
 
 The shared skills in `plugins/hollis/skills` describe the next runtime. The
 plugin still pins runtime 0.4.0 (native protocol 1) in
-`plugins/hollis/runtime.lock.json`, while plugin source version 0.4.0 awaits the matching 0.7.0
+`plugins/hollis/runtime.lock.json`, while plugin source version 0.4.0 awaits the matching 0.7.1
 runtime release. After that runtime is published, authenticate it and update
 the CLI/helper pins before publishing plugin 0.4.0. Refresh
 `scripts/plugin/testdata/agent-context-<version>.json` from the newly pinned
@@ -60,7 +60,7 @@ The adapter now treats that exact refusal as a runtime without a `setup` command
 and uses the labelled legacy view, as it already did for an `unknown command`
 error.
 
-## Runtime 0.7.0 skill capabilities
+## Runtime 0.7.1 skill capabilities
 
 The merged runtime supports PDF extraction and OCR with `respond --file` and
 `--pages`, one native Local image, native Local tools and sampling, and MCP

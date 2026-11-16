@@ -387,11 +387,11 @@ class FormulaServiceTests(unittest.TestCase):
 
     def test_rendered_service_uses_stable_binary_and_loopback_guard(self):
         template = (ROOT / 'packaging/homebrew/hollis.rb.in').read_text()
-        rendered = (template.replace('{{VERSION}}', '0.7.0')
-                    .replace('{{BUNDLE_NAME}}', 'hollis-0.7.0-darwin-arm64.zip')
+        rendered = (template.replace('{{VERSION}}', '0.7.1')
+                    .replace('{{BUNDLE_NAME}}', 'hollis-0.7.1-darwin-arm64.zip')
                     .replace('{{BUNDLE_SHA256}}', 'a' * 64)
                     .replace('{{HELPER_PROTOCOL}}', '4')
-                    .replace('{{HELPER_VERSION}}', '0.7.0'))
+                    .replace('{{HELPER_VERSION}}', '0.7.1'))
         self.assertNotIn('{{', rendered)
         service = re.search(r'^  service do\n(.*?)^  end$', rendered, re.M | re.S)
         self.assertIsNotNone(service)

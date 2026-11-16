@@ -26,9 +26,9 @@ import json,os,pathlib,sys,time
 if "--protocol-version" in sys.argv:
  print(4);sys.exit(0)
 if "--version" in sys.argv:
- print("hollis-native 0.7.0");sys.exit(0)
+ print("hollis-native 0.7.1");sys.exit(0)
 request=json.loads(sys.stdin.readline())
-print(json.dumps({"event":"status","model":"local","available":True,"version":"0.7.0","protocol":4,"capabilities":{"images":{"supported":True,"max_images":1,"formats":["png","jpeg"],"max_side_px":1000}}}),flush=True)
+print(json.dumps({"event":"status","model":"local","available":True,"version":"0.7.1","protocol":4,"capabilities":{"images":{"supported":True,"max_images":1,"formats":["png","jpeg"],"max_side_px":1000}}}),flush=True)
 if request["operation"]!="status":
  pathlib.Path(os.environ["SIGNAL_READY"]).touch()
  time.sleep(300)

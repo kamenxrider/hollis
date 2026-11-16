@@ -118,7 +118,7 @@ func TestGuideVerifiesAllArtifactsBeforeUse(t *testing.T) {
 		`temporary=$(mktemp -d)`,
 		`trap 'rm -r "$temporary"' EXIT`,
 		`cd "$temporary"`,
-		`https://github.com/kamenxrider/hollis/releases/tag/v0.7.0`,
+		`https://github.com/kamenxrider/hollis/releases/tag/v0.7.1`,
 		`do not discover or authenticate the tag's commit for you`,
 		`: "${HOLLIS_VERSION:?Set the version from the authenticated release tag}"`,
 		`: "${HOLLIS_SOURCE_DIGEST:?Set the full source commit from the authenticated release tag}"`,

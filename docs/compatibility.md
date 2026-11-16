@@ -35,20 +35,20 @@ readiness. Native local on macOS 26 and Intel is unsupported. The published `hol
 do not support Apple Intelligence inference. The primary installer selects the
 ARM64 bundle. A source-only Go install does not install the Swift helper; use the [native-local guide](native-local.md).
 
-Hollis 0.7.0 uses helper 0.7.0 and protocol 4. CLI and helper always ship as a
+Hollis 0.7.1 uses helper 0.7.1 and protocol 4. CLI and helper always ship as a
 matched bundle and must have exactly the same version. A mismatched pair
 fails closed before generation, with a clear error asking you to install the
 matching bundle (exit 5, HTTP 502 `native_protocol`). The helper accepts request
-formats 1, 2, 3 and 4 but stamps every event with 0.7.0; this does not make older
+formats 1, 2, 3 and 4 but stamps every event with 0.7.1; this does not make older
 CLIs compatible.
 
 | CLI | Helper | Result |
 | --- | --- | --- |
-| 0.4.0 / protocol 1 | 0.7.0 | Old decoder rejects the version |
-| 0.5.0 / protocol 2 | 0.7.0 | Old decoder rejects the version |
-| 0.7.0 / protocol 4 | Matching 0.7.0 | Negotiates protocol 4; capabilities checked per request |
-| 0.7.0 / protocol 4 | Older or mismatched helper | Fails closed; install the matching bundle |
-| 0.7.0 native tools | 0.6.0 / protocol 3 | Status preflight rejects the old version before generation dispatch |
+| 0.4.0 / protocol 1 | 0.7.1 | Old decoder rejects the version |
+| 0.5.0 / protocol 2 | 0.7.1 | Old decoder rejects the version |
+| 0.7.1 / protocol 4 | Matching 0.7.1 | Negotiates protocol 4; capabilities checked per request |
+| 0.7.1 / protocol 4 | Older or mismatched helper | Fails closed; install the matching bundle |
+| 0.7.1 native tools | 0.6.0 / protocol 3 | Status preflight rejects the old version before generation dispatch |
 
 Native tools require both `tools.executable` and `tools.turn_handoff`.
 Requests use `--native-tools`, which old helpers reject before generation.

@@ -28,7 +28,7 @@ class BridgeSetTests(unittest.TestCase):
         self.fixture = test_native_package.NativeInstallerTests('runTest')
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
-        self.configure(CURRENT, '0.7.0')
+        self.configure(CURRENT, '0.7.1')
 
     def archive(self, names):
         with warnings.catch_warnings():
@@ -42,7 +42,7 @@ class BridgeSetTests(unittest.TestCase):
         previous = fixture.lock['version']
         fixture.binary.write_text(fixture.binary.read_text().replace(
             'hollis ' + previous, 'hollis ' + version))
-        protocol = 4 if version == '0.7.0' else 1
+        protocol = 4 if version == '0.7.1' else 1
         fixture.helper.write_text(
             '#!/bin/bash\ncase "$1" in\n'
             f'--version) echo "hollis-native {version}";;\n'
@@ -56,7 +56,7 @@ class BridgeSetTests(unittest.TestCase):
             protocol_version=protocol, sha256=package_plugin.digest(fixture.helper))
         manifest_path = fixture.kit / 'plugin.json'
         manifest = json.loads(manifest_path.read_text())
-        manifest['version'] = '0.4.0' if version == '0.7.0' else '0.1.0'
+        manifest['version'] = '0.4.0' if version == '0.7.1' else '0.1.0'
         manifest_path.write_text(json.dumps(manifest))
         self.archive(names)
         fixture.relock()
@@ -131,7 +131,7 @@ class BridgeSetTests(unittest.TestCase):
 
     def test_staging_rejects_trailing_sixth_eighth_or_tenth_archive_member(self):
         for version, names, count in (('0.4.0', LEGACY, 6), ('0.4.0', LEGACY, 8),
-                                      ('0.7.0', CURRENT, 10)):
+                                      ('0.7.1', CURRENT, 10)):
             with self.subTest(count=count):
                 self.configure(names, version)
                 extras = [f'Extra-{i}.shortcut' for i in range(count - len(names))]
@@ -147,7 +147,7 @@ class BridgeSetTests(unittest.TestCase):
         self.archive(CURRENT + [CURRENT[0]])
         self.fixture.relock()
         self.assertEqual(self.fixture.call('install').returncode, 10)
-        self.configure(CURRENT, '0.7.0')
+        self.configure(CURRENT, '0.7.1')
         installed = self.install()
         self.archive(CURRENT + [CURRENT[0]])
         target = installed / 'hollis-bridges.zip'

@@ -12,6 +12,8 @@ permissions:
 jobs:
   release:
     runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -27,13 +29,9 @@ jobs:
 
       - name: Select and verify Apple SDK
         run: |
-          # Native builds require Xcode 27, not whichever SDK macos-latest selects.
-          XCODE=$(find /Applications -maxdepth 1 -name 'Xcode_27*.app' -type d | sort -V | tail -1)
-          test -n "$XCODE" || { echo 'Xcode 27 is unavailable on this runner; no release will be published.' >&2; exit 1; }
-          echo "DEVELOPER_DIR=$XCODE/Contents/Developer" >> "$GITHUB_ENV"
-          DEVELOPER_DIR="$XCODE/Contents/Developer" xcodebuild -version
-          SDK=$(DEVELOPER_DIR="$XCODE/Contents/Developer" xcrun --sdk macosx --show-sdk-version)
-          test "${SDK%%.*}" -ge 27
+          test -d "$DEVELOPER_DIR"
+          test "$(xcodebuild -version)" = "$(printf 'Xcode 27.1\nBuild version 27A9275')"
+          test "$(xcrun --sdk macosx --show-sdk-version)" = "27.0"
 
       # A tag must not be able to publish a build the tests reject.
       - name: Test

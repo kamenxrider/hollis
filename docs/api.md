@@ -34,7 +34,7 @@ The Responses reply text is at `output[0].content[0].text`. Its `input` may be a
 capability names `backend`, `streaming`, `complete_usage`, `stream_usage`,
 `images`, `max_images`, `guided_output` and `tools`. Local reports `tools:true`
 only when a successful availability probe advertises executable tools with
-turn handoff. For 0.7.0 the API also keeps `usage`, `streaming_usage` and
+turn handoff. For 0.7.1 the API also keeps `usage`, `streaming_usage` and
 `image_input` as exact copies of `complete_usage`, `stream_usage` and `images`.
 
 Both Chat Completions and Responses text content parts accept and ignore
@@ -45,7 +45,7 @@ unsupported.
 ## Guided JSON output
 
 Both endpoints can ask native `local` for an object that follows a JSON Schema
-subset. It needs the helper from the same release (protocol 4, helper 0.7.0),
+subset. It needs the helper from the same release (protocol 4, helper 0.7.1),
 and it is not available on any Shortcut route.
 
 Chat Completions uses the OpenAI `response_format` shape:
@@ -356,7 +356,7 @@ deadline cover the whole loop.
 
 Tools refuse `stream:true`, images, image generation, guided output,
 `parallel_tool_calls:false` and non-Local routes with **400**
-`unsupported_parameter`. Helper 0.7.0/protocol 4 must advertise both
+`unsupported_parameter`. Helper 0.7.1/protocol 4 must advertise both
 `tools.executable` and `tools.turn_handoff`. Metadata-only support does not qualify.
 
 ## Local sampling

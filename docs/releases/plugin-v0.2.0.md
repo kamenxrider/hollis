@@ -3,7 +3,7 @@
 **This release was withdrawn.** Its archive is no longer published. Use the
 published [plugin 0.1.0](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0),
 which bundles runtime 0.3.3 without native local. Plugin 0.4.0 will follow after
-the runtime 0.7.0 pin update. The notes below record what 0.2.0 contained.
+the runtime 0.7.1 pin update. The notes below record what 0.2.0 contained.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kamenxrider/hollis/v0.4.0/docs/assets/hollis-logo-dark.svg">

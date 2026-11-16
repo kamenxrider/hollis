@@ -27,8 +27,8 @@ installer’s checks yourself:
 <summary>Verify manually</summary>
 
 These commands verify and install a matched published release bundle. Set
-`HOLLIS_VERSION` to `0.7.0` and `HOLLIS_SOURCE_DIGEST` to the full commit selected
-by the authenticated [`v0.7.0` release tag](https://github.com/kamenxrider/hollis/releases/tag/v0.7.0),
+`HOLLIS_VERSION` to `0.7.1` and `HOLLIS_SOURCE_DIGEST` to the full commit selected
+by the authenticated [`v0.7.1` release tag](https://github.com/kamenxrider/hollis/releases/tag/v0.7.1),
 as shown on GitHub's release or tag page. Independently authenticate that tag
 and commit before using them. The commands below require those values; they
 do not discover or authenticate the tag's commit for you. The attestation check

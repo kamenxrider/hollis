@@ -5,7 +5,7 @@ Use Hollis inside Claude Code or Codex on an Apple-silicon Mac running macOS
 downloads first. Install and sign in to your chosen agent host. It must run
 commands on this Mac; a remote Linux agent cannot use these models.
 
-Plugin 0.4.0 uses runtime 0.7.0, its matched native helper and nine bridges.
+Plugin 0.4.0 uses runtime 0.7.1, its matched native helper and nine bridges.
 You do not need a separate Hollis CLI installation, server or model API key.
 Setup uses macOS utilities; it needs no Homebrew, `gh`, Go, Python, Node,
 shell startup changes or administrator installation.

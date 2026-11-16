@@ -74,7 +74,7 @@ def check(paths):
 
 def main():
     paths = [ROOT / "README.md", ROOT / "CONTRIBUTING.md",
-             *sorted((ROOT / "docs").glob("*.md")), ROOT / "docs/releases/v0.7.0.md",
+             *sorted((ROOT / "docs").glob("*.md")), ROOT / "docs/releases/v0.7.1.md",
              *sorted((ROOT / "plugins/hollis").rglob("*.md"))]
     checked, errors = check(paths)
     for error in errors:

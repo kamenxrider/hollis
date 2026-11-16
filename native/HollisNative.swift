@@ -6,7 +6,7 @@ import CoreGraphics
 // One request per process. Tool callbacks only hand off to the parent.
 @main
 struct HollisNative {
-    static let version = "0.7.0"
+    static let version = "0.7.1"
     static let protocolVersion = 4
 
     struct Request: Decodable {
@@ -71,7 +71,7 @@ struct HollisNative {
     static func statusFields(available: Bool, reason: String, contextSize: Int,
                              vision: Bool, tools: Bool, macOSMajor: Int, `protocol` effective: Int) -> [String: Any] {
         var fields: [String: Any] = ["event": "status", "available": available, "reason": reason]
-        if effective >= 2 { fields["context_size"] = contextSize }
+        if effective >= 2 && contextSize > 0 { fields["context_size"] = contextSize }
         if effective >= 3 {
             // Unimplemented capabilities stay absent, not zero-filled.
             fields["capabilities"] = ["vision": vision, "macos_major": macOSMajor,
@@ -183,6 +183,10 @@ struct HollisNative {
                     macOSMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
                     protocol: protocolVersion))
                 guard model.isAvailable else { return }
+                guard model.contextSize > 0 else {
+                    try send(["event": "error", "kind": "local_unavailable"])
+                    return
+                }
                 guard model.capabilities.contains(.toolCalling) else {
                     try send(["event": "error", "kind": "unsupported_capability",
                               "capability": "tools", "reason": "no_tool_calling"])
@@ -363,6 +367,9 @@ struct HollisNative {
                 image = try ImageInput.load(path: images[0].path)
             }
             guard model.isAvailable else { return }
+            guard model.contextSize > 0 else {
+                fail("local_unavailable", protocol: effective); return
+            }
             if metadataMode && !supportsTools {
                 try emit(["event": "error", "kind": "unsupported_capability",
                           "capability": "tools", "reason": "no_tool_calling"], protocol: effective)

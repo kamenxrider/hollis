@@ -34,7 +34,7 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 The script needs no administrator password or `sudo`. It installs the complete
-bundle in `~/.local/share/hollis/0.7.0/` and puts links to both executables in
+bundle in `~/.local/share/hollis/0.7.1/` and puts links to both executables in
 `~/.local/bin`. It also opens nine Shortcut import windows. You may close
 those windows if you only want Local; you can add the bridges later.
 Homebrew does not open imports during installation.

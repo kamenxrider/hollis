@@ -110,9 +110,31 @@ func TestNativeStatusReportsContextSizeOnlyWhenMeasured(t *testing.T) {
 	}
 	// A measured context window is a positive count; zero or a negative value
 	// is a protocol error rather than an absence.
-	invalid := fakeNative(t, "cat >/dev/null\n"+nativePrint(nativeLine("status", map[string]any{"available": true, "context_size": 0})))
-	_, err = invalid.NativeStatus(t.Context())
-	requireNativeKind(t, err, KindNativeProtocol)
+	for _, size := range []int{0, -1} {
+		invalid := fakeNative(t, "cat >/dev/null\n"+nativePrint(nativeLine("status", map[string]any{"available": true, "context_size": size})))
+		_, err = invalid.NativeStatus(t.Context())
+		requireNativeKind(t, err, KindNativeProtocol)
+	}
+	unavailable := fakeNative(t, "cat >/dev/null\n"+nativePrint(nativeLine("status", map[string]any{"available": false, "reason": "model not ready"})))
+	status, err = unavailable.NativeStatus(t.Context())
+	if err != nil || status.Available || status.ContextSize != 0 {
+		t.Fatalf("unavailable status %#v err=%v", status, err)
+	}
+}
+
+func TestNativeUnknownContextFailsGenerationAndBudgetWithoutAProtocolError(t *testing.T) {
+	for _, operation := range []string{"complete", "stream", "count_tokens"} {
+		for _, available := range []bool{false, true} {
+			t.Run(operation+"/"+strconv.FormatBool(available), func(t *testing.T) {
+				script := "cat >/dev/null\n" + nativePrint(nativeLine("status", map[string]any{
+					"available": available, "reason": "fixture",
+				})) + nativePrint(nativeLine("error", map[string]any{"kind": "local_unavailable"}))
+				r := fakeNative(t, script)
+				_, _, err := r.invoke(t.Context(), ModelLocal, operation, "fixture", nil, nil, nativeOptions{})
+				requireNativeKind(t, err, KindLocalUnavailable)
+			})
+		}
+	}
 }
 
 func TestNativeSchemaRejectsNonConformingReturnedPayload(t *testing.T) {

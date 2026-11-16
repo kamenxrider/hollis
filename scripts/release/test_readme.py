@@ -8,7 +8,8 @@ ROOT = Path(__file__).resolve().parents[2]
 class ReadmeVerificationTests(unittest.TestCase):
     def test_release_index_separates_published_and_pending_plugins(self):
         index = (ROOT / 'docs/releases/README.md').read_text()
-        self.assertIn('| Runtime 0.7.0 | Released |', index)
+        self.assertIn('| Runtime 0.7.1 | Pending publication |', index)
+        self.assertIn('| Runtime 0.7.0 | Not released; tag retained without assets |', index)
         self.assertIn('| Plugin 0.4.0 | Pending: available after the runtime pin update |', index)
         self.assertIn('| Plugin 0.3.0 | Not released; replaced by 0.4.0 |', index)
         self.assertIn('| Plugin 0.2.0 | Withdrawn; use plugin 0.1.0; 0.4.0 will follow |', index)
@@ -27,7 +28,7 @@ class ReadmeVerificationTests(unittest.TestCase):
     def test_manual_verification_uses_one_release_and_source_pin(self):
         readme = (ROOT / 'docs/verification.md').read_text()
         block = readme.split('<summary>Verify manually</summary>', 1)[1].split('</details>', 1)[0]
-        self.assertIn('https://github.com/kamenxrider/hollis/releases/tag/v0.7.0', block)
+        self.assertIn('https://github.com/kamenxrider/hollis/releases/tag/v0.7.1', block)
         self.assertIn('do not discover or authenticate', block)
         self.assertNotIn('pinned release notes', block)
         self.assertIn('${HOLLIS_VERSION:?', block)
@@ -58,7 +59,7 @@ class ReadmeVerificationTests(unittest.TestCase):
         self.assertIn('file fingerprints (SHA-256) only', guide)
         self.assertIn('Only `gh`', guide)
         self.assertIn('verifies the source commit', guide)
-        self.assertIn('~/.local/share/hollis/0.7.0/', guide)
+        self.assertIn('~/.local/share/hollis/0.7.1/', guide)
         self.assertIn('Move that folder to the Trash', guide)
 
     def test_landing_page_is_short_and_keeps_guide_links_and_anchors(self):

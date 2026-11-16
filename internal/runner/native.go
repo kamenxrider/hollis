@@ -27,7 +27,7 @@ import (
 // model features. Older request formats remain accepted by the helper, but
 // strict version identity rejects mismatched CLI/helper pairs in either direction.
 const NativeProtocol = 4
-const NativeVersion = "0.7.0"
+const NativeVersion = "0.7.1"
 const NativeMaxPromptBytes = 128 << 10
 const nativeMaxRequestBytes = 1 << 20
 const nativeMaxOutputBytes = 8 << 20

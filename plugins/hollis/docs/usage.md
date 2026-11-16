@@ -78,7 +78,7 @@ Cloud from my shell script and read only the answer,” or “Help me point my
 editor's OpenAI-compatible setting at Hollis.” Scripts call `hollis respond`
 with JSON output and read structured errors. Tools connect to `hollis serve`,
 a local endpoint at `http://127.0.0.1:1978/v1` protected by a token. You start
-the server yourself because it keeps running. On runtime 0.7.0, Native Local accepts sampling fields and caller-executed
+the server yourself because it keeps running. On runtime 0.7.1, Native Local accepts sampling fields and caller-executed
 function tools when its capabilities report support; Shortcuts routes refuse
 `temperature`, `max_tokens` and `tools`, so configure those clients to omit them; listing the models does not prove calls will work. The
 [skill workflows](../skills/hollis/references/workflows.md#hollis-as-the-model-behind-a-script-or-tool)
