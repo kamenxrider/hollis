@@ -1,7 +1,7 @@
 # Hollis plugin 0.4.0
 
-**Pending publication.** Runtime 0.7.1 is published and its authenticated asset
-pins are checked in. Plugin publication remains a separate step.
+**Published 2026-11-16.** The plugin pins published runtime 0.7.1 and its
+matching native helper; the authenticated asset pins are checked in.
 
 This update targets runtime 0.7.1, its matching native helper (protocol 4)
 and nine bridges: four text, four JSON and one image. It adds guided setup,

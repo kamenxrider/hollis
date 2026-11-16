@@ -21,6 +21,9 @@ brew install kamenxrider/tap/hollis
 
 Otherwise, use the install script. Download it, read it in Terminal, then run it:
 
+The pinned installer is on `main`; the copy inside the `v0.7.1` tag is unpinned
+by design because its authenticated release-asset pins were added after publication.
+
 ```bash
 curl -fsSLo install-hollis.sh https://raw.githubusercontent.com/kamenxrider/hollis/main/scripts/install.sh
 less install-hollis.sh
