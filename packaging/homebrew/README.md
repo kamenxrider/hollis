@@ -14,6 +14,10 @@ authentication.
 The selected release must include the reviewed sidecar; older published releases
 do not gain this record retroactively. Set the variables below to the exact
 independently authenticated tag ref and full source commit.
+For 0.7.0, the [authenticated pin refresh](../../scripts/release/README.md#installer-release-pins)
+can render the formula together with the installer and plugin lock from the
+same authenticated assets. Its checksum remains pending until that operation;
+do not fill this template from a private build.
 
 ```sh
 python3 scripts/release/verify_artifacts.py /path/to/verified-release \

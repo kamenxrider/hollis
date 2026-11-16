@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -88,8 +89,9 @@ esac
         installer = ROOT / 'scripts/install.sh'
         if pin is not None:
             installer = self.base / 'install.sh'
-            installer.write_text((ROOT / 'scripts/install.sh').read_text().replace(
-                '\nasset_sha256=\n', f'\nasset_sha256={pin}\n'))
+            installer.write_text(re.sub(
+                r'^asset_sha256=.*$', f'asset_sha256={pin}',
+                (ROOT / 'scripts/install.sh').read_text(), flags=re.MULTILINE))
         result = subprocess.run(['/bin/bash', str(installer)],
                                 env=self.env, text=True, capture_output=True, timeout=15)
         if success:

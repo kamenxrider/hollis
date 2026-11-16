@@ -1,0 +1,483 @@
+{
+ "commands": {
+  "agent-context": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "pretty",
+   "quiet",
+   "select"
+  ],
+  "batch plan": [
+   "agent",
+   "help",
+   "input-dir",
+   "job",
+   "json",
+   "model",
+   "no-input",
+   "output-dir",
+   "prompt-file",
+   "quiet",
+   "select"
+  ],
+  "batch resume": [
+   "agent",
+   "help",
+   "job",
+   "json",
+   "max-calls",
+   "no-input",
+   "quiet",
+   "retry-failed",
+   "retry-uncertain",
+   "select",
+   "skip-uncertain"
+  ],
+  "batch run": [
+   "agent",
+   "help",
+   "job",
+   "json",
+   "max-calls",
+   "no-input",
+   "quiet",
+   "retry-failed",
+   "retry-uncertain",
+   "select",
+   "skip-uncertain"
+  ],
+  "batch": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "benchmark": [
+   "agent",
+   "help",
+   "json",
+   "model",
+   "no-input",
+   "quiet",
+   "runs",
+   "select"
+  ],
+  "chat": [
+   "agent",
+   "answer-reserve",
+   "aspect-ratio",
+   "context-max-turns",
+   "context-strategy",
+   "continue",
+   "fit",
+   "generate-image",
+   "help",
+   "image",
+   "image-bridge",
+   "image-reference",
+   "image-style",
+   "json",
+   "keep-prompt",
+   "mcp",
+   "mcp-server",
+   "mcp-timeout",
+   "model",
+   "no-input",
+   "no-mcp",
+   "output",
+   "partial-results",
+   "quiet",
+   "retry",
+   "select",
+   "size",
+   "stream",
+   "timeout"
+  ],
+  "chats delete": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select",
+   "yes"
+  ],
+  "chats list": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "chats rename": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "chats search": [
+   "agent",
+   "help",
+   "json",
+   "limit",
+   "model",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "chats show": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "chats": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "completion bash": [
+   "agent",
+   "help",
+   "json",
+   "no-descriptions",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "completion fish": [
+   "agent",
+   "help",
+   "json",
+   "no-descriptions",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "completion powershell": [
+   "agent",
+   "help",
+   "json",
+   "no-descriptions",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "completion zsh": [
+   "agent",
+   "help",
+   "json",
+   "no-descriptions",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "completion": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "config get": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "config set image-bridge": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "config set": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "config show": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "config unset": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "config": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "doctor": [
+   "agent",
+   "help",
+   "json",
+   "model",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "examples": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "help": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "image generate": [
+   "agent",
+   "aspect-ratio",
+   "bridge",
+   "fit",
+   "help",
+   "json",
+   "no-input",
+   "output",
+   "quiet",
+   "reference-image",
+   "select",
+   "size",
+   "style",
+   "timeout"
+  ],
+  "image styles": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "image": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "mcp add": [
+   "agent",
+   "allow",
+   "approval",
+   "arg",
+   "auth",
+   "call-timeout",
+   "command",
+   "connect-timeout",
+   "dir",
+   "env",
+   "env-from",
+   "header",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select",
+   "tool",
+   "url"
+  ],
+  "mcp allow": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "mcp deny": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "mcp list": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "mcp mode": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "mcp remove": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "mcp set": [
+   "agent",
+   "all-tools",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select",
+   "tool"
+  ],
+  "mcp tools": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "mcp": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "models": [
+   "agent",
+   "help",
+   "json",
+   "model",
+   "no-input",
+   "quiet",
+   "select"
+  ],
+  "respond": [
+   "agent",
+   "answer-reserve",
+   "code",
+   "context-max-turns",
+   "context-strategy",
+   "count-tokens",
+   "file",
+   "format",
+   "help",
+   "image",
+   "json",
+   "keep-prompt",
+   "max-tokens",
+   "mcp",
+   "mcp-server",
+   "mcp-timeout",
+   "messages",
+   "model",
+   "no-input",
+   "no-mcp",
+   "pages",
+   "partial-results",
+   "permissive",
+   "prompt-file",
+   "quiet",
+   "retry",
+   "schema",
+   "seed",
+   "select",
+   "stream",
+   "system",
+   "system-file",
+   "temperature",
+   "timeout",
+   "tool-choice",
+   "tools",
+   "top-p"
+  ],
+  "serve": [
+   "addr",
+   "agent",
+   "allow-remote",
+   "help",
+   "json",
+   "max-concurrency",
+   "no-auth",
+   "no-input",
+   "quiet",
+   "select",
+   "token-file"
+  ],
+  "setup": [
+   "agent",
+   "force",
+   "help",
+   "import",
+   "json",
+   "model",
+   "no-input",
+   "pending-import",
+   "quiet",
+   "runtime-record-command",
+   "select",
+   "yes"
+  ],
+  "update": [
+   "agent",
+   "apply",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select",
+   "yes"
+  ],
+  "version": [
+   "agent",
+   "help",
+   "json",
+   "no-input",
+   "quiet",
+   "select"
+  ]
+ },
+ "runtime": "0.7.1",
+ "schema_version": "2"
+}

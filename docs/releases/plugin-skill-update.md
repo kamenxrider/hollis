@@ -3,11 +3,10 @@
 Maintainer note for the plugin release. It is not packaged with the plugin and
 is not skill text.
 
-The shared skills in `plugins/hollis/skills` describe the next runtime. The
-plugin still pins runtime 0.4.0 (native protocol 1) in
-`plugins/hollis/runtime.lock.json`, while plugin source version 0.4.0 awaits the matching 0.7.1
-runtime release. After that runtime is published, authenticate it and update
-the CLI/helper pins before publishing plugin 0.4.0. Refresh
+The shared skills in `plugins/hollis/skills` describe runtime 0.7.1. The
+plugin pins that published runtime and native protocol 4 in
+`plugins/hollis/runtime.lock.json`; plugin source version 0.4.0 awaits its
+separate publication. When changing runtime pins, refresh
 `scripts/plugin/testdata/agent-context-<version>.json` from the newly pinned
 runtime's `agent-context`, and empty `NEEDS_NEW_RUNTIME` in
 `scripts/plugin/test_skill_commands.py`; that test fails until the fixture

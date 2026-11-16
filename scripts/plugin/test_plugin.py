@@ -38,7 +38,12 @@ class InstallerTests(unittest.TestCase):
         # Actual locked assets are exercised by the release package acceptance.
         self.lock.pop("native", None)
         self.lock.update(schema_version=1, version="0.3.0", source_ref="refs/tags/v0.3.0",
-                         release_url="https://github.com/kamenxrider/hollis/releases/download/v0.3.0")
+                         release_url="https://github.com/kamenxrider/hollis/releases/download/v0.3.0",
+                         bridge_files=["AFM Bridge - Cloud.shortcut",
+                                       "AFM Bridge - Cloud Pro.shortcut",
+                                       "AFM Bridge - On-Device.shortcut",
+                                       "AFM Bridge - ChatGPT.shortcut",
+                                       "Hollis Image - Reference Input v2.shortcut"])
         self.binary = self.assets / self.lock["binary"]["name"]
         self.binary.write_text('''#!/bin/bash
 if [[ -n ${CALL_LOG:-} ]]; then printf '%s\\n' "$*" >> "$CALL_LOG"; fi

@@ -1,0 +1,26 @@
+{
+  "status": "AUTHENTICATED_PUBLICATION",
+  "runtime_version": "0.7.1",
+  "source_ref": "refs/tags/v0.7.1",
+  "source_commit": "49bd38fa1cd0dc576d0a7df3f6b0093095761c91",
+  "installer_bundle_sha256": "14de97653cbed6a6fc44791e136bfcdadd31c2bc360bd999dcfbb263332dd989",
+  "homebrew_bundle_sha256": "14de97653cbed6a6fc44791e136bfcdadd31c2bc360bd999dcfbb263332dd989",
+  "plugin_lock": {
+    "version": "0.7.1",
+    "native_protocol_version": 4,
+    "binary_sha256": "82d35d63c0c0851cd7042dd248e756de23bc790e8bcef9ed065cfb58794d2583",
+    "native_sha256": "b31fe021dd3bd7feb8bc5656762794aeb34ab795921bcc7bcb418a5165f94ad8",
+    "bridges_sha256": "e6834df5e9717633c626132996df30308551b3040fe3bd370b100b6901c81f61",
+    "bridge_files": [
+      "AFM Bridge - ChatGPT.shortcut",
+      "AFM Bridge - Cloud Pro.shortcut",
+      "AFM Bridge - Cloud.shortcut",
+      "AFM Bridge - On-Device.shortcut",
+      "AFM Bridge JSON - ChatGPT.shortcut",
+      "AFM Bridge JSON - Cloud Pro.shortcut",
+      "AFM Bridge JSON - Cloud.shortcut",
+      "AFM Bridge JSON - On-Device.shortcut",
+      "Hollis Image - Reference Input v2.shortcut"
+    ]
+  }
+}

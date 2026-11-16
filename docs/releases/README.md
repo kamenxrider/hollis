@@ -5,9 +5,9 @@ The runtime 0.7.1 entry describes this release; it does not make the pending plu
 
 | Version | Status | Notes |
 | --- | --- | --- |
-| Runtime 0.7.1 | Pending publication | [Native availability correction, Homebrew, PDF extraction, local images, tool calling and MCP](v0.7.1.md) |
+| Runtime 0.7.1 | Released | [Native availability correction, Homebrew, PDF extraction, local images, tool calling and MCP](v0.7.1.md) |
 | Runtime 0.7.0 | Not released; tag retained without assets | [Release-check failure; superseded by 0.7.1](v0.7.0.md) |
-| Plugin 0.4.0 | Pending: available after the runtime pin update | [Runtime 0.7.1 target and publication requirements](../../plugins/hollis/README.md) |
+| Plugin 0.4.0 | Pending: available after the runtime pin update | [Runtime 0.7.1 target and publication requirements](plugin-v0.4.0.md) |
 | Plugin 0.3.0 | Not released; replaced by 0.4.0 | [Unreleased plans](plugin-v0.3.0.md) |
 | Runtime 0.4.0 | Released | [Native local streaming and transport repair](v0.4.0.md) |
 | Plugin 0.2.0 | Withdrawn; use plugin 0.1.0; 0.4.0 will follow | [Withdrawn native-local package](plugin-v0.2.0.md) |

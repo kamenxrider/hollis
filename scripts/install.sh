@@ -4,10 +4,11 @@ set -euo pipefail
 umask 077
 version=0.7.1
 protocol=4
-# The public commit tagged v$version; the attestation check below fails until it is set.
-source_commit=1906721a1cd5594ce47be6d4d306d7daa1e6891f
+# Set pins together via authenticated refresh_lock.py after runtime publication.
+# A placeholder source digest deliberately makes provenance verification fail closed.
+source_commit=49bd38fa1cd0dc576d0a7df3f6b0093095761c91
 # Pin the final release bundle SHA-256 before distributing this installer.
-asset_sha256=
+asset_sha256=14de97653cbed6a6fc44791e136bfcdadd31c2bc360bd999dcfbb263332dd989
 repository=kamenxrider/hollis
 bin_dir="${HOME}/.local/bin"
 runtime_root="${HOME}/.local/share/hollis"

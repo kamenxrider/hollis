@@ -2,12 +2,35 @@ from pathlib import Path
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import test_manifest
-from prepare_distribution import render_formula
+from prepare_distribution import render_formula, render_installer
 
 
 class DistributionPreparationTests(unittest.TestCase):
+    def test_installer_pins_share_verified_release_identity_and_bundle(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            with patch.object(test_manifest, 'VERSION', '0.7.1'):
+                dist = test_manifest.make_release_dir(base / 'dist')
+            output = base / 'install.sh'
+            render_installer(dist, output)
+            installer = output.read_text()
+            record = json.loads((dist / 'release-manifest.json').read_text())
+            self.assertIn('version=0.7.1\n', installer)
+            self.assertIn('protocol=4\n', installer)
+            self.assertIn(f'source_commit={test_manifest.COMMIT}\n', installer)
+            self.assertIn('asset_sha256=' + record['assets']['hollis-0.7.1-darwin-arm64.zip']['sha256'] + '\n',
+                          installer)
+            self.assertIn('--deny-self-hosted-runners', installer)
+            with self.assertRaises(FileExistsError):
+                render_installer(dist, output)
+            (dist / 'hollis-0.7.1-darwin-arm64.zip').write_bytes(b'altered fixture')
+            with self.assertRaisesRegex(ValueError, 'asset mismatch'):
+                render_installer(dist, base / 'bad.sh')
+            self.assertFalse((base / 'bad.sh').exists())
+
     def test_formula_uses_matched_bundle_hash_and_never_overwrites(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)

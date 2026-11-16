@@ -73,6 +73,33 @@ as part of local distribution preparation.
 
 ## Installer release pins
 
+Runtime tags and assets are immutable. Publish the runtime first, authenticate
+its published assets, then review installer, Homebrew and plugin pins in a
+separate distribution commit. Never retag the runtime to include its own pins.
+`distribution-0.7.0.pending.json` retains its preparation filename and now records
+the authenticated 0.7.1 pins. Plugin publication is a separate step.
+The active plugin lock remains legacy until this authenticated follow-up.
+
+After independently checking the public runtime tag's full source commit, run:
+
+```sh
+python3 scripts/plugin/refresh_lock.py --version 0.7.1 \
+  --source-commit "$RELEASE_COMMIT" \
+  --output /tmp/runtime.lock-0.7.1.json \
+  --distribution-output /tmp/hollis-distribution-0.7.1
+```
+
+Both output paths must be new. This authenticates the manifest first and then
+every published asset and `SHA256SUMS` against the tag, commit, release workflow
+and GitHub-hosted runner policy before deriving any pins. It verifies the
+common release record, protocol 4 and all nine bridge members. A provenance
+failure produces no lock or distribution output. Review the output lock,
+`install.sh` and `hollis.rb`; copy the first two to their source locations and
+submit the formula to the tap only after separate approval. Replace the pending
+record with the authenticated values, refresh reviewed source hashes, rerun
+offline checks and record the resulting distribution commit independently of
+the runtime commit. Do not use candidate artifacts to fill any of these pins.
+
 Before distributing `scripts/install.sh`, set its `version` and `protocol` to
 the selected release, `source_commit` to the full authenticated release source
 commit, and `asset_sha256` to the SHA-256 of the final

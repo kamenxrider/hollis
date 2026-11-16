@@ -2,11 +2,34 @@
 """Render an unsubmitted Homebrew formula from a verified local release set."""
 import argparse
 from pathlib import Path
+import re
 
 import verify_artifacts
 
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / 'packaging/homebrew/hollis.rb.in'
+
+
+def render_installer(dist, output, template=ROOT / 'scripts/install.sh'):
+    """Render pins from verified bytes; callers must authenticate provenance first."""
+    record = verify_artifacts.verify_release_dir(dist)
+    identity = record['identity']
+    version = identity['runtime_version']
+    pins = {
+        'version': version,
+        'protocol': str(record['helper']['protocol_version']),
+        'source_commit': identity['source_commit'],
+        'asset_sha256': record['assets'][f'hollis-{version}-darwin-arm64.zip']['sha256'],
+    }
+    source = template.read_text(encoding='utf-8')
+    for key, value in pins.items():
+        source, count = re.subn(rf'^{key}=.*$', f'{key}={value}', source, flags=re.MULTILINE)
+        if count != 1:
+            raise ValueError(f'Expected one installer pin: {key}')
+    output = Path(output)
+    with output.open('x', encoding='utf-8') as stream:
+        stream.write(source)
+    return output
 
 
 def render_formula(dist, output, template=TEMPLATE):

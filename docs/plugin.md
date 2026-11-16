@@ -20,10 +20,9 @@ is intended to bundle the provenance-verified ARM64 Hollis 0.7.1 executable, mat
 New source docs do not update a preserved ZIP; older archives retain their
 original runtimes and recorded checksums.
 
-Plugin 0.4.0 targets runtime 0.7.1. The checked-in lock currently pins runtime
-0.4.0, so source setup and packaging refuse it until published 0.7.1 assets are
-verified and pinned. Plugin 0.4.0 is not yet published; nothing in these docs
-upgrades that lock. The latest published plugin is
+Plugin 0.4.0 pins the published runtime 0.7.1 and matching native helper.
+Its assets were authenticated against the release source commit.
+Plugin 0.4.0 is not yet published. The latest published plugin is
 [0.1.0](https://github.com/kamenxrider/hollis/releases/tag/plugin-v0.1.0),
 with runtime 0.3.3 and no native local. Plugin 0.2.0 was withdrawn. The
 plugin's validation record

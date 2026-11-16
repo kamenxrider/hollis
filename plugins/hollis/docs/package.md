@@ -131,8 +131,7 @@ provenance. An existing archive is never overwritten.
 ## Versions and release sequence
 
 Plugin **0.4.0** targets runtime **0.7.1** and its matching native helper.
-The checked-in lock still pins **runtime 0.4.0**; source setup and packaging
-refuse that pin until verified published 0.7.1 assets are pinned.
+The checked-in lock pins the authenticated published **runtime 0.7.1**.
 Editing skills or docs does not upgrade the bundled binary, and preserved
 review archives do not change with source. The plugin release is explicitly
 excluded from GitHub's “Latest” label so the CLI installer continues to find
@@ -155,9 +154,8 @@ tag publishes it.
 
 ## 0.4.0 release sequencing
 
-Until runtime 0.7.1 is published, the checked-in lock still pins 0.4.0.
-Packaging and source setup for 0.4.0 refuse that lock instead of shipping 0.4.0
-under the new plugin version.
+Runtime 0.7.1 is published and its authenticated pins are checked in.
+Plugin 0.4.0 publication remains a separate step.
 After runtime publication, a maintainer runs `scripts/plugin/refresh_lock.py`
 with the full release commit and an explicit output file, reviews that
 provenance-verified lock, then updates the source lock for the separate plugin

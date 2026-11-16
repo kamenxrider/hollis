@@ -37,12 +37,17 @@ the `--token-file` path in the plist to match.
 
 ## 2. Install the LaunchAgent
 
+First download the template from the link at the top of this page using
+GitHub's **Download raw file** button. Save it as
+`~/Downloads/io.github.kamenxrider.hollis.serve.plist` and inspect it before use.
+You do not need a source checkout.
+
 The template uses `/Users/you` as a placeholder home directory and expects the
 default installer location, `~/.local/bin/hollis`. Fill in your home directory:
 
 ```sh
 mkdir -p ~/Library/LaunchAgents
-sed "s|/Users/you|$HOME|g" packaging/launchd/io.github.kamenxrider.hollis.serve.plist \
+sed "s|/Users/you|$HOME|g" ~/Downloads/io.github.kamenxrider.hollis.serve.plist \
   > ~/Library/LaunchAgents/io.github.kamenxrider.hollis.serve.plist
 plutil -lint ~/Library/LaunchAgents/io.github.kamenxrider.hollis.serve.plist
 ```

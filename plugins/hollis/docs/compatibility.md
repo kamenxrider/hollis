@@ -34,9 +34,8 @@ listed in the [validation record](validation.md). Temporary test directories est
 installer behavior; they do **not** establish clean-account readiness, Rosetta
 execution or behavior on an untested OS.
 
-Plugin 0.4.0 targets runtime 0.7.1 and its native helper. The checked-in lock
-still pins runtime 0.4.0; setup and packaging refuse it until verified published
-0.7.1 assets are pinned. Earlier source and archive tests retain their
+Plugin 0.4.0 pins the authenticated published runtime 0.7.1 and its native
+helper. Earlier source and archive tests retain their
 original version labels in the validation record. Fresh-account and first-consent
 testing remain deferred.
 

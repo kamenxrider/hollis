@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class ReadmeVerificationTests(unittest.TestCase):
     def test_release_index_separates_published_and_pending_plugins(self):
         index = (ROOT / 'docs/releases/README.md').read_text()
-        self.assertIn('| Runtime 0.7.1 | Pending publication |', index)
+        self.assertIn('| Runtime 0.7.1 | Released |', index)
         self.assertIn('| Runtime 0.7.0 | Not released; tag retained without assets |', index)
         self.assertIn('| Plugin 0.4.0 | Pending: available after the runtime pin update |', index)
         self.assertIn('| Plugin 0.3.0 | Not released; replaced by 0.4.0 |', index)

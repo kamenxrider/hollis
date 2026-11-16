@@ -15,6 +15,7 @@ import urllib.request
 from package_plugin import authenticate, check_bridges, ROOT, UA
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'release'))
 from verify_artifacts import expected_asset_names, verify_release_dir
+from prepare_distribution import render_formula, render_installer
 
 
 def download(lock, name, target):
@@ -25,11 +26,16 @@ def download(lock, name, target):
         target.write_bytes(response.read())
 
 
-def refresh(version, commit, output):
+def refresh(version, commit, output, distribution_output=None):
     if not re.fullmatch(r"\d+\.\d+\.\d+", version) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("Supply a release version and full source commit")
     if tuple(map(int, version.split('.'))) < (0, 4, 0):
         raise ValueError("Native packaging requires runtime 0.4.0 or later")
+    if output.exists() or output.is_symlink():
+        raise FileExistsError(f'Refusing to overwrite lock: {output}')
+    if distribution_output is not None and (
+            distribution_output.exists() or distribution_output.is_symlink()):
+        raise FileExistsError(f'Refusing to overwrite distribution: {distribution_output}')
     lock = json.loads((ROOT / 'plugins/hollis/runtime.lock.json').read_text())
     lock.update(schema_version=2, version=version, source_commit=commit,
                 source_ref=f'refs/tags/v{version}',
@@ -53,6 +59,12 @@ def refresh(version, commit, output):
         lock['native']['protocol_version'] = record['helper']['protocol_version']
         lock['bridge_files'] = [item['name'] for item in record['bridges']['members']]
         check_bridges(folder / lock['bridges']['name'], lock['bridge_files'])
+        if distribution_output is not None:
+            # Only this authenticated path renders all follow-up pins together.
+            # The offline renderers alone do not establish provenance.
+            distribution_output.mkdir()
+            render_installer(folder, distribution_output / 'install.sh')
+            render_formula(folder, distribution_output / 'hollis.rb')
     # Never overwrite a lock by accident. Review and copy the authenticated result.
     with output.open('x') as stream:
         json.dump(lock, stream, indent=2)
@@ -65,5 +77,7 @@ if __name__ == '__main__':
     parser.add_argument('--version', required=True)
     parser.add_argument('--source-commit', required=True)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--distribution-output', type=Path,
+                        help='New review directory for authenticated installer pins and Homebrew formula')
     args = parser.parse_args()
-    print(refresh(args.version, args.source_commit, args.output))
+    print(refresh(args.version, args.source_commit, args.output, args.distribution_output))

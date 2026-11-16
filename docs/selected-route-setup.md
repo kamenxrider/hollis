@@ -15,7 +15,9 @@ is not a setup route. Image is a setup capability, not a text model ID.
 
 `doctor --model local` checks only native availability. It does not list
 Shortcuts or read bridge configuration. A selected Shortcut route does not
-check the native helper or fail because unrelated bridges are absent.
+require native-helper readiness or fail because unrelated bridges are absent.
+Cloud diagnostics may query the native helper for advisory quota information;
+that does not make native availability a Shortcut-route prerequisite.
 Human doctor output ends with one suggested `Next:` action for the observed
 state; it never executes that action. Native JSON reasons distinguish platform
 refusals, helper identity mismatches and malformed or incomplete protocol data.

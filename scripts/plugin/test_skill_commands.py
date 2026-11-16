@@ -20,7 +20,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 KIT = ROOT / "plugins/hollis"
 SOURCES = ("skills", "docs")
-PINNED = Path(__file__).resolve().parent / "testdata/agent-context-0.4.0.json"
+LOCK_VERSION = json.loads((KIT / "runtime.lock.json").read_text())["version"]
+PINNED = Path(__file__).resolve().parent / f"testdata/agent-context-{LOCK_VERSION}.json"
 
 # Instructions the pinned 0.4.0 runtime cannot honor, each with the gate that
 # must accompany it so an agent on 0.4.0 checks before running it.
@@ -35,6 +36,8 @@ NEEDS_NEW_RUNTIME = {
     "setup --model": "`agent-context` lists `--import` on `setup`",
     "setup --import": "`agent-context` lists `--import` on `setup`",
 }
+if LOCK_VERSION == "0.7.1":
+    NEEDS_NEW_RUNTIME = {}
 
 ROOT_FLAGS = {"agent", "help", "json", "no-input", "quiet", "select", "version"}
 # Forward-compatible instructions must remain gated until the runtime exposes them.
@@ -132,6 +135,9 @@ def flags_in(words):
 
 
 class SkillCommandTests(unittest.TestCase):
+    contract = PINNED
+    gates = NEEDS_NEW_RUNTIME
+
     @classmethod
     def setUpClass(cls):
         prebuilt = os.environ.get("HOLLIS_PLUGIN_TEST_BINARY")
@@ -146,10 +152,17 @@ class SkillCommandTests(unittest.TestCase):
         current = json.loads(subprocess.run([str(binary), "agent-context"], env=env, check=True,
                                             capture_output=True, text=True, timeout=60).stdout)
         cls.current = cls.flatten(current["commands"])
-        models = json.loads(subprocess.run([str(binary), "models", "--json"], env=env, check=True,
-                                           capture_output=True, text=True, timeout=60).stdout)
-        cls.models = {row["model"] for row in models}
-        cls.pinned = {k: set(v) for k, v in json.loads(PINNED.read_text())["commands"].items()}
+        # Read advertised choices without `models`, which probes real transports.
+        chats = next(c for c in current["commands"] if c["name"] == "chats")
+        search = next(c for c in chats["subcommands"] if c["name"] == "search")
+        model_flag = next(f for f in search["flags"] if f["name"] == "model")
+        prefix = "Only chats on this model tier: "
+        if not model_flag["usage"].startswith(prefix):
+            raise AssertionError("Update offline model-choice extraction for the CLI contract")
+        cls.models = set(model_flag["usage"][len(prefix):].replace("or ", "").split(", "))
+        contract = json.loads(cls.contract.read_text())
+        cls.runtime = contract["runtime"]
+        cls.pinned = {k: set(v) for k, v in contract["commands"].items()}
 
     @classmethod
     def tearDownClass(cls):
@@ -204,7 +217,7 @@ class SkillCommandTests(unittest.TestCase):
         for flag in flags:
             if flag not in self.pinned.get(path, set()):
                 needed.add(f"{path} --{flag}")
-        if path == "respond" and values.get("prompt-file") == "-":
+        if self.runtime == "0.4.0" and path == "respond" and values.get("prompt-file") == "-":
             needed.add("respond --prompt-file -")
         return needed
 
@@ -230,7 +243,7 @@ class SkillCommandTests(unittest.TestCase):
                     allowed = self.current[path] if path else ROOT_FLAGS
                     for flag in flags:
                         if flag in PENDING_FLAGS.get(path, set()) and flag not in allowed:
-                            self.assertIn(NEEDS_NEW_RUNTIME[f"{path} --{flag}"], paragraph)
+                            self.assertIn(self.gates[f"{path} --{flag}"], paragraph)
                         else:
                             self.assertIn(flag, allowed, f"--{flag} is not a flag of '{path or 'hollis'}'")
                     model = values.get("model")
@@ -248,12 +261,12 @@ class SkillCommandTests(unittest.TestCase):
             for entry in self.new_runtime_needs(path, words, features):
                 seen.add(entry)
                 with self.subTest(file=name, snippet=raw, needs=entry):
-                    self.assertIn(entry, NEEDS_NEW_RUNTIME,
+                    self.assertIn(entry, self.gates,
                                   "the pinned runtime cannot run this; gate it and list it in NEEDS_NEW_RUNTIME")
-                    self.assertIn(NEEDS_NEW_RUNTIME[entry], paragraph,
+                    self.assertIn(self.gates[entry], paragraph,
                                   "instruction for the new runtime without its gate in the same paragraph")
-        self.assertEqual(set(NEEDS_NEW_RUNTIME) - seen, set(), "stale NEEDS_NEW_RUNTIME entries")
-        for entry in set(NEEDS_NEW_RUNTIME) - {"respond --prompt-file -"}:
+        self.assertEqual(set(self.gates) - seen, set(), "stale NEEDS_NEW_RUNTIME entries")
+        for entry in set(self.gates) - {"respond --prompt-file -"}:
             command, _, flag = entry.partition(" --")
             with self.subTest(entry=entry):
                 self.assertTrue(command not in self.pinned or (flag and flag not in self.pinned[command]),
@@ -261,6 +274,9 @@ class SkillCommandTests(unittest.TestCase):
 
     def test_ungated_instructions_are_caught(self):
         """The gate check must fail for the instructions a reviewer reported."""
+        self.assertEqual(
+            self.new_runtime_needs("respond", ["--unsupported-fixture-flag"], set()),
+            {"respond --unsupported-fixture-flag"})
         for raw in ('bash "$KIT/scripts/run.sh" respond --code "x" > out.sh',
                     "doctor --model local --json"):
             words = tokens_of(normalize(raw))
@@ -269,13 +285,46 @@ class SkillCommandTests(unittest.TestCase):
             path = words[0]
             needed = self.new_runtime_needs(path, words[1:], set())
             with self.subTest(snippet=raw):
-                self.assertTrue(needed)
-                self.assertTrue(all(NEEDS_NEW_RUNTIME[e] not in f"Use `{raw}`." for e in needed))
+                if self.runtime == "0.4.0":
+                    self.assertTrue(needed)
+                    self.assertTrue(all(self.gates[e] not in f"Use `{raw}`." for e in needed))
+                else:
+                    self.assertEqual(needed, set())
 
     def test_pinned_contract_matches_runtime_lock(self):
         lock = json.loads((KIT / "runtime.lock.json").read_text())
         self.assertEqual(json.loads(PINNED.read_text())["runtime"], lock["version"],
                          "refresh testdata/agent-context-<version>.json from the newly pinned runtime")
+
+
+class Runtime071CommandTests(SkillCommandTests):
+    """The pending distribution must work without legacy command gates."""
+    contract = PINNED.with_name("agent-context-0.7.1.json")
+    gates = {}
+
+    def test_ungated_instructions_are_caught(self):
+        self.assertEqual(
+            self.new_runtime_needs("respond", ["--unsupported-fixture-flag"], set()),
+            {"respond --unsupported-fixture-flag"})
+        for raw in (["--code", "x"], ["--format", "json"],
+                    ["--schema", "schema.json"], ["--prompt-file", "-"]):
+            self.assertEqual(self.new_runtime_needs("respond", raw, set()), set())
+
+    def test_pinned_contract_matches_runtime_lock(self):
+        pending = json.loads((ROOT / "scripts/release/distribution-0.7.0.pending.json").read_text())
+        self.assertEqual(self.runtime, pending["plugin_lock"]["version"])
+        self.assertEqual(pending["plugin_lock"]["native_protocol_version"], 4)
+        self.assertEqual(len(pending["plugin_lock"]["bridge_files"]), 9)
+        lock = json.loads((KIT / "runtime.lock.json").read_text())
+        if lock["version"] == self.runtime:
+            self.assertEqual(lock["native"]["protocol_version"], 4)
+            self.assertEqual(sorted(lock["bridge_files"]), sorted(pending["plugin_lock"]["bridge_files"]))
+        else:
+            self.assertEqual(lock["version"], "0.4.0")
+            self.assertTrue(pending["status"].startswith("PENDING_"))
+
+    def test_contract_matches_frozen_runtime_commands(self):
+        self.assertEqual(self.pinned, self.current)
 
 
 if __name__ == "__main__":
