@@ -5,7 +5,6 @@ package runner
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -33,20 +32,6 @@ func TestNativePlatformProbeHelper(t *testing.T) {
 	case "hang":
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
-	case "early-exit":
-		holder := exec.Command(os.Args[0], "-test.run=^TestNativePlatformProbeHelper$")
-		holder.Env = append(os.Environ(), nativeProbeModeEnv+"=holder")
-		holder.Stdout, holder.Stderr = os.Stdout, os.Stderr
-		if err := holder.Start(); err != nil {
-			os.Exit(3)
-		}
-		os.Exit(0)
-	case "holder":
-		if err := os.WriteFile(os.Getenv(nativeProbePIDEnv), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
-			os.Exit(4)
-		}
-		time.Sleep(30 * time.Second)
-		os.Exit(0)
 	case "current":
 		_, _ = os.Stdout.WriteString("27.0\n")
 		os.Exit(0)
@@ -69,6 +54,12 @@ func useNativeProbeStandIn(t *testing.T, mode, pidPath string, timeout time.Dura
 		nativeProbePIDEnv + "='" + pidPath + "'\n" +
 		"export " + nativeProbeModeEnv + " " + nativeProbePIDEnv + "\n" +
 		"exec \"" + os.Args[0] + "\" -test.run='^TestNativePlatformProbeHelper$'\n"
+	if mode == "early-exit" {
+		// Plain shell: a race-instrumented leader can use a short budget up
+		// starting, and the deadline would then kill it before it records the
+		// holder that keeps stdout open.
+		script = "#!/bin/sh\nsleep 30 &\necho $! > '" + pidPath + "'\nexit 0\n"
+	}
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +78,14 @@ func TestNativePlatformProbeBoundsStandInPipes(t *testing.T) {
 	for _, mode := range []string{"hang", "early-exit"} {
 		t.Run(mode, func(t *testing.T) {
 			pidPath := filepath.Join(t.TempDir(), "holder.pid")
-			useNativeProbeStandIn(t, mode, pidPath, 300*time.Millisecond)
+			budget := 300 * time.Millisecond
+			if mode == "early-exit" {
+				// The leader must record its holder before the deadline kills
+				// the group; under CPU load even a shell can need more than
+				// 300ms. The holder still outlives this budget many times over.
+				budget = 2 * time.Second
+			}
+			useNativeProbeStandIn(t, mode, pidPath, budget)
 			start := time.Now()
 			err := nativePlatform(context.Background())
 			elapsed := time.Since(start)

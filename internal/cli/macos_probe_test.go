@@ -4,9 +4,7 @@ package cli
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 )
@@ -28,22 +26,6 @@ func TestMacOSProbeHelper(t *testing.T) {
 	case "hang":
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
-	case "early-exit":
-		holder := exec.Command(os.Args[0], "-test.run=^TestMacOSProbeHelper$")
-		holder.Env = append(os.Environ(), macosProbeModeEnv+"=holder")
-		holder.Stdout, holder.Stderr = os.Stdout, os.Stderr
-		if err := holder.Start(); err != nil {
-			os.Exit(3)
-		}
-		// Start already gave the holder its inherited pipes. Record its PID
-		// here, before the deadline can kill it during Go runtime startup.
-		if err := os.WriteFile(os.Getenv(macosProbePIDEnv), []byte(strconv.Itoa(holder.Process.Pid)), 0o600); err != nil {
-			os.Exit(4)
-		}
-		os.Exit(0)
-	case "holder":
-		time.Sleep(30 * time.Second)
-		os.Exit(0)
 	case "current":
 		_, _ = os.Stdout.WriteString("27.1\n")
 		os.Exit(0)
@@ -58,13 +40,17 @@ func TestMacOSProbeHelper(t *testing.T) {
 func useMacOSProbeStandIn(t *testing.T, mode, pidPath string, timeout time.Duration) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "sw-vers-stand-in")
-	script := "#!/bin/sh\n" +
-		macosProbeModeEnv + "='" + mode + "'\n" +
-		macosProbePIDEnv + "='" + pidPath + "'\n" +
-		"export " + macosProbeModeEnv + " " + macosProbePIDEnv + "\n" +
-		"exec \"" + os.Args[0] + "\" -test.run='^TestMacOSProbeHelper$'\n"
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
+	if mode == "early-exit" {
+		path = writeEarlyExitStandIn(t, pidPath)
+	} else {
+		script := "#!/bin/sh\n" +
+			macosProbeModeEnv + "='" + mode + "'\n" +
+			macosProbePIDEnv + "='" + pidPath + "'\n" +
+			"export " + macosProbeModeEnv + " " + macosProbePIDEnv + "\n" +
+			"exec \"" + os.Args[0] + "\" -test.run='^TestMacOSProbeHelper$'\n"
+		if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	previousPath, previousTimeout := swVersPath, macosProbeTimeout
 	swVersPath = path
@@ -83,7 +69,14 @@ func TestMacOSProbesBoundStandInPipes(t *testing.T) {
 		for _, mode := range []string{"hang", "early-exit"} {
 			t.Run(name+"/"+mode, func(t *testing.T) {
 				pidPath := filepath.Join(t.TempDir(), "holder.pid")
-				useMacOSProbeStandIn(t, mode, pidPath, 300*time.Millisecond)
+				budget := 300 * time.Millisecond
+				if mode == "early-exit" {
+					// The leader must record its holder before the deadline kills
+					// the group; under CPU load even a shell can need more than
+					// 300ms. The holder still outlives this budget many times over.
+					budget = 2 * time.Second
+				}
+				useMacOSProbeStandIn(t, mode, pidPath, budget)
 				start := time.Now()
 				value := probe()
 				elapsed := time.Since(start)

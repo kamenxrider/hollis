@@ -302,25 +302,82 @@ func TestGenerateClassifiesObservedLockedSessionFailure(t *testing.T) {
 	}
 }
 
+// expiringContext reports a caller deadline only when the test expires it, so
+// the deadline lands after the helper has started the child it must kill.
+type expiringContext struct {
+	context.Context
+	done chan struct{}
+}
+
+func (c *expiringContext) Done() <-chan struct{} { return c.done }
+
+func (c *expiringContext) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+// generateUntilChildStarts stops a hanging generation only once the helper
+// has recorded its child. A fixed timer can stop a race-instrumented helper
+// before it starts the child, leaving no process group to prove the kill on.
+func generateUntilChildStarts(t *testing.T, transport *ShortcutTransport, childPIDPath string, ctx context.Context, stop func()) (int, error) {
+	t.Helper()
+	done := make(chan struct{})
+	var generationErr error
+	go func() {
+		_, generationErr = transport.Generate(ctx, Request{Prompt: "draw", BridgeRef: "bridge", Timeout: 15 * time.Second})
+		close(done)
+	}()
+	stopped := false
+	stopOnce := func() {
+		if !stopped {
+			stopped = true
+			stop()
+		}
+	}
+	defer func() {
+		stopOnce()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("stopped generation did not return")
+		}
+	}()
+	childPID := waitForPID(t, childPIDPath)
+	stopOnce()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stopped generation did not return")
+	}
+	return childPID, generationErr
+}
+
+func assertNoStagingEntries(t *testing.T, transport *ShortcutTransport) {
+	t.Helper()
+	entries, err := os.ReadDir(transport.TempDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("stopped generation left staging entries: %v", entries)
+	}
+}
+
 func TestGenerateCancellationKillsOwnedProcessGroupAndCleans(t *testing.T) {
 	transport, trace := newTestTransport(t, "hang")
 	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
 	trace.childPIDPath = childPIDPath
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	_, err := transport.Generate(ctx, Request{Prompt: "draw", BridgeRef: "bridge", Timeout: time.Second})
-	if !errors.Is(err, ErrTimeout) {
-		t.Fatalf("err=%v, want timeout", err)
+	ctx := &expiringContext{Context: context.Background(), done: make(chan struct{})}
+	childPID, err := generateUntilChildStarts(t, transport, childPIDPath, ctx, func() { close(ctx.done) })
+	if !errors.Is(err, ErrTimeout) || !strings.Contains(err.Error(), "caller deadline exceeded") {
+		t.Fatalf("err=%v, want caller deadline timeout", err)
 	}
-	childPID := waitForPID(t, childPIDPath)
 	waitForProcessExit(t, childPID)
-	entries, readErr := os.ReadDir(transport.TempDir)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("canceled generation left staging entries: %v", entries)
-	}
+	assertNoStagingEntries(t, transport)
 }
 
 func TestGenerateCallerCancellationIsDistinct(t *testing.T) {
@@ -328,15 +385,13 @@ func TestGenerateCallerCancellationIsDistinct(t *testing.T) {
 	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
 	trace.childPIDPath = childPIDPath
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(80 * time.Millisecond)
-		cancel()
-	}()
-	_, err := transport.Generate(ctx, Request{Prompt: "draw", BridgeRef: "bridge", Timeout: time.Second})
+	defer cancel()
+	childPID, err := generateUntilChildStarts(t, transport, childPIDPath, ctx, cancel)
 	if !errors.Is(err, ErrCanceled) {
 		t.Fatalf("err=%v, want caller cancellation", err)
 	}
-	waitForProcessExit(t, waitForPID(t, childPIDPath))
+	waitForProcessExit(t, childPID)
+	assertNoStagingEntries(t, transport)
 }
 
 func TestResultCleanupReportsFailure(t *testing.T) {

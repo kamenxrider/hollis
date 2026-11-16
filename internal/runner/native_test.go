@@ -133,6 +133,10 @@ func TestNativeProtocolRejectsIncompleteOrCorruptResponses(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			r := fakeNative(t, "cat >/dev/null\n"+tt.script)
+			// Every case expects a non-timeout rejection. The shared 2s budget
+			// covers four helper starts, which a fully parallel race run can
+			// exceed and so report a timeout instead.
+			r.Timeout = 10 * time.Second
 			var result Completion
 			var err error
 			if tt.stream {
