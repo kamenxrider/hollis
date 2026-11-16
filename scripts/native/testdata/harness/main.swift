@@ -30,17 +30,16 @@ func diagnostic(_ payload: [String: Any]) {
 }
 
 // Error descriptions and arbitrary userInfo can carry paths or document text.
-// Only known framework domains and numeric codes leave the harness.
+// Only bounded identifier-style domains and numeric codes leave the harness.
 func errorChain(_ error: Error) -> [[String: Any]] {
-    let domains: Set<String> = [
-        VNErrorDomain, NSCocoaErrorDomain, NSPOSIXErrorDomain, NSOSStatusErrorDomain,
-        NSMachErrorDomain, "com.apple.CoreML", "com.apple.espresso", "com.apple.TextRecognition",
-    ]
+    let domainPattern = "\\A[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*\\z"
     var chain: [[String: Any]] = []
     var current: NSError? = error as NSError
     var seen = Set<ObjectIdentifier>()
     while let item = current, chain.count < 8, seen.insert(ObjectIdentifier(item)).inserted {
-        chain.append(["domain": domains.contains(item.domain) ? item.domain : "redacted",
+        let safeDomain = item.domain.utf8.count <= 128 &&
+            item.domain.range(of: domainPattern, options: .regularExpression) != nil
+        chain.append(["domain": safeDomain ? item.domain : "redacted",
                       "code": item.code])
         current = item.userInfo[NSUnderlyingErrorKey] as? NSError
     }
